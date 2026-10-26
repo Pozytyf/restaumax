@@ -254,10 +254,17 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                 <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-white leading-tight">
                   Centre de Gestion
                 </h1>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  Service Ouvert
-                </span>
+                {restaurant.isOpen ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Service Ouvert
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                    Service Fermé
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-300 font-medium">
                 {restaurant.name}
@@ -331,13 +338,13 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
 
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
               <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                Tables en Service
+                Tables configurées
               </span>
               <div className="text-2xl font-black text-[#101d2d] tnum">
                 {tablesCount}
               </div>
               <span className="text-[11px] text-slate-500 font-medium mt-0.5 block">
-                Salle, terrasse & bar
+                Configurées en salle, terrasse & bar
               </span>
             </div>
 
