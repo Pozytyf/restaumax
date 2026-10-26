@@ -16,7 +16,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onAddToCart
 }) => {
   const [quantity, setQuantity] = useState<number>(1);
-  const [selectedOption, setSelectedOption] = useState<SelectedOption | undefined>(undefined);
+  const [selectedOptionsByGroup, setSelectedOptionsByGroup] = useState<Record<string, SelectedOption>>({});
   const [selectedExtras, setSelectedExtras] = useState<SelectedExtra[]>([]);
   const [prepNotes, setPrepNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -30,35 +30,42 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       setValidationError(null);
       setIsSubmitting(false);
 
-      // Set default option if present
+      // Initialize default options per group based on isDefault
       if (item.optionGroups && item.optionGroups.length > 0) {
-        const primaryGroup = item.optionGroups[0];
-        const defaultOpt = primaryGroup.options.find(o => o.isDefault) || primaryGroup.options[0];
-        if (defaultOpt) {
-          setSelectedOption({
-            groupId: primaryGroup.id,
-            groupName: primaryGroup.name,
-            optionId: defaultOpt.id,
-            optionName: defaultOpt.name,
-            extraPrice: defaultOpt.extraPrice
-          });
-        } else {
-          setSelectedOption(undefined);
+        const initialSelections: Record<string, SelectedOption> = {};
+        for (const group of item.optionGroups) {
+          const defaultOpt = group.options.find(o => o.isDefault);
+          if (defaultOpt) {
+            initialSelections[group.id] = {
+              groupId: group.id,
+              groupName: group.name,
+              optionId: defaultOpt.id,
+              optionName: defaultOpt.name,
+              extraPrice: defaultOpt.extraPrice
+            };
+          }
         }
+        setSelectedOptionsByGroup(initialSelections);
       } else {
-        setSelectedOption(undefined);
+        setSelectedOptionsByGroup({});
       }
 
       setSelectedExtras([]);
+    } else {
+      setSelectedOptionsByGroup({});
+      setSelectedExtras([]);
+      setPrepNotes('');
+      setValidationError(null);
     }
   }, [item]);
 
   if (!item) return null;
 
   // Price calculations
-  const optionCost = selectedOption ? selectedOption.extraPrice : 0;
+  const selectedOptionsList = Object.values(selectedOptionsByGroup);
+  const optionsCost = selectedOptionsList.reduce((sum, opt) => sum + opt.extraPrice, 0);
   const extrasCost = selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
-  const unitPrice = item.price + optionCost + extrasCost;
+  const unitPrice = item.price + optionsCost + extrasCost;
   const lineTotalPrice = unitPrice * quantity;
 
   // Handlers
@@ -67,15 +74,30 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     setQuantity(prev => Math.max(1, prev + delta)); // Prevent 0 or negative
   };
 
-  const handleSelectOption = (groupName: string, groupId: string, opt: { id: string; name: string; extraPrice: number }) => {
+  const handleSelectOption = (
+    group: { id: string; name: string; required: boolean },
+    opt: { id: string; name: string; extraPrice: number }
+  ) => {
     sounds.playTap();
     setValidationError(null);
-    setSelectedOption({
-      groupId,
-      groupName,
-      optionId: opt.id,
-      optionName: opt.name,
-      extraPrice: opt.extraPrice
+    setSelectedOptionsByGroup(prev => {
+      const isAlreadySelected = prev[group.id]?.optionId === opt.id;
+      // If group is optional and already selected, allow toggling off
+      if (isAlreadySelected && !group.required) {
+        const next = { ...prev };
+        delete next[group.id];
+        return next;
+      }
+      return {
+        ...prev,
+        [group.id]: {
+          groupId: group.id,
+          groupName: group.name,
+          optionId: opt.id,
+          optionName: opt.name,
+          extraPrice: opt.extraPrice
+        }
+      };
     });
   };
 
@@ -94,13 +116,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const handleConfirmAdd = () => {
     if (isSubmitting) return; // Prevent double click
 
-    // Validation: check if required option group is selected
+    // Validation: check each required option group
     if (item.optionGroups && item.optionGroups.length > 0) {
-      const primaryGroup = item.optionGroups[0];
-      if (primaryGroup.required && !selectedOption) {
-        setValidationError(`Veuillez sélectionner une option pour "${primaryGroup.name}".`);
-        sounds.playAlert();
-        return;
+      for (const group of item.optionGroups) {
+        if (group.required && !selectedOptionsByGroup[group.id]) {
+          setValidationError(`Veuillez sélectionner une option pour "${group.name}".`);
+          sounds.playAlert();
+          return;
+        }
       }
     }
 
@@ -112,6 +135,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     setIsSubmitting(true);
     sounds.playTap();
 
+    // Preserve compatibility with ClientCartItem contract
+    const primaryOption = selectedOptionsList[0];
+    const compositeOption: SelectedOption | undefined = selectedOptionsList.length === 0
+      ? undefined
+      : selectedOptionsList.length === 1
+      ? primaryOption
+      : {
+          groupId: selectedOptionsList.map(o => o.groupId).join('+'),
+          groupName: selectedOptionsList.map(o => o.groupName).join(' / '),
+          optionId: selectedOptionsList.map(o => o.optionId).join('+'),
+          optionName: selectedOptionsList.map(o => `${o.groupName}: ${o.optionName}`).join(' · '),
+          extraPrice: optionsCost
+        };
+
     const newCartItem: ClientCartItem = {
       id: `cart-line-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       menuItemId: item.id,
@@ -119,7 +156,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       basePrice: item.price,
       unitPrice,
       quantity,
-      selectedOption,
+      selectedOption: compositeOption,
       selectedExtras,
       prepNotes: prepNotes.trim() ? prepNotes.trim() : undefined,
       imageUrl: item.imageUrl
@@ -202,20 +239,24 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 <label className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                   {group.name}
                 </label>
-                {group.required && (
+                {group.required ? (
                   <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-full">
                     Obligatoire
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-slate-500">
+                    Optionnel
                   </span>
                 )}
               </div>
 
               <div className="space-y-2">
                 {group.options.map((opt) => {
-                  const isSelected = selectedOption?.optionId === opt.id;
+                  const isSelected = selectedOptionsByGroup[group.id]?.optionId === opt.id;
                   return (
                     <label
                       key={opt.id}
-                      onClick={() => handleSelectOption(group.name, group.id, opt)}
+                      onClick={() => handleSelectOption(group, opt)}
                       className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer select-none transition-all ${
                         isSelected
                           ? 'border-[#ff6500] bg-orange-50/50 shadow-2xs ring-1 ring-[#ff6500]/50'
