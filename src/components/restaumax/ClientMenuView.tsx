@@ -54,15 +54,16 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [cart, setCart] = useState<ClientCartItem[]>([]);
 
-  // Filtered menu items
+  // Filtered menu items (only available dishes are displayed and searchable)
   const filteredItems = useMemo(() => {
     return menuItems.filter((item) => {
+      const matchAvailable = item.available !== false;
       const matchCat = selectedCategory === 'tous' || item.category === selectedCategory;
       const matchQuery = !searchQuery ||
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.tags && item.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())));
-      return matchCat && matchQuery;
+      return matchAvailable && matchCat && matchQuery;
     });
   }, [menuItems, selectedCategory, searchQuery]);
 
@@ -70,7 +71,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   const totalItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartSubtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 
-  // Cart operations
+  // Cart operations (immutable updates)
   const handleAddToCart = (newItem: ClientCartItem) => {
     setCart(prev => {
       // Check if identical item (same dish, same option, same extras, same note) already exists
@@ -82,9 +83,11 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       );
 
       if (existingIdx >= 0) {
-        const copy = [...prev];
-        copy[existingIdx].quantity += newItem.quantity;
-        return copy;
+        return prev.map((item, idx) =>
+          idx === existingIdx
+            ? { ...item, quantity: item.quantity + newItem.quantity }
+            : item
+        );
       } else {
         return [...prev, newItem];
       }
@@ -193,8 +196,12 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
                   </span>
                 )}
 
-                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                  Ouvert aujourd’hui
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${
+                  restaurant.isOpen
+                    ? 'text-emerald-700 bg-emerald-50'
+                    : 'text-rose-700 bg-rose-50'
+                }`}>
+                  {restaurant.isOpen ? 'Ouvert' : 'Fermé'}
                 </span>
               </div>
 
