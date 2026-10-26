@@ -18,7 +18,7 @@ import {
   INITIAL_DRAWER_STATE 
 } from './data/mockData';
 import { CHEZ_AWA_RESTAURANT, CHEZ_AWA_MENU_ITEMS } from './data/restaumaxData';
-import { RestauMenuItem } from './types/restaumax';
+import { RestauMenuItem, ClientCartItem } from './types/restaumax';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -30,7 +30,7 @@ import { ManagerView } from './components/manager/ManagerView';
 
 // RestauMax Step 1 Components
 import { HomePage } from './components/restaumax/HomePage';
-import { ClientMenuView } from './components/restaumax/ClientMenuView';
+import { ClientMenuView, areCartConfigurationsEqual } from './components/restaumax/ClientMenuView';
 import { RestaurantHubView } from './components/restaumax/RestaurantHubView';
 import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
 
@@ -118,12 +118,60 @@ export default function App() {
   // RestauMax Step 1 Dynamic State (Catalog & Dish Availability)
   const [restauMenuItems, setRestauMenuItems] = useState<RestauMenuItem[]>(CHEZ_AWA_MENU_ITEMS);
 
+  // RestauMax Step 1 Client Cart State (Preserved across routing)
+  const [clientCart, setClientCart] = useState<ClientCartItem[]>([]);
+
   const handleToggleDishAvailability = (dishId: string) => {
     setRestauMenuItems((prev) =>
       prev.map((item) =>
         item.id === dishId ? { ...item, available: item.available === false ? true : false } : item
       )
     );
+  };
+
+  const handleClientAddToCart = (newItem: ClientCartItem): boolean => {
+    // 1. Double vérification fondée sur la disponibilité actuelle du catalogue partagé
+    const liveDish = restauMenuItems.find((item) => item.id === newItem.menuItemId);
+    if (!liveDish || liveDish.available === false) {
+      // Rejet strict de l'ajout si le plat est indisponible
+      return false;
+    }
+
+    // 2. Regroupement déterministe ou ajout d'une nouvelle ligne
+    setClientCart((prev) => {
+      const existingIdx = prev.findIndex((item) => areCartConfigurationsEqual(item, newItem));
+      if (existingIdx >= 0) {
+        return prev.map((item, idx) =>
+          idx === existingIdx
+            ? { ...item, quantity: item.quantity + newItem.quantity }
+            : item
+        );
+      }
+      return [...prev, newItem];
+    });
+
+    return true;
+  };
+
+  const handleUpdateClientCartQuantity = (cartItemId: string, delta: number) => {
+    setClientCart((prev) =>
+      prev.map((item) => {
+        if (item.id === cartItemId) {
+          const nextQty = item.quantity + delta;
+          if (nextQty <= 0) return null;
+          return { ...item, quantity: nextQty };
+        }
+        return item;
+      }).filter(Boolean) as ClientCartItem[]
+    );
+  };
+
+  const handleRemoveClientCartItem = (cartItemId: string) => {
+    setClientCart((prev) => prev.filter((item) => item.id !== cartItemId));
+  };
+
+  const handleClearClientCart = () => {
+    setClientCart([]);
   };
 
   // POS Handlers
@@ -283,6 +331,11 @@ export default function App() {
           restaurant={CHEZ_AWA_RESTAURANT}
           menuItems={restauMenuItems}
           tableNumber={activeTableNumber}
+          cart={clientCart}
+          onAddToCart={handleClientAddToCart}
+          onUpdateQuantity={handleUpdateClientCartQuantity}
+          onRemoveItem={handleRemoveClientCartItem}
+          onClearCart={handleClearClientCart}
           onNavigateHome={() => navigateTo('/')}
           onSelectTableDemo={(tbl) => {
             if (tbl) {

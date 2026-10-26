@@ -7,13 +7,15 @@ import { X, Plus, Minus, Check, Clock, Sparkles, MessageSquare, AlertCircle } fr
 interface ProductDetailModalProps {
   item: RestauMenuItem | null;
   onClose: () => void;
-  onAddToCart: (cartItem: ClientCartItem) => void;
+  onAddToCart: (cartItem: ClientCartItem) => boolean | void;
+  isAvailable?: boolean;
 }
 
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   item,
   onClose,
-  onAddToCart
+  onAddToCart,
+  isAvailable = true
 }) => {
   const [quantity, setQuantity] = useState<number>(1);
   const [selectedOptionsByGroup, setSelectedOptionsByGroup] = useState<Record<string, SelectedOption>>({});
@@ -116,6 +118,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const handleConfirmAdd = () => {
     if (isSubmitting) return; // Prevent double click
 
+    // Strict validation: check current dish availability
+    if (!isAvailable) {
+      setValidationError("Ce plat n'est plus disponible actuellement (en rupture de stock).");
+      sounds.playAlert();
+      return;
+    }
+
     // Validation: check each required option group
     if (item.optionGroups && item.optionGroups.length > 0) {
       for (const group of item.optionGroups) {
@@ -162,7 +171,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       imageUrl: item.imageUrl
     };
 
-    onAddToCart(newCartItem);
+    const addResult = onAddToCart(newCartItem);
+    if (addResult === false) {
+      setValidationError("Ce plat n'est plus disponible actuellement.");
+      setIsSubmitting(false);
+      sounds.playAlert();
+      return;
+    }
+
     onClose();
   };
 
@@ -223,6 +239,16 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               {item.description}
             </p>
           </div>
+
+          {/* Availability Alert if dish became unavailable */}
+          {!isAvailable && (
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2.5">
+              <AlertCircle size={16} className="shrink-0 text-rose-600 mt-0.5" />
+              <div>
+                <span className="font-bold">Plat indisponible :</span> Ce plat est actuellement en rupture de stock et ne peut plus être ajouté au panier.
+              </div>
+            </div>
+          )}
 
           {/* Validation Error Alert */}
           {validationError && (
@@ -382,10 +408,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           <button
             type="button"
             onClick={handleConfirmAdd}
-            disabled={isSubmitting}
-            className="flex-1 h-12 bg-[#ff6500] hover:bg-[#e05800] active:scale-[0.99] disabled:opacity-50 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md shadow-orange-600/20 transition-all flex items-center justify-between px-4"
+            disabled={isSubmitting || !isAvailable}
+            className={`flex-1 h-12 active:scale-[0.99] disabled:opacity-60 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center justify-between px-4 ${
+              !isAvailable
+                ? 'bg-slate-400 cursor-not-allowed shadow-none'
+                : 'bg-[#ff6500] hover:bg-[#e05800] shadow-orange-600/20'
+            }`}
           >
-            <span>Ajouter au panier</span>
+            <span>{isAvailable ? 'Ajouter au panier' : 'Plat indisponible'}</span>
             <span className="font-black tnum bg-black/20 px-2 py-0.5 rounded-md">
               {formatFCFA(lineTotalPrice)}
             </span>

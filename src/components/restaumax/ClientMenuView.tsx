@@ -21,12 +21,17 @@ import {
   ArrowLeft
 } from 'lucide-react';
 
-interface ClientMenuViewProps {
+export interface ClientMenuViewProps {
   restaurant: RestaurantInfo;
   menuItems: RestauMenuItem[];
   tableNumber: string | null;
   onNavigateHome: () => void;
   onSelectTableDemo: (table: string | null) => void;
+  cart: ClientCartItem[];
+  onAddToCart: (newItem: ClientCartItem) => boolean;
+  onUpdateQuantity: (cartItemId: string, delta: number) => void;
+  onRemoveItem: (cartItemId: string) => void;
+  onClearCart: () => void;
 }
 
 type CategoryFilter = 'tous' | 'grillades' | 'plats' | 'entrees' | 'accompagnements' | 'boissons' | 'desserts';
@@ -42,7 +47,7 @@ const CATEGORIES: { id: CategoryFilter; label: string; icon: React.ComponentType
 ];
 
 // Normalise la signature d'une option composite ou simple de façon déterministe
-const getNormalizedOptionSignature = (selectedOption?: SelectedOption): string => {
+export const getNormalizedOptionSignature = (selectedOption?: SelectedOption): string => {
   if (!selectedOption) return '';
   const groupParts = selectedOption.groupId ? selectedOption.groupId.split('+') : [];
   const optionParts = selectedOption.optionId ? selectedOption.optionId.split('+') : [];
@@ -60,14 +65,14 @@ const getNormalizedOptionSignature = (selectedOption?: SelectedOption): string =
 };
 
 // Normalise la signature des extras sélectionnés pour être indépendant de l'ordre
-const getNormalizedExtrasSignature = (extras?: SelectedExtra[]): string => {
+export const getNormalizedExtrasSignature = (extras?: SelectedExtra[]): string => {
   if (!extras || extras.length === 0) return '';
   const sorted = [...extras].sort((a, b) => a.extraId.localeCompare(b.extraId));
   return sorted.map(e => `extra:${e.extraId}`).join('|');
 };
 
 // Vérifie si deux articles de panier partagent la même configuration produit
-const areCartConfigurationsEqual = (itemA: ClientCartItem, itemB: ClientCartItem): boolean => {
+export const areCartConfigurationsEqual = (itemA: ClientCartItem, itemB: ClientCartItem): boolean => {
   if (itemA.menuItemId !== itemB.menuItemId) return false;
 
   const optA = getNormalizedOptionSignature(itemA.selectedOption);
@@ -90,13 +95,17 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   menuItems,
   tableNumber,
   onNavigateHome,
-  onSelectTableDemo
+  onSelectTableDemo,
+  cart,
+  onAddToCart,
+  onUpdateQuantity,
+  onRemoveItem,
+  onClearCart
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('tous');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeItemModal, setActiveItemModal] = useState<RestauMenuItem | null>(null);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
-  const [cart, setCart] = useState<ClientCartItem[]>([]);
 
   // Filtered menu items (only available dishes are displayed and searchable)
   const filteredItems = useMemo(() => {
@@ -114,48 +123,6 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   // Cart totals
   const totalItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartSubtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-
-  // Cart operations (immutable updates)
-  const handleAddToCart = (newItem: ClientCartItem) => {
-    setCart(prev => {
-      // Comparaison robuste : même plat, mêmes options (indépendamment de l'ordre), mêmes extras et même note
-      const existingIdx = prev.findIndex(item => areCartConfigurationsEqual(item, newItem));
-
-      if (existingIdx >= 0) {
-        return prev.map((item, idx) =>
-          idx === existingIdx
-            ? { ...item, quantity: item.quantity + newItem.quantity }
-            : item
-        );
-      } else {
-        return [...prev, newItem];
-      }
-    });
-  };
-
-  const handleUpdateQuantity = (cartItemId: string, delta: number) => {
-    setCart(prev => 
-      prev.map(item => {
-        if (item.id === cartItemId) {
-          const nextQty = item.quantity + delta;
-          if (nextQty <= 0) {
-            // Prompt or delete
-            return null;
-          }
-          return { ...item, quantity: nextQty };
-        }
-        return item;
-      }).filter(Boolean) as ClientCartItem[]
-    );
-  };
-
-  const handleRemoveItem = (cartItemId: string) => {
-    setCart(prev => prev.filter(item => item.id !== cartItemId));
-  };
-
-  const handleClearCart = () => {
-    setCart([]);
-  };
 
   return (
     <div className="min-h-screen bg-[#f4f7fb] pb-28 text-[#181c1f]">
@@ -452,11 +419,21 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       )}
 
       {/* Product Detail Modal */}
-      <ProductDetailModal
-        item={activeItemModal}
-        onClose={() => setActiveItemModal(null)}
-        onAddToCart={handleAddToCart}
-      />
+      {(() => {
+        const liveDish = activeItemModal ? menuItems.find(m => m.id === activeItemModal.id) : null;
+        const isDishCurrentlyAvailable = liveDish 
+          ? liveDish.available !== false 
+          : (activeItemModal ? activeItemModal.available !== false : false);
+
+        return (
+          <ProductDetailModal
+            item={activeItemModal}
+            isAvailable={isDishCurrentlyAvailable}
+            onClose={() => setActiveItemModal(null)}
+            onAddToCart={onAddToCart}
+          />
+        );
+      })()}
 
       {/* Cart Drawer */}
       <CartDrawer
@@ -464,9 +441,9 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         onClose={() => setIsCartOpen(false)}
         cart={cart}
         tableNumber={tableNumber}
-        onUpdateQuantity={handleUpdateQuantity}
-        onRemoveItem={handleRemoveItem}
-        onClearCart={handleClearCart}
+        onUpdateQuantity={onUpdateQuantity}
+        onRemoveItem={onRemoveItem}
+        onClearCart={onClearCart}
       />
     </div>
   );
