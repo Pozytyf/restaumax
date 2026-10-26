@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Role, 
   MenuItem, 
@@ -17,6 +17,7 @@ import {
   INITIAL_KITCHEN_TICKETS, 
   INITIAL_DRAWER_STATE 
 } from './data/mockData';
+import { CHEZ_AWA_RESTAURANT, CHEZ_AWA_MENU_ITEMS } from './data/restaumaxData';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -26,32 +27,55 @@ import { FloorView } from './components/floor/FloorView';
 import { KdsView } from './components/kds/KdsView';
 import { ManagerView } from './components/manager/ManagerView';
 
+// RestauMax Step 1 Components
+import { HomePage } from './components/restaumax/HomePage';
+import { ClientMenuView } from './components/restaumax/ClientMenuView';
+import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
+
 export default function App() {
+  // Navigation / Routing State
+  const [currentPath, setCurrentPath] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const fullPath = window.location.pathname + window.location.search;
+      // Default to /r/chez-awa?table=4 for direct client testing if on base / or load
+      return fullPath === '/' ? '/r/chez-awa?table=4' : fullPath;
+    }
+    return '/r/chez-awa?table=4';
+  });
+
+  // Parse path & table from currentPath
+  const parsePathInfo = (pathStr: string) => {
+    const url = new URL(pathStr, 'http://localhost');
+    const path = url.pathname;
+    const table = url.searchParams.get('table');
+    return { path, table };
+  };
+
+  const { path: activePathname, table: activeTableNumber } = parsePathInfo(currentPath);
+
+  // Sync with browser history
+  useEffect(() => {
+    const handlePopState = () => {
+      const full = window.location.pathname + window.location.search;
+      setCurrentPath(full);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigateTo = (newPath: string) => {
+    setCurrentPath(newPath);
+    if (typeof window !== 'undefined' && window.history?.pushState) {
+      window.history.pushState({}, '', newPath);
+    }
+  };
+
+  // Staff State (POS, Tables, KDS, Manager)
   const [currentRole, setCurrentRole] = useState<Role>('pos');
   const [menuItems, setMenuItems] = useState<MenuItem[]>(INITIAL_MENU_ITEMS);
   const [tables, setTables] = useState<Table[]>(INITIAL_TABLES);
-  const [selectedTable, setSelectedTable] = useState<Table | null>(tables[1]); // Pre-select Table 02
-  const [cart, setCart] = useState<CartItem[]>([
-    {
-      id: 'cart-1',
-      menuItem: INITIAL_MENU_ITEMS[0], // Capitaine braisé
-      quantity: 1,
-      course: 'plat',
-      specialInstructions: 'Sauce piment à part'
-    },
-    {
-      id: 'cart-2',
-      menuItem: INITIAL_MENU_ITEMS[8], // Alloco plantain
-      quantity: 2,
-      course: 'plat'
-    },
-    {
-      id: 'cart-3',
-      menuItem: INITIAL_MENU_ITEMS[11], // Cocktail Bissap
-      quantity: 2,
-      course: 'boisson'
-    }
-  ]);
+  const [selectedTable, setSelectedTable] = useState<Table | null>(tables[1]);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>(INITIAL_KITCHEN_TICKETS);
   const [drawerState, setDrawerState] = useState<CashDrawerState>(INITIAL_DRAWER_STATE);
@@ -71,27 +95,7 @@ export default function App() {
       paymentMethod: 'especes',
       items: [
         { name: 'Poulet Bicyclette Braisé Entier', quantity: 2, price: 9500 },
-        { name: 'Alloco Banane Plantain Dorée', quantity: 2, price: 2500 },
-        { name: 'Bière Ivoire Spéciale 50cl', quantity: 1, price: 2000 }
-      ]
-    },
-    {
-      id: 'tx-2',
-      orderId: '#T-098',
-      tableNumber: 'Terrasse 07',
-      waiter: 'Yao F.',
-      timestamp: new Date(Date.now() - 65 * 60 * 1000),
-      subtotal: 58500,
-      discount: 5000,
-      tax: 0,
-      total: 53500,
-      paidAmount: 53500,
-      changeAmount: 0,
-      paymentMethod: 'wave',
-      items: [
-        { name: 'Gambas Royales Flambées au Pastis', quantity: 2, price: 18000 },
-        { name: 'Filet de Bœuf Sauce Poivre Vert', quantity: 1, price: 16000 },
-        { name: 'Cocktail Hibiscus Bissap & Menthe', quantity: 3, price: 2500 }
+        { name: 'Alloco Banane Plantain Dorée', quantity: 2, price: 2500 }
       ]
     }
   ]);
@@ -101,46 +105,31 @@ export default function App() {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const serverName = 'Moussa D.';
 
-  // Audio Toggle
   const handleToggleAudio = () => {
     sounds.enabled = !audioEnabled;
     setAudioEnabled(!audioEnabled);
   };
 
-  // Cart Management
+  // POS Handlers
   const handleAddToCart = (dish: MenuItem) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.menuItem.id === dish.id);
       if (existing) {
         return prev.map((item) =>
-          item.menuItem.id === dish.id
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
+          item.menuItem.id === dish.id ? { ...item, quantity: item.quantity + 1 } : item
         );
       } else {
-        const newItem: CartItem = {
-          id: `ci-${Date.now()}-${dish.id}`,
-          menuItem: dish,
-          quantity: 1,
-          course: dish.course
-        };
-        return [...prev, newItem];
+        return [...prev, { id: `ci-${Date.now()}-${dish.id}`, menuItem: dish, quantity: 1, course: dish.course }];
       }
     });
   };
 
   const handleUpdateQuantity = (itemId: string, delta: number) => {
-    setCart((prev) => {
-      return prev
-        .map((item) => {
-          if (item.id === itemId) {
-            const nextQty = item.quantity + delta;
-            return nextQty > 0 ? { ...item, quantity: nextQty } : null;
-          }
-          return item;
-        })
-        .filter(Boolean) as CartItem[];
-    });
+    setCart((prev) =>
+      prev
+        .map((item) => (item.id === itemId ? { ...item, quantity: item.quantity + delta } : item))
+        .filter((item) => item.quantity > 0)
+    );
   };
 
   const handleRemoveItem = (itemId: string) => {
@@ -149,21 +138,12 @@ export default function App() {
 
   const handleUpdateItemNotes = (itemId: string, notes: string) => {
     setCart((prev) =>
-      prev.map((item) =>
-        item.id === itemId ? { ...item, specialInstructions: notes } : item
-      )
+      prev.map((item) => (item.id === itemId ? { ...item, specialInstructions: notes } : item))
     );
   };
 
-  const handleClearCart = () => {
-    setCart([]);
-    setDiscountPercent(0);
-  };
-
-  // Kitchen Order Firing
   const handleSendToKitchen = () => {
     if (cart.length === 0) return;
-
     const ticketNumber = `#T-${Math.floor(100 + Math.random() * 900)}`;
     const tableName = selectedTable ? selectedTable.name : 'Vente Directe';
 
@@ -186,30 +166,9 @@ export default function App() {
     };
 
     setKitchenTickets((prev) => [newTicket, ...prev]);
-
-    // Update table status if selected
-    if (selectedTable) {
-      const orderSubtotal = cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
-      setTables((prev) =>
-        prev.map((t) =>
-          t.id === selectedTable.id
-            ? {
-                ...t,
-                status: 'occupied',
-                currentTotal: (t.currentTotal || 0) + orderSubtotal,
-                seatedAt: t.seatedAt || new Date(),
-                assignedWaiter: serverName
-              }
-            : t
-        )
-      );
-    }
-
-    // Alert user with brief feedback
-    alert(`Commande envoyée en cuisine avec succès ! Ticket ${ticketNumber}`);
+    alert(`Commande envoyée en cuisine ! Ticket ${ticketNumber}`);
   };
 
-  // Payment Confirmation
   const handleConfirmPayment = (paymentData: {
     method: PaymentMethod;
     paidAmount: number;
@@ -241,71 +200,39 @@ export default function App() {
       }))
     };
 
-    // Update cash drawer metrics
-    setDrawerState((prev) => {
-      const isCash = paymentData.method === 'especes';
-      const isWaveOrOM = paymentData.method === 'wave' || paymentData.method === 'orange_money';
-      const isCard = paymentData.method === 'carte';
-
-      return {
-        ...prev,
-        totalSales: prev.totalSales + total,
-        currentCash: prev.currentCash + (isCash ? total : 0),
-        cashSales: prev.cashSales + (isCash ? total : 0),
-        mobileMoneySales: prev.mobileMoneySales + (isWaveOrOM ? total : 0),
-        cardSales: prev.cardSales + (isCard ? total : 0),
-        discountsTotal: prev.discountsTotal + discountAmount,
-        transactionCount: prev.transactionCount + 1
-      };
-    });
-
-    // Update table status to available if was seated
-    if (selectedTable) {
-      setTables((prev) =>
-        prev.map((t) =>
-          t.id === selectedTable.id
-            ? { ...t, status: 'available', currentTotal: 0, covers: undefined, seatedAt: undefined }
-            : t
-        )
-      );
-    }
+    setDrawerState((prev) => ({
+      ...prev,
+      totalSales: prev.totalSales + total,
+      currentCash: prev.currentCash + (paymentData.method === 'especes' ? total : 0),
+      cashSales: prev.cashSales + (paymentData.method === 'especes' ? total : 0),
+      transactionCount: prev.transactionCount + 1
+    }));
 
     setTransactions((prev) => [newRecord, ...prev]);
     setIsPaymentModalOpen(false);
     setActiveReceiptModal(newRecord);
     setCart([]);
-    setDiscountPercent(0);
   };
 
-  // KDS Handlers
   const handleToggleKdsItem = (ticketId: string, itemId: string) => {
     setKitchenTickets((prev) =>
-      prev.map((ticket) => {
-        if (ticket.id === ticketId) {
-          return {
-            ...ticket,
-            items: ticket.items.map((i) =>
-              i.id === itemId ? { ...i, completed: !i.completed } : i
-            )
-          };
-        }
-        return ticket;
-      })
+      prev.map((ticket) =>
+        ticket.id === ticketId
+          ? {
+              ...ticket,
+              items: ticket.items.map((i) => (i.id === itemId ? { ...i, completed: !i.completed } : i))
+            }
+          : ticket
+      )
     );
   };
 
   const handleUpdateTicketStatus = (ticketId: string, status: TicketStatus) => {
     setKitchenTickets((prev) =>
-      prev.map((ticket) => {
-        if (ticket.id === ticketId) {
-          return { ...ticket, status };
-        }
-        return ticket;
-      })
+      prev.map((t) => (t.id === ticketId ? { ...t, status } : t))
     );
   };
 
-  // Floor View Handlers
   const handleSelectTableForOrder = (table: Table) => {
     setSelectedTable(table);
     setCurrentRole('pos');
@@ -313,110 +240,137 @@ export default function App() {
 
   const handleUpdateTableStatus = (tableId: string, status: TableStatus, covers?: number) => {
     setTables((prev) =>
-      prev.map((t) => {
-        if (t.id === tableId) {
-          return {
-            ...t,
-            status,
-            covers: covers ?? t.covers,
-            seatedAt: status === 'occupied' && !t.seatedAt ? new Date() : t.seatedAt
-          };
-        }
-        return t;
-      })
+      prev.map((t) =>
+        t.id === tableId ? { ...t, status, covers: covers ?? t.covers } : t
+      )
     );
   };
 
-  const handleQuickNewOrder = () => {
-    setSelectedTable(null);
-    setCart([]);
-    setDiscountPercent(0);
-    setCurrentRole('pos');
-  };
-
-  const activeKdsTicketsCount = kitchenTickets.filter(
-    (t) => t.status === 'in_prep' || t.status === 'ready'
-  ).length;
+  const isClientMenuRoute = activePathname.startsWith('/r/');
+  const isHomePageRoute = activePathname === '/' || activePathname === '';
+  const isStaffRoute = activePathname === '/staff';
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f4f7fb] text-[#181c1f]">
-      {/* Strict Top Bar Contract Header */}
-      <Header
-        currentRole={currentRole}
-        onSelectRole={(r) => {
-          sounds.playTap();
-          setCurrentRole(r);
-        }}
-        audioEnabled={audioEnabled}
-        onToggleAudio={handleToggleAudio}
-        onQuickNewOrder={handleQuickNewOrder}
-        kitchenTicketsCount={activeKdsTicketsCount}
+      {/* Test / URL Switcher Simulator Bar at Top */}
+      <UrlSimulatorBar
+        currentPath={currentPath}
+        onNavigate={navigateTo}
       />
 
-      {/* Screen Views */}
-      <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {currentRole === 'pos' && (
-          <PosView
-            menuItems={menuItems}
+      {/* 1. Client Menu Route: /r/chez-awa?table=4 or /r/chez-awa */}
+      {isClientMenuRoute && (
+        <ClientMenuView
+          restaurant={CHEZ_AWA_RESTAURANT}
+          menuItems={CHEZ_AWA_MENU_ITEMS}
+          tableNumber={activeTableNumber}
+          onNavigateHome={() => navigateTo('/')}
+          onSelectTableDemo={(tbl) => {
+            if (tbl) {
+              navigateTo(`/r/chez-awa?table=${tbl}`);
+            } else {
+              navigateTo('/r/chez-awa');
+            }
+          }}
+        />
+      )}
+
+      {/* 2. RestauMax Home Landing Page: / */}
+      {isHomePageRoute && (
+        <HomePage
+          onGoToMenuWithTable={(tbl) => {
+            if (tbl) {
+              navigateTo(`/r/chez-awa?table=${tbl}`);
+            } else {
+              navigateTo('/r/chez-awa');
+            }
+          }}
+          onGoToStaffTools={() => navigateTo('/staff')}
+        />
+      )}
+
+      {/* 3. Staff Internal Workspaces: /staff */}
+      {isStaffRoute && (
+        <div className="flex-1 flex flex-col">
+          <Header
+            currentRole={currentRole}
+            onSelectRole={(r) => {
+              sounds.playTap();
+              setCurrentRole(r);
+            }}
+            audioEnabled={audioEnabled}
+            onToggleAudio={handleToggleAudio}
+            onQuickNewOrder={() => {
+              setSelectedTable(null);
+              setCart([]);
+              setCurrentRole('pos');
+            }}
+            kitchenTicketsCount={kitchenTickets.filter((t) => t.status === 'in_prep' || t.status === 'ready').length}
+          />
+
+          <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {currentRole === 'pos' && (
+              <PosView
+                menuItems={menuItems}
+                cart={cart}
+                selectedTable={selectedTable}
+                tables={tables}
+                onSelectTable={setSelectedTable}
+                onAddToCart={handleAddToCart}
+                onUpdateQuantity={handleUpdateQuantity}
+                onRemoveItem={handleRemoveItem}
+                onUpdateItemNotes={handleUpdateItemNotes}
+                onClearCart={() => setCart([])}
+                discountPercent={discountPercent}
+                onSetDiscountPercent={setDiscountPercent}
+                onSendToKitchen={handleSendToKitchen}
+                onOpenPayment={() => setIsPaymentModalOpen(true)}
+                serverName={serverName}
+              />
+            )}
+
+            {currentRole === 'floor' && (
+              <FloorView
+                tables={tables}
+                onSelectTableForOrder={handleSelectTableForOrder}
+                onUpdateTableStatus={handleUpdateTableStatus}
+                serverName={serverName}
+              />
+            )}
+
+            {currentRole === 'kds' && (
+              <KdsView
+                tickets={kitchenTickets}
+                onToggleItemComplete={handleToggleKdsItem}
+                onUpdateTicketStatus={handleUpdateTicketStatus}
+              />
+            )}
+
+            {currentRole === 'manager' && (
+              <ManagerView
+                drawerState={drawerState}
+                transactions={transactions}
+                onViewReceipt={(receipt) => setActiveReceiptModal(receipt)}
+              />
+            )}
+          </main>
+
+          <PaymentModal
+            isOpen={isPaymentModalOpen}
+            onClose={() => setIsPaymentModalOpen(false)}
             cart={cart}
             selectedTable={selectedTable}
-            tables={tables}
-            onSelectTable={setSelectedTable}
-            onAddToCart={handleAddToCart}
-            onUpdateQuantity={handleUpdateQuantity}
-            onRemoveItem={handleRemoveItem}
-            onUpdateItemNotes={handleUpdateItemNotes}
-            onClearCart={handleClearCart}
+            serverName={serverName}
             discountPercent={discountPercent}
-            onSetDiscountPercent={setDiscountPercent}
-            onSendToKitchen={handleSendToKitchen}
-            onOpenPayment={() => setIsPaymentModalOpen(true)}
-            serverName={serverName}
+            onConfirmPayment={handleConfirmPayment}
           />
-        )}
 
-        {currentRole === 'floor' && (
-          <FloorView
-            tables={tables}
-            onSelectTableForOrder={handleSelectTableForOrder}
-            onUpdateTableStatus={handleUpdateTableStatus}
-            serverName={serverName}
+          <ReceiptModal
+            receipt={activeReceiptModal}
+            onClose={() => setActiveReceiptModal(null)}
           />
-        )}
-
-        {currentRole === 'kds' && (
-          <KdsView
-            tickets={kitchenTickets}
-            onToggleItemComplete={handleToggleKdsItem}
-            onUpdateTicketStatus={handleUpdateTicketStatus}
-          />
-        )}
-
-        {currentRole === 'manager' && (
-          <ManagerView
-            drawerState={drawerState}
-            transactions={transactions}
-            onViewReceipt={(receipt) => setActiveReceiptModal(receipt)}
-          />
-        )}
-      </main>
-
-      {/* Payment Numpad Modal */}
-      <PaymentModal
-        isOpen={isPaymentModalOpen}
-        onClose={() => setIsPaymentModalOpen(false)}
-        cart={cart}
-        selectedTable={selectedTable}
-        serverName={serverName}
-        discountPercent={discountPercent}
-        onConfirmPayment={handleConfirmPayment}
-      />
-
-      {/* Printable Thermal Receipt Modal */}
-      <ReceiptModal
-        receipt={activeReceiptModal}
-        onClose={() => setActiveReceiptModal(null)}
-      />
+        </div>
+      )}
     </div>
   );
 }
