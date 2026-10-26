@@ -1,0 +1,6 @@
+{
+  "name": "Culinary Velocity POS",
+  "description": "High-performance restaurant POS, kitchen display system (KDS), and floor operations management system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
