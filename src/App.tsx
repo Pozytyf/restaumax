@@ -37,18 +37,21 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const fullPath = window.location.pathname + window.location.search;
-      // Default to /r/chez-awa?table=4 for direct client testing if on base / or load
-      return fullPath === '/' ? '/r/chez-awa?table=4' : fullPath;
+      return fullPath || '/';
     }
-    return '/r/chez-awa?table=4';
+    return '/';
   });
 
   // Parse path & table from currentPath
   const parsePathInfo = (pathStr: string) => {
-    const url = new URL(pathStr, 'http://localhost');
-    const path = url.pathname;
-    const table = url.searchParams.get('table');
-    return { path, table };
+    try {
+      const url = new URL(pathStr, 'http://localhost');
+      const path = url.pathname || '/';
+      const table = url.searchParams.get('table');
+      return { path, table };
+    } catch {
+      return { path: '/', table: null };
+    }
   };
 
   const { path: activePathname, table: activeTableNumber } = parsePathInfo(currentPath);
@@ -247,8 +250,8 @@ export default function App() {
   };
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
-  const isHomePageRoute = activePathname === '/' || activePathname === '';
   const isStaffRoute = activePathname === '/staff';
+  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f4f7fb] text-[#181c1f]">
