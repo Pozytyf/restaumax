@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { RestauMenuItem, ClientCartItem, RestaurantInfo } from '../../types/restaumax';
+import { RestauMenuItem, ClientCartItem, RestaurantInfo, SelectedOption, SelectedExtra } from '../../types/restaumax';
 import { ProductDetailModal } from './ProductDetailModal';
 import { CartDrawer } from './CartDrawer';
 import { formatFCFA } from '../../utils/format';
@@ -41,6 +41,50 @@ const CATEGORIES: { id: CategoryFilter; label: string; icon: React.ComponentType
   { id: 'desserts', label: 'Desserts', icon: Cookie }
 ];
 
+// Normalise la signature d'une option composite ou simple de façon déterministe
+const getNormalizedOptionSignature = (selectedOption?: SelectedOption): string => {
+  if (!selectedOption) return '';
+  const groupParts = selectedOption.groupId ? selectedOption.groupId.split('+') : [];
+  const optionParts = selectedOption.optionId ? selectedOption.optionId.split('+') : [];
+
+  if (groupParts.length > 0 && groupParts.length === optionParts.length) {
+    const pairs = groupParts.map((gid, idx) => ({
+      groupId: gid.trim(),
+      optionId: (optionParts[idx] || '').trim()
+    }));
+    pairs.sort((a, b) => a.groupId.localeCompare(b.groupId) || a.optionId.localeCompare(b.optionId));
+    return pairs.map(p => `grp:${p.groupId}=opt:${p.optionId}`).join('|');
+  }
+
+  return `grp:${selectedOption.groupId || ''}=opt:${selectedOption.optionId || ''}`;
+};
+
+// Normalise la signature des extras sélectionnés pour être indépendant de l'ordre
+const getNormalizedExtrasSignature = (extras?: SelectedExtra[]): string => {
+  if (!extras || extras.length === 0) return '';
+  const sorted = [...extras].sort((a, b) => a.extraId.localeCompare(b.extraId));
+  return sorted.map(e => `extra:${e.extraId}`).join('|');
+};
+
+// Vérifie si deux articles de panier partagent la même configuration produit
+const areCartConfigurationsEqual = (itemA: ClientCartItem, itemB: ClientCartItem): boolean => {
+  if (itemA.menuItemId !== itemB.menuItemId) return false;
+
+  const optA = getNormalizedOptionSignature(itemA.selectedOption);
+  const optB = getNormalizedOptionSignature(itemB.selectedOption);
+  if (optA !== optB) return false;
+
+  const extA = getNormalizedExtrasSignature(itemA.selectedExtras);
+  const extB = getNormalizedExtrasSignature(itemB.selectedExtras);
+  if (extA !== extB) return false;
+
+  const noteA = (itemA.prepNotes || '').trim();
+  const noteB = (itemB.prepNotes || '').trim();
+  if (noteA !== noteB) return false;
+
+  return true;
+};
+
 export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   restaurant,
   menuItems,
@@ -74,13 +118,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   // Cart operations (immutable updates)
   const handleAddToCart = (newItem: ClientCartItem) => {
     setCart(prev => {
-      // Check if identical item (same dish, same option, same extras, same note) already exists
-      const existingIdx = prev.findIndex(item => 
-        item.menuItemId === newItem.menuItemId &&
-        item.selectedOption?.optionId === newItem.selectedOption?.optionId &&
-        item.prepNotes === newItem.prepNotes &&
-        JSON.stringify(item.selectedExtras) === JSON.stringify(newItem.selectedExtras)
-      );
+      // Comparaison robuste : même plat, mêmes options (indépendamment de l'ordre), mêmes extras et même note
+      const existingIdx = prev.findIndex(item => areCartConfigurationsEqual(item, newItem));
 
       if (existingIdx >= 0) {
         return prev.map((item, idx) =>
