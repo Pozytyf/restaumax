@@ -18,6 +18,7 @@ import {
   INITIAL_DRAWER_STATE 
 } from './data/mockData';
 import { CHEZ_AWA_RESTAURANT, CHEZ_AWA_MENU_ITEMS } from './data/restaumaxData';
+import { RestauMenuItem } from './types/restaumax';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -112,6 +113,17 @@ export default function App() {
   const handleToggleAudio = () => {
     sounds.enabled = !audioEnabled;
     setAudioEnabled(!audioEnabled);
+  };
+
+  // RestauMax Step 1 Dynamic State (Catalog & Dish Availability)
+  const [restauMenuItems, setRestauMenuItems] = useState<RestauMenuItem[]>(CHEZ_AWA_MENU_ITEMS);
+
+  const handleToggleDishAvailability = (dishId: string) => {
+    setRestauMenuItems((prev) =>
+      prev.map((item) =>
+        item.id === dishId ? { ...item, available: item.available === false ? true : false } : item
+      )
+    );
   };
 
   // POS Handlers
@@ -269,7 +281,7 @@ export default function App() {
       {isClientMenuRoute && (
         <ClientMenuView
           restaurant={CHEZ_AWA_RESTAURANT}
-          menuItems={CHEZ_AWA_MENU_ITEMS}
+          menuItems={restauMenuItems}
           tableNumber={activeTableNumber}
           onNavigateHome={() => navigateTo('/')}
           onSelectTableDemo={(tbl) => {
@@ -286,7 +298,8 @@ export default function App() {
       {isRestaurantHubRoute && (
         <RestaurantHubView
           restaurant={CHEZ_AWA_RESTAURANT}
-          menuItemsCount={CHEZ_AWA_MENU_ITEMS.length}
+          menuItems={restauMenuItems}
+          menuItemsCount={restauMenuItems.length}
           tablesCount={tables.length}
           activeKitchenTicketsCount={activeTicketsCount}
           totalSessionSales={drawerState.totalSales}
@@ -296,6 +309,7 @@ export default function App() {
             setCurrentRole(role);
             navigateTo('/staff');
           }}
+          onToggleDishAvailability={handleToggleDishAvailability}
         />
       )}
 

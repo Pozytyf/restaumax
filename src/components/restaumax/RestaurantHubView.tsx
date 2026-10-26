@@ -1,5 +1,6 @@
-import React from 'react';
-import { RestaurantInfo } from '../../types/restaumax';
+import React, { useState } from 'react';
+import { RestaurantInfo, RestauMenuItem } from '../../types/restaumax';
+import { MenuManagementView } from './MenuManagementView';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
 import { 
@@ -30,6 +31,7 @@ export type ModuleStatus = 'active' | 'to_activate' | 'unavailable';
 
 export interface RestaurantHubViewProps {
   restaurant: RestaurantInfo;
+  menuItems: RestauMenuItem[];
   menuItemsCount: number;
   tablesCount: number;
   activeKitchenTicketsCount: number;
@@ -37,6 +39,7 @@ export interface RestaurantHubViewProps {
   onNavigateHome: () => void;
   onNavigateToClientMenu: () => void;
   onNavigateToStaffRole: (role: 'pos' | 'floor' | 'kds' | 'manager') => void;
+  onToggleDishAvailability: (dishId: string) => void;
 }
 
 interface ModuleDefinition {
@@ -54,14 +57,17 @@ interface ModuleDefinition {
 
 export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   restaurant,
+  menuItems,
   menuItemsCount,
   tablesCount,
   activeKitchenTicketsCount,
   totalSessionSales,
   onNavigateHome,
   onNavigateToClientMenu,
-  onNavigateToStaffRole
+  onNavigateToStaffRole,
+  onToggleDishAvailability
 }) => {
+  const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog'>('overview');
   // Format current date in French standard
   const todayFormatted = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
@@ -91,14 +97,14 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       order: 2,
       title: 'Menu et catalogue des plats',
       subtitle: 'Carte client & spécialités',
-      description: 'Consultation de la carte complète, organisation par catégories et fiches produits détaillées.',
+      description: 'Consultation de la carte complète, fiches techniques et pilotage de la disponibilité en direct.',
       status: 'active',
       statusLabel: 'Actif',
       icon: BookOpen,
-      actionLabel: 'Consulter la carte client',
+      actionLabel: 'Gérer le catalogue & disponibilités',
       onAction: () => {
         sounds.playTap();
-        onNavigateToClientMenu();
+        setActiveTab('menu_catalog');
       }
     },
     {
@@ -228,6 +234,18 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     }
   ];
 
+  if (activeTab === 'menu_catalog') {
+    return (
+      <MenuManagementView
+        restaurant={restaurant}
+        menuItems={menuItems}
+        onToggleAvailability={onToggleDishAvailability}
+        onBackToHub={() => setActiveTab('overview')}
+        onNavigateToClientMenu={onNavigateToClientMenu}
+      />
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col bg-[#f4f7fb] text-[#181c1f]">
       {/* Top Header / Bar */}
@@ -324,10 +342,22 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
 
           {/* Operational Metrics (Derived strictly from real state, no fabricated indicators) */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                Plats à la Carte
-              </span>
+            <div 
+              onClick={() => {
+                sounds.playTap();
+                setActiveTab('menu_catalog');
+              }}
+              className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 hover:border-slate-300 hover:bg-slate-100/70 transition-all cursor-pointer group"
+              title="Cliquez pour gérer le catalogue et les disponibilités"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1 group-hover:text-[#ff6500] transition-colors">
+                  Plats à la Carte
+                </span>
+                <span className="text-[10px] font-bold text-[#ff6500] opacity-0 group-hover:opacity-100 transition-opacity">
+                  Gérer →
+                </span>
+              </div>
               <div className="text-2xl font-black text-[#101d2d] tnum">
                 {menuItemsCount}
               </div>
