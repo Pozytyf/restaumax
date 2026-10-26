@@ -1,5 +1,5 @@
 import React from 'react';
-import { Globe, MapPin, ShoppingBag, Home, Monitor, ExternalLink } from 'lucide-react';
+import { Globe, MapPin, ShoppingBag, Home, Monitor, Building2, ExternalLink } from 'lucide-react';
 import { sounds } from '../../utils/audio';
 
 interface UrlSimulatorBarProps {
@@ -74,6 +74,22 @@ export const UrlSimulatorBar: React.FC<UrlSimulatorBarProps> = ({
         >
           <Home size={11} />
           <span>Accueil</span>
+        </button>
+
+        <button
+          onClick={() => {
+            sounds.playTap();
+            onNavigate('/gestion');
+          }}
+          className={`px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 transition-all ${
+            currentPath === '/gestion'
+              ? 'bg-[#ff6500] text-white shadow-xs'
+              : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+          }`}
+          title="Accéder au centre de gestion du restaurant"
+        >
+          <Building2 size={11} className="text-emerald-400" />
+          <span>Gestion</span>
         </button>
 
         <button

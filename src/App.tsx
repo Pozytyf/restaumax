@@ -30,6 +30,7 @@ import { ManagerView } from './components/manager/ManagerView';
 // RestauMax Step 1 Components
 import { HomePage } from './components/restaumax/HomePage';
 import { ClientMenuView } from './components/restaumax/ClientMenuView';
+import { RestaurantHubView } from './components/restaumax/RestaurantHubView';
 import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
 
 export default function App() {
@@ -251,7 +252,10 @@ export default function App() {
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
   const isStaffRoute = activePathname === '/staff';
-  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute;
+  const isRestaurantHubRoute = activePathname === '/gestion';
+  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute;
+
+  const activeTicketsCount = kitchenTickets.filter((t) => t.status === 'in_prep' || t.status === 'ready').length;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f4f7fb] text-[#181c1f]">
@@ -278,7 +282,24 @@ export default function App() {
         />
       )}
 
-      {/* 2. RestauMax Home Landing Page: / */}
+      {/* 2. Restaurant Management Hub: /gestion */}
+      {isRestaurantHubRoute && (
+        <RestaurantHubView
+          restaurant={CHEZ_AWA_RESTAURANT}
+          menuItemsCount={CHEZ_AWA_MENU_ITEMS.length}
+          tablesCount={tables.length}
+          activeKitchenTicketsCount={activeTicketsCount}
+          totalSessionSales={drawerState.totalSales}
+          onNavigateHome={() => navigateTo('/')}
+          onNavigateToClientMenu={() => navigateTo('/r/chez-awa')}
+          onNavigateToStaffRole={(role) => {
+            setCurrentRole(role);
+            navigateTo('/staff');
+          }}
+        />
+      )}
+
+      {/* 3. RestauMax Home Landing Page: / */}
       {isHomePageRoute && (
         <HomePage
           onGoToMenuWithTable={(tbl) => {
@@ -289,10 +310,11 @@ export default function App() {
             }
           }}
           onGoToStaffTools={() => navigateTo('/staff')}
+          onGoToManagementHub={() => navigateTo('/gestion')}
         />
       )}
 
-      {/* 3. Staff Internal Workspaces: /staff */}
+      {/* 4. Staff Internal Workspaces: /staff */}
       {isStaffRoute && (
         <div className="flex-1 flex flex-col">
           <Header
@@ -308,7 +330,8 @@ export default function App() {
               setCart([]);
               setCurrentRole('pos');
             }}
-            kitchenTicketsCount={kitchenTickets.filter((t) => t.status === 'in_prep' || t.status === 'ready').length}
+            kitchenTicketsCount={activeTicketsCount}
+            onNavigateToHub={() => navigateTo('/gestion')}
           />
 
           <main className="flex-1 flex flex-col min-h-0 overflow-hidden">

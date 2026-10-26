@@ -1,6 +1,6 @@
 import React from 'react';
 import { Role } from '../types/pos';
-import { Volume2, VolumeX, Plus } from 'lucide-react';
+import { Volume2, VolumeX, Plus, Building2 } from 'lucide-react';
 import { sounds } from '../utils/audio';
 
 interface HeaderProps {
@@ -10,6 +10,7 @@ interface HeaderProps {
   onToggleAudio: () => void;
   onQuickNewOrder: () => void;
   kitchenTicketsCount: number;
+  onNavigateToHub?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -18,7 +19,8 @@ export const Header: React.FC<HeaderProps> = ({
   audioEnabled,
   onToggleAudio,
   onQuickNewOrder,
-  kitchenTicketsCount
+  kitchenTicketsCount,
+  onNavigateToHub
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-[#101d2d] text-white border-b border-[#1f2e42] px-4 lg:px-8 py-3.5 shadow-sm">
@@ -35,6 +37,20 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Zone 2: Navigation Links (single line, whitespace-nowrap) */}
         <nav className="flex items-center gap-1 sm:gap-2 md:gap-4 overflow-x-auto py-1 scrollbar-none">
+          {onNavigateToHub && (
+            <button
+              onClick={() => {
+                sounds.playTap();
+                onNavigateToHub();
+              }}
+              className="px-2.5 py-1.5 text-xs lg:text-sm font-semibold rounded-md text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/40 border border-emerald-500/30 transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 mr-1"
+              title="Retourner au Centre de Gestion du restaurant"
+            >
+              <Building2 size={14} />
+              <span>Centre de Gestion</span>
+            </button>
+          )}
+
           <button
             onClick={() => onSelectRole('pos')}
             className={`px-3 py-1.5 text-xs lg:text-sm font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
