@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "Restaurant": {
+      "title": "Restaurant",
+      "description": "Informations du restaurant, statut d'ouverture et coordonnées",
+      "type": "object",
+      "properties": {
+        "slug": { "type": "string" },
+        "name": { "type": "string" },
+        "tagline": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "phone": { "type": "string" },
+        "currency": { "type": "string" },
+        "bannerUrl": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "isOpen": { "type": "boolean" },
+        "openingHours": { "type": "string" }
+      },
+      "required": ["slug", "name", "isOpen"]
+    },
+    "MenuItem": {
+      "title": "MenuItem",
+      "description": "Plat ou boisson du catalogue avec tarifs, déclinaisons et disponibilité",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "restaurantSlug": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "description": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "available": { "type": "boolean" },
+        "prepTimeMinutes": { "type": "number" },
+        "tags": { "type": "array" },
+        "optionGroups": { "type": "array" },
+        "availableExtras": { "type": "array" }
+      },
+      "required": ["id", "restaurantSlug", "name", "category", "price", "available"]
+    }
+  },
+  "firestore": {
+    "/restaurants/{restaurantSlug}": {
+      "schema": "Restaurant",
+      "description": "Fiche descriptive du restaurant et statut opérationnel du service"
+    },
+    "/restaurants/{restaurantSlug}/menuItems/{dishId}": {
+      "schema": "MenuItem",
+      "description": "Catalogue des plats et boissons proposés par le restaurant"
+    }
+  }
+}

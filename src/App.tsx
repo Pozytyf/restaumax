@@ -18,7 +18,15 @@ import {
   INITIAL_DRAWER_STATE 
 } from './data/mockData';
 import { CHEZ_AWA_RESTAURANT, CHEZ_AWA_MENU_ITEMS } from './data/restaumaxData';
-import { RestauMenuItem, ClientCartItem } from './types/restaumax';
+import { RestauMenuItem, ClientCartItem, RestaurantInfo } from './types/restaumax';
+import { 
+  subscribeToRestaurant, 
+  subscribeToMenuItems, 
+  persistMenuItem, 
+  persistDishAvailability, 
+  seedInitialFirestoreData, 
+  testConnection 
+} from './lib/firebase';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -115,28 +123,83 @@ export default function App() {
     setAudioEnabled(!audioEnabled);
   };
 
-  // RestauMax Step 1 Dynamic State (Catalog & Dish Availability)
+  // RestauMax Firestore Persisted State (Restaurant Info & Catalog)
+  const [restaurant, setRestaurant] = useState<RestaurantInfo>(CHEZ_AWA_RESTAURANT);
   const [restauMenuItems, setRestauMenuItems] = useState<RestauMenuItem[]>(CHEZ_AWA_MENU_ITEMS);
 
-  // RestauMax Step 1 Client Cart State (Preserved across routing)
+  // Firestore Realtime Synchronization & Initial Boot Seed
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. Connection probe
+    testConnection().catch((err) => console.warn('Firestore test connection:', err));
+
+    // 2. Initial seed if Firestore collections are empty
+    seedInitialFirestoreData(CHEZ_AWA_RESTAURANT, CHEZ_AWA_MENU_ITEMS).catch((err) => {
+      console.warn('Initial Firestore seed notice:', err);
+    });
+
+    // 3. Subscribe to Restaurant document
+    const unsubRestaurant = subscribeToRestaurant('chez-awa', (updatedRestaurant) => {
+      if (isMounted && updatedRestaurant) {
+        setRestaurant(updatedRestaurant);
+      }
+    });
+
+    // 4. Subscribe to Menu Items subcollection
+    const unsubMenuItems = subscribeToMenuItems('chez-awa', (items) => {
+      if (isMounted && items && items.length > 0) {
+        setRestauMenuItems(items);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubRestaurant();
+      unsubMenuItems();
+    };
+  }, []);
+
+  // RestauMax Client Cart State (Preserved across routing)
   const [clientCart, setClientCart] = useState<ClientCartItem[]>([]);
 
   const handleToggleDishAvailability = (dishId: string) => {
+    const currentDish = restauMenuItems.find((i) => i.id === dishId);
+    const nextAvailable = currentDish ? currentDish.available === false : false;
+
+    // Optimistic local state update
     setRestauMenuItems((prev) =>
       prev.map((item) =>
-        item.id === dishId ? { ...item, available: item.available === false ? true : false } : item
+        item.id === dishId ? { ...item, available: nextAvailable } : item
       )
     );
+
+    // Asynchronous Firestore persistence
+    persistDishAvailability('chez-awa', dishId, nextAvailable).catch((err) => {
+      console.error('Erreur de persistance de la disponibilité dans Firestore:', err);
+    });
   };
 
   const handleCreateDish = (newDish: RestauMenuItem) => {
+    // Optimistic local state update
     setRestauMenuItems((prev) => [newDish, ...prev]);
+
+    // Asynchronous Firestore persistence
+    persistMenuItem('chez-awa', newDish).catch((err) => {
+      console.error('Erreur de persistance du nouveau plat dans Firestore:', err);
+    });
   };
 
   const handleUpdateDish = (updatedDish: RestauMenuItem) => {
+    // Optimistic local state update
     setRestauMenuItems((prev) =>
       prev.map((item) => (item.id === updatedDish.id ? updatedDish : item))
     );
+
+    // Asynchronous Firestore persistence
+    persistMenuItem('chez-awa', updatedDish).catch((err) => {
+      console.error('Erreur de mise à jour du plat dans Firestore:', err);
+    });
   };
 
   const handleClientAddToCart = (newItem: ClientCartItem): boolean => {
@@ -338,7 +401,7 @@ export default function App() {
       {/* 1. Client Menu Route: /r/chez-awa?table=4 or /r/chez-awa */}
       {isClientMenuRoute && (
         <ClientMenuView
-          restaurant={CHEZ_AWA_RESTAURANT}
+          restaurant={restaurant}
           menuItems={restauMenuItems}
           tableNumber={activeTableNumber}
           cart={clientCart}
@@ -360,7 +423,7 @@ export default function App() {
       {/* 2. Restaurant Management Hub: /gestion */}
       {isRestaurantHubRoute && (
         <RestaurantHubView
-          restaurant={CHEZ_AWA_RESTAURANT}
+          restaurant={restaurant}
           menuItems={restauMenuItems}
           menuItemsCount={restauMenuItems.length}
           tablesCount={tables.length}

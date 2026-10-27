@@ -1,0 +1,58 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Validation primitives
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidRestaurant(data) {
+      return data.keys().hasAll(['slug', 'name', 'isOpen'])
+        && data.slug is string && data.slug.size() > 0 && data.slug.size() <= 100
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 200
+        && data.isOpen is bool;
+    }
+
+    function isValidMenuItem(data) {
+      return data.keys().hasAll(['id', 'restaurantSlug', 'name', 'category', 'price', 'available'])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.restaurantSlug is string && data.restaurantSlug.size() > 0 && data.restaurantSlug.size() <= 100
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 200
+        && data.category is string && data.category.size() > 0 && data.category.size() <= 50
+        && data.price is number && data.price >= 0
+        && data.available is bool;
+    }
+
+    // Restaurant profile and service status
+    match /restaurants/{restaurantSlug} {
+      allow get: if isValidId(restaurantSlug);
+      allow list: if true;
+      allow create: if isValidId(restaurantSlug) && isValidRestaurant(incoming());
+      allow update: if isValidId(restaurantSlug) && isValidRestaurant(incoming());
+      allow delete: if false;
+
+      // Menu catalog subcollection
+      match /menuItems/{dishId} {
+        allow get: if isValidId(dishId);
+        allow list: if true;
+        allow create: if isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
+        allow update: if isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
+        allow delete: if isValidId(dishId);
+      }
+    }
+  }
+}
