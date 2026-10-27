@@ -20,6 +20,20 @@ service cloud.firestore {
       return resource.data;
     }
 
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Manager role verification:
+    // Requires authentication AND (Custom Claims 'manager'/'admin' OR presence in trusted /managers/{uid} document)
+    function isManager() {
+      return isSignedIn() && (
+        request.auth.token.role == 'manager' ||
+        request.auth.token.role == 'admin' ||
+        exists(/databases/$(database)/documents/managers/$(request.auth.uid))
+      );
+    }
+
     function isValidRestaurant(data) {
       return data.keys().hasAll(['slug', 'name', 'isOpen'])
         && data.slug is string && data.slug.size() > 0 && data.slug.size() <= 100
@@ -37,21 +51,34 @@ service cloud.firestore {
         && data.available is bool;
     }
 
+    // Role verification collection: managers
+    // Read: authenticated manager checking their own entry
+    // Write: STRICTLY FORBIDDEN from client SDK (must be provisioned via Admin SDK / Firebase Console)
+    match /managers/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list: if false;
+      allow write: if false;
+    }
+
     // Restaurant profile and service status
+    // Public get/list for customers scanning QR code
+    // Create/update restricted strictly to verified managers
     match /restaurants/{restaurantSlug} {
       allow get: if isValidId(restaurantSlug);
       allow list: if true;
-      allow create: if isValidId(restaurantSlug) && isValidRestaurant(incoming());
-      allow update: if isValidId(restaurantSlug) && isValidRestaurant(incoming());
+      allow create: if isManager() && isValidId(restaurantSlug) && isValidRestaurant(incoming());
+      allow update: if isManager() && isValidId(restaurantSlug) && isValidRestaurant(incoming());
       allow delete: if false;
 
       // Menu catalog subcollection
+      // Public get/list for QR menu viewing
+      // Create/update/delete restricted strictly to verified managers
       match /menuItems/{dishId} {
         allow get: if isValidId(dishId);
         allow list: if true;
-        allow create: if isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
-        allow update: if isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
-        allow delete: if isValidId(dishId);
+        allow create: if isManager() && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
+        allow update: if isManager() && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
+        allow delete: if isManager() && isValidId(dishId);
       }
     }
   }

@@ -38,9 +38,24 @@
         "availableExtras": { "type": "array" }
       },
       "required": ["id", "restaurantSlug", "name", "category", "price", "available"]
+    },
+    "Manager": {
+      "title": "Manager",
+      "description": "Habilitation de gestion attribuée côté serveur",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" }
+      },
+      "required": ["uid", "role"]
     }
   },
   "firestore": {
+    "/managers/{userId}": {
+      "schema": "Manager",
+      "description": "Liste blanche des gestionnaires habilités (écriture strictement interdite côté client)"
+    },
     "/restaurants/{restaurantSlug}": {
       "schema": "Restaurant",
       "description": "Fiche descriptive du restaurant et statut opérationnel du service"

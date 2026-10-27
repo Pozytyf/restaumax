@@ -25,7 +25,11 @@ import {
   persistMenuItem, 
   persistDishAvailability, 
   seedInitialFirestoreData, 
-  testConnection 
+  testConnection,
+  signInManager,
+  signOutManager,
+  subscribeToAuth,
+  type User
 } from './lib/firebase';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
@@ -40,6 +44,7 @@ import { ManagerView } from './components/manager/ManagerView';
 import { HomePage } from './components/restaumax/HomePage';
 import { ClientMenuView, areCartConfigurationsEqual } from './components/restaumax/ClientMenuView';
 import { RestaurantHubView } from './components/restaumax/RestaurantHubView';
+import { ManagerLoginView } from './components/restaumax/ManagerLoginView';
 import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
 
 export default function App() {
@@ -159,6 +164,38 @@ export default function App() {
       unsubMenuItems();
     };
   }, []);
+
+  // RestauMax Authentication & Manager Authorization State
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [isAuthorizedManager, setIsAuthorizedManager] = useState<boolean>(false);
+  const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
+
+  // Subscribe to Firebase Auth and evaluate Manager privileges
+  useEffect(() => {
+    const unsubAuth = subscribeToAuth((user, isManager) => {
+      setAuthUser(user);
+      setIsAuthorizedManager(isManager);
+      setIsLoadingAuth(false);
+    });
+
+    return () => unsubAuth();
+  }, []);
+
+  const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
+    const res = await signInManager(email, pass);
+    if (res.success && res.user) {
+      setAuthUser(res.user);
+      setIsAuthorizedManager(true);
+      return { success: true };
+    }
+    return { success: false, error: res.error };
+  };
+
+  const handleManagerSignOut = async () => {
+    await signOutManager();
+    setAuthUser(null);
+    setIsAuthorizedManager(false);
+  };
 
   // RestauMax Client Cart State (Preserved across routing)
   const [clientCart, setClientCart] = useState<ClientCartItem[]>([]);
@@ -385,7 +422,7 @@ export default function App() {
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
   const isStaffRoute = activePathname === '/staff';
-  const isRestaurantHubRoute = activePathname === '/gestion';
+  const isRestaurantHubRoute = activePathname.startsWith('/gestion');
   const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute;
 
   const activeTicketsCount = kitchenTickets.filter((t) => t.status === 'in_prep' || t.status === 'ready').length;
@@ -420,25 +457,43 @@ export default function App() {
         />
       )}
 
-      {/* 2. Restaurant Management Hub: /gestion */}
+      {/* 2. Protected Restaurant Management Hub: /gestion and all sub-routes */}
       {isRestaurantHubRoute && (
-        <RestaurantHubView
-          restaurant={restaurant}
-          menuItems={restauMenuItems}
-          menuItemsCount={restauMenuItems.length}
-          tablesCount={tables.length}
-          activeKitchenTicketsCount={activeTicketsCount}
-          totalSessionSales={drawerState.totalSales}
-          onNavigateHome={() => navigateTo('/')}
-          onNavigateToClientMenu={() => navigateTo('/r/chez-awa')}
-          onNavigateToStaffRole={(role) => {
-            setCurrentRole(role);
-            navigateTo('/staff');
-          }}
-          onToggleDishAvailability={handleToggleDishAvailability}
-          onCreateDish={handleCreateDish}
-          onUpdateDish={handleUpdateDish}
-        />
+        isLoadingAuth ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#f4f7fb] min-h-[60vh]">
+            <div className="w-14 h-14 rounded-2xl bg-[#ff6500] text-white flex items-center justify-center font-black text-xl shadow-md animate-pulse mb-3">
+              RM
+            </div>
+            <p className="text-xs font-bold text-slate-700">Vérification de la session sécurisée...</p>
+            <p className="text-[11px] text-slate-400 mt-1">Connexion sécurisée au Centre de Gestion RestauMax</p>
+          </div>
+        ) : (!authUser || !isAuthorizedManager) ? (
+          <ManagerLoginView
+            onLogin={handleManagerLogin}
+            onBackToMenu={() => navigateTo('/r/chez-awa')}
+            restaurantName={restaurant.name}
+          />
+        ) : (
+          <RestaurantHubView
+            restaurant={restaurant}
+            menuItems={restauMenuItems}
+            menuItemsCount={restauMenuItems.length}
+            tablesCount={tables.length}
+            activeKitchenTicketsCount={activeTicketsCount}
+            totalSessionSales={drawerState.totalSales}
+            onNavigateHome={() => navigateTo('/')}
+            onNavigateToClientMenu={() => navigateTo('/r/chez-awa')}
+            onNavigateToStaffRole={(role) => {
+              setCurrentRole(role);
+              navigateTo('/staff');
+            }}
+            onToggleDishAvailability={handleToggleDishAvailability}
+            onCreateDish={handleCreateDish}
+            onUpdateDish={handleUpdateDish}
+            currentUserEmail={authUser?.email}
+            onSignOut={handleManagerSignOut}
+          />
+        )
       )}
 
       {/* 3. RestauMax Home Landing Page: / */}

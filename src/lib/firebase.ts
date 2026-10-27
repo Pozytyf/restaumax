@@ -1,5 +1,14 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged, 
+  getIdTokenResult, 
+  type User 
+} from 'firebase/auth';
+
+export type { User };
 import { 
   getFirestore, 
   doc, 
@@ -191,4 +200,97 @@ export async function persistDishAvailability(restaurantSlug: string, dishId: st
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
   }
+}
+
+/**
+ * Checks if a given Firebase user has the manager role:
+ * 1. Via Custom Claims (role === 'manager' or 'admin')
+ * 2. Via trusted server-side document in /managers/{uid}
+ */
+export async function checkIsManager(user: User | null): Promise<boolean> {
+  if (!user) return false;
+
+  try {
+    // Check Custom Claims first (fastest, token-based)
+    const tokenResult = await getIdTokenResult(user);
+    if (tokenResult.claims.role === 'manager' || tokenResult.claims.role === 'admin') {
+      return true;
+    }
+
+    // Check trusted Firestore collection /managers/{uid}
+    const managerDocRef = doc(db, 'managers', user.uid);
+    const managerDoc = await getDoc(managerDocRef);
+    if (managerDoc.exists()) {
+      return true;
+    }
+  } catch (err) {
+    console.warn('Erreur lors de la vérification des privilèges gestionnaire:', err);
+  }
+
+  return false;
+}
+
+/**
+ * Signs in a manager with email and password, verifying privileges.
+ * Returns generic error message without revealing sensitive details.
+ */
+export async function signInManager(
+  email: string, 
+  password: string
+): Promise<{ success: boolean; user?: User; error?: string }> {
+  try {
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    const hasRole = await checkIsManager(cred.user);
+
+    if (!hasRole) {
+      // Disconnect immediately if the authenticated account lacks manager privileges
+      await signOut(auth);
+      return {
+        success: false,
+        error: "Ce compte ne dispose pas des privilèges de gestion requis. Accès refusé."
+      };
+    }
+
+    return { success: true, user: cred.user };
+  } catch (err: any) {
+    const code = err?.code;
+    let message = "Identifiants invalides ou accès non autorisé.";
+
+    if (
+      code === 'auth/user-not-found' || 
+      code === 'auth/wrong-password' || 
+      code === 'auth/invalid-credential'
+    ) {
+      message = "Adresse e-mail ou mot de passe incorrect.";
+    } else if (code === 'auth/too-many-requests') {
+      message = "Trop de tentatives infructueuses. Veuillez patienter avant de réessayer.";
+    } else if (code === 'auth/user-disabled') {
+      message = "Ce compte d'accès a été désactivé.";
+    }
+
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Signs out the manager
+ */
+export async function signOutManager(): Promise<void> {
+  await signOut(auth);
+}
+
+/**
+ * Subscribes to Firebase Auth state changes and evaluates manager authorization
+ */
+export function subscribeToAuth(
+  callback: (user: User | null, isAuthorizedManager: boolean) => void
+) {
+  return onAuthStateChanged(auth, async (user) => {
+    if (!user) {
+      callback(null, false);
+      return;
+    }
+    const isAuthorized = await checkIsManager(user);
+    callback(user, isAuthorized);
+  });
 }

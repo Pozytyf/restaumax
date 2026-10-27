@@ -24,7 +24,9 @@ import {
   ShieldAlert, 
   ArrowLeft,
   UtensilsCrossed,
-  Receipt
+  Receipt,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 
 export type ModuleStatus = 'active' | 'to_activate' | 'unavailable';
@@ -42,6 +44,8 @@ export interface RestaurantHubViewProps {
   onToggleDishAvailability: (dishId: string) => void;
   onCreateDish: (dish: RestauMenuItem) => void;
   onUpdateDish: (dish: RestauMenuItem) => void;
+  currentUserEmail?: string | null;
+  onSignOut?: () => void;
 }
 
 interface ModuleDefinition {
@@ -69,7 +73,9 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   onNavigateToStaffRole,
   onToggleDishAvailability,
   onCreateDish,
-  onUpdateDish
+  onUpdateDish,
+  currentUserEmail,
+  onSignOut
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog'>('overview');
   // Format current date in French standard
@@ -296,16 +302,35 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-xs text-slate-300">
-            <div className="flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-700/60">
+          <div className="flex items-center gap-3 text-xs text-slate-300">
+            <div className="hidden lg:flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-700/60">
               <Calendar size={14} className="text-[#ff6500]" />
               <span className="font-semibold">{capitalizedDate}</span>
             </div>
 
-            <div className="hidden md:flex items-center gap-1.5 text-slate-400">
-              <MapPin size={14} className="text-amber-400" />
-              <span>{restaurant.city}</span>
-            </div>
+            {currentUserEmail && (
+              <div className="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-1.5 rounded-lg border border-slate-700 text-slate-200">
+                <UserIcon size={13} className="text-emerald-400" />
+                <span className="font-medium text-[11px] max-w-[140px] truncate" title={currentUserEmail}>
+                  {currentUserEmail}
+                </span>
+              </div>
+            )}
+
+            {onSignOut && (
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playTap();
+                  onSignOut();
+                }}
+                className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-200 border border-rose-500/30 transition-all flex items-center gap-1.5 text-xs font-bold active:scale-95"
+                title="Déconnexion du Centre de Gestion"
+              >
+                <LogOut size={13} />
+                <span>Déconnexion</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
