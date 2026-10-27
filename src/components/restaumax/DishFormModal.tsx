@@ -61,6 +61,105 @@ interface FormExtra {
   price: string; // raw input string
 }
 
+/**
+ * Validates an image URL:
+ * - Refuses empty inputs.
+ * - Refuses unencoded whitespace anywhere in the string.
+ * - Strictly requires http: or https: protocol.
+ * - Validates host: localhost (local dev), valid IPv4 octets, or FQDN.
+ * - For FQDN: at least 2 labels, RFC 1035/1123 compliant label characters,
+ *   and a valid TLD (>= 2 letters or punycode) without restricting specific domain names.
+ */
+export function validateImageUrl(urlStr: string): { isValid: boolean; errorMessage?: string } {
+  const trimmed = urlStr.trim();
+  if (!trimmed) {
+    return { isValid: false, errorMessage: "L'adresse URL de l'image est obligatoire." };
+  }
+
+  // Reject unencoded whitespace anywhere in the URL
+  if (/\s/.test(trimmed)) {
+    return { isValid: false, errorMessage: "L'URL de l'image ne doit pas contenir d'espaces." };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return {
+      isValid: false,
+      errorMessage: "L'URL de l'image est mal formée. Veuillez saisir une adresse web valide (ex. https://...).",
+    };
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      isValid: false,
+      errorMessage: "L'URL de l'image doit obligatoirement commencer par http:// ou https://.",
+    };
+  }
+
+  const hostname = parsed.hostname;
+  if (!hostname || hostname.length === 0) {
+    return {
+      isValid: false,
+      errorMessage: "L'URL de l'image doit comporter un nom d'hôte valide.",
+    };
+  }
+
+  // Explicit localhost support for local development
+  if (hostname.toLowerCase() === 'localhost') {
+    return { isValid: true };
+  }
+
+  // IPv4 address check (e.g. 127.0.0.1, 192.168.1.50)
+  const ipv4Regex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+  const ipMatch = hostname.match(ipv4Regex);
+  if (ipMatch) {
+    const octets = [Number(ipMatch[1]), Number(ipMatch[2]), Number(ipMatch[3]), Number(ipMatch[4])];
+    const validOctets = octets.every((o) => o >= 0 && o <= 255);
+    if (validOctets) {
+      return { isValid: true };
+    }
+    return {
+      isValid: false,
+      errorMessage: "L'adresse IP spécifiée dans l'URL de l'image est invalide (chaque octet doit être compris entre 0 et 255).",
+    };
+  }
+
+  // FQDN / Domain name validation
+  const labels = hostname.split('.');
+  if (labels.length < 2) {
+    return {
+      isValid: false,
+      errorMessage: "L'URL de l'image doit comporter un nom de domaine valide (ex. https://domaine.com/photo.jpg).",
+    };
+  }
+
+  // RFC 1035 / RFC 1123 label rules: 1-63 chars, alphanumeric start and end, hyphens allowed inside
+  const labelRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
+  for (let i = 0; i < labels.length; i++) {
+    const label = labels[i];
+    if (!label || label.length > 63 || !labelRegex.test(label)) {
+      return {
+        isValid: false,
+        errorMessage: "Le nom d'hôte de l'image comporte des caractères ou un format de domaine invalide.",
+      };
+    }
+  }
+
+  // Top-Level Domain (TLD) validation: last label must be letters (or IDN punycode xn--...) and at least 2 chars
+  const tld = labels[labels.length - 1];
+  const tldRegex = /^(?:[a-zA-Z]{2,63}|xn--[a-zA-Z0-9-]{2,59})$/;
+  if (!tldRegex.test(tld)) {
+    return {
+      isValid: false,
+      errorMessage: "L'extension de domaine (TLD) de l'image est invalide (ex. .ci, .com, .restaurant).",
+    };
+  }
+
+  return { isValid: true };
+}
+
 export const DishFormModal: React.FC<DishFormModalProps> = ({
   isOpen,
   onClose,
@@ -181,25 +280,10 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       errs.prepTimeMinutes = 'Le temps de préparation doit être un nombre entier de minutes.';
     }
 
-    // 5. URL de l'image (Vérification 3 - Validation robuste via constructeur URL)
-    const trimmedUrl = imageUrl.trim();
-    if (!trimmedUrl) {
-      errs.imageUrl = "L'adresse URL de l'image est obligatoire.";
-    } else {
-      try {
-        const parsed = new URL(trimmedUrl);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-          errs.imageUrl = "L'URL de l'image doit commencer par http:// ou https://.";
-        } else if (
-          !parsed.hostname ||
-          parsed.hostname.length === 0 ||
-          (!parsed.hostname.includes('.') && parsed.hostname !== 'localhost')
-        ) {
-          errs.imageUrl = "L'URL de l'image doit comporter un nom de domaine valide (ex. https://domaine.com/photo.jpg).";
-        }
-      } catch {
-        errs.imageUrl = "L'URL de l'image est mal formée. Veuillez saisir une adresse web valide (ex. https://...).";
-      }
+    // 5. URL de l'image (Validation robuste conforme RFC, HTTP/HTTPS, localhost, IPv4, FQDN)
+    const urlValidation = validateImageUrl(imageUrl);
+    if (!urlValidation.isValid && urlValidation.errorMessage) {
+      errs.imageUrl = urlValidation.errorMessage;
     }
 
     // 6. Groupes d'options
@@ -269,17 +353,20 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
     // Build finalized option groups with integer numbers
     const savedOptionGroups: MenuOptionGroup[] | undefined =
       optionGroups.length > 0
-        ? optionGroups.map((g) => ({
-            id: g.id,
-            name: g.name.trim(),
-            required: g.required,
-            options: g.options.map((o) => ({
-              id: o.id,
-              name: o.name.trim(),
-              extraPrice: Math.round(Number(o.extraPrice)),
-              isDefault: Boolean(o.isDefault),
-            })),
-          }))
+        ? optionGroups.map((g) => {
+            const hasDefault = g.options.some((opt) => opt.isDefault);
+            return {
+              id: g.id,
+              name: g.name.trim(),
+              required: g.required,
+              options: g.options.map((o, idx) => ({
+                id: o.id,
+                name: o.name.trim(),
+                extraPrice: Math.round(Number(o.extraPrice)),
+                isDefault: hasDefault ? Boolean(o.isDefault) : idx === 0,
+              })),
+            };
+          })
         : undefined;
 
     // Build finalized extras with integer numbers
