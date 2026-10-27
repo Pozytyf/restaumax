@@ -23,13 +23,26 @@ async function main() {
   }
 
   // Initialisation de Firebase Admin
+  const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!credPath) {
+    console.error('Erreur de configuration : la variable d\'environnement GOOGLE_APPLICATION_CREDENTIALS n\'est pas définie.');
+    console.error('Veuillez spécifier le chemin vers la clé de compte de service Firebase.');
+    console.error('Exemple : GOOGLE_APPLICATION_CREDENTIALS=/chemin/vers/serviceAccountKey.json node scripts/grant-manager.mjs <EMAIL>');
+    process.exit(1);
+  }
+
+  if (!fs.existsSync(credPath)) {
+    console.error('Erreur : le fichier de clé de service spécifié est introuvable.');
+    process.exit(1);
+  }
+
   if (!getApps().length) {
-    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    if (credPath && fs.existsSync(credPath)) {
+    try {
       const serviceAccount = JSON.parse(fs.readFileSync(credPath, 'utf8'));
       initializeApp({ credential: cert(serviceAccount) });
-    } else {
-      initializeApp();
+    } catch (parseErr) {
+      console.error('Erreur : impossible de lire ou d\'analyser le fichier de compte de service JSON.');
+      process.exit(1);
     }
   }
 
@@ -46,19 +59,21 @@ async function main() {
       userRecord = await adminAuth.getUser(targetUserIdentifier);
     }
   } catch (err) {
-    console.error(`Utilisateur introuvable dans Firebase Auth (${err.message}).`);
+    console.error(`Utilisateur introuvable dans Firebase Authentication.`);
     process.exit(1);
   }
 
-  console.log(`Utilisateur trouvé : ${userRecord.email} (UID: ${userRecord.uid})`);
+  console.log(`Utilisateur identifié : ${userRecord.email} (UID: ${userRecord.uid})`);
 
-  // 1. Attribution du Custom Claim
+  // 1. Fusion des Custom Claims pour préserver d'éventuelles claims existantes
+  const existingClaims = userRecord.customClaims || {};
   await adminAuth.setCustomUserClaims(userRecord.uid, {
+    ...existingClaims,
     role: 'manager'
   });
-  console.log('✓ Custom Claim { role: "manager" } attribué avec succès.');
+  console.log('✓ Custom Claim { role: "manager" } fusionné avec succès (claims existantes préservées).');
 
-  // 2. Enregistrement dans la collection Firestore /managers/{uid}
+  // 2. Enregistrement sécurisé dans la collection Firestore /managers/{uid}
   await db.collection('managers').doc(userRecord.uid).set({
     uid: userRecord.uid,
     email: userRecord.email,
@@ -66,11 +81,11 @@ async function main() {
     grantedAt: new Date().toISOString()
   }, { merge: true });
 
-  console.log(`✓ Document Firestore créé dans /managers/${userRecord.uid}.`);
+  console.log(`✓ Document Firestore validé dans /managers/${userRecord.uid} (champ role: "manager").`);
   console.log(`✓ L'utilisateur ${userRecord.email} est désormais habilité comme Gestionnaire RestauMax.`);
 }
 
 main().catch((err) => {
-  console.error('Erreur:', err);
+  console.error('Échec de l\'opération :', err.message || 'Erreur interne.');
   process.exit(1);
 });

@@ -2,7 +2,7 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 1. Global Safety Net (Default Deny)
+    // 1. Global Safety Net (Default Deny: tout chemin non explicitement autorisé est refusé)
     match /{document=**} {
       allow read, write: if false;
     }
@@ -25,12 +25,17 @@ service cloud.firestore {
     }
 
     // Manager role verification:
-    // Requires authentication AND (Custom Claims 'manager'/'admin' OR presence in trusted /managers/{uid} document)
+    // Requires authentication AND either:
+    // 1. Custom Claims role == 'manager' or 'admin' (assigned by trusted Admin environment)
+    // 2. Presence of a trusted document in /managers/{uid} with field role in ['manager', 'admin']
     function isManager() {
       return isSignedIn() && (
         request.auth.token.role == 'manager' ||
         request.auth.token.role == 'admin' ||
-        exists(/databases/$(database)/documents/managers/$(request.auth.uid))
+        (
+          exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['manager', 'admin']
+        )
       );
     }
 
@@ -52,7 +57,8 @@ service cloud.firestore {
     }
 
     // Role verification collection: managers
-    // Read: authenticated manager checking their own entry
+    // Read: authenticated manager checking only their own entry
+    // List: STRICTLY FORBIDDEN (no scraping or enumeration of staff accounts)
     // Write: STRICTLY FORBIDDEN from client SDK (must be provisioned via Admin SDK / Firebase Console)
     match /managers/{userId} {
       allow get: if isSignedIn() && request.auth.uid == userId;
@@ -61,17 +67,18 @@ service cloud.firestore {
     }
 
     // Restaurant profile and service status
-    // Public get/list for customers scanning QR code
+    // Public get by exact identifier (slug) for customers scanning QR code
+    // List of all restaurants: FORBIDDEN (not needed by QR menu or single-restaurant hub)
     // Create/update restricted strictly to verified managers
     match /restaurants/{restaurantSlug} {
       allow get: if isValidId(restaurantSlug);
-      allow list: if true;
+      allow list: if false;
       allow create: if isManager() && isValidId(restaurantSlug) && isValidRestaurant(incoming());
       allow update: if isManager() && isValidId(restaurantSlug) && isValidRestaurant(incoming());
       allow delete: if false;
 
       // Menu catalog subcollection
-      // Public get/list for QR menu viewing
+      // Public get and list for QR menu viewing
       // Create/update/delete restricted strictly to verified managers
       match /menuItems/{dishId} {
         allow get: if isValidId(dishId);

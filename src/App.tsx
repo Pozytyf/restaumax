@@ -24,7 +24,6 @@ import {
   subscribeToMenuItems, 
   persistMenuItem, 
   persistDishAvailability, 
-  seedInitialFirestoreData, 
   testConnection,
   signInManager,
   signOutManager,
@@ -136,24 +135,19 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Connection probe
+    // 1. Connection probe (read-only)
     testConnection().catch((err) => console.warn('Firestore test connection:', err));
 
-    // 2. Initial seed if Firestore collections are empty
-    seedInitialFirestoreData(CHEZ_AWA_RESTAURANT, CHEZ_AWA_MENU_ITEMS).catch((err) => {
-      console.warn('Initial Firestore seed notice:', err);
-    });
-
-    // 3. Subscribe to Restaurant document
+    // 2. Subscribe to Restaurant document
     const unsubRestaurant = subscribeToRestaurant('chez-awa', (updatedRestaurant) => {
       if (isMounted && updatedRestaurant) {
         setRestaurant(updatedRestaurant);
       }
     });
 
-    // 4. Subscribe to Menu Items subcollection
+    // 3. Subscribe to Menu Items subcollection (reflects real state including empty catalog)
     const unsubMenuItems = subscribeToMenuItems('chez-awa', (items) => {
-      if (isMounted && items && items.length > 0) {
+      if (isMounted) {
         setRestauMenuItems(items);
       }
     });

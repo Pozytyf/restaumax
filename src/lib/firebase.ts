@@ -211,20 +211,24 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
   if (!user) return false;
 
   try {
-    // Check Custom Claims first (fastest, token-based)
+    // 1. Check Custom Claims (token-based)
     const tokenResult = await getIdTokenResult(user);
-    if (tokenResult.claims.role === 'manager' || tokenResult.claims.role === 'admin') {
+    if (tokenResult.claims && (tokenResult.claims.role === 'manager' || tokenResult.claims.role === 'admin')) {
       return true;
     }
 
-    // Check trusted Firestore collection /managers/{uid}
+    // 2. Check trusted Firestore collection /managers/{uid} with strict role validation
     const managerDocRef = doc(db, 'managers', user.uid);
     const managerDoc = await getDoc(managerDocRef);
     if (managerDoc.exists()) {
-      return true;
+      const data = managerDoc.data();
+      if (data && (data.role === 'manager' || data.role === 'admin')) {
+        return true;
+      }
     }
   } catch (err) {
     console.warn('Erreur lors de la vérification des privilèges gestionnaire:', err);
+    return false;
   }
 
   return false;
