@@ -129,6 +129,16 @@ export default function App() {
     );
   };
 
+  const handleCreateDish = (newDish: RestauMenuItem) => {
+    setRestauMenuItems((prev) => [newDish, ...prev]);
+  };
+
+  const handleUpdateDish = (updatedDish: RestauMenuItem) => {
+    setRestauMenuItems((prev) =>
+      prev.map((item) => (item.id === updatedDish.id ? updatedDish : item))
+    );
+  };
+
   const handleClientAddToCart = (newItem: ClientCartItem): boolean => {
     // 1. Double vérification fondée sur la disponibilité actuelle du catalogue partagé
     const liveDish = restauMenuItems.find((item) => item.id === newItem.menuItemId);
@@ -363,6 +373,8 @@ export default function App() {
             navigateTo('/staff');
           }}
           onToggleDishAvailability={handleToggleDishAvailability}
+          onCreateDish={handleCreateDish}
+          onUpdateDish={handleUpdateDish}
         />
       )}
 

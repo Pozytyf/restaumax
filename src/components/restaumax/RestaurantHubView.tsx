@@ -40,6 +40,8 @@ export interface RestaurantHubViewProps {
   onNavigateToClientMenu: () => void;
   onNavigateToStaffRole: (role: 'pos' | 'floor' | 'kds' | 'manager') => void;
   onToggleDishAvailability: (dishId: string) => void;
+  onCreateDish: (dish: RestauMenuItem) => void;
+  onUpdateDish: (dish: RestauMenuItem) => void;
 }
 
 interface ModuleDefinition {
@@ -65,7 +67,9 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   onNavigateHome,
   onNavigateToClientMenu,
   onNavigateToStaffRole,
-  onToggleDishAvailability
+  onToggleDishAvailability,
+  onCreateDish,
+  onUpdateDish
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog'>('overview');
   // Format current date in French standard
@@ -240,6 +244,8 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
         restaurant={restaurant}
         menuItems={menuItems}
         onToggleAvailability={onToggleDishAvailability}
+        onCreateDish={onCreateDish}
+        onUpdateDish={onUpdateDish}
         onBackToHub={() => setActiveTab('overview')}
         onNavigateToClientMenu={onNavigateToClientMenu}
       />

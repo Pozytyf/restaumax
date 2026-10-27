@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { RestaurantInfo, RestauMenuItem } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
+import { DishFormModal } from './DishFormModal';
 import { 
   ArrowLeft, 
   BookOpen, 
@@ -20,13 +21,17 @@ import {
   ToggleLeft,
   ToggleRight,
   Sparkles,
-  Info
+  Info,
+  Edit3,
+  Plus
 } from 'lucide-react';
 
 export interface MenuManagementViewProps {
   restaurant: RestaurantInfo;
   menuItems: RestauMenuItem[];
   onToggleAvailability: (dishId: string) => void;
+  onCreateDish: (dish: RestauMenuItem) => void;
+  onUpdateDish: (dish: RestauMenuItem) => void;
   onBackToHub: () => void;
   onNavigateToClientMenu: () => void;
 }
@@ -48,12 +53,16 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
   restaurant,
   menuItems,
   onToggleAvailability,
+  onCreateDish,
+  onUpdateDish,
   onBackToHub,
   onNavigateToClientMenu
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('tous');
   const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>('tous');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedDishToEdit, setSelectedDishToEdit] = useState<RestauMenuItem | null>(null);
 
   // Stats calculation
   const totalDishes = menuItems.length;
@@ -89,6 +98,26 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
     onToggleAvailability(dishId);
   };
 
+  const handleOpenCreateModal = () => {
+    sounds.playTap();
+    setSelectedDishToEdit(null);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditModal = (dish: RestauMenuItem) => {
+    sounds.playTap();
+    setSelectedDishToEdit(dish);
+    setIsModalOpen(true);
+  };
+
+  const handleSaveDish = (dish: RestauMenuItem) => {
+    if (selectedDishToEdit) {
+      onUpdateDish(dish);
+    } else {
+      onCreateDish(dish);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-[#f4f7fb] text-[#181c1f]">
       {/* Subheader / Navigation Bar */}
@@ -117,22 +146,31 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                 </h1>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                {restaurant.name} — Consultation de la carte et pilotage de la disponibilité en direct
+                {restaurant.name} — Consultation, ajout & modification de plats, et pilotage des disponibilités
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={handleOpenCreateModal}
+              className="px-4 py-2 bg-[#ff6500] hover:bg-[#e05800] text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5 active:scale-95"
+              title="Ajouter un nouveau plat au catalogue"
+            >
+              <Plus size={16} />
+              <span>Nouveau plat</span>
+            </button>
+
             <button
               onClick={() => {
                 sounds.playTap();
                 onNavigateToClientMenu();
               }}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 active:scale-95"
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold border border-slate-700 transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
               title="Ouvrir le menu client QR dans une nouvelle vue"
             >
-              <BookOpen size={14} />
-              <span>Aperçu Menu Client QR</span>
+              <BookOpen size={14} className="text-emerald-400" />
+              <span>Aperçu Menu QR</span>
               <ExternalLink size={12} className="opacity-70" />
             </button>
           </div>
@@ -434,28 +472,40 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                       )}
                     </div>
 
-                    {/* Toggle button */}
-                    <button
-                      onClick={() => handleToggle(item.id)}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 active:scale-95 ${
-                        isAvailable
-                          ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800 border border-rose-200/80 shadow-2xs'
-                          : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs'
-                      }`}
-                      title={isAvailable ? 'Marquer le plat comme indisponible' : 'Rendre le plat à nouveau disponible'}
-                    >
-                      {isAvailable ? (
-                        <>
-                          <ToggleRight size={16} className="text-rose-500" />
-                          <span>Marquer en rupture</span>
-                        </>
-                      ) : (
-                        <>
-                          <ToggleLeft size={16} className="text-emerald-200" />
-                          <span>Rétablir la disponibilité</span>
-                        </>
-                      )}
-                    </button>
+                    {/* Actions: Modifier & Disponibilité */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleOpenEditModal(item)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-all flex items-center gap-1.5 active:scale-95 border border-slate-200"
+                        title="Modifier ce plat, ses tarifs ou ses options"
+                      >
+                        <Edit3 size={13} className="text-slate-600" />
+                        <span>Modifier</span>
+                      </button>
+
+                      {/* Toggle button */}
+                      <button
+                        onClick={() => handleToggle(item.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 ${
+                          isAvailable
+                            ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800 border border-rose-200/80 shadow-2xs'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs'
+                        }`}
+                        title={isAvailable ? 'Marquer le plat comme indisponible' : 'Rendre le plat à nouveau disponible'}
+                      >
+                        {isAvailable ? (
+                          <>
+                            <ToggleRight size={15} className="text-rose-500" />
+                            <span>En rupture</span>
+                          </>
+                        ) : (
+                          <>
+                            <ToggleLeft size={15} className="text-emerald-200" />
+                            <span>Rétablir</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -463,6 +513,15 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Dish Form Modal (Creation & Edition) */}
+      <DishFormModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        dishToEdit={selectedDishToEdit}
+        restaurant={restaurant}
+        onSave={handleSaveDish}
+      />
     </div>
   );
 };
