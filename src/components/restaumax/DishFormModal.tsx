@@ -350,11 +350,18 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
 
     const dishId = dishToEdit?.id || `dish-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-    // Build finalized option groups with integer numbers
+    // Build finalized option groups with integer numbers and strictly one default option
     const savedOptionGroups: MenuOptionGroup[] | undefined =
       optionGroups.length > 0
         ? optionGroups.map((g) => {
-            const hasDefault = g.options.some((opt) => opt.isDefault);
+            // Déterminer l'index exact de l'unique option par défaut :
+            // 1. Chercher la première option ayant isDefault === true
+            // 2. Si aucune n'a isDefault === true et que des options existent, choisir l'index 0
+            let defaultIndex = g.options.findIndex((opt) => Boolean(opt.isDefault));
+            if (defaultIndex === -1 && g.options.length > 0) {
+              defaultIndex = 0;
+            }
+
             return {
               id: g.id,
               name: g.name.trim(),
@@ -363,7 +370,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 id: o.id,
                 name: o.name.trim(),
                 extraPrice: Math.round(Number(o.extraPrice)),
-                isDefault: hasDefault ? Boolean(o.isDefault) : idx === 0,
+                isDefault: idx === defaultIndex,
               })),
             };
           })
@@ -452,12 +459,23 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const handleRemoveOptionFromGroup = (groupIndex: number, optionIndex: number) => {
     sounds.playTap();
     const updated = [...optionGroups];
-    const removedWasDefault = updated[groupIndex].options[optionIndex]?.isDefault;
-    updated[groupIndex].options = updated[groupIndex].options.filter((_, idx) => idx !== optionIndex);
-    // If the removed option was default, set the first option as default if exists
-    if (removedWasDefault && updated[groupIndex].options.length > 0) {
-      updated[groupIndex].options[0].isDefault = true;
+    const remaining = updated[groupIndex].options.filter((_, idx) => idx !== optionIndex);
+
+    if (remaining.length > 0) {
+      // Rechercher l'index de la première option actuellement par défaut parmi les restantes
+      let defaultIdx = remaining.findIndex((opt) => Boolean(opt.isDefault));
+      if (defaultIdx === -1) {
+        // Si l'option supprimée était la seule par défaut (ou aucune restante n'est par défaut),
+        // transférer le statut par défaut à la première option restante
+        defaultIdx = 0;
+      }
+      // Garantir qu'exactement une seule option a isDefault === true
+      remaining.forEach((opt, idx) => {
+        opt.isDefault = idx === defaultIdx;
+      });
     }
+
+    updated[groupIndex].options = remaining;
     setOptionGroups(updated);
   };
 
