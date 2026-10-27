@@ -15,11 +15,9 @@ import {
 import { 
   RestauMenuItem, 
   MenuOptionGroup, 
-  MenuOptionItem, 
   MenuExtra, 
   RestaurantInfo 
 } from '../../types/restaumax';
-import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
 
 export interface DishFormModalProps {
@@ -39,6 +37,30 @@ const CATEGORY_OPTIONS: { id: RestauMenuItem['category']; label: string }[] = [
   { id: 'desserts', label: 'Desserts & Douceurs' },
 ];
 
+/**
+ * Internal form item types allowing raw string inputs
+ * to prevent silent conversion of invalid inputs (negatives, decimals, text)
+ */
+interface FormOptionItem {
+  id: string;
+  name: string;
+  extraPrice: string; // raw input string
+  isDefault?: boolean;
+}
+
+interface FormOptionGroup {
+  id: string;
+  name: string;
+  required: boolean;
+  options: FormOptionItem[];
+}
+
+interface FormExtra {
+  id: string;
+  name: string;
+  price: string; // raw input string
+}
+
 export const DishFormModal: React.FC<DishFormModalProps> = ({
   isOpen,
   onClose,
@@ -57,8 +79,8 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const [imageUrl, setImageUrl] = useState('');
   const [available, setAvailable] = useState(true);
   const [tagsInput, setTagsInput] = useState('');
-  const [optionGroups, setOptionGroups] = useState<MenuOptionGroup[]>([]);
-  const [extras, setExtras] = useState<MenuExtra[]>([]);
+  const [optionGroups, setOptionGroups] = useState<FormOptionGroup[]>([]);
+  const [extras, setExtras] = useState<FormExtra[]>([]);
 
   // Validation Errors State
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -73,20 +95,44 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       setName(dishToEdit.name || '');
       setDescription(dishToEdit.description || '');
       setCategory(dishToEdit.category || 'grillades');
-      setPrice(dishToEdit.price ? dishToEdit.price.toString() : '');
-      setPrepTimeMinutes(dishToEdit.prepTimeMinutes ? dishToEdit.prepTimeMinutes.toString() : '20');
+      setPrice(dishToEdit.price !== undefined ? dishToEdit.price.toString() : '');
+      setPrepTimeMinutes(dishToEdit.prepTimeMinutes !== undefined ? dishToEdit.prepTimeMinutes.toString() : '20');
+      // Preserver l'URL existante lors de la modification
       setImageUrl(dishToEdit.imageUrl || '');
       setAvailable(dishToEdit.available !== false);
       setTagsInput(dishToEdit.tags ? dishToEdit.tags.join(', ') : '');
-      setOptionGroups(dishToEdit.optionGroups ? JSON.parse(JSON.stringify(dishToEdit.optionGroups)) : []);
-      setExtras(dishToEdit.availableExtras ? JSON.parse(JSON.stringify(dishToEdit.availableExtras)) : []);
+      setOptionGroups(
+        dishToEdit.optionGroups
+          ? dishToEdit.optionGroups.map((grp) => ({
+              id: grp.id,
+              name: grp.name,
+              required: grp.required,
+              options: grp.options.map((opt) => ({
+                id: opt.id,
+                name: opt.name,
+                extraPrice: opt.extraPrice.toString(),
+                isDefault: opt.isDefault,
+              })),
+            }))
+          : []
+      );
+      setExtras(
+        dishToEdit.availableExtras
+          ? dishToEdit.availableExtras.map((ext) => ({
+              id: ext.id,
+              name: ext.name,
+              price: ext.price.toString(),
+            }))
+          : []
+      );
     } else {
+      // Correction 2: URL vide à la création (aucun préremplissage Unsplash)
       setName('');
       setDescription('');
       setCategory('plats');
       setPrice('');
       setPrepTimeMinutes('20');
-      setImageUrl('https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=800&q=80');
+      setImageUrl('');
       setAvailable(true);
       setTagsInput('');
       setOptionGroups([]);
@@ -114,22 +160,46 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
     }
 
     // 3. Prix de base
-    const numPrice = Number(price);
-    if (!price || isNaN(numPrice) || numPrice <= 0 || !Number.isInteger(numPrice)) {
-      errs.price = 'Le prix doit être un nombre entier strictement supérieur à 0 (ex. 5000 FCFA).';
+    const rawPrice = price.trim();
+    const numPrice = Number(rawPrice);
+    if (!rawPrice || isNaN(numPrice)) {
+      errs.price = 'Le prix de base est obligatoire et doit être un nombre valide.';
+    } else if (numPrice <= 0) {
+      errs.price = 'Le prix doit être strictement supérieur à 0 FCFA.';
+    } else if (!Number.isInteger(numPrice)) {
+      errs.price = 'Le prix doit être un nombre entier en FCFA (sans décimale).';
     }
 
     // 4. Temps de préparation
-    const numPrep = Number(prepTimeMinutes);
-    if (!prepTimeMinutes || isNaN(numPrep) || numPrep <= 0 || !Number.isInteger(numPrep)) {
+    const rawPrep = prepTimeMinutes.trim();
+    const numPrep = Number(rawPrep);
+    if (!rawPrep || isNaN(numPrep)) {
+      errs.prepTimeMinutes = 'Le temps de préparation doit être un nombre valide.';
+    } else if (numPrep <= 0) {
       errs.prepTimeMinutes = 'Le temps de préparation doit être au minimum de 1 minute.';
+    } else if (!Number.isInteger(numPrep)) {
+      errs.prepTimeMinutes = 'Le temps de préparation doit être un nombre entier de minutes.';
     }
 
-    // 5. URL de l'image
-    if (!imageUrl.trim()) {
+    // 5. URL de l'image (Vérification 3 - Validation robuste via constructeur URL)
+    const trimmedUrl = imageUrl.trim();
+    if (!trimmedUrl) {
       errs.imageUrl = "L'adresse URL de l'image est obligatoire.";
-    } else if (!/^https?:\/\/.+/i.test(imageUrl.trim())) {
-      errs.imageUrl = "L'URL doit commencer par http:// ou https://.";
+    } else {
+      try {
+        const parsed = new URL(trimmedUrl);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          errs.imageUrl = "L'URL de l'image doit commencer par http:// ou https://.";
+        } else if (
+          !parsed.hostname ||
+          parsed.hostname.length === 0 ||
+          (!parsed.hostname.includes('.') && parsed.hostname !== 'localhost')
+        ) {
+          errs.imageUrl = "L'URL de l'image doit comporter un nom de domaine valide (ex. https://domaine.com/photo.jpg).";
+        }
+      } catch {
+        errs.imageUrl = "L'URL de l'image est mal formée. Veuillez saisir une adresse web valide (ex. https://...).";
+      }
     }
 
     // 6. Groupes d'options
@@ -144,8 +214,15 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
         if (!opt.name.trim()) {
           errs[`group_${gIdx}_opt_${oIdx}_name`] = `Le nom de l'option #${oIdx + 1} dans "${group.name || `Groupe ${gIdx + 1}`}" est requis.`;
         }
-        if (opt.extraPrice < 0 || isNaN(opt.extraPrice) || !Number.isInteger(Number(opt.extraPrice))) {
-          errs[`group_${gIdx}_opt_${oIdx}_price`] = `Le supplément de l'option doit être un entier positif ou nul (0 FCFA si inclus).`;
+        // Correction 1: Contrôle précis du prix de l'option sans conversion silencieuse
+        const rawOptPrice = opt.extraPrice.trim();
+        const numOptPrice = Number(rawOptPrice);
+        if (rawOptPrice === '' || isNaN(numOptPrice)) {
+          errs[`group_${gIdx}_opt_${oIdx}_price`] = `Le supplément de l'option doit être un nombre valide (0 FCFA si inclus).`;
+        } else if (numOptPrice < 0) {
+          errs[`group_${gIdx}_opt_${oIdx}_price`] = `Le supplément ne peut pas être négatif.`;
+        } else if (!Number.isInteger(numOptPrice)) {
+          errs[`group_${gIdx}_opt_${oIdx}_price`] = `Le supplément doit être un nombre entier en FCFA (sans décimale).`;
         }
       });
     });
@@ -155,8 +232,15 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       if (!ext.name.trim()) {
         errs[`extra_${eIdx}_name`] = `Le nom du supplément #${eIdx + 1} est requis.`;
       }
-      if (ext.price < 0 || isNaN(ext.price) || !Number.isInteger(Number(ext.price))) {
-        errs[`extra_${eIdx}_price`] = `Le prix du supplément #${eIdx + 1} doit être un entier positif ou nul.`;
+      // Correction 1: Contrôle précis du prix du supplément sans conversion silencieuse
+      const rawExtPrice = ext.price.trim();
+      const numExtPrice = Number(rawExtPrice);
+      if (rawExtPrice === '' || isNaN(numExtPrice)) {
+        errs[`extra_${eIdx}_price`] = `Le prix du supplément doit être un nombre valide.`;
+      } else if (numExtPrice < 0) {
+        errs[`extra_${eIdx}_price`] = `Le prix du supplément ne peut pas être négatif.`;
+      } else if (!Number.isInteger(numExtPrice)) {
+        errs[`extra_${eIdx}_price`] = `Le prix du supplément doit être un nombre entier en FCFA (sans décimale).`;
       }
     });
 
@@ -182,6 +266,32 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
 
     const dishId = dishToEdit?.id || `dish-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
+    // Build finalized option groups with integer numbers
+    const savedOptionGroups: MenuOptionGroup[] | undefined =
+      optionGroups.length > 0
+        ? optionGroups.map((g) => ({
+            id: g.id,
+            name: g.name.trim(),
+            required: g.required,
+            options: g.options.map((o) => ({
+              id: o.id,
+              name: o.name.trim(),
+              extraPrice: Math.round(Number(o.extraPrice)),
+              isDefault: Boolean(o.isDefault),
+            })),
+          }))
+        : undefined;
+
+    // Build finalized extras with integer numbers
+    const savedExtras: MenuExtra[] | undefined =
+      extras.length > 0
+        ? extras.map((e) => ({
+            id: e.id,
+            name: e.name.trim(),
+            price: Math.round(Number(e.price)),
+          }))
+        : undefined;
+
     const savedDish: RestauMenuItem = {
       id: dishId,
       restaurantSlug: dishToEdit?.restaurantSlug || restaurant.slug || 'chez-awa',
@@ -193,8 +303,8 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       imageUrl: imageUrl.trim(),
       available,
       tags: tags.length > 0 ? tags : undefined,
-      optionGroups: optionGroups.length > 0 ? optionGroups : undefined,
-      availableExtras: extras.length > 0 ? extras : undefined,
+      optionGroups: savedOptionGroups,
+      availableExtras: savedExtras,
     };
 
     sounds.playTap();
@@ -205,7 +315,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   // Option Groups Handlers
   const handleAddOptionGroup = () => {
     sounds.playTap();
-    const newGroup: MenuOptionGroup = {
+    const newGroup: FormOptionGroup = {
       id: `grp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       name: '',
       required: true,
@@ -213,7 +323,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
         {
           id: `opt-${Date.now()}-1`,
           name: '',
-          extraPrice: 0,
+          extraPrice: '0',
           isDefault: true,
         },
       ],
@@ -242,10 +352,10 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const handleAddOptionToGroup = (groupIndex: number) => {
     sounds.playTap();
     const updated = [...optionGroups];
-    const newOpt: MenuOptionItem = {
+    const newOpt: FormOptionItem = {
       id: `opt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       name: '',
-      extraPrice: 0,
+      extraPrice: '0',
       isDefault: updated[groupIndex].options.length === 0,
     };
     updated[groupIndex].options.push(newOpt);
@@ -264,11 +374,12 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
     setOptionGroups(updated);
   };
 
+  // Correction 1: Conserve la valeur brute saisie par l'utilisateur sans la transformer
   const handleUpdateOption = (
     groupIndex: number,
     optionIndex: number,
-    field: keyof MenuOptionItem,
-    value: string | number | boolean
+    field: keyof FormOptionItem,
+    value: string | boolean
   ) => {
     const updated = [...optionGroups];
     const opt = { ...updated[groupIndex].options[optionIndex] };
@@ -283,8 +394,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
     }
 
     if (field === 'extraPrice') {
-      const num = Number(value);
-      opt.extraPrice = isNaN(num) ? 0 : Math.max(0, Math.floor(num));
+      opt.extraPrice = String(value);
     } else if (field === 'name') {
       opt.name = String(value);
     }
@@ -296,10 +406,10 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   // Extras Handlers
   const handleAddExtra = () => {
     sounds.playTap();
-    const newExtra: MenuExtra = {
+    const newExtra: FormExtra = {
       id: `ext-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       name: '',
-      price: 500,
+      price: '500',
     };
     setExtras([...extras, newExtra]);
   };
@@ -309,15 +419,15 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
     setExtras(extras.filter((_, idx) => idx !== extraIndex));
   };
 
+  // Correction 1: Conserve la valeur brute saisie par l'utilisateur sans la transformer
   const handleUpdateExtra = (
     extraIndex: number,
     field: 'name' | 'price',
-    value: string | number
+    value: string
   ) => {
     const updated = [...extras];
     if (field === 'price') {
-      const num = Number(value);
-      updated[extraIndex].price = isNaN(num) ? 0 : Math.max(0, Math.floor(num));
+      updated[extraIndex].price = String(value);
     } else {
       updated[extraIndex].name = String(value);
     }
@@ -450,8 +560,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 <div className="relative">
                   <input
                     type="number"
-                    min="1"
-                    step="50"
+                    step="any"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
                     placeholder="ex. 12000"
@@ -473,7 +582,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 <div className="relative">
                   <input
                     type="number"
-                    min="1"
+                    step="any"
                     value={prepTimeMinutes}
                     onChange={(e) => setPrepTimeMinutes(e.target.value)}
                     placeholder="ex. 20"
@@ -510,7 +619,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               </div>
             </div>
 
-            {/* Image URL with live preview */}
+            {/* Image URL with live preview - Correction 2 & Vérification 3 */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 URL de l'image (photo du plat) <span className="text-rose-500">*</span>
@@ -531,15 +640,15 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                   />
                   {errors.imageUrl && <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.imageUrl}</p>}
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Lien HTTPS vers une image web (Unsplash, CDN de photos gastronomiques).
+                    Lien HTTPS vers une image web (Unsplash, hébergeur ou CDN). Requis à la création.
                   </p>
                 </div>
 
                 {/* Preview Thumbnail */}
                 <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center relative">
-                  {imageUrl && !imageLoadError ? (
+                  {imageUrl.trim() && !imageLoadError ? (
                     <img
-                      src={imageUrl}
+                      src={imageUrl.trim()}
                       alt="Aperçu plat"
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover"
@@ -655,7 +764,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                     )}
 
                     {/* Options list inside group */}
-                    <div className="space-y-2 pt-2 border-t border-slate-200/60">
+                    <div className="space-y-2.5 pt-2 border-t border-slate-200/60">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                           Choix possibles dans ce groupe
@@ -673,64 +782,79 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                       {group.options.map((opt, oIdx) => (
                         <div
                           key={opt.id}
-                          className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200"
+                          className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1.5"
                         >
-                          <div className="flex-1">
-                            <input
-                              type="text"
-                              value={opt.name}
-                              onChange={(e) =>
-                                handleUpdateOption(gIdx, oIdx, 'name', e.target.value)
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                value={opt.name}
+                                onChange={(e) =>
+                                  handleUpdateOption(gIdx, oIdx, 'name', e.target.value)
+                                }
+                                placeholder="ex. Attiéké de Grand-Lahou, Alloco doré..."
+                                className={`w-full px-2.5 py-1 text-xs border rounded focus:outline-none focus:ring-1 focus:ring-[#ff6500] ${
+                                  errors[`group_${gIdx}_opt_${oIdx}_name`] ? 'border-rose-400 bg-rose-50/20' : 'border-slate-200'
+                                }`}
+                              />
+                            </div>
+
+                            <div className="w-28 shrink-0 relative">
+                              <input
+                                type="number"
+                                step="any"
+                                value={opt.extraPrice}
+                                onChange={(e) =>
+                                  handleUpdateOption(gIdx, oIdx, 'extraPrice', e.target.value)
+                                }
+                                placeholder="0"
+                                className={`w-full pl-2 pr-7 py-1 text-xs font-bold border rounded text-right focus:outline-none focus:ring-1 focus:ring-[#ff6500] ${
+                                  errors[`group_${gIdx}_opt_${oIdx}_price`]
+                                    ? 'border-rose-400 bg-rose-50/20 text-rose-700'
+                                    : 'border-slate-200'
+                                }`}
+                              />
+                              <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">
+                                F
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleUpdateOption(gIdx, oIdx, 'isDefault', true)
                               }
-                              placeholder="ex. Attiéké de Grand-Lahou, Alloco doré..."
-                              className="w-full px-2.5 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-[#ff6500]"
-                            />
-                            {errors[`group_${gIdx}_opt_${oIdx}_name`] && (
-                              <p className="text-[10px] text-rose-600 mt-0.5">
-                                {errors[`group_${gIdx}_opt_${oIdx}_name`]}
-                              </p>
-                            )}
+                              className={`px-2 py-1 rounded text-[10px] font-bold shrink-0 transition-colors ${
+                                opt.isDefault
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                              }`}
+                              title={opt.isDefault ? 'Option sélectionnée par défaut' : 'Définir comme choix par défaut'}
+                            >
+                              {opt.isDefault ? 'Défaut' : 'Standard'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveOptionFromGroup(gIdx, oIdx)}
+                              className="p-1 text-slate-300 hover:text-rose-600 transition-colors shrink-0"
+                              title="Supprimer cette option"
+                            >
+                              <X size={14} />
+                            </button>
                           </div>
 
-                          <div className="w-28 shrink-0 relative">
-                            <input
-                              type="number"
-                              min="0"
-                              step="50"
-                              value={opt.extraPrice}
-                              onChange={(e) =>
-                                handleUpdateOption(gIdx, oIdx, 'extraPrice', e.target.value)
-                              }
-                              className="w-full pl-2 pr-7 py-1 text-xs font-bold border border-slate-200 rounded text-right focus:outline-none focus:ring-1 focus:ring-[#ff6500]"
-                            />
-                            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">
-                              F
-                            </span>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleUpdateOption(gIdx, oIdx, 'isDefault', true)
-                            }
-                            className={`px-2 py-1 rounded text-[10px] font-bold shrink-0 transition-colors ${
-                              opt.isDefault
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-                            }`}
-                            title={opt.isDefault ? 'Option sélectionnée par défaut' : 'Définir comme choix par défaut'}
-                          >
-                            {opt.isDefault ? 'Défaut' : 'Standard'}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveOptionFromGroup(gIdx, oIdx)}
-                            className="p-1 text-slate-300 hover:text-rose-600 transition-colors"
-                            title="Supprimer cette option"
-                          >
-                            <X size={14} />
-                          </button>
+                          {/* Error messages for option row */}
+                          {(errors[`group_${gIdx}_opt_${oIdx}_name`] || errors[`group_${gIdx}_opt_${oIdx}_price`]) && (
+                            <div className="flex flex-col gap-0.5 pt-0.5 text-[10px] text-rose-600 font-medium">
+                              {errors[`group_${gIdx}_opt_${oIdx}_name`] && (
+                                <p>{errors[`group_${gIdx}_opt_${oIdx}_name`]}</p>
+                              )}
+                              {errors[`group_${gIdx}_opt_${oIdx}_price`] && (
+                                <p>{errors[`group_${gIdx}_opt_${oIdx}_price`]}</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -770,45 +894,58 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 {extras.map((ext, eIdx) => (
                   <div
                     key={ext.id}
-                    className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200"
+                    className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-1.5"
                   >
-                    <div className="flex-1">
-                      <input
-                        type="text"
-                        value={ext.name}
-                        onChange={(e) => handleUpdateExtra(eIdx, 'name', e.target.value)}
-                        placeholder="ex. Sauce piment maison"
-                        className="w-full px-2.5 py-1 text-xs border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[#ff6500]"
-                      />
-                      {errors[`extra_${eIdx}_name`] && (
-                        <p className="text-[10px] text-rose-600 mt-0.5">
-                          {errors[`extra_${eIdx}_name`]}
-                        </p>
-                      )}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={ext.name}
+                          onChange={(e) => handleUpdateExtra(eIdx, 'name', e.target.value)}
+                          placeholder="ex. Sauce piment maison"
+                          className={`w-full px-2.5 py-1 text-xs border rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[#ff6500] ${
+                            errors[`extra_${eIdx}_name`] ? 'border-rose-400 bg-rose-50/20' : 'border-slate-200'
+                          }`}
+                        />
+                      </div>
+
+                      <div className="w-28 shrink-0 relative">
+                        <input
+                          type="number"
+                          step="any"
+                          value={ext.price}
+                          onChange={(e) => handleUpdateExtra(eIdx, 'price', e.target.value)}
+                          placeholder="0"
+                          className={`w-full pl-2 pr-7 py-1 text-xs font-bold border rounded-lg bg-white text-right focus:outline-none focus:ring-1 focus:ring-[#ff6500] ${
+                            errors[`extra_${eIdx}_price`] ? 'border-rose-400 bg-rose-50/20 text-rose-700' : 'border-slate-200'
+                          }`}
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">
+                          FCFA
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveExtra(eIdx)}
+                        className="p-1 text-slate-300 hover:text-rose-600 transition-colors shrink-0"
+                        title="Supprimer ce supplément"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
 
-                    <div className="w-28 shrink-0 relative">
-                      <input
-                        type="number"
-                        min="0"
-                        step="50"
-                        value={ext.price}
-                        onChange={(e) => handleUpdateExtra(eIdx, 'price', e.target.value)}
-                        className="w-full pl-2 pr-7 py-1 text-xs font-bold border border-slate-200 rounded-lg bg-white text-right focus:outline-none focus:ring-1 focus:ring-[#ff6500]"
-                      />
-                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">
-                        FCFA
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveExtra(eIdx)}
-                      className="p-1 text-slate-300 hover:text-rose-600 transition-colors"
-                      title="Supprimer ce supplément"
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    {/* Error messages for extra row */}
+                    {(errors[`extra_${eIdx}_name`] || errors[`extra_${eIdx}_price`]) && (
+                      <div className="flex flex-col gap-0.5 pt-0.5 text-[10px] text-rose-600 font-medium">
+                        {errors[`extra_${eIdx}_name`] && (
+                          <p>{errors[`extra_${eIdx}_name`]}</p>
+                        )}
+                        {errors[`extra_${eIdx}_price`] && (
+                          <p>{errors[`extra_${eIdx}_price`]}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
