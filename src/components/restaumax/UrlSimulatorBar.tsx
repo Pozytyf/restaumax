@@ -1,15 +1,17 @@
 import React from 'react';
-import { Globe, MapPin, ShoppingBag, Home, Monitor, Building2, ExternalLink } from 'lucide-react';
+import { Globe, MapPin, ShoppingBag, Home, Monitor, Building2, ExternalLink, Camera, QrCode } from 'lucide-react';
 import { sounds } from '../../utils/audio';
 
 interface UrlSimulatorBarProps {
   currentPath: string; // e.g. "/r/chez-awa?table=4" or "/"
   onNavigate: (path: string) => void;
+  onOpenScanner?: () => void;
 }
 
 export const UrlSimulatorBar: React.FC<UrlSimulatorBarProps> = ({
   currentPath,
-  onNavigate
+  onNavigate,
+  onOpenScanner
 }) => {
   return (
     <div className="bg-[#0b1726] border-b border-slate-800 text-white px-3 py-1.5 text-xs flex flex-wrap items-center justify-between gap-2 z-50">
@@ -24,6 +26,20 @@ export const UrlSimulatorBar: React.FC<UrlSimulatorBarProps> = ({
       </div>
 
       <div className="flex items-center gap-1.5 flex-wrap">
+        {onOpenScanner && (
+          <button
+            onClick={() => {
+              sounds.playTap();
+              onOpenScanner();
+            }}
+            className="px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition-all mr-1"
+            title="Scanner le QR code d'une table avec la caméra du téléphone ou de l'ordinateur"
+          >
+            <Camera size={11} className="text-amber-400" />
+            <span>Scanner QR</span>
+          </button>
+        )}
+
         <span className="text-[10px] text-slate-400 uppercase font-bold mr-1 hidden sm:inline">
           Test Étape 1 :
         </span>

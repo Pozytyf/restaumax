@@ -9,9 +9,12 @@
  *    (Ajouter le drapeau --force pour écraser des données existantes si nécessaire)
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-import * as fs from 'fs';
+import { 
+  getAppletFirebaseConfig, 
+  validateServiceAccountCredentials,
+  initAdminApp,
+  initAdminFirestore 
+} from './firebase-admin-config.mjs';
 
 const CHEZ_AWA_RESTAURANT = {
   slug: 'chez-awa',
@@ -143,31 +146,28 @@ const CHEZ_AWA_MENU_ITEMS = [
 
 async function main() {
   const isForce = process.argv.includes('--force');
+
+  // 1. Chargement de la configuration centralisée
+  const firebaseConfig = getAppletFirebaseConfig();
+  console.log(`Projet cible validé : ${firebaseConfig.projectId}`);
+  console.log(`Base Firestore ciblée : ${firebaseConfig.firestoreDatabaseId}`);
+
+  // 2. Validation des identifiants
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const serviceAccount = validateServiceAccountCredentials(credPath, firebaseConfig.projectId);
 
-  if (!credPath) {
-    console.error('Erreur : variable GOOGLE_APPLICATION_CREDENTIALS manquante.');
-    console.error('Exemple : GOOGLE_APPLICATION_CREDENTIALS=/chemin/vers/cle.json node scripts/seed-catalog.mjs');
-    process.exit(1);
-  }
+  // 3. Initialisation de Firebase Admin SDK et de la base Firestore dédiée
+  const app = initAdminApp(serviceAccount, firebaseConfig.projectId);
+  const db = initAdminFirestore(app, firebaseConfig.firestoreDatabaseId);
 
-  if (!fs.existsSync(credPath)) {
-    console.error('Erreur : fichier de clé de compte de service introuvable.');
-    process.exit(1);
-  }
+  console.log(`Connexion confirmée sur la base : ${db.databaseId}`);
 
-  if (!getApps().length) {
-    const serviceAccount = JSON.parse(fs.readFileSync(credPath, 'utf8'));
-    initializeApp({ credential: cert(serviceAccount) });
-  }
-
-  const db = getFirestore();
   const restRef = db.collection('restaurants').doc(CHEZ_AWA_RESTAURANT.slug);
   const snap = await restRef.get();
 
   if (snap.exists && !isForce) {
-    console.log(`Le restaurant "${CHEZ_AWA_RESTAURANT.slug}" existe déjà dans Firestore.`);
-    console.log('Pour forcer la réinitialisation, ajoutez l\'option --force.');
+    console.log(`Le restaurant "${CHEZ_AWA_RESTAURANT.slug}" existe déjà dans la base "${db.databaseId}".`);
+    console.log("Pour écraser et forcer la réinitialisation, ajoutez l'option --force.");
     process.exit(0);
   }
 
@@ -182,10 +182,10 @@ async function main() {
   }
 
   await batch.commit();
-  console.log(`✓ Données initialisées avec succès dans Firestore (${CHEZ_AWA_MENU_ITEMS.length} plats enregistrés).`);
+  console.log(`✓ Données initialisées avec succès dans ${db.databaseId} (${CHEZ_AWA_MENU_ITEMS.length} plats enregistrés).`);
 }
 
 main().catch((err) => {
-  console.error('Échec de l\'initialisation :', err.message || 'Erreur interne.');
+  console.error("Échec de l'initialisation :", err.message || 'Erreur interne.');
   process.exit(1);
 });

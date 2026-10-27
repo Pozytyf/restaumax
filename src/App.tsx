@@ -45,6 +45,7 @@ import { ClientMenuView, areCartConfigurationsEqual } from './components/restaum
 import { RestaurantHubView } from './components/restaumax/RestaurantHubView';
 import { ManagerLoginView } from './components/restaumax/ManagerLoginView';
 import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
+import { QrScannerModal } from './components/restaumax/QrScannerModal';
 
 export default function App() {
   // Navigation / Routing State
@@ -55,6 +56,8 @@ export default function App() {
     }
     return '/';
   });
+
+  const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
 
   // Parse path & table from currentPath
   const parsePathInfo = (pathStr: string) => {
@@ -427,6 +430,7 @@ export default function App() {
       <UrlSimulatorBar
         currentPath={currentPath}
         onNavigate={navigateTo}
+        onOpenScanner={() => setIsQrScannerOpen(true)}
       />
 
       {/* 1. Client Menu Route: /r/chez-awa?table=4 or /r/chez-awa */}
@@ -502,6 +506,7 @@ export default function App() {
           }}
           onGoToStaffTools={() => navigateTo('/staff')}
           onGoToManagementHub={() => navigateTo('/gestion')}
+          onOpenScanner={() => setIsQrScannerOpen(true)}
         />
       )}
 
@@ -588,6 +593,16 @@ export default function App() {
           />
         </div>
       )}
+
+      {/* Restaurant Table QR Code Camera Scanner Modal */}
+      <QrScannerModal
+        isOpen={isQrScannerOpen}
+        onClose={() => setIsQrScannerOpen(false)}
+        onScanResult={(detectedPath: string) => {
+          navigateTo(detectedPath);
+          setIsQrScannerOpen(false);
+        }}
+      />
     </div>
   );
 }

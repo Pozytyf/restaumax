@@ -9,10 +9,13 @@
  *    GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json node scripts/grant-manager.mjs <USER_EMAIL_OU_UID>
  */
 
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
-import * as fs from 'fs';
+import { 
+  getAppletFirebaseConfig, 
+  validateServiceAccountCredentials,
+  initAdminApp,
+  initAdminFirestore 
+} from './firebase-admin-config.mjs';
 
 async function main() {
   const targetUserIdentifier = process.argv[2];
@@ -22,33 +25,21 @@ async function main() {
     process.exit(1);
   }
 
-  // Initialisation de Firebase Admin
+  // 1. Chargement et validation de la configuration centralisée de l'application
+  const firebaseConfig = getAppletFirebaseConfig();
+  console.log(`Projet cible validé : ${firebaseConfig.projectId}`);
+  console.log(`Base Firestore ciblée : ${firebaseConfig.firestoreDatabaseId}`);
+
+  // 2. Validation de la clé de compte de service et cohérence du projet
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (!credPath) {
-    console.error('Erreur de configuration : la variable d\'environnement GOOGLE_APPLICATION_CREDENTIALS n\'est pas définie.');
-    console.error('Veuillez spécifier le chemin vers la clé de compte de service Firebase.');
-    console.error('Exemple : GOOGLE_APPLICATION_CREDENTIALS=/chemin/vers/serviceAccountKey.json node scripts/grant-manager.mjs <EMAIL>');
-    process.exit(1);
-  }
+  const serviceAccount = validateServiceAccountCredentials(credPath, firebaseConfig.projectId);
 
-  if (!fs.existsSync(credPath)) {
-    console.error('Erreur : le fichier de clé de service spécifié est introuvable.');
-    process.exit(1);
-  }
+  // 3. Initialisation contrôlée de Firebase Admin SDK et de la base Firestore dédiée
+  const app = initAdminApp(serviceAccount, firebaseConfig.projectId);
+  const adminAuth = getAuth(app);
+  const db = initAdminFirestore(app, firebaseConfig.firestoreDatabaseId);
 
-  if (!getApps().length) {
-    try {
-      const serviceAccount = JSON.parse(fs.readFileSync(credPath, 'utf8'));
-      initializeApp({ credential: cert(serviceAccount) });
-    } catch (parseErr) {
-      console.error('Erreur : impossible de lire ou d\'analyser le fichier de compte de service JSON.');
-      process.exit(1);
-    }
-  }
-
-  const adminAuth = getAuth();
-  const db = getFirestore();
-
+  console.log(`Connexion confirmée sur la base : ${db.databaseId}`);
   console.log(`Recherche de l'utilisateur : ${targetUserIdentifier}...`);
 
   let userRecord;
@@ -65,15 +56,15 @@ async function main() {
 
   console.log(`Utilisateur identifié : ${userRecord.email} (UID: ${userRecord.uid})`);
 
-  // 1. Fusion des Custom Claims pour préserver d'éventuelles claims existantes
+  // 4. Fusion des Custom Claims pour préserver d'éventuelles claims existantes
   const existingClaims = userRecord.customClaims || {};
   await adminAuth.setCustomUserClaims(userRecord.uid, {
     ...existingClaims,
     role: 'manager'
   });
-  console.log('✓ Custom Claim { role: "manager" } fusionné avec succès (claims existantes préservées).');
+  console.log('✓ Custom Claim { role: "manager" } fusionné avec succès.');
 
-  // 2. Enregistrement sécurisé dans la collection Firestore /managers/{uid}
+  // 5. Enregistrement sécurisé dans la collection Firestore /managers/{uid} de la base spécifique
   await db.collection('managers').doc(userRecord.uid).set({
     uid: userRecord.uid,
     email: userRecord.email,
@@ -81,11 +72,11 @@ async function main() {
     grantedAt: new Date().toISOString()
   }, { merge: true });
 
-  console.log(`✓ Document Firestore validé dans /managers/${userRecord.uid} (champ role: "manager").`);
+  console.log(`✓ Document Firestore validé dans ${db.databaseId}/managers/${userRecord.uid}.`);
   console.log(`✓ L'utilisateur ${userRecord.email} est désormais habilité comme Gestionnaire RestauMax.`);
 }
 
 main().catch((err) => {
-  console.error('Échec de l\'opération :', err.message || 'Erreur interne.');
+  console.error("Échec de l'opération :", err.message || 'Erreur interne.');
   process.exit(1);
 });

@@ -1,17 +1,19 @@
 import React from 'react';
-import { QrCode, Utensils, Smartphone, ShoppingBag, ShieldCheck, ArrowRight, Sparkles, MapPin, CheckCircle, Building2 } from 'lucide-react';
+import { QrCode, Utensils, Smartphone, ShoppingBag, ShieldCheck, ArrowRight, Sparkles, MapPin, CheckCircle, Building2, Camera } from 'lucide-react';
 import { sounds } from '../../utils/audio';
 
 interface HomePageProps {
   onGoToMenuWithTable: (table: string | null) => void;
   onGoToStaffTools: () => void;
   onGoToManagementHub: () => void;
+  onOpenScanner?: () => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
   onGoToMenuWithTable,
   onGoToStaffTools,
-  onGoToManagementHub
+  onGoToManagementHub,
+  onOpenScanner
 }) => {
   return (
     <div className="min-h-screen bg-[#f4f7fb] text-[#181c1f]">
@@ -76,7 +78,20 @@ export const HomePage: React.FC<HomePageProps> = ({
           </p>
 
           {/* Primary Action Buttons */}
-          <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3 flex-wrap">
+            {onOpenScanner && (
+              <button
+                onClick={() => {
+                  sounds.playTap();
+                  onOpenScanner();
+                }}
+                className="w-full sm:w-auto px-6 py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-sm rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 transition-transform active:scale-95"
+              >
+                <Camera size={18} />
+                <span>Scanner un QR Code</span>
+              </button>
+            )}
+
             <button
               onClick={() => {
                 sounds.playTap();
@@ -127,9 +142,23 @@ export const HomePage: React.FC<HomePageProps> = ({
             </div>
 
             {/* Simulated QR Code Card */}
-            <div className="bg-white p-4 rounded-2xl shadow-md text-slate-900 text-center shrink-0 w-44">
-              <div className="w-28 h-28 mx-auto bg-slate-900 rounded-xl p-2 flex items-center justify-center text-white mb-2">
+            <div
+              onClick={() => {
+                sounds.playTap();
+                if (onOpenScanner) {
+                  onOpenScanner();
+                } else {
+                  onGoToMenuWithTable('4');
+                }
+              }}
+              className="bg-white p-4 rounded-2xl shadow-md text-slate-900 text-center shrink-0 w-44 cursor-pointer hover:shadow-xl hover:scale-105 transition-all group"
+              title="Scanner avec la caméra ou ouvrir le menu de la Table 4"
+            >
+              <div className="w-28 h-28 mx-auto bg-slate-900 rounded-xl p-2 flex items-center justify-center text-white mb-2 relative group-hover:bg-[#ff6500] transition-colors">
                 <QrCode size={80} className="text-white" />
+                <span className="absolute bottom-1 bg-black/70 backdrop-blur-xs text-[9px] font-bold text-amber-300 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <Camera size={10} /> Scanner
+                </span>
               </div>
               <div className="text-[11px] font-extrabold text-slate-800">
                 Table n° 4
