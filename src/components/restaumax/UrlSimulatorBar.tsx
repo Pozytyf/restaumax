@@ -41,7 +41,7 @@ export const UrlSimulatorBar: React.FC<UrlSimulatorBarProps> = ({
         )}
 
         <span className="text-[10px] text-slate-400 uppercase font-bold mr-1 hidden sm:inline">
-          Test Étape 1 :
+          Scénarios QR :
         </span>
 
         <button

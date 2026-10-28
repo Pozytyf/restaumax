@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { RestauMenuItem, ClientCartItem, RestaurantInfo, SelectedOption, SelectedExtra } from '../../types/restaumax';
+import { RestauMenuItem, ClientCartItem, RestaurantInfo, SelectedOption, SelectedExtra, RestauOrder } from '../../types/restaumax';
 import { ProductDetailModal } from './ProductDetailModal';
 import { CartDrawer } from './CartDrawer';
+import { OrderConfirmationModal } from './OrderConfirmationModal';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
 import { 
@@ -32,6 +33,7 @@ export interface ClientMenuViewProps {
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
+  onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; order?: RestauOrder }>;
 }
 
 type CategoryFilter = 'tous' | 'grillades' | 'plats' | 'entrees' | 'accompagnements' | 'boissons' | 'desserts';
@@ -100,12 +102,14 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   onAddToCart,
   onUpdateQuantity,
   onRemoveItem,
-  onClearCart
+  onClearCart,
+  onConfirmOrder
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('tous');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeItemModal, setActiveItemModal] = useState<RestauMenuItem | null>(null);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
+  const [confirmedOrder, setConfirmedOrder] = useState<RestauOrder | null>(null);
 
   // Filtered menu items (only available dishes are displayed and searchable)
   const filteredItems = useMemo(() => {
@@ -444,6 +448,28 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         onUpdateQuantity={onUpdateQuantity}
         onRemoveItem={onRemoveItem}
         onClearCart={onClearCart}
+        onConfirmOrder={async (note) => {
+          if (!onConfirmOrder) {
+            return { success: false, error: "Fonction de commande non configurée." };
+          }
+          const res = await onConfirmOrder(note);
+          if (res.success && res.order) {
+            setIsCartOpen(false);
+            setConfirmedOrder(res.order);
+            sounds.playSuccess();
+          }
+          return res;
+        }}
+      />
+
+      {/* Confirmed Order Modal */}
+      <OrderConfirmationModal
+        order={confirmedOrder}
+        onClose={() => setConfirmedOrder(null)}
+        onNewOrder={() => {
+          setConfirmedOrder(null);
+          onClearCart();
+        }}
       />
     </div>
   );

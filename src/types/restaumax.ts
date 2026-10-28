@@ -73,3 +73,61 @@ export interface RestaurantInfo {
   isOpen: boolean;
   openingHours: string;
 }
+
+export type OrderMode = 'sur_place' | 'a_emporter';
+
+export type RestauOrderStatus = 'pending' | 'in_prep' | 'ready' | 'completed' | 'cancelled';
+
+export interface OrderItemOption {
+  groupId: string;
+  groupName: string;
+  optionId: string;
+  optionName: string;
+  extraPrice: number;
+}
+
+export interface OrderItemExtra {
+  extraId: string;
+  name: string;
+  price: number;
+}
+
+export interface RestauOrderItem {
+  id: string;
+  menuItemId: string;
+  name: string;
+  basePrice: number;
+  unitPrice: number;
+  quantity: number;
+  totalPrice: number;
+  selectedOption?: OrderItemOption;
+  selectedExtras?: OrderItemExtra[];
+  prepNotes?: string;
+}
+
+export interface RestauOrder {
+  id: string;
+  orderNumber: string;
+  restaurantSlug: string;
+  orderMode: OrderMode;
+  tableNumber: string | null;
+  items: RestauOrderItem[];
+  itemsCount: number;
+  totalAmount: number; // in FCFA
+  currency: 'FCFA';
+  status: RestauOrderStatus;
+  customerNote?: string;
+  createdAt: number; // UTC timestamp ms
+  createdAtIso: string;
+  statusUpdatedAt?: number;
+}
+
+export interface RestaurantTable {
+  id: string; // e.g. "table-4" or "4"
+  tableNumber: string; // e.g. "4", "12", "Terrasse A"
+  section: 'salle' | 'terrasse' | 'bar' | 'vip';
+  capacity: number;
+  isActive: boolean;
+  qrUrl?: string;
+}
+

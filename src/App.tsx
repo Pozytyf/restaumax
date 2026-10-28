@@ -18,18 +18,23 @@ import {
   INITIAL_DRAWER_STATE 
 } from './data/mockData';
 import { CHEZ_AWA_RESTAURANT, CHEZ_AWA_MENU_ITEMS } from './data/restaumaxData';
-import { RestauMenuItem, ClientCartItem, RestaurantInfo } from './types/restaumax';
+import { RestauMenuItem, ClientCartItem, RestaurantInfo, RestauOrder, RestaurantTable } from './types/restaumax';
 import { 
   subscribeToRestaurant, 
   subscribeToMenuItems, 
   persistMenuItem, 
   persistDishAvailability, 
+  submitOrder,
+  subscribeToTables,
+  persistTable,
+  deleteTable,
   testConnection,
   signInManager,
   signOutManager,
   subscribeToAuth,
   type User
 } from './lib/firebase';
+import { validateAndBuildOrder } from './utils/pricing';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -72,6 +77,11 @@ export default function App() {
   };
 
   const { path: activePathname, table: activeTableNumber } = parsePathInfo(currentPath);
+
+  const isClientMenuRoute = activePathname.startsWith('/r/');
+  const isStaffRoute = activePathname === '/staff';
+  const isRestaurantHubRoute = activePathname.startsWith('/gestion');
+  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute;
 
   // Sync with browser history
   useEffect(() => {
@@ -133,6 +143,7 @@ export default function App() {
   // RestauMax Firestore Persisted State (Restaurant Info & Catalog)
   const [restaurant, setRestaurant] = useState<RestaurantInfo>(CHEZ_AWA_RESTAURANT);
   const [restauMenuItems, setRestauMenuItems] = useState<RestauMenuItem[]>(CHEZ_AWA_MENU_ITEMS);
+  const [restauTables, setRestauTables] = useState<RestaurantTable[]>([]);
 
   // Firestore Realtime Synchronization & Initial Boot Seed
   useEffect(() => {
@@ -177,6 +188,23 @@ export default function App() {
 
     return () => unsubAuth();
   }, []);
+
+  // Subscribe to Tables subcollection when manager is authorized or management hub is active
+  useEffect(() => {
+    if (!isAuthorizedManager && !isRestaurantHubRoute) return;
+
+    let isMounted = true;
+    const unsubTables = subscribeToTables('chez-awa', (tbls) => {
+      if (isMounted && tbls.length > 0) {
+        setRestauTables(tbls);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubTables();
+    };
+  }, [isAuthorizedManager, isRestaurantHubRoute]);
 
   const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const res = await signInManager(email, pass);
@@ -279,6 +307,77 @@ export default function App() {
 
   const handleClearClientCart = () => {
     setClientCart([]);
+  };
+
+  // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation)
+  const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder }> => {
+    const buildRes = validateAndBuildOrder({
+      cart: clientCart,
+      catalog: restauMenuItems,
+      restaurantSlug: 'chez-awa',
+      orderMode: activeTableNumber ? 'sur_place' : 'a_emporter',
+      tableNumber: activeTableNumber,
+      customerNote
+    });
+
+    if (!buildRes.success) {
+      return { success: false, error: buildRes.error };
+    }
+
+    try {
+      await submitOrder('chez-awa', buildRes.order);
+
+      // Add to internal staff KDS tickets so kitchen sees it live in the POS/KDS session
+      const newKitchenTicket: KitchenTicket = {
+        id: `kt-${Date.now()}`,
+        ticketNumber: buildRes.order.orderNumber,
+        tableNumber: buildRes.order.tableNumber ? `Table ${buildRes.order.tableNumber}` : 'À emporter',
+        orderType: buildRes.order.orderMode === 'sur_place' ? 'sur_place' : 'emporter',
+        waiter: 'QR Menu Client',
+        createdAt: new Date(),
+        status: 'in_prep',
+        items: buildRes.order.items.map((it, idx) => ({
+          id: `ki-${Date.now()}-${idx}`,
+          name: it.name,
+          quantity: it.quantity,
+          course: 'plat',
+          notes: [it.selectedOption?.optionName, it.prepNotes].filter(Boolean).join(' · '),
+          completed: false
+        }))
+      };
+      setKitchenTickets(prev => [newKitchenTicket, ...prev]);
+
+      // Clear client cart strictly only upon confirmed write
+      setClientCart([]);
+
+      return { success: true, order: buildRes.order };
+    } catch (err: any) {
+      console.error('Erreur transmission commande:', err);
+      return { 
+        success: false, 
+        error: "Échec de l'enregistrement de la commande dans la base de données. Votre panier a été préservé, veuillez réessayer." 
+      };
+    }
+  };
+
+  const handleSaveTable = (table: RestaurantTable) => {
+    setRestauTables(prev => {
+      const idx = prev.findIndex(t => t.id === table.id);
+      if (idx >= 0) {
+        return prev.map(t => t.id === table.id ? table : t);
+      }
+      return [...prev, table];
+    });
+    persistTable('chez-awa', table).catch(err => {
+      console.error('Erreur de persistance de la table dans Firestore:', err);
+    });
+  };
+
+  const handleDeleteTable = (tableId: string) => {
+    setRestauTables(prev => prev.filter(t => t.id !== tableId));
+    deleteTable('chez-awa', tableId).catch(err => {
+      console.error('Erreur de suppression de la table dans Firestore:', err);
+    });
   };
 
   // POS Handlers
@@ -417,10 +516,6 @@ export default function App() {
     );
   };
 
-  const isClientMenuRoute = activePathname.startsWith('/r/');
-  const isStaffRoute = activePathname === '/staff';
-  const isRestaurantHubRoute = activePathname.startsWith('/gestion');
-  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute;
 
   const activeTicketsCount = kitchenTickets.filter((t) => t.status === 'in_prep' || t.status === 'ready').length;
 
@@ -444,6 +539,7 @@ export default function App() {
           onUpdateQuantity={handleUpdateClientCartQuantity}
           onRemoveItem={handleRemoveClientCartItem}
           onClearCart={handleClearClientCart}
+          onConfirmOrder={handleClientOrderConfirm}
           onNavigateHome={() => navigateTo('/')}
           onSelectTableDemo={(tbl) => {
             if (tbl) {
@@ -476,7 +572,10 @@ export default function App() {
             restaurant={restaurant}
             menuItems={restauMenuItems}
             menuItemsCount={restauMenuItems.length}
-            tablesCount={tables.length}
+            tablesCount={restauTables.length > 0 ? restauTables.length : tables.length}
+            tables={restauTables}
+            onSaveTable={handleSaveTable}
+            onDeleteTable={handleDeleteTable}
             activeKitchenTicketsCount={activeTicketsCount}
             totalSessionSales={drawerState.totalSales}
             onNavigateHome={() => navigateTo('/')}

@@ -11,6 +11,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { sounds } from '../../utils/audio';
+import { parseAndValidateQrInput } from '../../utils/pricing';
 
 interface QrScannerModalProps {
   isOpen: boolean;
@@ -145,30 +146,19 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
   const handleDetectedUrl = (scannedString: string) => {
     stopCamera();
     sounds.playTap();
-    setScannedFeedback(scannedString);
+
+    const parsed = parseAndValidateQrInput(scannedString, 'chez-awa');
+
+    if (!parsed.isValid) {
+      setCameraError(parsed.error || "Ce QR code ne correspond pas à un menu de table RestauMax.");
+      sounds.playAlert();
+      return;
+    }
+
+    setScannedFeedback(parsed.tableNumber ? `Table ${parsed.tableNumber}` : 'Menu à emporter');
 
     setTimeout(() => {
-      let resolvedPath = '/r/chez-awa';
-
-      try {
-        if (scannedString.startsWith('http://') || scannedString.startsWith('https://')) {
-          const parsed = new URL(scannedString);
-          resolvedPath = parsed.pathname + parsed.search;
-        } else if (scannedString.startsWith('/')) {
-          resolvedPath = scannedString;
-        } else if (scannedString.toLowerCase().includes('table=')) {
-          const match = scannedString.match(/table=([^&]+)/i);
-          if (match && match[1]) {
-            resolvedPath = `/r/chez-awa?table=${encodeURIComponent(match[1])}`;
-          }
-        } else if (!isNaN(Number(scannedString.trim()))) {
-          resolvedPath = `/r/chez-awa?table=${encodeURIComponent(scannedString.trim())}`;
-        }
-      } catch {
-        resolvedPath = `/r/chez-awa?table=${encodeURIComponent(scannedString.trim())}`;
-      }
-
-      onScanResult(resolvedPath);
+      onScanResult(parsed.canonicalPath);
       onClose();
     }, 600);
   };
@@ -179,13 +169,20 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
     if (!cleanTable) return;
 
     sounds.playTap();
-    onScanResult(`/r/chez-awa?table=${encodeURIComponent(cleanTable)}`);
-    onClose();
+    const parsed = parseAndValidateQrInput(cleanTable, 'chez-awa');
+    if (parsed.isValid) {
+      onScanResult(parsed.canonicalPath);
+      onClose();
+    } else {
+      setCameraError(parsed.error || "Numéro de table non valide.");
+      sounds.playAlert();
+    }
   };
 
   const handleSelectDemoTable = (tbl: string) => {
     sounds.playTap();
-    onScanResult(`/r/chez-awa?table=${encodeURIComponent(tbl)}`);
+    const parsed = parseAndValidateQrInput(tbl, 'chez-awa');
+    onScanResult(parsed.canonicalPath);
     onClose();
   };
 

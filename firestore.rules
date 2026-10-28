@@ -56,6 +56,26 @@ service cloud.firestore {
         && data.available is bool;
     }
 
+    function isValidTable(data) {
+      return data.keys().hasAll(['id', 'tableNumber', 'capacity', 'isActive'])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 64
+        && data.tableNumber is string && data.tableNumber.size() > 0 && data.tableNumber.size() <= 64
+        && data.capacity is number && data.capacity > 0 && data.capacity <= 100
+        && data.isActive is bool;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['id', 'orderNumber', 'restaurantSlug', 'orderMode', 'items', 'totalAmount', 'status'])
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.orderNumber is string && data.orderNumber.size() > 0 && data.orderNumber.size() <= 64
+        && data.restaurantSlug is string && data.restaurantSlug.size() > 0 && data.restaurantSlug.size() <= 100
+        && data.orderMode in ['sur_place', 'a_emporter']
+        && (data.orderMode != 'sur_place' || (data.tableNumber is string && data.tableNumber.size() > 0 && data.tableNumber.size() <= 64))
+        && data.items is list && data.items.size() > 0 && data.items.size() <= 50
+        && data.totalAmount is number && data.totalAmount >= 0
+        && data.status in ['pending', 'in_prep', 'ready', 'completed', 'cancelled'];
+    }
+
     // Role verification collection: managers
     // Read: authenticated manager checking only their own entry
     // List: STRICTLY FORBIDDEN (no scraping or enumeration of staff accounts)
@@ -86,6 +106,32 @@ service cloud.firestore {
         allow create: if isManager() && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
         allow update: if isManager() && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
         allow delete: if isManager() && isValidId(dishId);
+      }
+
+      // Tables subcollection
+      // Public get and list so customers can see table information
+      // Create/update/delete restricted strictly to verified managers
+      match /tables/{tableId} {
+        allow get, list: if true;
+        allow create, update: if isManager() && isValidId(tableId) && isValidTable(incoming());
+        allow delete: if isManager() && isValidId(tableId);
+      }
+
+      // Orders subcollection
+      // Create: customer guest creation permitted with strict validation and initial status 'pending'
+      // Get: customer can view confirmed order by exact ID
+      // List: restricted to authorized managers (protects customer privacy and restaurant order stream)
+      // Update: restricted to authorized managers (changing status to 'in_prep', 'ready', etc.)
+      // Delete: STRICTLY FORBIDDEN (audit trail preserved)
+      match /orders/{orderId} {
+        allow create: if isValidId(orderId) 
+          && isValidOrder(incoming()) 
+          && incoming().restaurantSlug == restaurantSlug
+          && incoming().status == 'pending';
+        allow get: if isValidId(orderId);
+        allow list: if isManager();
+        allow update: if isManager() && isValidId(orderId) && isValidOrder(incoming());
+        allow delete: if false;
       }
     }
   }

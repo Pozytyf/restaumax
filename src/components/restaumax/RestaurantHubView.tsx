@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { RestaurantInfo, RestauMenuItem } from '../../types/restaumax';
+import { RestaurantInfo, RestauMenuItem, RestaurantTable } from '../../types/restaumax';
 import { MenuManagementView } from './MenuManagementView';
+import { TableQrGeneratorView } from './TableQrGeneratorView';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
 import { 
@@ -26,7 +27,8 @@ import {
   UtensilsCrossed,
   Receipt,
   LogOut,
-  User as UserIcon
+  User as UserIcon,
+  QrCode
 } from 'lucide-react';
 
 export type ModuleStatus = 'active' | 'to_activate' | 'unavailable';
@@ -38,6 +40,9 @@ export interface RestaurantHubViewProps {
   tablesCount: number;
   activeKitchenTicketsCount: number;
   totalSessionSales: number;
+  tables?: RestaurantTable[];
+  onSaveTable?: (table: RestaurantTable) => void;
+  onDeleteTable?: (tableId: string) => void;
   onNavigateHome: () => void;
   onNavigateToClientMenu: () => void;
   onNavigateToStaffRole: (role: 'pos' | 'floor' | 'kds' | 'manager') => void;
@@ -68,6 +73,9 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   tablesCount,
   activeKitchenTicketsCount,
   totalSessionSales,
+  tables = [],
+  onSaveTable,
+  onDeleteTable,
   onNavigateHome,
   onNavigateToClientMenu,
   onNavigateToStaffRole,
@@ -77,7 +85,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   currentUserEmail,
   onSignOut
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog' | 'qr_tables'>('overview');
   // Format current date in French standard
   const todayFormatted = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
@@ -165,16 +173,16 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     {
       id: 'floor',
       order: 6,
-      title: 'Salle, tables et service',
-      subtitle: 'Plan interactif & Affectations',
-      description: 'Gestion visuelle des zones (salle, terrasse, bar), suivi des couverts et des additions en cours.',
+      title: 'Salle, tables et QR codes',
+      subtitle: 'Chevalets de table & Affectations',
+      description: 'Génération et impression des QR codes de tables, gestion des zones (salle, terrasse, bar) et couverts.',
       status: 'active',
       statusLabel: 'Actif',
-      icon: LayoutGrid,
-      actionLabel: 'Voir le plan de salle',
+      icon: QrCode,
+      actionLabel: 'Générateur QR Codes des Tables',
       onAction: () => {
         sounds.playTap();
-        onNavigateToStaffRole('floor');
+        setActiveTab('qr_tables');
       }
     },
     {
@@ -258,6 +266,18 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     );
   }
 
+  if (activeTab === 'qr_tables') {
+    return (
+      <TableQrGeneratorView
+        restaurant={restaurant}
+        tables={tables}
+        onSaveTable={onSaveTable || (() => {})}
+        onDeleteTable={onDeleteTable || (() => {})}
+        onBackToHub={() => setActiveTab('overview')}
+      />
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col bg-[#f4f7fb] text-[#181c1f]">
       {/* Top Header / Bar */}
@@ -303,6 +323,18 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
           </div>
 
           <div className="flex items-center gap-3 text-xs text-slate-300">
+            <button
+              onClick={() => {
+                sounds.playTap();
+                setActiveTab('qr_tables');
+              }}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition-all flex items-center gap-1.5 text-xs font-bold active:scale-95"
+              title="Accéder au générateur de QR codes des tables et chevalets"
+            >
+              <QrCode size={13} className="text-emerald-400" />
+              <span>QR Tables</span>
+            </button>
+
             <div className="hidden lg:flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-700/60">
               <Calendar size={14} className="text-[#ff6500]" />
               <span className="font-semibold">{capitalizedDate}</span>
@@ -397,15 +429,27 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
               </span>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                Tables configurées
-              </span>
+            <div 
+              onClick={() => {
+                sounds.playTap();
+                setActiveTab('qr_tables');
+              }}
+              className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 hover:border-slate-300 hover:bg-slate-100/70 transition-all cursor-pointer group"
+              title="Cliquez pour gérer les tables et imprimer les QR codes"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1 group-hover:text-emerald-700 transition-colors">
+                  Tables configurées
+                </span>
+                <span className="text-[10px] font-bold text-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity">
+                  QR →
+                </span>
+              </div>
               <div className="text-2xl font-black text-[#101d2d] tnum">
                 {tablesCount}
               </div>
               <span className="text-[11px] text-slate-500 font-medium mt-0.5 block">
-                Configurées en salle, terrasse & bar
+                Chevalets & QR codes de table
               </span>
             </div>
 

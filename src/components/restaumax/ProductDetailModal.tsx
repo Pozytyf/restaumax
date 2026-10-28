@@ -371,7 +371,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#ff6500]"
             />
             <p className="text-[10px] text-slate-500 mt-1">
-              Note conservée dans le panier de démonstration. Elle ne sera pas transmise à la cuisine à cette étape.
+              Note transmise directement au bon de préparation en cuisine lors de la commande.
             </p>
           </div>
         </div>

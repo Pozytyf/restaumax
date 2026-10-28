@@ -29,7 +29,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                 RestauMax
               </span>
               <span className="text-[10px] text-amber-400 font-semibold tracking-wider uppercase">
-                Étape 1 — Centre de Gestion & Menu Client
+                Parcours QR Client & Générateur Gérant
               </span>
             </div>
           </div>
@@ -234,14 +234,13 @@ export const HomePage: React.FC<HomePageProps> = ({
               </button>
             </div>
 
-            {/* Note on Step 1 status */}
-            <div className="mt-5 p-4 rounded-xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900 space-y-1">
-              <div className="font-bold flex items-center gap-1.5 text-amber-950">
-                <ShieldCheck size={16} className="text-amber-600" />
-                Statut Étape 1 : Centre de gestion & Menu client actifs — Backend non connecté
+            <div className="mt-5 p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 space-y-1">
+              <div className="font-bold flex items-center gap-1.5 text-emerald-950">
+                <ShieldCheck size={16} className="text-emerald-600" />
+                Statut opérationnel : Parcours QR client complet & persistance des commandes connectée
               </div>
-              <p className="text-[11px] leading-relaxed text-amber-800">
-                Tant que l'Étape 2 n'est pas validée, aucune commande n'est transmise en base de données et le bouton « Confirmer la commande » dans le panier est volontairement désactivé pour respecter l'état réel du produit.
+              <p className="text-[11px] leading-relaxed text-emerald-800">
+                Les convives peuvent scanner leur chevalet de table, composer leur panier avec options en FCFA, et transmettre directement leur commande validée à la cuisine via Firestore.
               </p>
             </div>
           </div>

@@ -15,13 +15,15 @@ import {
   getDoc, 
   getDocFromServer,
   setDoc, 
+  deleteDoc,
   collection, 
   onSnapshot,
   query,
+  orderBy,
   writeBatch
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { RestaurantInfo, RestauMenuItem } from '../types/restaumax';
+import { RestaurantInfo, RestauMenuItem, RestauOrder, RestaurantTable } from '../types/restaumax';
 
 // Initialize Firebase
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -298,3 +300,124 @@ export function subscribeToAuth(
     callback(user, isAuthorized);
   });
 }
+
+/**
+ * Soumet une commande client à Firestore avec validation
+ */
+export async function submitOrder(restaurantSlug: string, order: RestauOrder): Promise<void> {
+  const path = `restaurants/${restaurantSlug}/orders/${order.id}`;
+  try {
+    const orderRef = doc(db, 'restaurants', restaurantSlug, 'orders', order.id);
+    await setDoc(orderRef, order);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, path);
+  }
+}
+
+/**
+ * Souscrit en temps réel au flux des commandes (réservé aux gestionnaires)
+ */
+export function subscribeToOrders(
+  restaurantSlug: string,
+  onData: (orders: RestauOrder[]) => void,
+  onError?: (err: unknown) => void
+) {
+  const path = `restaurants/${restaurantSlug}/orders`;
+  const ordersRef = collection(db, 'restaurants', restaurantSlug, 'orders');
+  const q = query(ordersRef, orderBy('createdAt', 'desc'));
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const orders: RestauOrder[] = [];
+      snapshot.forEach((d) => {
+        orders.push(d.data() as RestauOrder);
+      });
+      onData(orders);
+    },
+    (err) => {
+      onError?.(err);
+      handleFirestoreError(err, OperationType.LIST, path);
+    }
+  );
+}
+
+/**
+ * Met à jour le statut opérationnel d'une commande (in_prep, ready, completed, etc.)
+ */
+export async function updateOrderStatus(
+  restaurantSlug: string,
+  orderId: string,
+  status: RestauOrder['status']
+): Promise<void> {
+  const path = `restaurants/${restaurantSlug}/orders/${orderId}`;
+  try {
+    const orderRef = doc(db, 'restaurants', restaurantSlug, 'orders', orderId);
+    await setDoc(orderRef, { status, statusUpdatedAt: Date.now() }, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, path);
+  }
+}
+
+/**
+ * Souscrit en temps réel aux tables configurées du restaurant
+ */
+export function subscribeToTables(
+  restaurantSlug: string,
+  onData: (tables: RestaurantTable[]) => void,
+  onError?: (err: unknown) => void
+) {
+  const path = `restaurants/${restaurantSlug}/tables`;
+  const tablesRef = collection(db, 'restaurants', restaurantSlug, 'tables');
+  const q = query(tablesRef);
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const tables: RestaurantTable[] = [];
+      snapshot.forEach((d) => {
+        tables.push(d.data() as RestaurantTable);
+      });
+      // Tri naturel par numéro de table
+      tables.sort((a, b) => a.tableNumber.localeCompare(b.tableNumber, undefined, { numeric: true }));
+      onData(tables);
+    },
+    (err) => {
+      onError?.(err);
+      handleFirestoreError(err, OperationType.LIST, path);
+    }
+  );
+}
+
+/**
+ * Enregistre ou met à jour une table du restaurant
+ */
+export async function persistTable(
+  restaurantSlug: string, 
+  table: RestaurantTable
+): Promise<void> {
+  const path = `restaurants/${restaurantSlug}/tables/${table.id}`;
+  try {
+    const tableRef = doc(db, 'restaurants', restaurantSlug, 'tables', table.id);
+    await setDoc(tableRef, table, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Supprime une table du restaurant
+ */
+export async function deleteTable(
+  restaurantSlug: string,
+  tableId: string
+): Promise<void> {
+  const path = `restaurants/${restaurantSlug}/tables/${tableId}`;
+  try {
+    const tableRef = doc(db, 'restaurants', restaurantSlug, 'tables', tableId);
+    await deleteDoc(tableRef);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+

@@ -129,6 +129,10 @@ class SoundEffects {
       // Audio policy safe
     }
   }
+
+  public playSuccess() {
+    this.playKitchenBell();
+  }
 }
 
 export const sounds = new SoundEffects();

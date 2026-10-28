@@ -49,6 +49,41 @@
         "role": { "type": "string" }
       },
       "required": ["uid", "role"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Commande client passée via QR code sur place ou à emporter",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "restaurantSlug": { "type": "string" },
+        "orderMode": { "type": "string", "enum": ["sur_place", "a_emporter"] },
+        "tableNumber": { "type": "string" },
+        "items": { "type": "array" },
+        "itemsCount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "currency": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "in_prep", "ready", "completed", "cancelled"] },
+        "customerNote": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "createdAtIso": { "type": "string" }
+      },
+      "required": ["id", "orderNumber", "restaurantSlug", "orderMode", "items", "totalAmount", "status"]
+    },
+    "Table": {
+      "title": "Table",
+      "description": "Table du restaurant avec numéro, zone et QR code associé",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tableNumber": { "type": "string" },
+        "section": { "type": "string" },
+        "capacity": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "qrUrl": { "type": "string" }
+      },
+      "required": ["id", "tableNumber", "capacity", "isActive"]
     }
   },
   "firestore": {
@@ -63,6 +98,14 @@
     "/restaurants/{restaurantSlug}/menuItems/{dishId}": {
       "schema": "MenuItem",
       "description": "Catalogue des plats et boissons proposés par le restaurant"
+    },
+    "/restaurants/{restaurantSlug}/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Commandes passées par les clients (création publique avec validation stricte, gestion par managers)"
+    },
+    "/restaurants/{restaurantSlug}/tables/{tableId}": {
+      "schema": "Table",
+      "description": "Tables configurées et métadonnées QR (consultation publique, gestion par managers)"
     }
   }
 }
