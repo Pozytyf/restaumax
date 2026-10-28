@@ -170,12 +170,12 @@ export function parseSeedArgs(argv = process.argv.slice(2)) {
         "avec un écrasement destructif, utilisez l'option '--merge' pour mettre à jour les données " +
         "du catalogue sans supprimer les éléments existants."
       );
-    } else if (arg.startsWith('-')) {
+    } else {
       throw new Error(
-        `Option non reconnue : "${arg}".\n` +
-        `Options autorisées :\n` +
+        `Argument non reconnu : "${arg}".\n` +
+        `Seule l'option suivante est acceptée :\n` +
         `  --merge    Met à jour (upsert) le restaurant et les plats du seed sans supprimer les documents existants.\n` +
-        `  (aucune)   Initialise uniquement si le restaurant n'existe pas encore.`
+        `  (aucun)    Initialise uniquement si le restaurant n'existe pas encore.`
       );
     }
   }

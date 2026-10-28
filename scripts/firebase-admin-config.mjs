@@ -19,30 +19,37 @@ const configPath = path.resolve(__dirname, '../firebase-applet-config.json');
 export const DEFAULT_ADMIN_APP_NAME = '[DEFAULT]';
 
 /**
- * Lit et valide la configuration Firebase depuis firebase-applet-config.json.
+ * Lit et valide la configuration Firebase depuis firebase-applet-config.json (ou un chemin spécifié).
  * Lève une erreur explicite si le fichier est introuvable, mal formé,
- * ou si le projectId ou le firestoreDatabaseId est manquant.
+ * ou si le projectId ou le firestoreDatabaseId est manquant ou vide.
+ *
+ * @param {string} [targetConfigPath=configPath] - Chemin vers le fichier de configuration JSON
+ * @returns {{ projectId: string, firestoreDatabaseId: string, appId?: string, authDomain?: string }}
  */
-export function getAppletFirebaseConfig() {
-  if (!fs.existsSync(configPath)) {
-    throw new Error(`Fichier de configuration Firebase introuvable : ${configPath}`);
+export function getAppletFirebaseConfig(targetConfigPath = configPath) {
+  if (!fs.existsSync(targetConfigPath)) {
+    throw new Error(`Fichier de configuration Firebase introuvable : ${targetConfigPath}`);
   }
 
   let config;
   try {
-    const raw = fs.readFileSync(configPath, 'utf8');
+    const raw = fs.readFileSync(targetConfigPath, 'utf8');
     config = JSON.parse(raw);
   } catch (err) {
-    throw new Error(`Impossible de lire ou parser ${configPath} : ${err.message}`);
+    throw new Error(`Impossible de lire ou parser ${targetConfigPath} : ${err.message}`);
+  }
+
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error(`Configuration invalide : Le fichier ${targetConfigPath} ne contient pas un objet JSON valide.`);
   }
 
   if (!config.projectId || typeof config.projectId !== 'string' || !config.projectId.trim()) {
-    throw new Error(`Configuration invalide : 'projectId' est manquant ou vide dans ${configPath}`);
+    throw new Error(`Configuration invalide : 'projectId' est manquant ou vide dans ${targetConfigPath}`);
   }
 
   if (!config.firestoreDatabaseId || typeof config.firestoreDatabaseId !== 'string' || !config.firestoreDatabaseId.trim()) {
     throw new Error(
-      `Configuration invalide : 'firestoreDatabaseId' explicite est manquant ou vide dans ${configPath}. ` +
+      `Configuration invalide : 'firestoreDatabaseId' explicite est manquant ou vide dans ${targetConfigPath}. ` +
       `L'application RestauMax utilise une base nommée spécifique qui doit être explicitement définie.`
     );
   }
@@ -175,13 +182,22 @@ export function initAdminApp(serviceAccount, projectId, appName = DEFAULT_ADMIN_
   const normalizedProjectId = projectId.trim();
   const existingApps = getApps();
 
-  // Vérifier d'éventuels conflits globaux dans les applications existantes
+  // Vérifier d'éventuels conflits ou incohérences dans les applications existantes
   for (const app of existingApps) {
-    const existingProjectId = app.options?.projectId ? String(app.options.projectId).trim() : null;
-    if (existingProjectId && existingProjectId !== normalizedProjectId) {
+    const rawProjectId = app.options?.projectId;
+    if (!rawProjectId || typeof rawProjectId !== 'string' || !rawProjectId.trim()) {
       throw new Error(
         `Conflit d'application Firebase Admin détecté : L'application active '${app.name}' ` +
-        `cible le projet '${existingProjectId}', incompatible avec le projet demandé '${normalizedProjectId}'. ` +
+        `ne possède pas d'identifiant 'projectId' valide ou non vide dans ses options. ` +
+        `Opération interrompue pour éviter toute réutilisation ambiguë.`
+      );
+    }
+
+    const existingNormalizedProjectId = rawProjectId.trim();
+    if (existingNormalizedProjectId !== normalizedProjectId) {
+      throw new Error(
+        `Conflit d'application Firebase Admin détecté : L'application active '${app.name}' ` +
+        `cible le projet '${existingNormalizedProjectId}', incompatible avec le projet attendu '${normalizedProjectId}'. ` +
         `Opération interrompue pour éviter toute collision multi-environnements.`
       );
     }
@@ -190,14 +206,7 @@ export function initAdminApp(serviceAccount, projectId, appName = DEFAULT_ADMIN_
   // Vérifier si l'application ciblée par appName existe déjà
   const matchedApp = existingApps.find((app) => app.name === appName);
   if (matchedApp) {
-    const matchedProjectId = matchedApp.options?.projectId ? String(matchedApp.options.projectId).trim() : null;
-    if (matchedProjectId !== normalizedProjectId) {
-      throw new Error(
-        `Conflit d'application Firebase Admin : L'application existante '${appName}' cible le projet ` +
-        `'${matchedProjectId || 'indéfini'}', alors que le projet attendu est '${normalizedProjectId}'.`
-      );
-    }
-    // Réutilisation sécurisée et contrôlée de l'application existante compatible
+    // L'application existante est compatible et a passé la validation stricte de projectId ci-dessus
     return matchedApp;
   }
 
