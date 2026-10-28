@@ -230,8 +230,13 @@ export function initAdminApp(serviceAccount, projectId, appName = DEFAULT_ADMIN_
  * Initialise et valide l'instance Firestore Admin pour la base spécifiée.
  * Lève une erreur explicite si le databaseId est absent, si l'initialisation échoue
  * ou si l'instance retournée ne correspond pas au databaseId demandé.
+ *
+ * @param {import('firebase-admin/app').App} app - Application Firebase Admin
+ * @param {string} databaseId - Identifiant de la base Firestore ciblée
+ * @param {Function} [getFirestoreFn=getFirestore] - Fabrique Firestore injectable pour les tests
+ * @returns {import('firebase-admin/firestore').Firestore} L'instance Firestore validée
  */
-export function initAdminFirestore(app, databaseId) {
+export function initAdminFirestore(app, databaseId, getFirestoreFn = getFirestore) {
   if (!databaseId || typeof databaseId !== 'string' || !databaseId.trim()) {
     throw new Error(
       "Erreur critique d'initialisation : L'identifiant de base de données Firestore ('databaseId') est manquant ou vide. " +
@@ -243,7 +248,7 @@ export function initAdminFirestore(app, databaseId) {
 
   let db;
   try {
-    db = getFirestore(app, normalizedDbId);
+    db = getFirestoreFn(app, normalizedDbId);
   } catch (err) {
     throw new Error(
       `Échec de l'initialisation de l'instance Firestore Admin pour la base '${normalizedDbId}' : ${err.message}`

@@ -409,23 +409,11 @@ async function runTests() {
   const adminDb = initAdminFirestore(createdApp, EXPECTED_DB);
   assert(adminDb.databaseId === EXPECTED_DB, `initAdminFirestore initialise bien la base ciblée : ${adminDb.databaseId}`);
 
-  // Test 3.11 : initAdminFirestore - détection de discordance de l'instance
-  const fakeApp = { name: 'fake-app' };
-  const mockDbWithWrongId = { databaseId: 'mauvaise-base-inattendue' };
+  // Test 3.11 : initAdminFirestore - détection de discordance de l'instance via appel réel
   assertThrows(
-    () => {
-      // Simulation du garde-fou si getFirestore retournait une base différente
-      const normalizedDbId = EXPECTED_DB;
-      const returnedDb = mockDbWithWrongId;
-      if (!returnedDb || returnedDb.databaseId !== normalizedDbId) {
-        throw new Error(
-          `Erreur critique d'intégrité Firestore : L'instance retournée cible '${returnedDb?.databaseId}' ` +
-          `au lieu de la base attendue '${normalizedDbId}'. Initialisation annulée pour prévenir toute altération d'une mauvaise base.`
-        );
-      }
-    },
-    'Erreur critique d\'intégrité Firestore',
-    'Détecte et rejette formellement toute instance ciblant une base discordante'
+    () => initAdminFirestore(createdApp, EXPECTED_DB, () => ({ databaseId: 'mauvaise-base-inattendue' })),
+    "Erreur critique d'intégrité Firestore",
+    "initAdminFirestore : rejette formellement toute instance retournée dont le databaseId est discordant"
   );
 
   await deleteApp(createdApp);
