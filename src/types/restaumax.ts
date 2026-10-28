@@ -120,6 +120,7 @@ export interface RestauOrder {
   createdAt: number; // UTC timestamp ms
   createdAtIso: string;
   statusUpdatedAt?: number;
+  idempotencyKey?: string;
 }
 
 export interface RestaurantTable {

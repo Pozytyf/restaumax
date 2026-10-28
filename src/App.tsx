@@ -25,6 +25,8 @@ import {
   persistMenuItem, 
   persistDishAvailability, 
   submitOrder,
+  subscribeToOrders,
+  updateOrderStatus,
   subscribeToTables,
   persistTable,
   deleteTable,
@@ -34,6 +36,7 @@ import {
   subscribeToAuth,
   type User
 } from './lib/firebase';
+import { RestauOrderStatus } from './types/restaumax';
 import { validateAndBuildOrder } from './utils/pricing';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
@@ -51,6 +54,54 @@ import { RestaurantHubView } from './components/restaumax/RestaurantHubView';
 import { ManagerLoginView } from './components/restaumax/ManagerLoginView';
 import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
 import { QrScannerModal } from './components/restaumax/QrScannerModal';
+
+/**
+ * Mappe de façon déterministe et stable une commande Firestore RestauOrder vers un ticket KDS KitchenTicket
+ */
+export function mapRestauOrderToKitchenTicket(
+  order: RestauOrder, 
+  existingTicket?: KitchenTicket
+): KitchenTicket {
+  let ticketStatus: TicketStatus = 'in_prep';
+  if (order.status === 'ready') ticketStatus = 'ready';
+  else if (order.status === 'completed') ticketStatus = 'served';
+  else if (order.status === 'cancelled') ticketStatus = 'cancelled';
+  else ticketStatus = 'in_prep';
+
+  const existingCompletedNames = new Set(
+    existingTicket?.items.filter(i => i.completed).map(i => i.name) || []
+  );
+
+  return {
+    id: `ord-${order.id}`,
+    ticketNumber: order.orderNumber,
+    tableNumber: order.tableNumber ? `Table ${order.tableNumber}` : 'À emporter',
+    orderType: order.orderMode === 'sur_place' ? 'sur_place' : 'emporter',
+    waiter: 'QR Menu Client',
+    createdAt: new Date(order.createdAt),
+    status: ticketStatus,
+    items: order.items.map((it, idx) => {
+      const notesArr: string[] = [];
+      if (it.selectedOption?.optionName) {
+        notesArr.push(`Option: ${it.selectedOption.optionName}`);
+      }
+      if (it.selectedExtras && it.selectedExtras.length > 0) {
+        notesArr.push(`Extras: ${it.selectedExtras.map(e => e.name).join(', ')}`);
+      }
+      if (it.prepNotes) {
+        notesArr.push(`Note: ${it.prepNotes}`);
+      }
+      return {
+        id: `ki-${order.id}-${idx}`,
+        name: it.name,
+        quantity: it.quantity,
+        course: 'plat',
+        notes: notesArr.join(' · '),
+        completed: existingCompletedNames.has(it.name)
+      };
+    })
+  };
+}
 
 export default function App() {
   // Navigation / Routing State
@@ -195,7 +246,7 @@ export default function App() {
 
     let isMounted = true;
     const unsubTables = subscribeToTables('chez-awa', (tbls) => {
-      if (isMounted && tbls.length > 0) {
+      if (isMounted) {
         setRestauTables(tbls);
       }
     });
@@ -205,6 +256,38 @@ export default function App() {
       unsubTables();
     };
   }, [isAuthorizedManager, isRestaurantHubRoute]);
+
+  // Correction C: Subscribe to Orders subcollection for persistent KDS stream
+  useEffect(() => {
+    if (!isAuthorizedManager && !isStaffRoute) return;
+
+    let isMounted = true;
+    const unsubOrders = subscribeToOrders(
+      'chez-awa',
+      (firestoreOrders) => {
+        if (!isMounted) return;
+        setKitchenTickets((prev) => {
+          const existingMap = new Map<string, KitchenTicket>(prev.map((t) => [t.id, t]));
+          const nonFirestoreTickets = prev.filter((t) => !t.id.startsWith('ord-'));
+
+          const mappedTickets = firestoreOrders.map((ord) => {
+            const existing = existingMap.get(`ord-${ord.id}`);
+            return mapRestauOrderToKitchenTicket(ord, existing);
+          });
+
+          return [...mappedTickets, ...nonFirestoreTickets];
+        });
+      },
+      (err) => {
+        console.warn('Flux KDS Firestore en attente ou restreint:', err);
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      unsubOrders();
+    };
+  }, [isAuthorizedManager, isStaffRoute]);
 
   const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const res = await signInManager(email, pass);
@@ -317,7 +400,8 @@ export default function App() {
       restaurantSlug: 'chez-awa',
       orderMode: activeTableNumber ? 'sur_place' : 'a_emporter',
       tableNumber: activeTableNumber,
-      customerNote
+      customerNote,
+      allowedTables: restauTables.length > 0 ? restauTables : undefined
     });
 
     if (!buildRes.success) {
@@ -327,9 +411,9 @@ export default function App() {
     try {
       await submitOrder('chez-awa', buildRes.order);
 
-      // Add to internal staff KDS tickets so kitchen sees it live in the POS/KDS session
+      // Add to internal staff KDS tickets with deterministic ID matching Firestore order
       const newKitchenTicket: KitchenTicket = {
-        id: `kt-${Date.now()}`,
+        id: `ord-${buildRes.order.id}`,
         ticketNumber: buildRes.order.orderNumber,
         tableNumber: buildRes.order.tableNumber ? `Table ${buildRes.order.tableNumber}` : 'À emporter',
         orderType: buildRes.order.orderMode === 'sur_place' ? 'sur_place' : 'emporter',
@@ -337,7 +421,7 @@ export default function App() {
         createdAt: new Date(),
         status: 'in_prep',
         items: buildRes.order.items.map((it, idx) => ({
-          id: `ki-${Date.now()}-${idx}`,
+          id: `ki-${buildRes.order.id}-${idx}`,
           name: it.name,
           quantity: it.quantity,
           course: 'plat',
@@ -345,7 +429,10 @@ export default function App() {
           completed: false
         }))
       };
-      setKitchenTickets(prev => [newKitchenTicket, ...prev]);
+      setKitchenTickets(prev => {
+        if (prev.some(t => t.id === newKitchenTicket.id)) return prev;
+        return [newKitchenTicket, ...prev];
+      });
 
       // Clear client cart strictly only upon confirmed write
       setClientCart([]);
@@ -501,6 +588,20 @@ export default function App() {
     setKitchenTickets((prev) =>
       prev.map((t) => (t.id === ticketId ? { ...t, status } : t))
     );
+
+    // Synchronisation bidirectionnelle Firestore KDS
+    if (ticketId.startsWith('ord-')) {
+      const rawOrderId = ticketId.replace(/^ord-/, '');
+      let firestoreStatus: RestauOrderStatus = 'in_prep';
+      if (status === 'ready') firestoreStatus = 'ready';
+      else if (status === 'served') firestoreStatus = 'completed';
+      else if (status === 'cancelled') firestoreStatus = 'cancelled';
+      else firestoreStatus = 'in_prep';
+
+      updateOrderStatus('chez-awa', rawOrderId, firestoreStatus).catch((err) => {
+        console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
+      });
+    }
   };
 
   const handleSelectTableForOrder = (table: Table) => {
@@ -572,7 +673,7 @@ export default function App() {
             restaurant={restaurant}
             menuItems={restauMenuItems}
             menuItemsCount={restauMenuItems.length}
-            tablesCount={restauTables.length > 0 ? restauTables.length : tables.length}
+            tablesCount={restauTables.length}
             tables={restauTables}
             onSaveTable={handleSaveTable}
             onDeleteTable={handleDeleteTable}

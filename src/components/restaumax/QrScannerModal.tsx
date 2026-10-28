@@ -147,7 +147,11 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
     stopCamera();
     sounds.playTap();
 
-    const parsed = parseAndValidateQrInput(scannedString, 'chez-awa');
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    const parsed = parseAndValidateQrInput(scannedString, {
+      defaultSlug: 'chez-awa',
+      allowedOrigins: currentOrigin ? [currentOrigin] : []
+    });
 
     if (!parsed.isValid) {
       setCameraError(parsed.error || "Ce QR code ne correspond pas à un menu de table RestauMax.");
@@ -169,8 +173,13 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
     if (!cleanTable) return;
 
     sounds.playTap();
-    const parsed = parseAndValidateQrInput(cleanTable, 'chez-awa');
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    const parsed = parseAndValidateQrInput(cleanTable, {
+      defaultSlug: 'chez-awa',
+      allowedOrigins: currentOrigin ? [currentOrigin] : []
+    });
     if (parsed.isValid) {
+      stopCamera();
       onScanResult(parsed.canonicalPath);
       onClose();
     } else {

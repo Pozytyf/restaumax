@@ -24,17 +24,30 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Manager role verification:
+    // Manager role verification scoped to a specific restaurant:
     // Requires authentication AND either:
-    // 1. Custom Claims role == 'manager' or 'admin' (assigned by trusted Admin environment)
-    // 2. Presence of a trusted document in /managers/{uid} with field role in ['manager', 'admin']
-    function isManager() {
+    // 1. Custom Claims role == 'admin' (global manager)
+    // 2. Custom Claims role == 'manager' and restaurantSlug == targetSlug
+    // 3. Presence of a trusted document in /managers/{uid} with role == 'admin' or role == 'manager' matching targetSlug
+    function isManagerOfRestaurant(targetSlug) {
       return isSignedIn() && (
-        request.auth.token.role == 'manager' ||
         request.auth.token.role == 'admin' ||
+        (request.auth.token.role == 'manager' && request.auth.token.restaurantSlug == targetSlug) ||
         (
           exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
-          get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['manager', 'admin']
+          (
+            get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'admin' ||
+            (
+              get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'manager' &&
+              (
+                get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurantSlug == targetSlug ||
+                (
+                  'restaurants' in get(/databases/$(database)/documents/managers/$(request.auth.uid)).data &&
+                  targetSlug in get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurants
+                )
+              )
+            )
+          )
         )
       );
     }
@@ -89,39 +102,39 @@ service cloud.firestore {
     // Restaurant profile and service status
     // Public get by exact identifier (slug) for customers scanning QR code
     // List of all restaurants: FORBIDDEN (not needed by QR menu or single-restaurant hub)
-    // Create/update restricted strictly to verified managers
+    // Create/update restricted strictly to verified managers of this restaurant
     match /restaurants/{restaurantSlug} {
       allow get: if isValidId(restaurantSlug);
       allow list: if false;
-      allow create: if isManager() && isValidId(restaurantSlug) && isValidRestaurant(incoming());
-      allow update: if isManager() && isValidId(restaurantSlug) && isValidRestaurant(incoming());
+      allow create: if isManagerOfRestaurant(restaurantSlug) && isValidId(restaurantSlug) && isValidRestaurant(incoming());
+      allow update: if isManagerOfRestaurant(restaurantSlug) && isValidId(restaurantSlug) && isValidRestaurant(incoming());
       allow delete: if false;
 
       // Menu catalog subcollection
       // Public get and list for QR menu viewing
-      // Create/update/delete restricted strictly to verified managers
+      // Create/update/delete restricted strictly to verified managers of this restaurant
       match /menuItems/{dishId} {
         allow get: if isValidId(dishId);
         allow list: if true;
-        allow create: if isManager() && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
-        allow update: if isManager() && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
-        allow delete: if isManager() && isValidId(dishId);
+        allow create: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
+        allow update: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
+        allow delete: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId);
       }
 
       // Tables subcollection
       // Public get and list so customers can see table information
-      // Create/update/delete restricted strictly to verified managers
+      // Create/update/delete restricted strictly to verified managers of this restaurant
       match /tables/{tableId} {
         allow get, list: if true;
-        allow create, update: if isManager() && isValidId(tableId) && isValidTable(incoming());
-        allow delete: if isManager() && isValidId(tableId);
+        allow create, update: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId) && isValidTable(incoming());
+        allow delete: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId);
       }
 
       // Orders subcollection
       // Create: customer guest creation permitted with strict validation and initial status 'pending'
       // Get: customer can view confirmed order by exact ID
-      // List: restricted to authorized managers (protects customer privacy and restaurant order stream)
-      // Update: restricted to authorized managers (changing status to 'in_prep', 'ready', etc.)
+      // List: restricted strictly to authorized managers of this restaurant (protects customer privacy and restaurant order stream)
+      // Update: restricted strictly to authorized managers of this restaurant, and limited to operational status fields
       // Delete: STRICTLY FORBIDDEN (audit trail preserved)
       match /orders/{orderId} {
         allow create: if isValidId(orderId) 
@@ -129,8 +142,16 @@ service cloud.firestore {
           && incoming().restaurantSlug == restaurantSlug
           && incoming().status == 'pending';
         allow get: if isValidId(orderId);
-        allow list: if isManager();
-        allow update: if isManager() && isValidId(orderId) && isValidOrder(incoming());
+        allow list: if isManagerOfRestaurant(restaurantSlug);
+        allow update: if isManagerOfRestaurant(restaurantSlug) 
+          && isValidId(orderId) 
+          && incoming().id == existing().id
+          && incoming().restaurantSlug == existing().restaurantSlug
+          && incoming().orderNumber == existing().orderNumber
+          && incoming().totalAmount == existing().totalAmount
+          && incoming().items == existing().items
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'statusUpdatedAt', 'kitchenNotes'])
+          && incoming().status in ['pending', 'in_prep', 'ready', 'completed', 'cancelled'];
         allow delete: if false;
       }
     }

