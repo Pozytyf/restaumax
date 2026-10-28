@@ -6,9 +6,17 @@
  *    Paramètres du projet > Comptes de service > Générer une nouvelle clé privée.
  * 2. Exécuter ce script hors de la portée client :
  *    GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json node scripts/seed-catalog.mjs
- *    (Ajouter le drapeau --force pour écraser des données existantes si nécessaire)
+ *
+ * Options :
+ *   --merge    Met à jour (upsert) le restaurant et les plats du seed sans supprimer
+ *              les documents non mentionnés déjà présents dans la base (non destructif).
+ *
+ * Note : L'ancienne option '--force' a été désactivée afin d'éliminer toute ambiguïté
+ * sur un prétendu écrasement destructif. Utilisez '--merge' pour synchroniser le catalogue.
  */
 
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { 
   getAppletFirebaseConfig, 
   validateServiceAccountCredentials,
@@ -16,7 +24,7 @@ import {
   initAdminFirestore 
 } from './firebase-admin-config.mjs';
 
-const CHEZ_AWA_RESTAURANT = {
+export const CHEZ_AWA_RESTAURANT = {
   slug: 'chez-awa',
   name: 'Chez Awa — Grillades & Saveurs d’Afrique',
   tagline: 'Spécialités braisées au feu de bois, poissons frais et mets authentiques',
@@ -30,7 +38,7 @@ const CHEZ_AWA_RESTAURANT = {
   openingHours: '11h30 – 23h30 (7j/7)'
 };
 
-const CHEZ_AWA_MENU_ITEMS = [
+export const CHEZ_AWA_MENU_ITEMS = [
   {
     id: 'dish-capitaine',
     restaurantSlug: 'chez-awa',
@@ -144,8 +152,97 @@ const CHEZ_AWA_MENU_ITEMS = [
   }
 ];
 
-async function main() {
-  const isForce = process.argv.includes('--force');
+/**
+ * Analyse et valide les arguments de la ligne de commande pour le seed.
+ *
+ * @param {string[]} argv - Tableau d'arguments (par exemple process.argv.slice(2))
+ * @returns {{ isMerge: boolean }}
+ */
+export function parseSeedArgs(argv = process.argv.slice(2)) {
+  let isMerge = false;
+
+  for (const arg of argv) {
+    if (arg === '--merge') {
+      isMerge = true;
+    } else if (arg === '--force') {
+      throw new Error(
+        "Option '--force' désactivée : Pour garantir la sécurité des données et éviter toute confusion " +
+        "avec un écrasement destructif, utilisez l'option '--merge' pour mettre à jour les données " +
+        "du catalogue sans supprimer les éléments existants."
+      );
+    } else if (arg.startsWith('-')) {
+      throw new Error(
+        `Option non reconnue : "${arg}".\n` +
+        `Options autorisées :\n` +
+        `  --merge    Met à jour (upsert) le restaurant et les plats du seed sans supprimer les documents existants.\n` +
+        `  (aucune)   Initialise uniquement si le restaurant n'existe pas encore.`
+      );
+    }
+  }
+
+  return { isMerge };
+}
+
+/**
+ * Exécute l'initialisation ou la mise à jour non-destructive du catalogue dans Firestore.
+ *
+ * Comportement :
+ * - Si le restaurant existe déjà et que 'isMerge' est faux : aucune écriture n'est effectuée.
+ * - Si 'isMerge' est vrai ou si le restaurant n'existe pas : effectue un batch set avec { merge: true }.
+ * - Aucun document préexistant n'est supprimé (comportement strictement non-destructif).
+ *
+ * @param {import('firebase-admin/firestore').Firestore} db
+ * @param {{ isMerge?: boolean, restaurant?: object, menuItems?: object[] }} [options]
+ * @returns {Promise<{ status: 'seeded' | 'merged' | 'skipped', count: number, restaurantSlug: string }>}
+ */
+export async function seedCatalog(db, options = {}) {
+  const isMerge = Boolean(options.isMerge);
+  const restaurant = options.restaurant || CHEZ_AWA_RESTAURANT;
+  const menuItems = options.menuItems || CHEZ_AWA_MENU_ITEMS;
+
+  const restRef = db.collection('restaurants').doc(restaurant.slug);
+  const snap = await restRef.get();
+
+  if (snap.exists && !isMerge) {
+    console.log(`Le restaurant "${restaurant.slug}" existe déjà dans la base "${db.databaseId}".`);
+    console.log("Aucune modification effectuée. Pour mettre à jour les données sans suppression, utilisez l'option '--merge'.");
+    return {
+      status: 'skipped',
+      count: 0,
+      restaurantSlug: restaurant.slug,
+      reason: 'already_exists',
+    };
+  }
+
+  const isExisting = snap.exists;
+  const actionLabel = isExisting ? 'Mise à jour (merge)' : 'Initialisation (création)';
+  console.log(`${actionLabel} contrôlée du catalogue pour "${restaurant.name}"...`);
+
+  const batch = db.batch();
+  batch.set(restRef, restaurant, { merge: true });
+
+  for (const item of menuItems) {
+    const itemRef = restRef.collection('menuItems').doc(item.id);
+    batch.set(itemRef, item, { merge: true });
+  }
+
+  await batch.commit();
+
+  console.log(
+    `✓ Données enregistrées avec succès dans ${db.databaseId} (${menuItems.length} plats enregistrés, mode: ${
+      isExisting ? 'merge' : 'create'
+    }).`
+  );
+
+  return {
+    status: isExisting ? 'merged' : 'seeded',
+    count: menuItems.length,
+    restaurantSlug: restaurant.slug,
+  };
+}
+
+export async function main() {
+  const { isMerge } = parseSeedArgs();
 
   // 1. Chargement de la configuration centralisée
   const firebaseConfig = getAppletFirebaseConfig();
@@ -162,30 +259,13 @@ async function main() {
 
   console.log(`Connexion confirmée sur la base : ${db.databaseId}`);
 
-  const restRef = db.collection('restaurants').doc(CHEZ_AWA_RESTAURANT.slug);
-  const snap = await restRef.get();
-
-  if (snap.exists && !isForce) {
-    console.log(`Le restaurant "${CHEZ_AWA_RESTAURANT.slug}" existe déjà dans la base "${db.databaseId}".`);
-    console.log("Pour écraser et forcer la réinitialisation, ajoutez l'option --force.");
-    process.exit(0);
-  }
-
-  console.log(`Initialisation contrôlée du catalogue pour "${CHEZ_AWA_RESTAURANT.name}"...`);
-
-  const batch = db.batch();
-  batch.set(restRef, CHEZ_AWA_RESTAURANT, { merge: true });
-
-  for (const item of CHEZ_AWA_MENU_ITEMS) {
-    const itemRef = restRef.collection('menuItems').doc(item.id);
-    batch.set(itemRef, item, { merge: true });
-  }
-
-  await batch.commit();
-  console.log(`✓ Données initialisées avec succès dans ${db.databaseId} (${CHEZ_AWA_MENU_ITEMS.length} plats enregistrés).`);
+  await seedCatalog(db, { isMerge });
 }
 
-main().catch((err) => {
-  console.error("Échec de l'initialisation :", err.message || 'Erreur interne.');
-  process.exit(1);
-});
+const currentFilePath = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(currentFilePath)) {
+  main().catch((err) => {
+    console.error("Échec de l'initialisation :", err.message || 'Erreur interne.');
+    process.exit(1);
+  });
+}

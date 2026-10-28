@@ -16,6 +16,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const configPath = path.resolve(__dirname, '../firebase-applet-config.json');
 
+export const DEFAULT_ADMIN_APP_NAME = '[DEFAULT]';
+
 /**
  * Lit et valide la configuration Firebase depuis firebase-applet-config.json.
  * Lève une erreur explicite si le fichier est introuvable, mal formé,
@@ -54,35 +56,88 @@ export function getAppletFirebaseConfig() {
 }
 
 /**
- * Valide les identifiants de compte de service fournis via GOOGLE_APPLICATION_CREDENTIALS.
- * Vérifie l'existence du fichier, le format JSON et la cohérence avec le projectId cible.
+ * Valide strictement les identifiants de compte de service fournis.
+ *
+ * Exigences de sécurité strictes :
+ * 1. expectedProjectId doit être une chaîne non vide valide.
+ * 2. serviceAccountPathOrObject doit être soit un chemin de fichier existant et lisible,
+ *    soit un objet de credentials valide.
+ * 3. serviceAccount.project_id doit être présent, de type chaîne et non vide.
+ * 4. Les identifiants de projet doivent correspondre exactement après normalisation (.trim()).
+ * 5. L'absence ou la non-concordance de project_id provoque un rejet immédiat.
+ * 6. Aucune clé privée ni contenu brut des credentials ne doit apparaître dans les erreurs ou logs.
+ *
+ * @param {string|object} serviceAccountInput - Chemin du fichier JSON ou objet de credentials
+ * @param {string} expectedProjectId - ID du projet Firebase attendu
+ * @returns {object} L'objet service account validé
  */
-export function validateServiceAccountCredentials(serviceAccountPath, expectedProjectId) {
-  if (!serviceAccountPath) {
+export function validateServiceAccountCredentials(serviceAccountInput, expectedProjectId) {
+  // 1. Validation stricte du projet attendu
+  if (!expectedProjectId || typeof expectedProjectId !== 'string' || !expectedProjectId.trim()) {
     throw new Error(
-      "Variable d'environnement GOOGLE_APPLICATION_CREDENTIALS non définie.\n" +
-      "Veuillez spécifier le chemin vers votre clé de compte de service Firebase téléchargée depuis la console."
+      "Validation de sécurité échouée : L'identifiant de projet attendu ('expectedProjectId') " +
+      "est manquant, invalide ou vide. Impossible de valider le compte de service."
+    );
+  }
+  const normalizedExpectedProjectId = expectedProjectId.trim();
+
+  // 2. Validation de la source des credentials
+  if (!serviceAccountInput) {
+    throw new Error(
+      "Identifiants de compte de service manquants.\n" +
+      "Veuillez définir la variable d'environnement GOOGLE_APPLICATION_CREDENTIALS avec le chemin de votre clé de compte de service."
     );
   }
 
-  if (!fs.existsSync(serviceAccountPath)) {
-    throw new Error(`Le fichier de clé de service spécifié est introuvable : ${serviceAccountPath}`);
-  }
-
   let serviceAccount;
-  try {
-    const raw = fs.readFileSync(serviceAccountPath, 'utf8');
-    serviceAccount = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(`Le fichier de clé de service n'est pas un JSON valide : ${err.message}`);
+  if (typeof serviceAccountInput === 'string') {
+    const credPath = serviceAccountInput.trim();
+    if (!credPath) {
+      throw new Error(
+        "Validation de sécurité échouée : Le chemin des identifiants spécifié est vide."
+      );
+    }
+    if (!fs.existsSync(credPath)) {
+      throw new Error(`Le fichier de clé de compte de service est introuvable : ${credPath}`);
+    }
+
+    try {
+      const raw = fs.readFileSync(credPath, 'utf8');
+      serviceAccount = JSON.parse(raw);
+    } catch (err) {
+      throw new Error(`Le fichier de clé de service n'est pas un JSON valide : ${err.message}`);
+    }
+  } else if (typeof serviceAccountInput === 'object' && serviceAccountInput !== null) {
+    serviceAccount = serviceAccountInput;
+  } else {
+    throw new Error("Validation de sécurité échouée : Les identifiants fournis ne sont ni un chemin valide ni un objet JSON.");
   }
 
-  if (serviceAccount.project_id && expectedProjectId && serviceAccount.project_id !== expectedProjectId) {
+  if (!serviceAccount || typeof serviceAccount !== 'object' || Array.isArray(serviceAccount)) {
+    throw new Error("Validation de sécurité échouée : Le compte de service ne contient pas un objet JSON valide.");
+  }
+
+  // 3. Exigence obligatoire d'un project_id présent, de type chaîne et non vide
+  if (
+    !('project_id' in serviceAccount) ||
+    typeof serviceAccount.project_id !== 'string' ||
+    !serviceAccount.project_id.trim()
+  ) {
     throw new Error(
-      `Incohérence de projet détectée !\n` +
-      `Le compte de service cible le projet '${serviceAccount.project_id}', ` +
-      `alors que firebase-applet-config.json cible le projet '${expectedProjectId}'.\n` +
-      `Opération annulée pour éviter d'écrire dans un projet erroné.`
+      "Validation de sécurité échouée : Le compte de service ne contient pas de champ 'project_id' valide et non vide. " +
+      "L'opération est rejetée car le projet cible ne peut pas être vérifié."
+    );
+  }
+
+  // 4. Comparaison stricte après normalisation
+  const normalizedServiceProjectId = serviceAccount.project_id.trim();
+
+  if (normalizedServiceProjectId !== normalizedExpectedProjectId) {
+    throw new Error(
+      `Incohérence de projet critique détectée !\n` +
+      `Le compte de service cible le projet '${normalizedServiceProjectId}', ` +
+      `alors que le projet attendu est '${normalizedExpectedProjectId}'.\n` +
+      `Opération rejetée pour empêcher toute altération ou fuite de données vers un mauvais environnement.`
     );
   }
 
@@ -90,24 +145,73 @@ export function validateServiceAccountCredentials(serviceAccountPath, expectedPr
 }
 
 /**
- * Initialise l'application Firebase Admin avec les identifiants et le projectId.
- * Lève une erreur explicite si l'initialisation échoue.
+ * Initialise ou réutilise de manière sécurisée l'application Firebase Admin.
+ *
+ * Règles de sécurité :
+ * 1. Ne retourne JAMAIS aveuglément getApp() sans vérifier la compatibilité du projet.
+ * 2. Si une application du nom spécifié existe déjà, vérifie que app.options.projectId
+ *    correspond exactement au projectId attendu.
+ * 3. En cas de conflit avec une application existante (pointant vers un autre projet),
+ *    lève une erreur explicite au lieu de créer silencieusement une application concurrente.
+ *
+ * LIMITE TECHNIQUE DU SDK FIREBASE ADMIN :
+ * Le SDK Firebase Admin n'expose pas d'API publique pour inspecter ou comparer
+ * l'empreinte cryptographique des identifiants (clé privée ou certificat) une fois
+ * l'instance créée. La vérification de conformité repose donc sur l'identité stricte
+ * de 'options.projectId' et le blocage de toute instance discordante ou concurrente.
+ *
+ * @param {object} serviceAccount - Identifiants validés
+ * @param {string} projectId - ID du projet Firebase attendu
+ * @param {string} [appName='[DEFAULT]'] - Nom de l'application Firebase Admin
+ * @returns {import('firebase-admin/app').App} L'application Firebase Admin initialisée ou réutilisée
  */
-export function initAdminApp(serviceAccount, projectId) {
+export function initAdminApp(serviceAccount, projectId, appName = DEFAULT_ADMIN_APP_NAME) {
   if (!projectId || typeof projectId !== 'string' || !projectId.trim()) {
     throw new Error(
       "Erreur d'initialisation : 'projectId' est manquant ou vide. Impossible d'initialiser Firebase Admin."
     );
   }
 
-  try {
-    if (!getApps().length) {
-      return initializeApp({
-        credential: cert(serviceAccount),
-        projectId: projectId.trim(),
-      });
+  const normalizedProjectId = projectId.trim();
+  const existingApps = getApps();
+
+  // Vérifier d'éventuels conflits globaux dans les applications existantes
+  for (const app of existingApps) {
+    const existingProjectId = app.options?.projectId ? String(app.options.projectId).trim() : null;
+    if (existingProjectId && existingProjectId !== normalizedProjectId) {
+      throw new Error(
+        `Conflit d'application Firebase Admin détecté : L'application active '${app.name}' ` +
+        `cible le projet '${existingProjectId}', incompatible avec le projet demandé '${normalizedProjectId}'. ` +
+        `Opération interrompue pour éviter toute collision multi-environnements.`
+      );
     }
-    return getApp();
+  }
+
+  // Vérifier si l'application ciblée par appName existe déjà
+  const matchedApp = existingApps.find((app) => app.name === appName);
+  if (matchedApp) {
+    const matchedProjectId = matchedApp.options?.projectId ? String(matchedApp.options.projectId).trim() : null;
+    if (matchedProjectId !== normalizedProjectId) {
+      throw new Error(
+        `Conflit d'application Firebase Admin : L'application existante '${appName}' cible le projet ` +
+        `'${matchedProjectId || 'indéfini'}', alors que le projet attendu est '${normalizedProjectId}'.`
+      );
+    }
+    // Réutilisation sécurisée et contrôlée de l'application existante compatible
+    return matchedApp;
+  }
+
+  // Aucune application existante pour ce nom : initialisation
+  try {
+    const appOptions = {
+      credential: cert(serviceAccount),
+      projectId: normalizedProjectId,
+    };
+
+    if (appName === DEFAULT_ADMIN_APP_NAME) {
+      return initializeApp(appOptions);
+    }
+    return initializeApp(appOptions, appName);
   } catch (err) {
     throw new Error(`Échec de l'initialisation de l'application Firebase Admin : ${err.message}`);
   }
