@@ -131,16 +131,13 @@ service cloud.firestore {
       }
 
       // Orders subcollection
-      // Create: customer guest creation permitted with strict validation and initial status 'pending'
+      // Create: STRICTLY FORBIDDEN from client SDK (must go through trusted server backend /api/orders)
       // Get: customer can view confirmed order by exact ID
       // List: restricted strictly to authorized managers of this restaurant (protects customer privacy and restaurant order stream)
       // Update: restricted strictly to authorized managers of this restaurant, and limited to operational status fields
       // Delete: STRICTLY FORBIDDEN (audit trail preserved)
       match /orders/{orderId} {
-        allow create: if isValidId(orderId) 
-          && isValidOrder(incoming()) 
-          && incoming().restaurantSlug == restaurantSlug
-          && incoming().status == 'pending';
+        allow create: if false;
         allow get: if isValidId(orderId);
         allow list: if isManagerOfRestaurant(restaurantSlug);
         allow update: if isManagerOfRestaurant(restaurantSlug) 

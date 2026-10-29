@@ -26,6 +26,10 @@ import {
 } from '../src/components/restaumax/ClientMenuView.js';
 
 import { mapRestauOrderToKitchenTicket } from '../src/App.js';
+import { 
+  processOrderSubmission, 
+  clearServerIdempotencyStore 
+} from '../src/server/orderService.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -554,6 +558,246 @@ async function runTests() {
   // Test 5.2: Présence d'un état vide explicite
   assert(qrViewContent.includes('tableList.length === 0'), 'Gère explicitement la collection de tables vide');
   assert(qrViewContent.includes('Aucune table configurée'), 'Affiche un message clair en cas d\'absence de tables');
+
+  // ==========================================================================
+  // SECTION 6 : SÉCURISATION SERVEUR DES COMMANDES & LES 10 SCÉNARIOS AUDIT
+  // ==========================================================================
+  console.log('\n--- SECTION 6 : SÉCURISATION SERVEUR & LES 10 SCÉNARIOS AUDIT ---');
+
+  // Scénario 1: Rejet d'une écriture directe de commande depuis le client
+  assert(
+    rulesContent.includes('match /orders/{orderId}') &&
+    rulesContent.includes('allow create: if false;'),
+    'Scénario 1 : firestore.rules interdit formellement la création directe de commande par le client (allow create: if false)'
+  );
+
+  // Fournisseur mock Firestore pour les tests du service serveur
+  let savedOrders = [];
+  const mockServerProvider = {
+    async getMenuItems(slug) {
+      if (slug !== 'chez-awa') return [];
+      return mockCatalog;
+    },
+    async getTables(slug) {
+      if (slug !== 'chez-awa') return [];
+      return mockRealTables;
+    },
+    async saveOrder(slug, order) {
+      savedOrders.push({ slug, order });
+    }
+  };
+
+  // Scénario 2: Rejet d'un panier dont le prix total déclaré est falsifié
+  clearServerIdempotencyStore();
+  const srvResFalsifiedTotal = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '4',
+    declaredTotal: 100, // Déclaré 100 FCFA au lieu de 14500 FCFA
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      quantity: 1,
+      selectedOption: {
+        groupId: 'grp-acc',
+        optionId: 'opt-attieke'
+      }
+    }]
+  }, mockServerProvider);
+  assert(
+    srvResFalsifiedTotal.success === false && srvResFalsifiedTotal.error && srvResFalsifiedTotal.error.includes('falsifié'),
+    'Scénario 2 : Rejet formel d\'un panier avec un total déclaré falsifié (détection de fraude côté serveur)'
+  );
+
+  // Scénario 3: Rejet d'une commande sans option requise ou avec option/extra inexistant ou mal tarifé
+  const srvResMissingReqOpt = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '4',
+    declaredTotal: 14500,
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      quantity: 1
+      // option obligatoire omise
+    }]
+  }, mockServerProvider);
+  assert(
+    srvResMissingReqOpt.success === false && srvResMissingReqOpt.error && srvResMissingReqOpt.error.includes('obligatoire'),
+    'Scénario 3.a : Rejet si un groupe d\'option obligatoire est omis'
+  );
+
+  const srvResInvalidOption = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '4',
+    declaredTotal: 14500,
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      quantity: 1,
+      selectedOption: {
+        groupId: 'grp-acc',
+        optionId: 'opt-inconnue-xyz'
+      }
+    }]
+  }, mockServerProvider);
+  assert(
+    srvResInvalidOption.success === false && srvResInvalidOption.error && srvResInvalidOption.error.includes('introuvable'),
+    'Scénario 3.b : Rejet si l\'option sélectionnée n\'existe pas dans le catalogue Firestore'
+  );
+
+  const srvResInvalidExtra = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '4',
+    declaredTotal: 14500,
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      quantity: 1,
+      selectedOption: {
+        groupId: 'grp-acc',
+        optionId: 'opt-attieke'
+      },
+      selectedExtras: [{ extraId: 'ext-hacker-fake', name: 'Fake Extra', price: 0 }]
+    }]
+  }, mockServerProvider);
+  assert(
+    srvResInvalidExtra.success === false && srvResInvalidExtra.error && srvResInvalidExtra.error.includes('non disponible'),
+    'Scénario 3.c : Rejet si un extra non disponible ou inexistant est envoyé'
+  );
+
+  // Scénario 4: Rejet d'une commande avec table inactive ou inexistante
+  const srvResInactiveTable = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '5', // Table 5 est isActive: false
+    declaredTotal: 14500,
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      quantity: 1,
+      selectedOption: { groupId: 'grp-acc', optionId: 'opt-attieke' }
+    }]
+  }, mockServerProvider);
+  assert(
+    srvResInactiveTable.success === false && srvResInactiveTable.error && srvResInactiveTable.error.includes('inactive'),
+    'Scénario 4.a : Rejet formel si la table demandée est inactive'
+  );
+
+  const srvResNonExistentTable = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '999',
+    declaredTotal: 14500,
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      quantity: 1,
+      selectedOption: { groupId: 'grp-acc', optionId: 'opt-attieke' }
+    }]
+  }, mockServerProvider);
+  assert(
+    srvResNonExistentTable.success === false && srvResNonExistentTable.error && srvResNonExistentTable.error.includes('n\'existe pas'),
+    'Scénario 4.b : Rejet formel si la table demandée n\'existe pas dans Firestore'
+  );
+
+  // Scénario 5: Échec franc sans création si la lecture Firestore échoue ou catalogue vide (aucun repli)
+  const failingCatalogProvider = {
+    async getMenuItems() { throw new Error('Simulation panne réseau Firestore'); },
+    async getTables() { return []; },
+    async saveOrder() { throw new Error('Ne doit jamais être appelé'); }
+  };
+  const srvResCatalogFailure = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    cart: [{ menuItemId: 'dish-capitaine', quantity: 1 }]
+  }, failingCatalogProvider);
+  assert(
+    srvResCatalogFailure.success === false && srvResCatalogFailure.error && srvResCatalogFailure.error.includes('Aucun catalogue de secours'),
+    'Scénario 5.a : Échec franc et rejet immédiat si la lecture Firestore échoue (interdiction formelle de catalogue de secours)'
+  );
+
+  const emptyCatalogProvider = {
+    async getMenuItems() { return []; },
+    async getTables() { return []; },
+    async saveOrder() { throw new Error('Ne doit jamais être appelé'); }
+  };
+  const srvResEmptyCatalog = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    cart: [{ menuItemId: 'dish-capitaine', quantity: 1 }]
+  }, emptyCatalogProvider);
+  assert(
+    srvResEmptyCatalog.success === false && srvResEmptyCatalog.error && srvResEmptyCatalog.error.includes('vide ou introuvable'),
+    'Scénario 5.b : Échec franc si le catalogue Firestore est vide (aucun repli local par défaut)'
+  );
+
+  // Scénario 6: Idempotence serveur — déduplication sans double enregistrement
+  clearServerIdempotencyStore();
+  savedOrders = [];
+  const testIdemKey = 'idem-audit-scenario-6';
+  // Capitaine (14500) + alloco (500) + piment (300) = 15300 * 2 = 30600 FCFA
+  const validOrderPayload = {
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '4',
+    declaredTotal: 30600,
+    idempotencyKey: testIdemKey,
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      quantity: 2,
+      selectedOption: { groupId: 'grp-acc', optionId: 'opt-alloco' },
+      selectedExtras: [{ extraId: 'ext-piment' }]
+    }]
+  };
+
+  const srvRunFirst = await processOrderSubmission(validOrderPayload, mockServerProvider);
+  assert(
+    srvRunFirst.success === true && srvRunFirst.order && srvRunFirst.order.totalAmount === 30600 && savedOrders.length === 1,
+    'Scénario 6.a : Première soumission validée, calculée et enregistrée côté serveur'
+  );
+
+  const srvRunSecond = await processOrderSubmission(validOrderPayload, mockServerProvider);
+  assert(
+    srvRunSecond.success === true && 
+    srvRunSecond.idempotentReplay === true && 
+    srvRunSecond.order &&
+    srvRunSecond.order.id === srvRunFirst.order.id &&
+    savedOrders.length === 1,
+    'Scénario 6.b : Deuxième soumission idempotente retourne la commande sans ré-écriture Firestore'
+  );
+
+  // Scénario 7: Calcul exact des totaux et des prix unitaires côté serveur
+  assert(
+    srvRunFirst.order.items[0].unitPrice === 15300 &&
+    srvRunFirst.order.items[0].totalPrice === 30600 &&
+    srvRunFirst.order.totalAmount === 30600 &&
+    srvRunFirst.order.currency === 'FCFA',
+    'Scénario 7 : Prix unitaire (14500 + 500 + 300 = 15300) et total recalculés avec exactitude mathématique en FCFA'
+  );
+
+  // Scénario 8: Règles Firestore multi-tenant et mise à jour KDS préservées
+  assert(
+    rulesContent.includes('isManagerOfRestaurant(restaurantSlug)') &&
+    rulesContent.includes('allow list: if isManagerOfRestaurant(restaurantSlug);') &&
+    rulesContent.includes('affectedKeys().hasOnly([\'status\', \'statusUpdatedAt\', \'kitchenNotes\'])'),
+    'Scénario 8 : Multi-tenant préservé et modifications KDS strictement encadrées'
+  );
+
+  // Scénario 9: Préservation du panier client en cas d'échec
+  const appTsxContent = fs.readFileSync(path.resolve('src/App.tsx'), 'utf-8');
+  const checkFailIndex = appTsxContent.indexOf('if (!submitRes.success)');
+  const clearCartIndex = appTsxContent.indexOf('setClientCart([])', checkFailIndex);
+  assert(
+    checkFailIndex > 0 && clearCartIndex > checkFailIndex,
+    'Scénario 9 : src/App.tsx ne vide le panier client qu\'APRÈS confirmation serveur réussie'
+  );
+
+  // Scénario 10: Intégration du point d'entrée serveur sans catalogue de secours
+  const fbTsContent = fs.readFileSync(path.resolve('src/lib/firebase.ts'), 'utf-8');
+  assert(
+    fbTsContent.includes("fetch('/api/orders'") &&
+    !fbTsContent.includes('CHEZ_AWA_MENU_ITEMS'),
+    'Scénario 10 : submitOrderWithServerValidation délègue à /api/orders sans catalogue de secours local'
+  );
 
   // ==========================================================================
   // BILAN GÉNÉRAL LOT 2
