@@ -800,6 +800,323 @@ async function runTests() {
   );
 
   // ==========================================================================
+  // SECTION 7 : DURCISSEMENT FINAL — TABLES, CATALOGUE STRICT, IDEMPOTENCE & SERVEUR ADMIN
+  // ==========================================================================
+  console.log('\n--- SECTION 7 : DURCISSEMENT FINAL — TABLES, CATALOGUE STRICT, IDEMPOTENCE & SERVEUR ADMIN ---');
+
+  // --- 7.1 : VALIDATION STRICTE ET OBLIGATOIRE DES TABLES (5 CAS) ---
+  console.log('  [7.1] Validation des tables réelles...');
+
+  // Cas 1 : Panne de lecture des tables
+  const providerTableReadError = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { throw new Error('Délai de réponse dépassé sur la collection tables'); },
+    async saveOrder() {}
+  };
+  const resTableReadError = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '4',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerTableReadError);
+  assert(
+    resTableReadError.success === false && resTableReadError.error.includes('Erreur serveur lors de la lecture des tables'),
+    '7.1.a : Panne de lecture des tables entraîne un rejet formel sans création'
+  );
+
+  // Cas 2 : Collection de tables vide
+  const providerEmptyTables = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return []; },
+    async saveOrder() {}
+  };
+  const resEmptyTables = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '4',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerEmptyTables);
+  assert(
+    resEmptyTables.success === false && resEmptyTables.error.includes('Aucune table n\'est configurée'),
+    '7.1.b : Collection de tables vide entraîne un rejet formel'
+  );
+
+  // Cas 3 : Table inexistante
+  const resTableNotFound = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '99',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, mockServerProvider);
+  assert(
+    resTableNotFound.success === false && resTableNotFound.error.includes('n\'existe pas'),
+    '7.1.c : Numéro de table inexistant rejeté'
+  );
+
+  // Cas 4 : Table inactive (isActive === false)
+  const resTableInactive = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '5', // Table 5 est isActive: false
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, mockServerProvider);
+  assert(
+    resTableInactive.success === false && resTableInactive.error.includes('inactive ou fermée'),
+    '7.1.d : Table inactive rejetée'
+  );
+
+  // Cas 5 : Table valide (isActive === true)
+  const resTableValid = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'sur_place',
+    tableNumber: '4', // Table 4 est isActive: true
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, mockServerProvider);
+  assert(
+    resTableValid.success === true && resTableValid.order && resTableValid.order.tableNumber === '4',
+    '7.1.e : Table valide et active acceptée avec succès'
+  );
+
+  // --- 7.2 : VALIDATION STRICTE DU CATALOGUE (DISPONIBILITÉ & INTÉGRITÉ DES PRIX) ---
+  console.log('  [7.2] Validation stricte du catalogue...');
+
+  // Rejet si available n'est pas explicitement true (ex: undefined ou false)
+  const catalogWithImplicitAvailability = [
+    {
+      id: 'dish-no-avail',
+      restaurantSlug: 'chez-awa',
+      name: 'Plat Sans Disponibilité Explicite',
+      category: 'plats',
+      price: 5000
+      // available manquant / undefined
+    }
+  ];
+  const providerNoAvail = {
+    async getMenuItems() { return catalogWithImplicitAvailability; },
+    async getTables() { return mockRealTables; },
+    async saveOrder() {}
+  };
+  const resNotExplicitlyAvailable = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    cart: [{ menuItemId: 'dish-no-avail', quantity: 1 }]
+  }, providerNoAvail);
+  assert(
+    resNotExplicitlyAvailable.success === false && resNotExplicitlyAvailable.error.includes('indisponible'),
+    '7.2.a : Rejette formellement tout plat dont available n\'est pas explicitement true'
+  );
+
+  // Rejet si prix de base du plat est négatif ou corrompu (sans conversion silencieuse en 0)
+  const catalogWithCorruptedPrice = [
+    {
+      id: 'dish-corrupt-price',
+      restaurantSlug: 'chez-awa',
+      name: 'Plat Prix Corrompu',
+      category: 'plats',
+      price: -2500, // Prix négatif
+      available: true
+    }
+  ];
+  const providerCorruptPrice = {
+    async getMenuItems() { return catalogWithCorruptedPrice; },
+    async getTables() { return mockRealTables; },
+    async saveOrder() {}
+  };
+  const resCorruptPrice = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    cart: [{ menuItemId: 'dish-corrupt-price', quantity: 1 }]
+  }, providerCorruptPrice);
+  assert(
+    resCorruptPrice.success === false && resCorruptPrice.error.includes('Donnée de catalogue corrompue'),
+    '7.2.b : Rejette un plat ayant un prix de base corrompu ou négatif sans le convertir en zéro'
+  );
+
+  // Rejet si surcoût d'option corrompu
+  const catalogWithCorruptOption = [
+    {
+      id: 'dish-opt-corrupt',
+      restaurantSlug: 'chez-awa',
+      name: 'Plat Option Corrompue',
+      category: 'plats',
+      price: 5000,
+      available: true,
+      optionGroups: [{
+        id: 'grp-1',
+        name: 'Groupe 1',
+        options: [{ id: 'opt-bad', name: 'Option Négative', extraPrice: -100 }]
+      }]
+    }
+  ];
+  const providerCorruptOpt = {
+    async getMenuItems() { return catalogWithCorruptOption; },
+    async getTables() { return mockRealTables; },
+    async saveOrder() {}
+  };
+  const resCorruptOpt = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    cart: [{
+      menuItemId: 'dish-opt-corrupt',
+      quantity: 1,
+      selectedOption: { groupId: 'grp-1', optionId: 'opt-bad' }
+    }]
+  }, providerCorruptOpt);
+  assert(
+    resCorruptOpt.success === false && resCorruptOpt.error.includes('Donnée de catalogue corrompue'),
+    '7.2.c : Rejette une option avec un surcoût négatif ou invalide sans le convertir en zéro'
+  );
+
+  // Rejet si prix d'un supplément (extra) est corrompu
+  const catalogWithCorruptExtra = [
+    {
+      id: 'dish-extra-corrupt',
+      restaurantSlug: 'chez-awa',
+      name: 'Plat Extra Corrompu',
+      category: 'plats',
+      price: 5000,
+      available: true,
+      availableExtras: [{ id: 'ext-bad', name: 'Extra Négatif', price: -300 }]
+    }
+  ];
+  const providerCorruptExtra = {
+    async getMenuItems() { return catalogWithCorruptExtra; },
+    async getTables() { return mockRealTables; },
+    async saveOrder() {}
+  };
+  const resCorruptExtra = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    cart: [{
+      menuItemId: 'dish-extra-corrupt',
+      quantity: 1,
+      selectedExtras: [{ extraId: 'ext-bad' }]
+    }]
+  }, providerCorruptExtra);
+  assert(
+    resCorruptExtra.success === false && resCorruptExtra.error.includes('Donnée de catalogue corrompue'),
+    '7.2.d : Rejette un extra avec un prix négatif ou invalide sans le convertir en zéro'
+  );
+
+  // --- 7.3 : DURCISSEMENT DE L'IDEMPOTENCE (CONCURRENCE, CONFLIT & ÉCHEC D'ÉCRITURE) ---
+  console.log('  [7.3] Durcissement de l\'idempotence...');
+
+  clearServerIdempotencyStore();
+  const sharedKey = 'idem-key-strict-test-1';
+
+  // 1. Première exécution avec sharedKey
+  const resIdemFirst = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: sharedKey,
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, mockServerProvider);
+  assert(resIdemFirst.success === true, '7.3.a : Première soumission avec la clé acceptée');
+
+  // 2. Réutilisation de la même clé avec un contenu différent (ex: plat différent)
+  const resIdemConflict = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: sharedKey,
+    cart: [{ menuItemId: 'dish-poulet', quantity: 3 }] // Quantité modifiée !
+  }, mockServerProvider);
+  assert(
+    resIdemConflict.success === false && resIdemConflict.error.includes('Conflit d\'idempotence'),
+    '7.3.b : Rejet immédiat si la clé d\'idempotence est réutilisée avec un contenu différent'
+  );
+
+  // 3. Réutilisation de la même clé avec un restaurant différent
+  const resIdemRestoConflict = await processOrderSubmission({
+    restaurantSlug: 'autre-restaurant',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: sharedKey,
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, mockServerProvider);
+  assert(
+    resIdemRestoConflict.success === false && resIdemRestoConflict.error.includes('Conflit d\'idempotence'),
+    '7.3.c : Rejet immédiat si la clé d\'idempotence est réutilisée pour un autre restaurant'
+  );
+
+  // 4. Libération de la clé en cas d'échec d'écriture Firestore (permet le rejeu)
+  clearServerIdempotencyStore();
+  const failWriteKey = 'idem-fail-write-retry';
+  let writeAttempt = 0;
+  const providerFailingOnFirstWrite = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async saveOrder() {
+      writeAttempt++;
+      if (writeAttempt === 1) {
+        throw new Error('Firestore write timeout / quota exceeded');
+      }
+      // Tentative 2 réussit
+    }
+  };
+
+  const resFirstWriteFail = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: failWriteKey,
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerFailingOnFirstWrite);
+  assert(
+    resFirstWriteFail.success === false && resFirstWriteFail.error.includes('Échec d\'enregistrement de la commande dans Firestore'),
+    '7.3.d : En cas d\'erreur d\'écriture Firestore, le serveur n\'annonce JAMAIS que la commande est confirmée'
+  );
+
+  // Deuxième tentative avec la même clé : la clé doit avoir été libérée et le rejeu doit être accepté
+  const resSecondWriteRetry = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: failWriteKey,
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerFailingOnFirstWrite);
+  assert(
+    resSecondWriteRetry.success === true && resSecondWriteRetry.order !== undefined,
+    '7.3.e : La clé a été libérée après l\'erreur d\'écriture, permettant une nouvelle tentative réussie'
+  );
+
+  // --- 7.4 : VÉRIFICATION DU COMPORTEMENT RÉEL DU SERVEUR (server.ts) ---
+  console.log('  [7.4] Vérification de server.ts et conformité Admin SDK...');
+
+  const serverTsContent = fs.readFileSync(path.resolve('server.ts'), 'utf-8');
+
+  // Vérification de la suppression totale du SDK client dans server.ts
+  assert(
+    !serverTsContent.includes("from './src/lib/firebase.js'") && 
+    !serverTsContent.includes("from 'firebase/firestore'"),
+    '7.4.a : server.ts ne recourt JAMAIS au SDK Firebase client pour écrire ou lire'
+  );
+
+  // Vérification du verrou HTTP 503 si Firebase Admin SDK n'est pas initialisé
+  assert(
+    serverTsContent.includes('if (!adminDb)') && 
+    serverTsContent.includes('res.status(503)'),
+    '7.4.b : server.ts interdit formellement le traitement de commandes si Firebase Admin SDK est absent (HTTP 503)'
+  );
+
+  // Vérification de l'écriture de commande exclusive via Firebase Admin SDK
+  assert(
+    serverTsContent.includes('await adminDb.collection(\'restaurants\').doc(restaurantSlug).collection(\'orders\')'),
+    '7.4.c : saveOrder dans server.ts utilise exclusivement Firebase Admin SDK de confiance'
+  );
+
+  // Vérification de la route diagnostic
+  assert(
+    serverTsContent.includes("app.get('/api/health'"),
+    '7.4.d : Route /api/health présente pour diagnostiquer l\'état de Firebase Admin SDK'
+  );
+
+  // ==========================================================================
   // BILAN GÉNÉRAL LOT 2
   // ==========================================================================
   console.log('\n====================================================');

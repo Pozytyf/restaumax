@@ -1,10 +1,45 @@
+/**
+ * RESTAUMAX — SERVEUR BACKEND SÉCURISÉ & PASSERELLE API RESTAUMAX
+ *
+ * Ce serveur Express gère les points de terminaison d'API de confiance pour RestauMax,
+ * notamment la route sécurisée de commande POST /api/orders, et monte le middleware Vite en dev.
+ *
+ * ==============================================================================
+ * DOCUMENTATION DE CONFIGURATION (DÉVELOPPEMENT & PRODUCTION) :
+ * ==============================================================================
+ * 
+ * 1. Configuration Firebase Admin SDK :
+ *    - Le serveur requiert obligatoirement un compte de service Firebase Admin valide
+ *      pour traiter et écrire les commandes dans Firestore.
+ *    - Variable requise : GOOGLE_APPLICATION_CREDENTIALS=<chemin_absolu_vers_cle_service_account.json>
+ *    - Fichier de configuration applet : firebase-applet-config.json
+ *      - projectId attendu : gen-lang-client-0138815290
+ *      - firestoreDatabaseId attendu : ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf
+ *
+ * 2. Comportement de sécurité (Règles Firestore & Admin SDK) :
+ *    - Les règles Firestore (firestore.rules) interdisent formellement aux clients
+ *      l'écriture directe de commandes (`allow create: if false;` sur /orders/{orderId}).
+ *    - Toute commande doit impérativement transiter par POST /api/orders.
+ *    - Si Firebase Admin SDK n'est pas initialisé (credentials absents ou invalides),
+ *      le serveur REFUSE catégoriquement de traiter les commandes (HTTP 503 Service Unavailable).
+ *    - Il est STRICTEMENT INTERDIT d'utiliser le SDK Firebase client pour écrire des commandes
+ *      depuis le serveur (aucun fallback client, aucune écriture non confirmée).
+ *
+ * 3. Démarrage :
+ *    - Développement : "npm run dev" (tsx server.ts avec middleware Vite SPA)
+ *    - Production : "npm run build && npm start" (sert les fichiers statiques dist/ et l'API)
+ *    - Port par défaut : 3000 (configurable via la variable PORT)
+ * ==============================================================================
+ */
+
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { 
   processOrderSubmission, 
-  ServerFirestoreProvider 
+  ServerFirestoreProvider,
+  ServerIdempotencyRecord
 } from './src/server/orderService.js';
 import { 
   getAppletFirebaseConfig, 
@@ -21,60 +56,105 @@ const PORT = Number(process.env.PORT) || 3000;
 const app = express();
 app.use(express.json());
 
-// Initialisation conditionnelle de Firebase Admin SDK
+// 1. Initialisation stricte de Firebase Admin SDK
 let adminDb: any = null;
+let adminInitError: string | null = null;
+let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = null;
+
 try {
-  const config = getAppletFirebaseConfig();
+  appletConfig = getAppletFirebaseConfig();
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
   if (credPath && fs.existsSync(credPath)) {
-    const serviceAccount = validateServiceAccountCredentials(credPath, config.projectId);
-    const adminApp = initAdminApp(serviceAccount, config.projectId);
-    adminDb = initAdminFirestore(adminApp, config.firestoreDatabaseId);
-    console.log('Firebase Admin SDK initialisé avec succès pour la base:', config.firestoreDatabaseId);
+    const serviceAccount = validateServiceAccountCredentials(credPath, appletConfig.projectId);
+    const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
+    adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
+    console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
   } else {
-    console.log('GOOGLE_APPLICATION_CREDENTIALS non configuré. Mode passerelle active.');
+    adminInitError = credPath 
+      ? `Fichier de credentials spécifié introuvable : ${credPath}` 
+      : "Variable GOOGLE_APPLICATION_CREDENTIALS non configurée.";
+    console.warn(`[RestauMax Server] AVERTISSEMENT : Firebase Admin SDK non initialisé (${adminInitError}). Le traitement de commandes sera désactivé.`);
   }
 } catch (err: any) {
-  console.warn('Initialisation Firebase Admin SDK:', err.message);
+  adminInitError = err.message || String(err);
+  console.error(`[RestauMax Server] Erreur lors de l'initialisation de Firebase Admin SDK : ${adminInitError}`);
 }
 
-// Fournisseur Firestore serveur
+// 2. Fournisseur Firestore serveur reposant EXCLUSIVEMENT sur Firebase Admin SDK
+// Suppression totale du recours au SDK client pour les écritures de commande
 export const serverFirestoreProvider: ServerFirestoreProvider = {
   async getMenuItems(restaurantSlug: string) {
-    if (adminDb) {
-      const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('menuItems').get();
-      return snap.docs.map((d: any) => d.data());
+    if (!adminDb) {
+      throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
-    // Lecture directe depuis l'instance Firestore du projet
-    const { getDocs, collection } = await import('firebase/firestore');
-    const { db } = await import('./src/lib/firebase.js');
-    const snap = await getDocs(collection(db, 'restaurants', restaurantSlug, 'menuItems'));
-    return snap.docs.map(d => d.data() as any);
+    const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('menuItems').get();
+    return snap.docs.map((d: any) => d.data());
   },
+
   async getTables(restaurantSlug: string) {
-    if (adminDb) {
-      const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('tables').get();
-      return snap.docs.map((d: any) => d.data());
+    if (!adminDb) {
+      throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
-    const { getDocs, collection } = await import('firebase/firestore');
-    const { db } = await import('./src/lib/firebase.js');
-    const snap = await getDocs(collection(db, 'restaurants', restaurantSlug, 'tables'));
-    return snap.docs.map(d => d.data() as any);
+    const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('tables').get();
+    return snap.docs.map((d: any) => d.data());
   },
+
   async saveOrder(restaurantSlug: string, order: any) {
-    if (adminDb) {
-      await adminDb.collection('restaurants').doc(restaurantSlug).collection('orders').doc(order.id).set(order);
-      return;
+    if (!adminDb) {
+      throw new Error(
+        "Écriture de commande refusée : Firebase Admin SDK n'est pas initialisé. " +
+        "Le serveur ne peut pas déléguer l'écriture au SDK client."
+      );
     }
-    // En environnement de développement sans clé Admin, sauvegarde via le client serveur
-    const { setDoc, doc } = await import('firebase/firestore');
-    const { db } = await import('./src/lib/firebase.js');
-    await setDoc(doc(db, 'restaurants', restaurantSlug, 'orders', order.id), order);
+    // Écriture de confiance directe via Firebase Admin SDK
+    await adminDb.collection('restaurants').doc(restaurantSlug).collection('orders').doc(order.id).set(order);
+  },
+
+  async getIdempotencyRecord(key: string): Promise<ServerIdempotencyRecord | null> {
+    if (!adminDb) return null;
+    try {
+      const snap = await adminDb.collection('idempotency_keys').doc(key).get();
+      return snap.exists ? (snap.data() as ServerIdempotencyRecord) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  async saveIdempotencyRecord(key: string, record: ServerIdempotencyRecord): Promise<void> {
+    if (!adminDb) return;
+    try {
+      await adminDb.collection('idempotency_keys').doc(key).set(record);
+    } catch (err: any) {
+      console.warn('Avertissement écriture idempotence persistante:', err.message);
+    }
+  },
+
+  async deleteIdempotencyRecord(key: string): Promise<void> {
+    if (!adminDb) return;
+    try {
+      await adminDb.collection('idempotency_keys').doc(key).delete();
+    } catch (err: any) {
+      console.warn('Avertissement suppression idempotence persistante:', err.message);
+    }
   }
 };
 
-// Route API : Soumission et recalcul de commande côté serveur
+// 3. Route API : Soumission, recalcul de confiance et persistance de commande
 app.post('/api/orders', async (req, res) => {
+  // RÈGLE CRITIQUE D'AUDIT : Interdire formellement le traitement des commandes
+  // si Firebase Admin SDK n'est pas initialisé correctement.
+  if (!adminDb) {
+    return res.status(503).json({
+      success: false,
+      error: `Service de commande indisponible : Firebase Admin SDK n'est pas initialisé sur le serveur. ` +
+        `Raison : ${adminInitError || 'Identifiants administrateur absents'}. ` +
+        `Pour activer le traitement des commandes en production, configurez GOOGLE_APPLICATION_CREDENTIALS ` +
+        `avec un compte de service autorisé sur le projet '${appletConfig?.projectId || 'Firebase'}'. ` +
+        `Les écritures directes via le SDK client sont formellement interdites par les règles Firestore.`
+    });
+  }
+
   try {
     const result = await processOrderSubmission(req.body, serverFirestoreProvider);
     if (result.success) {
@@ -83,7 +163,7 @@ app.post('/api/orders', async (req, res) => {
       return res.status(400).json(result);
     }
   } catch (err: any) {
-    console.error('Erreur API /api/orders:', err);
+    console.error('Erreur inattendue API /api/orders:', err);
     return res.status(500).json({
       success: false,
       error: `Erreur interne serveur lors du traitement de la commande : ${err.message || String(err)}`
@@ -91,16 +171,19 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-// Route Santé serveur
+// 4. Route Diagnostic / Santé du serveur
 app.get('/api/health', (_req, res) => {
   res.json({ 
     status: 'ok', 
     hasAdminDb: Boolean(adminDb),
+    projectId: appletConfig?.projectId || null,
+    databaseId: appletConfig?.firestoreDatabaseId || null,
+    adminInitError,
     serverTime: Date.now() 
   });
 });
 
-// Middleware Vite en développement / Fichiers statiques en production
+// 5. Middleware Vite en développement / Fichiers statiques en production
 async function startServer() {
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
@@ -118,11 +201,11 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Serveur RestauMax actif sur http://0.0.0.0:${PORT}`);
+    console.log(`Serveur RestauMax actif sur http://0.0.0.0:${PORT} (Mode: ${isProd ? 'production' : 'développement'})`);
   });
 }
 
 startServer().catch((err) => {
-  console.error('Erreur au démarrage du serveur:', err);
+  console.error('Erreur fatale au démarrage du serveur:', err);
   process.exit(1);
 });

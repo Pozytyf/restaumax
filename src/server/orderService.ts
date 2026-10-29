@@ -2,7 +2,7 @@ import {
   RestauMenuItem, 
   RestauOrder, 
   RestauOrderItem, 
-  RestaurantTable,
+  RestaurantTable, 
   OrderMode 
 } from '../types/restaumax.js';
 import { calculateOrderTotal, sanitizeNote } from '../utils/pricing.js';
@@ -41,14 +41,17 @@ export interface OrderSubmissionResult {
   idempotentReplay?: boolean;
 }
 
-// In-memory idempotency cache for duplicate request prevention
-interface ServerIdempotencyRecord {
+/**
+ * Enregistrement d'idempotence horodaté avec empreinte canonique du payload
+ */
+export interface ServerIdempotencyRecord {
   timestamp: number;
   status: 'processing' | 'completed';
   order?: RestauOrder;
   signature: string;
 }
 
+// Cache d'idempotence mémoire local (protection au sein du même processus Node.js)
 const serverIdempotencyStore = new Map<string, ServerIdempotencyRecord>();
 
 export function clearServerIdempotencyStore(): void {
@@ -56,24 +59,66 @@ export function clearServerIdempotencyStore(): void {
 }
 
 /**
- * Interface abstraite d'accès aux données Firestore serveur
+ * Calcule l'empreinte canonique et déterministe d'un panier et de sa configuration
+ */
+export function computeOrderSignature(payload: {
+  restaurantSlug: string;
+  orderMode: OrderMode;
+  tableNumber: string | null;
+  cart: OrderSubmissionPayload['cart'];
+}): string {
+  const normCart = payload.cart
+    .map(c => {
+      const opt = c.selectedOption ? `${c.selectedOption.groupId}:${c.selectedOption.optionId}` : '';
+      const extras = (c.selectedExtras || [])
+        .map(e => e.extraId)
+        .sort()
+        .join(',');
+      const note = (c.prepNotes || '').trim();
+      return `${c.menuItemId}*${c.quantity}*${opt}*[${extras}]*${note}`;
+    })
+    .sort()
+    .join('|');
+
+  return `${payload.restaurantSlug.trim()}::${payload.orderMode}::${(payload.tableNumber || '').trim()}::${normCart}`;
+}
+
+/**
+ * Interface de confiance d'accès aux données Firestore serveur
  * Permet l'injection du SDK Firebase Admin ou de mocks pour les tests
  */
 export interface ServerFirestoreProvider {
   getMenuItems(restaurantSlug: string): Promise<RestauMenuItem[]>;
   getTables(restaurantSlug: string): Promise<RestaurantTable[]>;
   saveOrder(restaurantSlug: string, order: RestauOrder): Promise<void>;
+  getIdempotencyRecord?(key: string): Promise<ServerIdempotencyRecord | null>;
+  saveIdempotencyRecord?(key: string, record: ServerIdempotencyRecord): Promise<void>;
+  deleteIdempotencyRecord?(key: string): Promise<void>;
+}
+
+/**
+ * Libère une clé d'idempotence en cas d'erreur de traitement ou d'écriture Firestore
+ */
+async function releaseIdempotencyKey(key: string, dataProvider: ServerFirestoreProvider): Promise<void> {
+  serverIdempotencyStore.delete(key);
+  if (dataProvider.deleteIdempotencyRecord) {
+    try {
+      await dataProvider.deleteIdempotencyRecord(key);
+    } catch {
+      // Ignorer l'erreur de suppression en fallback
+    }
+  }
 }
 
 /**
  * Point d'entrée serveur de validation et création de commande
- * - Lit le catalogue réel depuis Firestore (interdiction stricte de catalogue de secours)
- * - Valide chaque plat, option et extra
- * - Recalcule chaque ligne et le total général
- * - Rejette les totaux falsifiés
- * - Valide la table réelle
- * - Applique la protection anti-doublon idempotente
- * - Enregistre la commande dans Firestore
+ * 
+ * Garanties de sécurité :
+ * 1. Validation obligatoire des tables pour 'sur_place' (panne, liste vide, inexistante ou inactive => rejet).
+ * 2. Validation stricte du catalogue (available === true obligatoire, champs et prix vérifiés sans fallback 0).
+ * 3. Idempotence renforcée (conflit de signature détecté, verrou mémoire + persistant).
+ * 4. Recalcul serveur intégral des totaux et rejet de tout prix falsifié.
+ * 5. Aucune confirmation si l'écriture Firestore a échoué.
  */
 export async function processOrderSubmission(
   payload: OrderSubmissionPayload,
@@ -103,9 +148,9 @@ export async function processOrderSubmission(
     return { success: false, error: "Mode de commande invalide (doit être 'sur_place' ou 'a_emporter')." };
   }
 
-  // 2. Gestion de l'idempotence côté serveur
   const now = Date.now();
-  // Nettoyage des clés de plus de 10 minutes
+
+  // Nettoyage des clés mémoires de plus de 10 minutes
   for (const [key, record] of serverIdempotencyStore.entries()) {
     if (now - record.timestamp > 600000) {
       serverIdempotencyStore.delete(key);
@@ -113,9 +158,36 @@ export async function processOrderSubmission(
   }
 
   const effectiveIdempotencyKey = idempotencyKey?.trim() || null;
+  const currentSignature = computeOrderSignature({
+    restaurantSlug: cleanSlug,
+    orderMode,
+    tableNumber,
+    cart
+  });
+
+  // 2. Gestion stricte de l'idempotence
   if (effectiveIdempotencyKey) {
-    const existingRecord = serverIdempotencyStore.get(effectiveIdempotencyKey);
+    let existingRecord: ServerIdempotencyRecord | null = null;
+    if (dataProvider.getIdempotencyRecord) {
+      try {
+        existingRecord = await dataProvider.getIdempotencyRecord(effectiveIdempotencyKey);
+      } catch (err: any) {
+        console.warn('Avertissement lecture idempotence persistante:', err.message);
+      }
+    }
+    if (!existingRecord) {
+      existingRecord = serverIdempotencyStore.get(effectiveIdempotencyKey) || null;
+    }
+
     if (existingRecord) {
+      // Détection de conflit de payload sur une même clé
+      if (existingRecord.signature && existingRecord.signature !== currentSignature) {
+        return {
+          success: false,
+          error: `Conflit d'idempotence : La clé "${effectiveIdempotencyKey}" a déjà été utilisée pour une requête différente (restaurant, mode de commande, table ou panier distinct).`
+        };
+      }
+
       if (existingRecord.status === 'completed' && existingRecord.order) {
         return { 
           success: true, 
@@ -123,6 +195,7 @@ export async function processOrderSubmission(
           idempotentReplay: true 
         };
       }
+
       if (existingRecord.status === 'processing' && (now - existingRecord.timestamp < 15000)) {
         return { 
           success: false, 
@@ -131,11 +204,16 @@ export async function processOrderSubmission(
       }
     }
 
-    serverIdempotencyStore.set(effectiveIdempotencyKey, {
+    // Poser le verrou d'idempotence
+    const processingRecord: ServerIdempotencyRecord = {
       timestamp: now,
       status: 'processing',
-      signature: `${cleanSlug}:${orderMode}:${tableNumber}`
-    });
+      signature: currentSignature
+    };
+    serverIdempotencyStore.set(effectiveIdempotencyKey, processingRecord);
+    if (dataProvider.saveIdempotencyRecord) {
+      await dataProvider.saveIdempotencyRecord(effectiveIdempotencyKey, processingRecord).catch(() => {});
+    }
   }
 
   try {
@@ -145,7 +223,7 @@ export async function processOrderSubmission(
     try {
       catalog = await dataProvider.getMenuItems(cleanSlug);
     } catch (err: any) {
-      if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+      if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
       return { 
         success: false, 
         error: `Erreur serveur lors de la lecture du catalogue Firestore : ${err.message || 'Échec de connexion'}. Aucun catalogue de secours n'est autorisé.` 
@@ -153,54 +231,67 @@ export async function processOrderSubmission(
     }
 
     if (!catalog || !Array.isArray(catalog) || catalog.length === 0) {
-      if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+      if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
       return { 
         success: false, 
         error: `Le catalogue du restaurant "${cleanSlug}" est vide ou introuvable dans Firestore. Commande refusée.` 
       };
     }
 
-    // 4. Validation de la table réelle pour les commandes sur place
+    // 4. Validation obligatoire des tables réelles pour les commandes sur place
     let cleanTableNumber: string | null = null;
     if (orderMode === 'sur_place') {
       if (!tableNumber || typeof tableNumber !== 'string' || !tableNumber.trim()) {
-        if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
         return { success: false, error: "Le numéro de table est obligatoire pour une commande sur place." };
       }
       cleanTableNumber = tableNumber.trim();
 
-      // Lecture des tables réelles enregistrées dans Firestore pour ce restaurant
-      let realTables: RestaurantTable[] = [];
+      // RÈGLE D'AUDIT : Toute erreur de lecture des tables doit entraîner un rejet immédiat
+      let realTables: RestaurantTable[];
       try {
         realTables = await dataProvider.getTables(cleanSlug);
       } catch (err: any) {
-        console.warn(`Avertissement lecture tables pour ${cleanSlug}:`, err.message);
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
+        return { 
+          success: false, 
+          error: `Erreur serveur lors de la lecture des tables Firestore pour "${cleanSlug}" : ${err.message || 'Panne de connexion'}. Commande sur place refusée.` 
+        };
       }
 
-      if (realTables && realTables.length > 0) {
-        const matched = realTables.find(
-          t => t.tableNumber.trim().toLowerCase() === cleanTableNumber!.toLowerCase()
-        );
+      // RÈGLE D'AUDIT : Une collection de tables vide doit entraîner un rejet
+      if (!realTables || !Array.isArray(realTables) || realTables.length === 0) {
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
+        return { 
+          success: false, 
+          error: `Aucune table n'est configurée dans Firestore pour le restaurant "${cleanSlug}". Commande sur place refusée.` 
+        };
+      }
 
-        if (!matched) {
-          if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
-          return { 
-            success: false, 
-            error: `La table "${cleanTableNumber}" n'existe pas dans la configuration du restaurant.` 
-          };
-        }
+      const matched = realTables.find(
+        t => t.tableNumber && t.tableNumber.trim().toLowerCase() === cleanTableNumber!.toLowerCase()
+      );
 
-        if (matched.isActive === false) {
-          if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
-          return { 
-            success: false, 
-            error: `La table "${cleanTableNumber}" est actuellement inactive ou fermée.` 
-          };
-        }
+      // RÈGLE D'AUDIT : La table doit exister
+      if (!matched) {
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
+        return { 
+          success: false, 
+          error: `La table "${cleanTableNumber}" n'existe pas dans la configuration du restaurant.` 
+        };
+      }
+
+      // RÈGLE D'AUDIT : La table doit être explicitement active (isActive === true)
+      if (matched.isActive !== true) {
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
+        return { 
+          success: false, 
+          error: `La table "${cleanTableNumber}" est actuellement inactive ou fermée.` 
+        };
       }
     }
 
-    // 5. Validation stricte de chaque ligne du panier contre le catalogue de confiance
+    // 5. Validation stricte du catalogue et de chaque ligne du panier
     const catalogMap = new Map<string, RestauMenuItem>(catalog.map(item => [item.id, item]));
     const verifiedItems: RestauOrderItem[] = [];
 
@@ -209,35 +300,52 @@ export async function processOrderSubmission(
       const catalogItem = catalogMap.get(line.menuItemId);
 
       if (!catalogItem) {
-        if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
         return { 
           success: false, 
           error: `Le plat sélectionné (ID: "${line.menuItemId}") n'existe pas au catalogue officiel.` 
         };
       }
 
+      // RÈGLE D'AUDIT : Vérification des champs et prix du catalogue avant tout calcul
+      if (!catalogItem.name || typeof catalogItem.name !== 'string' || !catalogItem.name.trim()) {
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
+        return {
+          success: false,
+          error: `Donnée de catalogue corrompue : Le plat "${line.menuItemId}" ne possède pas de nom valide.`
+        };
+      }
+
+      if (typeof catalogItem.price !== 'number' || !Number.isFinite(catalogItem.price) || catalogItem.price < 0) {
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
+        return {
+          success: false,
+          error: `Donnée de catalogue corrompue : Le prix de base du plat "${catalogItem.name}" est invalide (${catalogItem.price}). Commande rejetée.`
+        };
+      }
+
       // Vérification que le plat appartient bien au restaurant cible
       if (catalogItem.restaurantSlug && catalogItem.restaurantSlug !== cleanSlug) {
-        if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
         return { 
           success: false, 
           error: `Le plat "${catalogItem.name}" n'appartient pas au restaurant "${cleanSlug}".` 
         };
       }
 
-      // Vérification de la disponibilité
-      if (catalogItem.available === false) {
-        if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+      // RÈGLE D'AUDIT : Rejeter tout plat dont available n'est pas explicitement true
+      if (catalogItem.available !== true) {
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
         return { 
           success: false, 
-          error: `Le plat "${catalogItem.name}" est actuellement indisponible / en rupture de stock.` 
+          error: `Le plat "${catalogItem.name}" est actuellement indisponible ou en rupture de stock.` 
         };
       }
 
       // Validation de la quantité (entier compris entre 1 et 50)
       const qty = line.quantity;
       if (!Number.isInteger(qty) || qty < 1 || qty > 50) {
-        if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+        if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
         return { 
           success: false, 
           error: `La quantité pour "${catalogItem.name}" doit être un entier positif compris entre 1 et 50 (reçu: ${qty}).` 
@@ -250,7 +358,7 @@ export async function processOrderSubmission(
         if (group.required) {
           const hasSelectedGroup = line.selectedOption && line.selectedOption.groupId === group.id;
           if (!hasSelectedGroup) {
-            if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+            if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
             return { 
               success: false, 
               error: `Une option est obligatoire (requise) pour le groupe "${group.name}" du plat "${catalogItem.name}".` 
@@ -265,24 +373,36 @@ export async function processOrderSubmission(
       if (line.selectedOption) {
         const catalogGroup = availableOptionGroups.find(g => g.id === line.selectedOption?.groupId);
         if (!catalogGroup) {
-          if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+          if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
           return { 
             success: false, 
             error: `Le groupe d'options "${line.selectedOption.groupId}" n'est pas autorisé pour le plat "${catalogItem.name}".` 
           };
         }
 
-        const catalogOption = catalogGroup.options.find(o => o.id === line.selectedOption?.optionId);
+        const catalogOption = catalogGroup.options?.find(o => o.id === line.selectedOption?.optionId);
         if (!catalogOption) {
-          if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+          if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
           return { 
             success: false, 
             error: `L'option "${line.selectedOption.optionId}" est introuvable / inexistante dans le groupe "${catalogGroup.name}".` 
           };
         }
 
-        // Prix de l'option tiré exclusivement du catalogue officiel
-        optionExtraPrice = Math.max(0, Math.round(Number(catalogOption.extraPrice) || 0));
+        // RÈGLE D'AUDIT : Rejeter toute donnée incohérente de prix d'option (interdiction de conversion en 0)
+        if (catalogOption.extraPrice !== undefined) {
+          if (typeof catalogOption.extraPrice !== 'number' || !Number.isFinite(catalogOption.extraPrice) || catalogOption.extraPrice < 0) {
+            if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
+            return {
+              success: false,
+              error: `Donnée de catalogue corrompue : Le surcoût de l'option "${catalogOption.name}" est invalide (${catalogOption.extraPrice}). Commande rejetée.`
+            };
+          }
+          optionExtraPrice = Math.round(catalogOption.extraPrice);
+        } else {
+          optionExtraPrice = 0;
+        }
+
         verifiedSelectedOption = {
           groupId: catalogGroup.id,
           groupName: catalogGroup.name,
@@ -303,15 +423,23 @@ export async function processOrderSubmission(
         for (const ext of line.selectedExtras) {
           const catalogExtra = extrasMap.get(ext.extraId);
           if (!catalogExtra) {
-            if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+            if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
             return { 
               success: false, 
               error: `Le supplément "${ext.extraId}" est non disponible / non autorisé pour le plat "${catalogItem.name}".` 
             };
           }
 
-          // Prix de l'extra tiré exclusivement du catalogue officiel
-          const extraPrice = Math.max(0, Math.round(Number(catalogExtra.price) || 0));
+          // RÈGLE D'AUDIT : Rejeter toute donnée incohérente de prix d'extra (interdiction de conversion en 0)
+          if (typeof catalogExtra.price !== 'number' || !Number.isFinite(catalogExtra.price) || catalogExtra.price < 0) {
+            if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
+            return {
+              success: false,
+              error: `Donnée de catalogue corrompue : Le prix du supplément "${catalogExtra.name}" est invalide (${catalogExtra.price}). Commande rejetée.`
+            };
+          }
+
+          const extraPrice = Math.round(catalogExtra.price);
           extrasCost += extraPrice;
           verifiedExtrasList.push({
             extraId: catalogExtra.id,
@@ -321,7 +449,7 @@ export async function processOrderSubmission(
         }
       }
 
-      const trustedBasePrice = Math.max(0, Math.round(Number(catalogItem.price) || 0));
+      const trustedBasePrice = Math.round(catalogItem.price);
       const trustedUnitPrice = trustedBasePrice + optionExtraPrice + extrasCost;
       const lineTotal = trustedUnitPrice * qty;
 
@@ -344,19 +472,19 @@ export async function processOrderSubmission(
 
     // 7. Rejet strict si le montant déclaré par le client diffère du recalcul de confiance
     if (declaredTotal !== undefined && Math.round(Number(declaredTotal)) !== grandTotal) {
-      if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+      if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
       return { 
         success: false, 
         error: `Le total de la commande a été falsifié ou ne concorde pas avec le tarif officiel (recalculé: ${grandTotal} FCFA, soumis: ${declaredTotal} FCFA).` 
       };
     }
 
-    // 8. Construction de la commande confirmée
-    const humanOrderNumber = `#CMD-${Math.floor(100 + Math.random() * 900)}`;
-    const orderId = `ord-${now}-${Math.random().toString(36).substring(2, 8)}`;
+    // 8. Génération du numéro de commande lisible et de l'ordre complet
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    const humanOrderNumber = `#CMD-${randomSuffix}`;
 
     const confirmedOrder: RestauOrder = {
-      id: orderId,
+      id: `ord-${now}-${Math.random().toString(36).substring(2, 7)}`,
       orderNumber: humanOrderNumber,
       restaurantSlug: cleanSlug,
       orderMode,
@@ -372,17 +500,22 @@ export async function processOrderSubmission(
       idempotencyKey: effectiveIdempotencyKey || undefined
     };
 
-    // 9. Enregistrement direct et sécurisé dans Firestore par le serveur
+    // 9. RÈGLE D'AUDIT : Enregistrement de confiance dans Firestore par le serveur
+    // Ne JAMAIS annoncer qu'une commande a été enregistrée si Firestore n'a pas confirmé son écriture
     await dataProvider.saveOrder(cleanSlug, confirmedOrder);
 
-    // 10. Mise à jour de l'enregistrement d'idempotence
+    // 10. Mise à jour de l'enregistrement d'idempotence après confirmation réelle
     if (effectiveIdempotencyKey) {
-      serverIdempotencyStore.set(effectiveIdempotencyKey, {
+      const completedRecord: ServerIdempotencyRecord = {
         timestamp: now,
         status: 'completed',
         order: confirmedOrder,
-        signature: `${cleanSlug}:${orderMode}:${tableNumber}`
-      });
+        signature: currentSignature
+      };
+      serverIdempotencyStore.set(effectiveIdempotencyKey, completedRecord);
+      if (dataProvider.saveIdempotencyRecord) {
+        await dataProvider.saveIdempotencyRecord(effectiveIdempotencyKey, completedRecord).catch(() => {});
+      }
     }
 
     return { 
@@ -390,10 +523,13 @@ export async function processOrderSubmission(
       order: confirmedOrder 
     };
   } catch (err: any) {
-    if (effectiveIdempotencyKey) serverIdempotencyStore.delete(effectiveIdempotencyKey);
+    // En cas d'erreur de sauvegarde Firestore, libérer le verrou d'idempotence pour autoriser un rejeu ultérieur
+    if (effectiveIdempotencyKey) {
+      await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
+    }
     return { 
       success: false, 
-      error: `Erreur inattendue lors du traitement serveur de la commande : ${err.message || String(err)}` 
+      error: `Échec d'enregistrement de la commande dans Firestore : ${err.message || String(err)}. La commande n'a PAS été enregistrée.` 
     };
   }
 }
