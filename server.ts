@@ -111,6 +111,95 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     await adminDb.collection('restaurants').doc(restaurantSlug).collection('orders').doc(order.id).set(order);
   },
 
+  async getOrderById(restaurantSlug: string, orderId: string) {
+    if (!adminDb) return null;
+    try {
+      const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('orders').doc(orderId).get();
+      return snap.exists ? (snap.data() as any) : null;
+    } catch (err: any) {
+      console.warn(`[RestauMax Server] Erreur sonde getOrderById (${orderId}):`, err.message);
+      return null;
+    }
+  },
+
+  // Réservation atomique transactionnelle de la clé d'idempotence (multi-instance)
+  async reserveIdempotencyKey(key: string, signature: string, timeoutMs = 15000) {
+    if (!adminDb) {
+      throw new Error("Opération d'idempotence persistante refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
+    }
+    const docRef = adminDb.collection('idempotency_keys').doc(key);
+    return await adminDb.runTransaction(async (t: any) => {
+      const snap = await t.get(docRef);
+      const now = Date.now();
+      if (snap.exists) {
+        const data = snap.data() as ServerIdempotencyRecord;
+        if (data.signature && data.signature !== signature) {
+          return {
+            status: 'conflict' as const,
+            record: data,
+            error: `Conflit d'idempotence : La clé "${key}" a déjà été utilisée pour une requête différente.`
+          };
+        }
+        if (data.status === 'completed' && data.order) {
+          return { status: 'completed' as const, record: data };
+        }
+        if (data.status === 'ambiguous' && data.pendingOrderId) {
+          return { status: 'ambiguous' as const, record: data };
+        }
+        if (data.status === 'processing') {
+          if (now - data.timestamp < timeoutMs) {
+            return {
+              status: 'in_progress' as const,
+              record: data,
+              error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
+            };
+          }
+          // Timeout expiré : reprise atomique de la réservation
+        }
+      }
+
+      const newRecord: ServerIdempotencyRecord = {
+        timestamp: now,
+        status: 'processing',
+        signature
+      };
+      t.set(docRef, newRecord);
+      return { status: 'reserved' as const, record: newRecord };
+    });
+  },
+
+  async commitIdempotencyKey(key: string, order: any, signature: string): Promise<void> {
+    if (!adminDb) return;
+    const docRef = adminDb.collection('idempotency_keys').doc(key);
+    await docRef.set({
+      timestamp: Date.now(),
+      status: 'completed',
+      order,
+      signature
+    });
+  },
+
+  async markIdempotencyAmbiguous(key: string, orderId: string, signature: string, reason: string): Promise<void> {
+    if (!adminDb) return;
+    const docRef = adminDb.collection('idempotency_keys').doc(key);
+    await docRef.set({
+      timestamp: Date.now(),
+      status: 'ambiguous',
+      pendingOrderId: orderId,
+      signature,
+      errorReason: reason
+    });
+  },
+
+  async releaseIdempotencyKey(key: string): Promise<void> {
+    if (!adminDb) return;
+    try {
+      await adminDb.collection('idempotency_keys').doc(key).delete();
+    } catch (err: any) {
+      console.warn('Avertissement libération idempotence Firestore:', err.message);
+    }
+  },
+
   async getIdempotencyRecord(key: string): Promise<ServerIdempotencyRecord | null> {
     if (!adminDb) return null;
     try {
@@ -123,20 +212,14 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
 
   async saveIdempotencyRecord(key: string, record: ServerIdempotencyRecord): Promise<void> {
     if (!adminDb) return;
-    try {
-      await adminDb.collection('idempotency_keys').doc(key).set(record);
-    } catch (err: any) {
-      console.warn('Avertissement écriture idempotence persistante:', err.message);
-    }
+    const docRef = adminDb.collection('idempotency_keys').doc(key);
+    await docRef.set(record);
   },
 
   async deleteIdempotencyRecord(key: string): Promise<void> {
     if (!adminDb) return;
-    try {
-      await adminDb.collection('idempotency_keys').doc(key).delete();
-    } catch (err: any) {
-      console.warn('Avertissement suppression idempotence persistante:', err.message);
-    }
+    const docRef = adminDb.collection('idempotency_keys').doc(key);
+    await docRef.delete();
   }
 };
 

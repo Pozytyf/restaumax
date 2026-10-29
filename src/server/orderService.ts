@@ -42,13 +42,28 @@ export interface OrderSubmissionResult {
 }
 
 /**
- * Enregistrement d'idempotence horodaté avec empreinte canonique du payload
+ * Enregistrement d'idempotence avec horodatage, empreinte canonique et traçabilité post-panne
  */
 export interface ServerIdempotencyRecord {
   timestamp: number;
-  status: 'processing' | 'completed';
+  status: 'processing' | 'completed' | 'ambiguous' | 'failed';
   order?: RestauOrder;
+  pendingOrderId?: string;
   signature: string;
+  errorReason?: string;
+}
+
+export type IdempotencyReservationStatus = 
+  | 'reserved'     // Réservation atomique acquise par cette instance
+  | 'completed'    // Commande déjà finalisée et identique (rejeu immédiat)
+  | 'in_progress'  // En cours de traitement par une autre instance (concurrence)
+  | 'conflict'     // Clé déjà utilisée pour une requête différente (rejet immédiat)
+  | 'ambiguous';   // Panne antérieure ambiguë (réconciliation requise)
+
+export interface IdempotencyReservationResult {
+  status: IdempotencyReservationStatus;
+  record?: ServerIdempotencyRecord;
+  error?: string;
 }
 
 // Cache d'idempotence mémoire local (protection au sein du même processus Node.js)
@@ -85,27 +100,63 @@ export function computeOrderSignature(payload: {
 
 /**
  * Interface de confiance d'accès aux données Firestore serveur
- * Permet l'injection du SDK Firebase Admin ou de mocks pour les tests
+ * Supporte les opérations transactionnelles atomiques pour l'idempotence distribuée
  */
 export interface ServerFirestoreProvider {
   getMenuItems(restaurantSlug: string): Promise<RestauMenuItem[]>;
   getTables(restaurantSlug: string): Promise<RestaurantTable[]>;
   saveOrder(restaurantSlug: string, order: RestauOrder): Promise<void>;
+  
+  // Vérification d'existence pour réconciliation après panne ou délai d'attente ambigu
+  getOrderById?(restaurantSlug: string, orderId: string): Promise<RestauOrder | null>;
+
+  // Mécanisme transactionnel atomique de réservation de clé
+  reserveIdempotencyKey?(
+    key: string,
+    signature: string,
+    timeoutMs?: number
+  ): Promise<IdempotencyReservationResult>;
+
+  // Finalisation atomique / mise à jour
+  commitIdempotencyKey?(
+    key: string,
+    order: RestauOrder,
+    signature: string
+  ): Promise<void>;
+
+  // Enregistrement d'un état ambigu lors d'un échec d'écriture non confirmé
+  markIdempotencyAmbiguous?(
+    key: string,
+    orderId: string,
+    signature: string,
+    reason: string
+  ): Promise<void>;
+
+  // Libération / suppression de clé
+  releaseIdempotencyKey?(key: string): Promise<void>;
+
+  // Interfaces d'accès registre simple
   getIdempotencyRecord?(key: string): Promise<ServerIdempotencyRecord | null>;
   saveIdempotencyRecord?(key: string, record: ServerIdempotencyRecord): Promise<void>;
   deleteIdempotencyRecord?(key: string): Promise<void>;
 }
 
 /**
- * Libère une clé d'idempotence en cas d'erreur de traitement ou d'écriture Firestore
+ * Libère une clé d'idempotence après rejet de validation
  */
 async function releaseIdempotencyKey(key: string, dataProvider: ServerFirestoreProvider): Promise<void> {
   serverIdempotencyStore.delete(key);
-  if (dataProvider.deleteIdempotencyRecord) {
+  if (dataProvider.releaseIdempotencyKey) {
+    try {
+      await dataProvider.releaseIdempotencyKey(key);
+    } catch {
+      // Ignorer l'erreur de libération en nettoyage
+    }
+  } else if (dataProvider.deleteIdempotencyRecord) {
     try {
       await dataProvider.deleteIdempotencyRecord(key);
     } catch {
-      // Ignorer l'erreur de suppression en fallback
+      // Ignorer l'erreur en nettoyage
     }
   }
 }
@@ -113,12 +164,12 @@ async function releaseIdempotencyKey(key: string, dataProvider: ServerFirestoreP
 /**
  * Point d'entrée serveur de validation et création de commande
  * 
- * Garanties de sécurité :
- * 1. Validation obligatoire des tables pour 'sur_place' (panne, liste vide, inexistante ou inactive => rejet).
- * 2. Validation stricte du catalogue (available === true obligatoire, champs et prix vérifiés sans fallback 0).
- * 3. Idempotence renforcée (conflit de signature détecté, verrou mémoire + persistant).
- * 4. Recalcul serveur intégral des totaux et rejet de tout prix falsifié.
- * 5. Aucune confirmation si l'écriture Firestore a échoué.
+ * Garanties d'idempotence atomique et intégrité :
+ * 1. Ne jamais continuer le traitement si le registre persistant d'idempotence échoue.
+ * 2. Réservation atomique de la clé (transaction Firestore) empêchant deux instances d'accepter la même demande.
+ * 3. Rejet strict si une clé est réutilisée avec un contenu différent (conflit de signature).
+ * 4. Gestion sûre des pannes d'écriture : sonde de vérification post-panne pour éviter tout doublon lors d'un rejeu.
+ * 5. Validation stricte du catalogue et des tables (disponibilité explicite, prix positifs, tables actives).
  */
 export async function processOrderSubmission(
   payload: OrderSubmissionPayload,
@@ -134,7 +185,7 @@ export async function processOrderSubmission(
     idempotencyKey 
   } = payload;
 
-  // 1. Validation de base du payload
+  // 1. Validation structurelle du payload
   if (!restaurantSlug || typeof restaurantSlug !== 'string' || !restaurantSlug.trim()) {
     return { success: false, error: "Identifiant du restaurant manquant ou invalide." };
   }
@@ -165,54 +216,143 @@ export async function processOrderSubmission(
     cart
   });
 
-  // 2. Gestion stricte de l'idempotence
+  // 2. Gestion atomique de l'idempotence
   if (effectiveIdempotencyKey) {
-    let existingRecord: ServerIdempotencyRecord | null = null;
-    if (dataProvider.getIdempotencyRecord) {
+    // Si un mécanisme atomique persistant est fourni par le provider (ex: transaction Firestore)
+    if (dataProvider.reserveIdempotencyKey) {
+      let reservation: IdempotencyReservationResult;
       try {
-        existingRecord = await dataProvider.getIdempotencyRecord(effectiveIdempotencyKey);
+        reservation = await dataProvider.reserveIdempotencyKey(effectiveIdempotencyKey, currentSignature);
       } catch (err: any) {
-        console.warn('Avertissement lecture idempotence persistante:', err.message);
-      }
-    }
-    if (!existingRecord) {
-      existingRecord = serverIdempotencyStore.get(effectiveIdempotencyKey) || null;
-    }
-
-    if (existingRecord) {
-      // Détection de conflit de payload sur une même clé
-      if (existingRecord.signature && existingRecord.signature !== currentSignature) {
+        // RÈGLE D'AUDIT 1 : Ne JAMAIS continuer le traitement si la lecture ou l'écriture du registre persistant échoue
         return {
           success: false,
-          error: `Conflit d'idempotence : La clé "${effectiveIdempotencyKey}" a déjà été utilisée pour une requête différente (restaurant, mode de commande, table ou panier distinct).`
+          error: `Échec du registre persistant d'idempotence : ${err.message || 'Erreur d\'accès au registre'}. Traitement interrompu pour prévenir tout doublon.`
         };
       }
 
-      if (existingRecord.status === 'completed' && existingRecord.order) {
-        return { 
-          success: true, 
-          order: existingRecord.order,
-          idempotentReplay: true 
+      if (reservation.status === 'conflict') {
+        return {
+          success: false,
+          error: reservation.error || `Conflit d'idempotence : La clé "${effectiveIdempotencyKey}" a déjà été utilisée pour une requête différente.`
         };
       }
 
-      if (existingRecord.status === 'processing' && (now - existingRecord.timestamp < 15000)) {
-        return { 
-          success: false, 
-          error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement." 
+      if (reservation.status === 'completed' && reservation.record?.order) {
+        return {
+          success: true,
+          order: reservation.record.order,
+          idempotentReplay: true
         };
       }
-    }
 
-    // Poser le verrou d'idempotence
-    const processingRecord: ServerIdempotencyRecord = {
-      timestamp: now,
-      status: 'processing',
-      signature: currentSignature
-    };
-    serverIdempotencyStore.set(effectiveIdempotencyKey, processingRecord);
-    if (dataProvider.saveIdempotencyRecord) {
-      await dataProvider.saveIdempotencyRecord(effectiveIdempotencyKey, processingRecord).catch(() => {});
+      if (reservation.status === 'in_progress') {
+        return {
+          success: false,
+          error: reservation.error || "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
+        };
+      }
+
+      // Cas ambigu : tentative précédente ayant rencontré une panne réseau
+      // RÈGLE D'AUDIT 4 : Ne pas affirmer que la commande n'existe pas sans l'avoir vérifié
+      if (reservation.status === 'ambiguous' && reservation.record?.pendingOrderId && dataProvider.getOrderById) {
+        try {
+          const verifiedExisting = await dataProvider.getOrderById(cleanSlug, reservation.record.pendingOrderId);
+          if (verifiedExisting) {
+            // L'écriture avait réussi malgré la panne précédente ! Réconciliation immédiate.
+            if (dataProvider.commitIdempotencyKey) {
+              await dataProvider.commitIdempotencyKey(effectiveIdempotencyKey, verifiedExisting, currentSignature).catch(() => {});
+            }
+            return {
+              success: true,
+              order: verifiedExisting,
+              idempotentReplay: true
+            };
+          }
+        } catch (probeErr: any) {
+          return {
+            success: false,
+            error: `Impossible de réconcilier l'état de la commande précédente : ${probeErr.message}. Veuillez patienter avant de réessayer.`
+          };
+        }
+      }
+    } else {
+      // Registre d'idempotence standard (mémoire locale + persistance simple)
+      // RÈGLE D'AUDIT 1 : Toute panne de lecture du registre persistant entraîne l'interruption
+      if (dataProvider.getIdempotencyRecord) {
+        try {
+          const remoteRecord = await dataProvider.getIdempotencyRecord(effectiveIdempotencyKey);
+          if (remoteRecord) {
+            serverIdempotencyStore.set(effectiveIdempotencyKey, remoteRecord);
+          }
+        } catch (err: any) {
+          return {
+            success: false,
+            error: `Échec de lecture du registre d'idempotence : ${err.message || 'Erreur registre'}. Traitement interrompu pour prévenir tout risque de doublon.`
+          };
+        }
+      }
+
+      const existingRecord = serverIdempotencyStore.get(effectiveIdempotencyKey);
+      if (existingRecord) {
+        // RÈGLE D'AUDIT 3 : Comparer l'empreinte canonique du contenu
+        if (existingRecord.signature && existingRecord.signature !== currentSignature) {
+          return {
+            success: false,
+            error: `Conflit d'idempotence : La clé "${effectiveIdempotencyKey}" a déjà été utilisée pour une requête différente (restaurant, mode de commande, table ou panier distinct).`
+          };
+        }
+
+        if (existingRecord.status === 'completed' && existingRecord.order) {
+          return { 
+            success: true, 
+            order: existingRecord.order,
+            idempotentReplay: true 
+          };
+        }
+
+        if (existingRecord.status === 'processing' && (now - existingRecord.timestamp < 15000)) {
+          return { 
+            success: false, 
+            error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement." 
+          };
+        }
+
+        // Cas ambigu en mémoire locale
+        if (existingRecord.status === 'ambiguous' && existingRecord.pendingOrderId && dataProvider.getOrderById) {
+          try {
+            const probe = await dataProvider.getOrderById(cleanSlug, existingRecord.pendingOrderId);
+            if (probe) {
+              existingRecord.status = 'completed';
+              existingRecord.order = probe;
+              return { success: true, order: probe, idempotentReplay: true };
+            }
+          } catch {
+            // Poursuite si la sonde échoue
+          }
+        }
+      }
+
+      // Poser le verrou
+      const processingRecord: ServerIdempotencyRecord = {
+        timestamp: now,
+        status: 'processing',
+        signature: currentSignature
+      };
+      serverIdempotencyStore.set(effectiveIdempotencyKey, processingRecord);
+
+      // RÈGLE D'AUDIT 1 : Si l'écriture du registre persistant échoue, interrompre
+      if (dataProvider.saveIdempotencyRecord) {
+        try {
+          await dataProvider.saveIdempotencyRecord(effectiveIdempotencyKey, processingRecord);
+        } catch (err: any) {
+          serverIdempotencyStore.delete(effectiveIdempotencyKey);
+          return {
+            success: false,
+            error: `Échec d'enregistrement du verrou d'idempotence : ${err.message || 'Erreur registre'}. Traitement interrompu pour prévenir tout doublon.`
+          };
+        }
+      }
     }
   }
 
@@ -389,7 +529,7 @@ export async function processOrderSubmission(
           };
         }
 
-        // RÈGLE D'AUDIT : Rejeter toute donnée incohérente de prix d'option (interdiction de conversion en 0)
+        // RÈGLE D'AUDIT : Rejeter toute donnée incohérente de prix d'option
         if (catalogOption.extraPrice !== undefined) {
           if (typeof catalogOption.extraPrice !== 'number' || !Number.isFinite(catalogOption.extraPrice) || catalogOption.extraPrice < 0) {
             if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
@@ -430,7 +570,7 @@ export async function processOrderSubmission(
             };
           }
 
-          // RÈGLE D'AUDIT : Rejeter toute donnée incohérente de prix d'extra (interdiction de conversion en 0)
+          // RÈGLE D'AUDIT : Rejeter toute donnée incohérente de prix d'extra
           if (typeof catalogExtra.price !== 'number' || !Number.isFinite(catalogExtra.price) || catalogExtra.price < 0) {
             if (effectiveIdempotencyKey) await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
             return {
@@ -479,12 +619,17 @@ export async function processOrderSubmission(
       };
     }
 
-    // 8. Génération du numéro de commande lisible et de l'ordre complet
+    // 8. Génération du numéro de commande et identifiant tracé
     const randomSuffix = Math.floor(100 + Math.random() * 900);
     const humanOrderNumber = `#CMD-${randomSuffix}`;
 
+    // Identifiant d'ordre lié à l'idempotence pour prévenir toute duplication en base
+    const orderIdSuffix = effectiveIdempotencyKey 
+      ? effectiveIdempotencyKey.replace(/[^a-zA-Z0-9_-]/g, '-').substring(0, 32)
+      : Math.random().toString(36).substring(2, 7);
+
     const confirmedOrder: RestauOrder = {
-      id: `ord-${now}-${Math.random().toString(36).substring(2, 7)}`,
+      id: `ord-${now}-${orderIdSuffix}`,
       orderNumber: humanOrderNumber,
       restaurantSlug: cleanSlug,
       orderMode,
@@ -500,22 +645,87 @@ export async function processOrderSubmission(
       idempotencyKey: effectiveIdempotencyKey || undefined
     };
 
-    // 9. RÈGLE D'AUDIT : Enregistrement de confiance dans Firestore par le serveur
-    // Ne JAMAIS annoncer qu'une commande a été enregistrée si Firestore n'a pas confirmé son écriture
-    await dataProvider.saveOrder(cleanSlug, confirmedOrder);
+    // 9. RÈGLE D'AUDIT 4 : Enregistrement de confiance et gestion sûre des pannes / délais d'attente
+    try {
+      await dataProvider.saveOrder(cleanSlug, confirmedOrder);
+    } catch (writeErr: any) {
+      // Panne ou délai d'attente ambigu lors de l'écriture
+      // RÈGLE D'AUDIT 4 : Ne pas affirmer que la commande n'existe pas sans l'avoir vérifié
+      let orderConfirmedFromProbe: RestauOrder | null = null;
+      if (dataProvider.getOrderById) {
+        try {
+          orderConfirmedFromProbe = await dataProvider.getOrderById(cleanSlug, confirmedOrder.id);
+        } catch (probeErr: any) {
+          console.warn('Sonde de vérification post-panne échouée:', probeErr.message);
+        }
+      }
 
-    // 10. Mise à jour de l'enregistrement d'idempotence après confirmation réelle
+      if (orderConfirmedFromProbe) {
+        // La commande a été effectivement enregistrée malgré l'erreur réseau signalée !
+        if (effectiveIdempotencyKey) {
+          if (dataProvider.commitIdempotencyKey) {
+            await dataProvider.commitIdempotencyKey(effectiveIdempotencyKey, orderConfirmedFromProbe, currentSignature).catch(() => {});
+          }
+          serverIdempotencyStore.set(effectiveIdempotencyKey, {
+            timestamp: now,
+            status: 'completed',
+            order: orderConfirmedFromProbe,
+            signature: currentSignature
+          });
+        }
+        return {
+          success: true,
+          order: orderConfirmedFromProbe,
+          idempotentReplay: true
+        };
+      }
+
+      // L'écriture n'a pas pu être confirmée : enregistrer l'état ambigu pour permettre
+      // une réconciliation lors du prochain rejeu sans créer de doublon
+      if (effectiveIdempotencyKey) {
+        if (dataProvider.markIdempotencyAmbiguous) {
+          await dataProvider.markIdempotencyAmbiguous(
+            effectiveIdempotencyKey, 
+            confirmedOrder.id, 
+            currentSignature, 
+            writeErr.message || 'Délai d\'attente écriture Firestore'
+          ).catch(() => {});
+        } else if (dataProvider.releaseIdempotencyKey) {
+          await dataProvider.releaseIdempotencyKey(effectiveIdempotencyKey).catch(() => {});
+        }
+
+        serverIdempotencyStore.set(effectiveIdempotencyKey, {
+          timestamp: now,
+          status: 'ambiguous',
+          pendingOrderId: confirmedOrder.id,
+          signature: currentSignature,
+          errorReason: writeErr.message
+        });
+      }
+
+      return {
+        success: false,
+        error: `Statut d'écriture ambigu dans Firestore : ${writeErr.message || 'Panne réseau ou délai dépassé'}. ` +
+          `L'enregistrement effectif n'a pas pu être immédiatement vérifié. Veuillez relancer avec la même clé d'idempotence pour permettre la réconciliation automatique sans double commande.`
+      };
+    }
+
+    // 10. Confirmation d'idempotence après succès avéré de l'écriture
     if (effectiveIdempotencyKey) {
-      const completedRecord: ServerIdempotencyRecord = {
+      if (dataProvider.commitIdempotencyKey) {
+        try {
+          await dataProvider.commitIdempotencyKey(effectiveIdempotencyKey, confirmedOrder, currentSignature);
+        } catch (commitErr: any) {
+          console.warn('Avertissement commit idempotence persistant:', commitErr.message);
+        }
+      }
+
+      serverIdempotencyStore.set(effectiveIdempotencyKey, {
         timestamp: now,
         status: 'completed',
         order: confirmedOrder,
         signature: currentSignature
-      };
-      serverIdempotencyStore.set(effectiveIdempotencyKey, completedRecord);
-      if (dataProvider.saveIdempotencyRecord) {
-        await dataProvider.saveIdempotencyRecord(effectiveIdempotencyKey, completedRecord).catch(() => {});
-      }
+      });
     }
 
     return { 
@@ -523,13 +733,12 @@ export async function processOrderSubmission(
       order: confirmedOrder 
     };
   } catch (err: any) {
-    // En cas d'erreur de sauvegarde Firestore, libérer le verrou d'idempotence pour autoriser un rejeu ultérieur
     if (effectiveIdempotencyKey) {
       await releaseIdempotencyKey(effectiveIdempotencyKey, dataProvider);
     }
     return { 
       success: false, 
-      error: `Échec d'enregistrement de la commande dans Firestore : ${err.message || String(err)}. La commande n'a PAS été enregistrée.` 
+      error: `Erreur inattendue lors du traitement serveur de la commande : ${err.message || String(err)}` 
     };
   }
 }

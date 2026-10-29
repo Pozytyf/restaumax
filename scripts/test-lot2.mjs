@@ -1044,45 +1044,145 @@ async function runTests() {
     '7.3.c : Rejet immédiat si la clé d\'idempotence est réutilisée pour un autre restaurant'
   );
 
-  // 4. Libération de la clé en cas d'échec d'écriture Firestore (permet le rejeu)
-  clearServerIdempotencyStore();
-  const failWriteKey = 'idem-fail-write-retry';
-  let writeAttempt = 0;
-  const providerFailingOnFirstWrite = {
+  // 4. Échec du registre persistant lors de la réservation : arrêt immédiat (Fail-Fast)
+  const providerWithBrokenRegistry = {
     async getMenuItems() { return mockCatalog; },
     async getTables() { return mockRealTables; },
-    async saveOrder() {
-      writeAttempt++;
-      if (writeAttempt === 1) {
-        throw new Error('Firestore write timeout / quota exceeded');
+    async saveOrder() { throw new Error('Ne doit jamais être appelé'); },
+    async reserveIdempotencyKey() {
+      throw new Error('Firestore transaction lock acquisition timeout (503)');
+    }
+  };
+  const resBrokenRegistry = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: 'idem-broken-registry-test',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerWithBrokenRegistry);
+  assert(
+    resBrokenRegistry.success === false && 
+    resBrokenRegistry.error.includes('Échec du registre persistant d\'idempotence') &&
+    resBrokenRegistry.error.toLowerCase().includes('interrompu'),
+    '7.3.d : Arrêt immédiat (Fail-Fast) sans création si la réservation persistante échoue'
+  );
+
+  // 5. Test de concurrence atomique (Simulation 2 instances concurrentes)
+  clearServerIdempotencyStore();
+  const simulatedPersistentStore = new Map();
+  const concurrentAtomicProvider = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async saveOrder(_slug, order) {
+      // Simuler une latence d'écriture Firestore
+      await new Promise(r => setTimeout(r, 20));
+    },
+    async reserveIdempotencyKey(key, signature) {
+      const existing = simulatedPersistentStore.get(key);
+      if (existing) {
+        if (existing.signature !== signature) {
+          return { status: 'conflict', error: 'Conflit signature' };
+        }
+        if (existing.status === 'completed') {
+          return { status: 'completed', record: existing };
+        }
+        if (existing.status === 'processing') {
+          return { status: 'in_progress', error: 'Une requête identique est déjà en cours de traitement par une autre instance.' };
+        }
       }
-      // Tentative 2 réussit
+      const newRec = { timestamp: Date.now(), status: 'processing', signature };
+      simulatedPersistentStore.set(key, newRec);
+      return { status: 'reserved', record: newRec };
+    },
+    async commitIdempotencyKey(key, order, signature) {
+      simulatedPersistentStore.set(key, { timestamp: Date.now(), status: 'completed', order, signature });
     }
   };
 
-  const resFirstWriteFail = await processOrderSubmission({
+  const concurrentKey = 'idem-concurrent-atomic-test';
+  const concurrentPayload = {
     restaurantSlug: 'chez-awa',
     orderMode: 'a_emporter',
     tableNumber: null,
-    idempotencyKey: failWriteKey,
+    idempotencyKey: concurrentKey,
     cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
-  }, providerFailingOnFirstWrite);
+  };
+
+  const [concurrentRun1, concurrentRun2] = await Promise.all([
+    processOrderSubmission(concurrentPayload, concurrentAtomicProvider),
+    processOrderSubmission(concurrentPayload, concurrentAtomicProvider)
+  ]);
+
+  const oneSucceeded = (concurrentRun1.success && !concurrentRun2.success) || (!concurrentRun1.success && concurrentRun2.success);
+  const oneBlockedAsInProgress = 
+    (concurrentRun1.error?.includes('en cours de traitement')) || 
+    (concurrentRun2.error?.includes('en cours de traitement'));
+
   assert(
-    resFirstWriteFail.success === false && resFirstWriteFail.error.includes('Échec d\'enregistrement de la commande dans Firestore'),
-    '7.3.d : En cas d\'erreur d\'écriture Firestore, le serveur n\'annonce JAMAIS que la commande est confirmée'
+    oneSucceeded && oneBlockedAsInProgress,
+    '7.3.e [SIMULATION] : Réservation atomique transactionnelle empêche deux instances d\'accepter simultanément la même commande'
   );
 
-  // Deuxième tentative avec la même clé : la clé doit avoir été libérée et le rejeu doit être accepté
-  const resSecondWriteRetry = await processOrderSubmission({
+  // 6. Gestion sûre après délai d'attente ambigu : sonde de réconciliation post-panne
+  clearServerIdempotencyStore();
+  const ambiguousKey = 'idem-ambiguous-timeout-key';
+  let createdOrderInDb = null;
+
+  const providerWithAmbiguousWrite = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async saveOrder(_slug, order) {
+      // Simule que Firestore a écrit la commande en base, mais le socket réseau s'est coupé avant le ACK
+      createdOrderInDb = order;
+      throw new Error('ETIMEDOUT: Connection closed prematurely before ACK received');
+    },
+    async getOrderById(_slug, orderId) {
+      // Sonde post-panne : Firestore retrouve bien la commande !
+      return (createdOrderInDb && createdOrderInDb.id === orderId) ? createdOrderInDb : null;
+    }
+  };
+
+  const resAmbiguousWriteReconciled = await processOrderSubmission({
     restaurantSlug: 'chez-awa',
     orderMode: 'a_emporter',
     tableNumber: null,
-    idempotencyKey: failWriteKey,
+    idempotencyKey: ambiguousKey,
     cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
-  }, providerFailingOnFirstWrite);
+  }, providerWithAmbiguousWrite);
+
   assert(
-    resSecondWriteRetry.success === true && resSecondWriteRetry.order !== undefined,
-    '7.3.e : La clé a été libérée après l\'erreur d\'écriture, permettant une nouvelle tentative réussie'
+    resAmbiguousWriteReconciled.success === true && 
+    resAmbiguousWriteReconciled.order?.id === createdOrderInDb.id &&
+    resAmbiguousWriteReconciled.idempotentReplay === true,
+    '7.3.f : Réconciliation post-panne : la sonde Firestore confirme l\'écriture et prévient tout doublon sans déclarer faussement un échec'
+  );
+
+  // 7. Panne d'écriture réelle où la commande n'a pas été écrite : message d'état ambigu sécurisé
+  clearServerIdempotencyStore();
+  const providerWithRealFailure = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async saveOrder() {
+      throw new Error('UNAVAILABLE: Datastore service error');
+    },
+    async getOrderById() {
+      return null; // La commande n'a effectivement pas été écrite
+    }
+  };
+
+  const resRealFailure = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: 'idem-real-failure-test',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerWithRealFailure);
+
+  assert(
+    resRealFailure.success === false && 
+    resRealFailure.error.includes('Statut d\'écriture ambigu dans Firestore') &&
+    !resRealFailure.error.includes('La commande n\'existe pas'),
+    '7.3.g : Panne non confirmée : ne prétend pas que la commande n\'existe pas et invite à la réconciliation'
   );
 
   // --- 7.4 : VÉRIFICATION DU COMPORTEMENT RÉEL DU SERVEUR (server.ts) ---
