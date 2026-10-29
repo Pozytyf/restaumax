@@ -69,6 +69,8 @@ export interface ValidateOrderParams {
   customerNote?: string;
   allowedTables?: RestaurantTable[];
   idempotencyKey?: string;
+  declaredTotal?: number;
+  rejectTamperedPrices?: boolean;
 }
 
 /**
@@ -280,6 +282,15 @@ export function validateAndBuildOrder(params: ValidateOrderParams):
     const trustedUnitPrice = trustedBasePrice + verifiedOptionExtraPrice + verifiedExtrasCost;
     const lineTotal = trustedUnitPrice * qty;
 
+    if (params.rejectTamperedPrices === true) {
+      if (line.unitPrice !== undefined && Math.round(Number(line.unitPrice)) !== trustedUnitPrice) {
+        return {
+          success: false,
+          error: `Le prix unitaire du plat "${catalogItem.name}" est falsifié (attendu: ${trustedUnitPrice} FCFA, soumis: ${line.unitPrice} FCFA).`
+        };
+      }
+    }
+
     verifiedItems.push({
       id: line.id || `line-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       menuItemId: catalogItem.id,
@@ -295,6 +306,15 @@ export function validateAndBuildOrder(params: ValidateOrderParams):
   }
 
   const grandTotal = calculateOrderTotal(verifiedItems);
+
+  // Vérification explicite contre la falsification du montant total
+  if (params.declaredTotal !== undefined && Math.round(Number(params.declaredTotal)) !== grandTotal) {
+    return {
+      success: false,
+      error: `Le montant total de la commande a été falsifié ou ne correspond pas au catalogue officiel (recalculé: ${grandTotal} FCFA, soumis: ${params.declaredTotal} FCFA).`
+    };
+  }
+
   const humanOrderNumber = `#CMD-${Math.floor(100 + Math.random() * 900)}`;
   const orderId = `ord-${now}-${Math.random().toString(36).substring(2, 8)}`;
 

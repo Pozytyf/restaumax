@@ -25,6 +25,7 @@ import {
   persistMenuItem, 
   persistDishAvailability, 
   submitOrder,
+  submitOrderWithServerValidation,
   subscribeToOrders,
   updateOrderStatus,
   subscribeToTables,
@@ -394,57 +395,54 @@ export default function App() {
 
   // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation)
   const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder }> => {
-    const buildRes = validateAndBuildOrder({
+    const clientDeclaredTotal = clientCart.reduce(
+      (sum, item) => sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1),
+      0
+    );
+
+    const submitRes = await submitOrderWithServerValidation('chez-awa', {
       cart: clientCart,
-      catalog: restauMenuItems,
-      restaurantSlug: 'chez-awa',
       orderMode: activeTableNumber ? 'sur_place' : 'a_emporter',
       tableNumber: activeTableNumber,
       customerNote,
-      allowedTables: restauTables.length > 0 ? restauTables : undefined
+      allowedTables: restauTables.length > 0 ? restauTables : undefined,
+      declaredTotal: clientDeclaredTotal,
+      fallbackCatalog: restauMenuItems
     });
 
-    if (!buildRes.success) {
-      return { success: false, error: buildRes.error };
+    if (!submitRes.success) {
+      return { success: false, error: submitRes.error };
     }
 
-    try {
-      await submitOrder('chez-awa', buildRes.order);
+    const confirmedOrder = submitRes.order;
 
-      // Add to internal staff KDS tickets with deterministic ID matching Firestore order
-      const newKitchenTicket: KitchenTicket = {
-        id: `ord-${buildRes.order.id}`,
-        ticketNumber: buildRes.order.orderNumber,
-        tableNumber: buildRes.order.tableNumber ? `Table ${buildRes.order.tableNumber}` : 'À emporter',
-        orderType: buildRes.order.orderMode === 'sur_place' ? 'sur_place' : 'emporter',
-        waiter: 'QR Menu Client',
-        createdAt: new Date(),
-        status: 'in_prep',
-        items: buildRes.order.items.map((it, idx) => ({
-          id: `ki-${buildRes.order.id}-${idx}`,
-          name: it.name,
-          quantity: it.quantity,
-          course: 'plat',
-          notes: [it.selectedOption?.optionName, it.prepNotes].filter(Boolean).join(' · '),
-          completed: false
-        }))
-      };
-      setKitchenTickets(prev => {
-        if (prev.some(t => t.id === newKitchenTicket.id)) return prev;
-        return [newKitchenTicket, ...prev];
-      });
+    // Add to internal staff KDS tickets with deterministic ID matching Firestore order
+    const newKitchenTicket: KitchenTicket = {
+      id: `ord-${confirmedOrder.id}`,
+      ticketNumber: confirmedOrder.orderNumber,
+      tableNumber: confirmedOrder.tableNumber ? `Table ${confirmedOrder.tableNumber}` : 'À emporter',
+      orderType: confirmedOrder.orderMode === 'sur_place' ? 'sur_place' : 'emporter',
+      waiter: 'QR Menu Client',
+      createdAt: new Date(),
+      status: 'in_prep',
+      items: confirmedOrder.items.map((it, idx) => ({
+        id: `ki-${confirmedOrder.id}-${idx}`,
+        name: it.name,
+        quantity: it.quantity,
+        course: 'plat',
+        notes: [it.selectedOption?.optionName, it.prepNotes].filter(Boolean).join(' · '),
+        completed: false
+      }))
+    };
+    setKitchenTickets(prev => {
+      if (prev.some(t => t.id === newKitchenTicket.id)) return prev;
+      return [newKitchenTicket, ...prev];
+    });
 
-      // Clear client cart strictly only upon confirmed write
-      setClientCart([]);
+    // Clear client cart strictly only upon confirmed write
+    setClientCart([]);
 
-      return { success: true, order: buildRes.order };
-    } catch (err: any) {
-      console.error('Erreur transmission commande:', err);
-      return { 
-        success: false, 
-        error: "Échec de l'enregistrement de la commande dans la base de données. Votre panier a été préservé, veuillez réessayer." 
-      };
-    }
+    return { success: true, order: confirmedOrder };
   };
 
   const handleSaveTable = (table: RestaurantTable) => {

@@ -330,6 +330,83 @@ async function runTests() {
   const sub2 = validateAndBuildOrder(orderPayload);
   assert(sub2.success === false, 'Seconde soumission immédiate bloquée par l\'idempotence');
 
+  // Test 1.11: Rejet explicite lorsque le montant total déclaré par le client est falsifié
+  const resFalsifiedTotal = validateAndBuildOrder({
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      name: 'Capitaine',
+      basePrice: 14500,
+      unitPrice: 14500,
+      quantity: 1,
+      selectedOption: {
+        groupId: 'grp-acc',
+        groupName: 'Choix d’accompagnement',
+        optionId: 'opt-attieke',
+        optionName: 'Attiéké',
+        extraPrice: 0
+      },
+      selectedExtras: [],
+      imageUrl: ''
+    }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    declaredTotal: 100 // Attendu: 14500, mais client déclare 100 FCFA
+  });
+  assert(resFalsifiedTotal.success === false, 'Rejette explicitement une commande dont le montant total est falsifié');
+  assert(resFalsifiedTotal.error?.includes('falsifié'), 'L\'erreur mentionne que le montant a été falsifié');
+
+  // Test 1.12: Rejet d'un groupe d'options inexistant pour le plat
+  const resInvalidOptionGroup = validateAndBuildOrder({
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      name: 'Capitaine',
+      basePrice: 14500,
+      unitPrice: 14500,
+      quantity: 1,
+      selectedOption: {
+        groupId: 'grp-inexistant',
+        groupName: 'Sauce secrète',
+        optionId: 'opt-magique',
+        optionName: 'Magie',
+        extraPrice: 0
+      },
+      selectedExtras: [],
+      imageUrl: ''
+    }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resInvalidOptionGroup.success === false, 'Rejette un groupe d\'options qui n\'appartient pas au plat');
+
+  // Test 1.13: Rejet d'une option inexistante au sein d'un groupe valide
+  const resInvalidOptionInGroup = validateAndBuildOrder({
+    cart: [{
+      menuItemId: 'dish-capitaine',
+      name: 'Capitaine',
+      basePrice: 14500,
+      unitPrice: 14500,
+      quantity: 1,
+      selectedOption: {
+        groupId: 'grp-acc',
+        groupName: 'Choix d’accompagnement',
+        optionId: 'opt-caviar', // Option non définie dans grp-acc
+        optionName: 'Caviar',
+        extraPrice: 0
+      },
+      selectedExtras: [],
+      imageUrl: ''
+    }],
+    catalog: mockCatalog,
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null
+  });
+  assert(resInvalidOptionInGroup.success === false, 'Rejette une option inexistante dans le groupe au catalogue');
+
   // ==========================================================================
   // SECTION 2 : CORRECTION B — Validation stricte des entrées QR
   // ==========================================================================

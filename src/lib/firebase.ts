@@ -14,6 +14,7 @@ import {
   doc, 
   getDoc, 
   getDocFromServer,
+  getDocs,
   setDoc, 
   deleteDoc,
   collection, 
@@ -23,7 +24,16 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { RestaurantInfo, RestauMenuItem, RestauOrder, RestaurantTable } from '../types/restaumax';
+import { 
+  RestaurantInfo, 
+  RestauMenuItem, 
+  RestauOrder, 
+  RestaurantTable,
+  ClientCartItem,
+  OrderMode 
+} from '../types/restaumax';
+import { validateAndBuildOrder } from '../utils/pricing';
+import { CHEZ_AWA_MENU_ITEMS } from '../data/restaumaxData';
 
 // Initialize Firebase
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -311,6 +321,75 @@ export async function submitOrder(restaurantSlug: string, order: RestauOrder): P
     await setDoc(orderRef, order);
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, path);
+  }
+}
+
+/**
+ * Valide et soumet une commande en effectuant un recalcul strict côté serveur
+ * à partir du catalogue de référence Firestore, en vérifiant chaque option et extra.
+ * Rejette toute commande dont les plats sont indisponibles ou dont le total est falsifié.
+ */
+export async function submitOrderWithServerValidation(
+  restaurantSlug: string,
+  params: {
+    cart: ClientCartItem[];
+    orderMode: OrderMode;
+    tableNumber: string | null;
+    customerNote?: string;
+    allowedTables?: RestaurantTable[];
+    declaredTotal?: number;
+    idempotencyKey?: string;
+    fallbackCatalog?: RestauMenuItem[];
+  }
+): Promise<{ success: true; order: RestauOrder } | { success: false; error: string }> {
+  // 1. Récupération directe du catalogue de référence depuis Firestore
+  let referenceCatalog: RestauMenuItem[] = [];
+  try {
+    const itemsRef = collection(db, 'restaurants', restaurantSlug, 'menuItems');
+    const snapshot = await getDocs(itemsRef);
+    snapshot.forEach((docSnap) => {
+      referenceCatalog.push(docSnap.data() as RestauMenuItem);
+    });
+  } catch (err) {
+    console.warn('Lecture du catalogue Firestore pour validation:', err);
+  }
+
+  // Si Firestore ne contient pas encore d'articles (ex: premier démarrage sans seed), utiliser le catalogue de référence
+  if (referenceCatalog.length === 0) {
+    referenceCatalog = params.fallbackCatalog && params.fallbackCatalog.length > 0 
+      ? params.fallbackCatalog 
+      : CHEZ_AWA_MENU_ITEMS;
+  }
+
+  // 2. Recalcul strict et validation de chaque plat, option et extra contre le catalogue de référence
+  const validationRes = validateAndBuildOrder({
+    cart: params.cart,
+    catalog: referenceCatalog,
+    restaurantSlug,
+    orderMode: params.orderMode,
+    tableNumber: params.tableNumber,
+    customerNote: params.customerNote,
+    allowedTables: params.allowedTables,
+    idempotencyKey: params.idempotencyKey,
+    declaredTotal: params.declaredTotal
+  });
+
+  if (!validationRes.success) {
+    return validationRes;
+  }
+
+  // 3. Enregistrement direct et sécurisé de la commande validée dans Firestore
+  const path = `restaurants/${restaurantSlug}/orders/${validationRes.order.id}`;
+  try {
+    const orderRef = doc(db, 'restaurants', restaurantSlug, 'orders', validationRes.order.id);
+    await setDoc(orderRef, validationRes.order);
+    return { success: true, order: validationRes.order };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, path);
+    return { 
+      success: false, 
+      error: "Échec de l'enregistrement de la commande dans la base de données. Votre panier a été préservé." 
+    };
   }
 }
 
