@@ -39,7 +39,9 @@ import { fileURLToPath } from 'url';
 import { 
   processOrderSubmission, 
   ServerFirestoreProvider,
-  ServerIdempotencyRecord
+  ServerIdempotencyRecord,
+  OrderProbeResult,
+  IdempotencyReservationResult
 } from './src/server/orderService.js';
 import { 
   getAppletFirebaseConfig, 
@@ -111,19 +113,25 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     await adminDb.collection('restaurants').doc(restaurantSlug).collection('orders').doc(order.id).set(order);
   },
 
-  async getOrderById(restaurantSlug: string, orderId: string) {
-    if (!adminDb) return null;
+  // Sonde de vérification Firestore stricte (distingue 'found', 'not_found' et 'error')
+  async getOrderById(restaurantSlug: string, orderId: string): Promise<OrderProbeResult> {
+    if (!adminDb) {
+      return { status: 'error', error: "Firebase Admin SDK non initialisé sur le serveur." };
+    }
     try {
       const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('orders').doc(orderId).get();
-      return snap.exists ? (snap.data() as any) : null;
+      if (snap.exists) {
+        return { status: 'found', order: snap.data() as any };
+      }
+      return { status: 'not_found' };
     } catch (err: any) {
       console.warn(`[RestauMax Server] Erreur sonde getOrderById (${orderId}):`, err.message);
-      return null;
+      return { status: 'error', error: err.message || String(err) };
     }
   },
 
   // Réservation atomique transactionnelle de la clé d'idempotence (multi-instance)
-  async reserveIdempotencyKey(key: string, signature: string, timeoutMs = 15000) {
+  async reserveIdempotencyKey(key: string, signature: string, timeoutMs = 15000): Promise<IdempotencyReservationResult> {
     if (!adminDb) {
       throw new Error("Opération d'idempotence persistante refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
@@ -168,8 +176,30 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     });
   },
 
+  // Reprise atomique après confirmation d'absence
+  async transitionKeyToProcessing(key: string, signature: string, fromStatus: 'ambiguous' | 'failed'): Promise<boolean> {
+    if (!adminDb) return false;
+    const docRef = adminDb.collection('idempotency_keys').doc(key);
+    return await adminDb.runTransaction(async (t: any) => {
+      const snap = await t.get(docRef);
+      if (!snap.exists) return false;
+      const data = snap.data() as ServerIdempotencyRecord;
+      if (data.status !== fromStatus) return false;
+      if (data.signature !== signature) return false;
+      t.update(docRef, {
+        status: 'processing',
+        timestamp: Date.now(),
+        pendingOrderId: null,
+        errorReason: null
+      });
+      return true;
+    });
+  },
+
   async commitIdempotencyKey(key: string, order: any, signature: string): Promise<void> {
-    if (!adminDb) return;
+    if (!adminDb) {
+      throw new Error("Impossible de confirmer l'idempotence : Firebase Admin SDK non initialisé sur le serveur.");
+    }
     const docRef = adminDb.collection('idempotency_keys').doc(key);
     await docRef.set({
       timestamp: Date.now(),
@@ -180,7 +210,9 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
   },
 
   async markIdempotencyAmbiguous(key: string, orderId: string, signature: string, reason: string): Promise<void> {
-    if (!adminDb) return;
+    if (!adminDb) {
+      throw new Error("Impossible de marquer l'état ambigu : Firebase Admin SDK non initialisé sur le serveur.");
+    }
     const docRef = adminDb.collection('idempotency_keys').doc(key);
     await docRef.set({
       timestamp: Date.now(),
@@ -193,11 +225,8 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
 
   async releaseIdempotencyKey(key: string): Promise<void> {
     if (!adminDb) return;
-    try {
-      await adminDb.collection('idempotency_keys').doc(key).delete();
-    } catch (err: any) {
-      console.warn('Avertissement libération idempotence Firestore:', err.message);
-    }
+    const docRef = adminDb.collection('idempotency_keys').doc(key);
+    await docRef.delete();
   },
 
   async getIdempotencyRecord(key: string): Promise<ServerIdempotencyRecord | null> {
@@ -211,7 +240,9 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
   },
 
   async saveIdempotencyRecord(key: string, record: ServerIdempotencyRecord): Promise<void> {
-    if (!adminDb) return;
+    if (!adminDb) {
+      throw new Error("Impossible d'enregistrer l'idempotence : Firebase Admin SDK non initialisé.");
+    }
     const docRef = adminDb.collection('idempotency_keys').doc(key);
     await docRef.set(record);
   },

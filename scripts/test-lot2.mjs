@@ -584,6 +584,13 @@ async function runTests() {
     },
     async saveOrder(slug, order) {
       savedOrders.push({ slug, order });
+    },
+    async getOrderById(slug, orderId) {
+      const found = savedOrders.find(item => item.slug === slug && item.order.id === orderId);
+      if (found) {
+        return { status: 'found', order: found.order };
+      }
+      return { status: 'not_found' };
     }
   };
 
@@ -1002,7 +1009,7 @@ async function runTests() {
     '7.2.d : Rejette un extra avec un prix négatif ou invalide sans le convertir en zéro'
   );
 
-  // --- 7.3 : DURCISSEMENT DE L'IDEMPOTENCE (CONCURRENCE, CONFLIT & ÉCHEC D'ÉCRITURE) ---
+  // --- 7.3 : DURCISSEMENT DE L'IDEMPOTENCE (RÉCONCILIATION AMBIGUË & PERSISTANCE TRANSACTIONNELLE) ---
   console.log('  [7.3] Durcissement de l\'idempotence...');
 
   clearServerIdempotencyStore();
@@ -1067,7 +1074,34 @@ async function runTests() {
     '7.3.d : Arrêt immédiat (Fail-Fast) sans création si la réservation persistante échoue'
   );
 
-  // 5. Test de concurrence atomique (Simulation 2 instances concurrentes)
+  // EXIGENCE 5 : Note client différente (customerNote) avec la même clé entraîne formellement un conflit d'idempotence
+  clearServerIdempotencyStore();
+  const keyNoteTest = 'idem-note-conflict-key';
+  const resFirstNote = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: keyNoteTest,
+    customerNote: 'Bien cuit sans piment',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, mockServerProvider);
+  assert(resFirstNote.success === true, '7.3.e : Première soumission avec note client acceptée');
+
+  const resSecondNoteConflict = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: keyNoteTest,
+    customerNote: 'Ajouter beaucoup de sauce piquante', // customerNote modifiée !
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, mockServerProvider);
+  assert(
+    resSecondNoteConflict.success === false && 
+    resSecondNoteConflict.error.includes('Conflit d\'idempotence'),
+    '7.3.f : Note client différente (customerNote) avec la même clé entraîne formellement un conflit d\'idempotence'
+  );
+
+  // EXIGENCE 6 : Test de concurrence atomique (Simulation 2 instances concurrentes)
   clearServerIdempotencyStore();
   const simulatedPersistentStore = new Map();
   const concurrentAtomicProvider = {
@@ -1120,12 +1154,12 @@ async function runTests() {
 
   assert(
     oneSucceeded && oneBlockedAsInProgress,
-    '7.3.e [SIMULATION] : Réservation atomique transactionnelle empêche deux instances d\'accepter simultanément la même commande'
+    '7.3.g [SIMULATION] : Réservation atomique transactionnelle en mémoire empêche deux instances d\'accepter simultanément la même commande'
   );
 
-  // 6. Gestion sûre après délai d'attente ambigu : sonde de réconciliation post-panne
+  // EXIGENCE 7 : Coupure réseau lors de l'écriture : commande retrouvée par la sonde ({ status: 'found' }) et réconciliée sans duplication
   clearServerIdempotencyStore();
-  const ambiguousKey = 'idem-ambiguous-timeout-key';
+  const ambiguousKeyReconciled = 'idem-ambiguous-timeout-key';
   let createdOrderInDb = null;
 
   const providerWithAmbiguousWrite = {
@@ -1138,7 +1172,10 @@ async function runTests() {
     },
     async getOrderById(_slug, orderId) {
       // Sonde post-panne : Firestore retrouve bien la commande !
-      return (createdOrderInDb && createdOrderInDb.id === orderId) ? createdOrderInDb : null;
+      if (createdOrderInDb && createdOrderInDb.id === orderId) {
+        return { status: 'found', order: createdOrderInDb };
+      }
+      return { status: 'not_found' };
     }
   };
 
@@ -1146,7 +1183,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'a_emporter',
     tableNumber: null,
-    idempotencyKey: ambiguousKey,
+    idempotencyKey: ambiguousKeyReconciled,
     cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
   }, providerWithAmbiguousWrite);
 
@@ -1154,10 +1191,154 @@ async function runTests() {
     resAmbiguousWriteReconciled.success === true && 
     resAmbiguousWriteReconciled.order?.id === createdOrderInDb.id &&
     resAmbiguousWriteReconciled.idempotentReplay === true,
-    '7.3.f : Réconciliation post-panne : la sonde Firestore confirme l\'écriture et prévient tout doublon sans déclarer faussement un échec'
+    '7.3.h : Commande écrite avant coupure réseau retrouvée par la sonde ({ status: \'found\' }) et réconciliée sans duplication'
   );
 
-  // 7. Panne d'écriture réelle où la commande n'a pas été écrite : message d'état ambigu sécurisé
+  // EXIGENCE 1 : Sonde Firestore en erreur jamais assimilée à une commande absente, bloque le doublon
+  clearServerIdempotencyStore();
+  const ambiguousKeyProbeError = 'idem-ambiguous-probe-error';
+  let orderCreatedInProbeErrorTest = false;
+  const providerWithProbeError = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async saveOrder() {
+      orderCreatedInProbeErrorTest = true;
+      throw new Error('Ne doit jamais tenter de recréer');
+    },
+    async reserveIdempotencyKey(key, signature) {
+      return {
+        status: 'ambiguous',
+        record: {
+          timestamp: Date.now() - 5000,
+          status: 'ambiguous',
+          signature,
+          pendingOrderId: 'ord-previous-pending-999'
+        }
+      };
+    },
+    async getOrderById() {
+      return { status: 'error', error: 'Firestore socket timeout / deadline exceeded (504)' };
+    }
+  };
+  const resProbeError = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: ambiguousKeyProbeError,
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerWithProbeError);
+  assert(
+    resProbeError.success === false &&
+    resProbeError.error.includes('La vérification de l\'état de la commande précédente a échoué') &&
+    orderCreatedInProbeErrorTest === false,
+    '7.3.i : Sonde Firestore en erreur jamais assimilée à une commande absente : interrompt formellement et bloque la création d\'un doublon'
+  );
+
+  // EXIGENCE 2 : Clé ambiguë avec sonde confirmant l'absence ne peut créer de commande sans transitionKeyToProcessing réussie
+  clearServerIdempotencyStore();
+  const ambiguousKeyNoTransition = 'idem-ambiguous-no-transition';
+  let orderCreatedInNoTransitionTest = false;
+  const providerWithFailedTransition = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async saveOrder() {
+      orderCreatedInNoTransitionTest = true;
+    },
+    async reserveIdempotencyKey(key, signature) {
+      return {
+        status: 'ambiguous',
+        record: {
+          timestamp: Date.now() - 5000,
+          status: 'ambiguous',
+          signature,
+          pendingOrderId: 'ord-pending-missing-1'
+        }
+      };
+    },
+    async getOrderById() {
+      return { status: 'not_found' }; // Sonde confirme l'absence
+    },
+    async transitionKeyToProcessing() {
+      // Une autre instance concurrente a déjà pris la transition atomique
+      return false;
+    }
+  };
+  const resFailedTransition = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: ambiguousKeyNoTransition,
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerWithFailedTransition);
+  assert(
+    resFailedTransition.success === false &&
+    resFailedTransition.error.includes('Une autre instance a déjà repris le traitement') &&
+    orderCreatedInNoTransitionTest === false,
+    '7.3.j : Clé ambiguë avec sonde confirmant l\'absence ne peut créer de commande sans transition atomique réussie (transitionKeyToProcessing)'
+  );
+
+  // EXIGENCE 3 : Échec de commitIdempotencyKey après écriture réussie ne produit pas un faux succès, renvoie incertitude et préserve l'état
+  clearServerIdempotencyStore();
+  const keyCommitFailure = 'idem-commit-failure-key';
+  let markedAmbiguousWithOrderId = null;
+  const providerWithCommitFailure = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async saveOrder() {
+      // saveOrder réussit avec succès !
+    },
+    async commitIdempotencyKey() {
+      throw new Error('Contention sur le document idempotency_keys (conflit de verrou transactionnel)');
+    },
+    async markIdempotencyAmbiguous(key, orderId) {
+      markedAmbiguousWithOrderId = orderId;
+    }
+  };
+  const resCommitFailure = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: keyCommitFailure,
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerWithCommitFailure);
+  assert(
+    resCommitFailure.success === false &&
+    resCommitFailure.error.includes('enregistrée dans Firestore mais la confirmation d\'idempotence a échoué') &&
+    markedAmbiguousWithOrderId !== null,
+    '7.3.k : Échec de commitIdempotencyKey après écriture réussie : ne produit pas un faux succès, renvoie incertitude et préserve l\'état ambigu'
+  );
+
+  // EXIGENCE 4 : Échec de markIdempotencyAmbiguous interrompt formellement le traitement pour prévenir tout doublon
+  clearServerIdempotencyStore();
+  const keyMarkAmbiguousFailure = 'idem-mark-ambiguous-failure';
+  const providerWithMarkAmbiguousFailure = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async saveOrder() {
+      throw new Error('Délai dépassé lors du premier saveOrder');
+    },
+    async getOrderById() {
+      return { status: 'not_found' };
+    },
+    async markIdempotencyAmbiguous() {
+      throw new Error('Échec d\'écriture Firestore sur la collection d\'idempotence');
+    }
+  };
+  const resMarkFailure = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: keyMarkAmbiguousFailure,
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerWithMarkAmbiguousFailure);
+  assert(
+    resMarkFailure.success === false &&
+    resMarkFailure.error.includes('échec de marquage ambigu du registre') &&
+    resMarkFailure.error.toLowerCase().includes('interrompu'),
+    '7.3.l : Échec de markIdempotencyAmbiguous interrompt formellement le traitement sans masquer l\'erreur'
+  );
+
+  // Panne d'écriture réelle où la sonde confirme l'absence : marquage ambigu et message d'incertitude
   clearServerIdempotencyStore();
   const providerWithRealFailure = {
     async getMenuItems() { return mockCatalog; },
@@ -1166,7 +1347,7 @@ async function runTests() {
       throw new Error('UNAVAILABLE: Datastore service error');
     },
     async getOrderById() {
-      return null; // La commande n'a effectivement pas été écrite
+      return { status: 'not_found' };
     }
   };
 
@@ -1182,7 +1363,7 @@ async function runTests() {
     resRealFailure.success === false && 
     resRealFailure.error.includes('Statut d\'écriture ambigu dans Firestore') &&
     !resRealFailure.error.includes('La commande n\'existe pas'),
-    '7.3.g : Panne non confirmée : ne prétend pas que la commande n\'existe pas et invite à la réconciliation'
+    '7.3.m : Panne non confirmée : ne prétend pas que la commande n\'existe pas et invite à la réconciliation'
   );
 
   // --- 7.4 : VÉRIFICATION DU COMPORTEMENT RÉEL DU SERVEUR (server.ts) ---
