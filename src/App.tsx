@@ -24,7 +24,6 @@ import {
   subscribeToMenuItems, 
   persistMenuItem, 
   persistDishAvailability, 
-  submitOrder,
   submitOrderWithServerValidation,
   subscribeToOrders,
   updateOrderStatus,
@@ -38,7 +37,7 @@ import {
   type User
 } from './lib/firebase';
 import { RestauOrderStatus } from './types/restaumax';
-import { validateAndBuildOrder } from './utils/pricing';
+import { validateAndBuildOrder, generateClientOrderIdempotencyKey } from './utils/pricing';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -306,8 +305,10 @@ export default function App() {
     setIsAuthorizedManager(false);
   };
 
-  // RestauMax Client Cart State (Preserved across routing)
+  // RestauMax Client Cart & Idempotency Key State (Preserved across routing)
   const [clientCart, setClientCart] = useState<ClientCartItem[]>([]);
+  const [clientOrderIdempotencyKey, setClientOrderIdempotencyKey] = useState<string>(() => generateClientOrderIdempotencyKey());
+  const [isOrderUncertain, setIsOrderUncertain] = useState<boolean>(false);
 
   const handleToggleDishAvailability = (dishId: string) => {
     const currentDish = restauMenuItems.find((i) => i.id === dishId);
@@ -349,6 +350,11 @@ export default function App() {
   };
 
   const handleClientAddToCart = (newItem: ClientCartItem): boolean => {
+    // Si la commande précédente est incertaine, verrouiller toute modification pour éviter les doublons
+    if (isOrderUncertain) {
+      return false;
+    }
+
     // 1. Double vérification fondée sur la disponibilité actuelle du catalogue partagé
     const liveDish = restauMenuItems.find((item) => item.id === newItem.menuItemId);
     if (!liveDish || liveDish.available === false) {
@@ -373,6 +379,9 @@ export default function App() {
   };
 
   const handleUpdateClientCartQuantity = (cartItemId: string, delta: number) => {
+    // Si la commande précédente est incertaine, verrouiller toute modification
+    if (isOrderUncertain) return;
+
     setClientCart((prev) =>
       prev.map((item) => {
         if (item.id === cartItemId) {
@@ -386,15 +395,23 @@ export default function App() {
   };
 
   const handleRemoveClientCartItem = (cartItemId: string) => {
+    if (isOrderUncertain) return;
     setClientCart((prev) => prev.filter((item) => item.id !== cartItemId));
   };
 
   const handleClearClientCart = () => {
+    if (isOrderUncertain) return;
     setClientCart([]);
   };
 
-  // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation)
-  const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder }> => {
+  const handleResetUncertainty = () => {
+    setIsOrderUncertain(false);
+    setClientCart([]);
+    setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
+  };
+
+  // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation & atomic idempotency)
+  const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
     const clientDeclaredTotal = clientCart.reduce(
       (sum, item) => sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1),
       0
@@ -405,16 +422,33 @@ export default function App() {
       orderMode: activeTableNumber ? 'sur_place' : 'a_emporter',
       tableNumber: activeTableNumber,
       customerNote,
+      idempotencyKey: clientOrderIdempotencyKey,
       allowedTables: restauTables.length > 0 ? restauTables : undefined,
       declaredTotal: clientDeclaredTotal,
       fallbackCatalog: restauMenuItems
     });
 
     if (!submitRes.success) {
+      if (submitRes.conflict) {
+        // Conflit d'intégrité d'idempotence (Cas D) : régénérer la clé pour permettre une nouvelle intention propre
+        setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
+        setIsOrderUncertain(false);
+        return { 
+          success: false, 
+          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Veuillez soumettre à nouveau." 
+        };
+      }
+
+      // Échec serveur / réseau : état incertain, panier verrouillé, conservation stricte de la même clé d'idempotence
+      setIsOrderUncertain(true);
       return { success: false, error: submitRes.error };
     }
 
     const confirmedOrder = submitRes.order;
+    setIsOrderUncertain(false);
+
+    // Renouvellement de la clé d'idempotence pour la prochaine intention de commande
+    setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
 
     // Add to internal staff KDS tickets with deterministic ID matching Firestore order
     const newKitchenTicket: KitchenTicket = {
@@ -442,7 +476,7 @@ export default function App() {
     // Clear client cart strictly only upon confirmed write
     setClientCart([]);
 
-    return { success: true, order: confirmedOrder };
+    return { success: true, order: confirmedOrder, isReplay: submitRes.idempotentReplay };
   };
 
   const handleSaveTable = (table: RestaurantTable) => {
@@ -639,6 +673,8 @@ export default function App() {
           onRemoveItem={handleRemoveClientCartItem}
           onClearCart={handleClearClientCart}
           onConfirmOrder={handleClientOrderConfirm}
+          isUncertain={isOrderUncertain}
+          onResetUncertainty={handleResetUncertainty}
           onNavigateHome={() => navigateTo('/')}
           onSelectTableDemo={(tbl) => {
             if (tbl) {

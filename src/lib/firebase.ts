@@ -310,22 +310,9 @@ export function subscribeToAuth(
 }
 
 /**
- * Soumet une commande client à Firestore avec validation
- */
-export async function submitOrder(restaurantSlug: string, order: RestauOrder): Promise<void> {
-  const path = `restaurants/${restaurantSlug}/orders/${order.id}`;
-  try {
-    const orderRef = doc(db, 'restaurants', restaurantSlug, 'orders', order.id);
-    await setDoc(orderRef, order);
-  } catch (err) {
-    handleFirestoreError(err, OperationType.CREATE, path);
-  }
-}
-
-/**
  * Valide et soumet une commande en effectuant un recalcul strict côté serveur
  * via l'API sécurisée /api/orders (recalcul de prix depuis Firestore de référence,
- * validation des options, extras et tables, détection des falsifications et idempotence).
+ * validation des options, extras et tables, détection des falsifications et idempotence atomique).
  */
 export async function submitOrderWithServerValidation(
   restaurantSlug: string,
@@ -333,13 +320,13 @@ export async function submitOrderWithServerValidation(
     cart: ClientCartItem[];
     orderMode: OrderMode;
     tableNumber: string | null;
+    idempotencyKey: string;
     customerNote?: string;
     allowedTables?: RestaurantTable[];
     declaredTotal?: number;
-    idempotencyKey?: string;
     fallbackCatalog?: RestauMenuItem[];
   }
-): Promise<{ success: true; order: RestauOrder } | { success: false; error: string }> {
+): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
     const response = await fetch('/api/orders', {
       method: 'POST',
@@ -361,6 +348,7 @@ export async function submitOrderWithServerValidation(
     if (!response.ok || !data.success) {
       return {
         success: false,
+        conflict: response.status === 409 || data.conflict === true,
         error: data.error || 'Erreur lors de la validation serveur de la commande.',
       };
     }
@@ -368,6 +356,7 @@ export async function submitOrderWithServerValidation(
     return {
       success: true,
       order: data.order,
+      idempotentReplay: data.idempotentReplay === true,
     };
   } catch (err: any) {
     console.error('Erreur appel /api/orders:', err);

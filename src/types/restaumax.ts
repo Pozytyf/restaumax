@@ -121,6 +121,8 @@ export interface RestauOrder {
   createdAtIso: string;
   statusUpdatedAt?: number;
   idempotencyKey?: string;
+  idempotencyDocId?: string;
+  contentSignature?: string;
 }
 
 export interface RestaurantTable {

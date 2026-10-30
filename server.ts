@@ -113,6 +113,94 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     await adminDb.collection('restaurants').doc(restaurantSlug).collection('orders').doc(order.id).set(order);
   },
 
+  // Transaction atomique unifiée (L'exigence centrale 4.4 : Création et finalisation dans la même transaction Firestore)
+  async executeOrderTransaction(params: any) {
+    if (!adminDb) {
+      throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
+    }
+    const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate } = params;
+    const docRefKey = adminDb.collection('idempotency_keys').doc(keyDocId);
+    const docRefOrder = adminDb.collection('restaurants').doc(restaurantSlug).collection('orders').doc(orderId);
+
+    return await adminDb.runTransaction(async (t: any) => {
+      // 1. Lectures préalables obligatoires
+      const [snapKey, snapOrder] = await Promise.all([
+        t.get(docRefKey),
+        t.get(docRefOrder)
+      ]);
+
+      const keyExists = snapKey.exists;
+      const orderExists = snapOrder.exists;
+      const keyData = keyExists ? snapKey.data() : null;
+      const orderData = orderExists ? snapOrder.data() : null;
+
+      // CAS D : Signatures divergentes (Conflit d'idempotence)
+      if (keyExists && keyData.signature && keyData.signature !== signature) {
+        return {
+          success: false,
+          conflict: true,
+          error: `Conflit d'idempotence : La clé "${idempotencyKey}" a déjà été utilisée pour une intention différente (restaurant, mode de commande, table, articles ou notes distincts).`
+        };
+      }
+      if (orderExists && orderData.contentSignature && orderData.contentSignature !== signature) {
+        return {
+          success: false,
+          conflict: true,
+          error: `Conflit critique : Un document de commande existe déjà avec des données divergentes sous cet identifiant.`
+        };
+      }
+
+      // CAS A : Rejeu nominal (La commande existe déjà avec la même signature)
+      if (orderExists && orderData) {
+        if (!keyExists) {
+          // Cas B : Auto-réparation du registre
+          t.set(docRefKey, {
+            id: keyDocId,
+            namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
+            restaurantSlug,
+            signature,
+            orderId,
+            status: 'completed',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          });
+        }
+        return {
+          success: true,
+          order: orderData,
+          idempotentReplay: true
+        };
+      }
+
+      // CAS C : Registre existant sans document de commande (Incohérence persistante)
+      if (keyExists && !orderExists) {
+        return {
+          success: false,
+          error: "Incohérence persistante : Le registre d'idempotence valide la clé mais la commande associée est introuvable dans Firestore. Création bloquée."
+        };
+      }
+
+      // CAS E : Première soumission nominale (Écriture atomique unique)
+      t.set(docRefOrder, orderToCreate);
+      t.set(docRefKey, {
+        id: keyDocId,
+        namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
+        restaurantSlug,
+        signature,
+        orderId,
+        status: 'completed',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+
+      return {
+        success: true,
+        order: orderToCreate,
+        idempotentReplay: false
+      };
+    });
+  },
+
   // Sonde de vérification Firestore stricte (distingue 'found', 'not_found' et 'error')
   async getOrderById(restaurantSlug: string, orderId: string): Promise<OrderProbeResult> {
     if (!adminDb) {
@@ -155,7 +243,8 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
           return { status: 'ambiguous' as const, record: data };
         }
         if (data.status === 'processing') {
-          if (now - data.timestamp < timeoutMs) {
+          const recTime = data.createdAt || data.timestamp || 0;
+          if (now - recTime < timeoutMs) {
             return {
               status: 'in_progress' as const,
               record: data,
@@ -167,9 +256,15 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       }
 
       const newRecord: ServerIdempotencyRecord = {
-        timestamp: now,
+        id: docRef.id,
+        namespacedKey: key,
+        restaurantSlug: key.includes(':') ? key.split(':')[0] : '',
+        signature,
+        orderId: `ord_${docRef.id}`,
         status: 'processing',
-        signature
+        createdAt: now,
+        updatedAt: now,
+        timestamp: now
       };
       t.set(docRef, newRecord);
       return { status: 'reserved' as const, record: newRecord };
@@ -295,6 +390,8 @@ app.post('/api/orders', async (req, res) => {
     const result = await processOrderSubmission(req.body, serverFirestoreProvider);
     if (result.success) {
       return res.status(200).json(result);
+    } else if (result.conflict) {
+      return res.status(409).json(result);
     } else {
       return res.status(400).json(result);
     }

@@ -25,7 +25,9 @@ interface CartDrawerProps {
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
-  onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string }>;
+  onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; isReplay?: boolean }>;
+  isUncertain?: boolean;
+  onResetUncertainty?: () => void;
 }
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
@@ -36,7 +38,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
-  onConfirmOrder
+  onConfirmOrder,
+  isUncertain = false,
+  onResetUncertainty
 }) => {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -131,7 +135,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   onClearCart();
                 }
               }}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isUncertain}
               className="text-rose-700 hover:text-rose-900 hover:underline flex items-center gap-1 font-bold text-[10px] disabled:opacity-50"
             >
               <Trash2 size={11} />
@@ -140,8 +144,36 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           </div>
         )}
 
+        {/* Uncertainty Alert Banner (Cart locked to prevent duplicate submission) */}
+        {isUncertain && (
+          <div className="mx-4 mt-3 p-3.5 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs shadow-sm shrink-0 animate-in fade-in space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+              <div className="leading-snug">
+                <span className="font-black text-amber-900">Transmission incertaine (Réseau) : </span>
+                La commande a peut-être été enregistrée par le serveur. Pour empêcher tout doublon, votre panier est verrouillé. Cliquez ci-dessous pour vérifier et finaliser en toute sécurité avec la même clé.
+              </div>
+            </div>
+            {onResetUncertainty && (
+              <div className="flex items-center justify-end pt-1 border-t border-amber-200/80">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm("Attention : si vous abandonnez cette tentative, une commande déjà reçue par la cuisine pourrait quand même être préparée. Voulez-vous vraiment réinitialiser ?")) {
+                      onResetUncertainty();
+                    }
+                  }}
+                  className="text-amber-800 hover:text-rose-700 text-[11px] font-bold underline"
+                >
+                  Abandonner et recommencer un nouveau panier
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Error notification if submission failed */}
-        {submitError && (
+        {submitError && !isUncertain && (
           <div className="mx-4 mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 shrink-0 animate-in fade-in">
             <AlertCircle size={15} className="text-rose-600 shrink-0 mt-0.5" />
             <div className="flex-1 leading-snug">
@@ -230,7 +262,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg p-0.5">
                         <button
                           type="button"
-                          disabled={isSubmitting}
+                          disabled={isSubmitting || isUncertain}
                           onClick={() => {
                             sounds.playTap();
                             onUpdateQuantity(line.id, -1);
@@ -247,7 +279,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
                         <button
                           type="button"
-                          disabled={isSubmitting}
+                          disabled={isSubmitting || isUncertain}
                           onClick={() => {
                             sounds.playTap();
                             onUpdateQuantity(line.id, 1);
@@ -261,7 +293,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
                       <button
                         type="button"
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || isUncertain}
                         onClick={() => {
                           sounds.playTap();
                           onRemoveItem(line.id);
@@ -289,8 +321,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   value={customerNote}
                   onChange={(e) => setCustomerNote(e.target.value)}
                   maxLength={180}
-                  disabled={isSubmitting}
-                  className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg placeholder-slate-400 text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#ff6500]"
+                  disabled={isSubmitting || isUncertain}
+                  className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg placeholder-slate-400 text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#ff6500] disabled:bg-slate-100 disabled:text-slate-500"
                 />
               </div>
             </>
@@ -332,6 +364,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <>
                     <Loader2 size={18} className="animate-spin text-white" />
                     <span>Transmission en cours...</span>
+                  </>
+                ) : isUncertain ? (
+                  <>
+                    <CheckCircle2 size={18} />
+                    <span>Réessayer la transmission (Vérification sans doublon)</span>
                   </>
                 ) : (
                   <>

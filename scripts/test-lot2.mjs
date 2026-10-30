@@ -594,12 +594,37 @@ async function runTests() {
     }
   };
 
+  // Test spécifique : Rejet si clé d'idempotence manquante ou malformée
+  const srvResMissingKey = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, mockServerProvider);
+  assert(
+    srvResMissingKey.success === false && srvResMissingKey.error.includes("Clé d'idempotence"),
+    'Validation Clé : Rejet immédiat si idempotencyKey est absente'
+  );
+
+  const srvResMalformedKey = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: 'bad!key',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, mockServerProvider);
+  assert(
+    srvResMalformedKey.success === false && srvResMalformedKey.error.includes("malformée"),
+    'Validation Clé : Rejet immédiat si idempotencyKey contient des caractères non autorisés'
+  );
+
   // Scénario 2: Rejet d'un panier dont le prix total déclaré est falsifié
   clearServerIdempotencyStore();
   const srvResFalsifiedTotal = await processOrderSubmission({
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '4',
+    idempotencyKey: 'idem-test-scenario-2',
     declaredTotal: 100, // Déclaré 100 FCFA au lieu de 14500 FCFA
     cart: [{
       menuItemId: 'dish-capitaine',
@@ -620,6 +645,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '4',
+    idempotencyKey: 'idem-test-scenario-3a',
     declaredTotal: 14500,
     cart: [{
       menuItemId: 'dish-capitaine',
@@ -636,6 +662,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '4',
+    idempotencyKey: 'idem-test-scenario-3b',
     declaredTotal: 14500,
     cart: [{
       menuItemId: 'dish-capitaine',
@@ -655,6 +682,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '4',
+    idempotencyKey: 'idem-test-scenario-3c',
     declaredTotal: 14500,
     cart: [{
       menuItemId: 'dish-capitaine',
@@ -676,6 +704,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '5', // Table 5 est isActive: false
+    idempotencyKey: 'idem-test-scenario-4a',
     declaredTotal: 14500,
     cart: [{
       menuItemId: 'dish-capitaine',
@@ -692,6 +721,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '999',
+    idempotencyKey: 'idem-test-scenario-4b',
     declaredTotal: 14500,
     cart: [{
       menuItemId: 'dish-capitaine',
@@ -714,6 +744,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'a_emporter',
     tableNumber: null,
+    idempotencyKey: 'idem-test-scenario-5a',
     cart: [{ menuItemId: 'dish-capitaine', quantity: 1 }]
   }, failingCatalogProvider);
   assert(
@@ -730,6 +761,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'a_emporter',
     tableNumber: null,
+    idempotencyKey: 'idem-test-scenario-5b',
     cart: [{ menuItemId: 'dish-capitaine', quantity: 1 }]
   }, emptyCatalogProvider);
   assert(
@@ -824,6 +856,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '4',
+    idempotencyKey: 'idem-test-table-read-err',
     cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
   }, providerTableReadError);
   assert(
@@ -841,6 +874,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '4',
+    idempotencyKey: 'idem-test-empty-tables',
     cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
   }, providerEmptyTables);
   assert(
@@ -853,6 +887,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '99',
+    idempotencyKey: 'idem-test-table-not-found',
     cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
   }, mockServerProvider);
   assert(
@@ -865,6 +900,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '5', // Table 5 est isActive: false
+    idempotencyKey: 'idem-test-table-inactive',
     cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
   }, mockServerProvider);
   assert(
@@ -877,6 +913,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'sur_place',
     tableNumber: '4', // Table 4 est isActive: true
+    idempotencyKey: 'idem-test-table-valid',
     cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
   }, mockServerProvider);
   assert(
@@ -907,6 +944,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'a_emporter',
     tableNumber: null,
+    idempotencyKey: 'idem-test-no-avail',
     cart: [{ menuItemId: 'dish-no-avail', quantity: 1 }]
   }, providerNoAvail);
   assert(
@@ -934,6 +972,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'a_emporter',
     tableNumber: null,
+    idempotencyKey: 'idem-test-corrupt-price',
     cart: [{ menuItemId: 'dish-corrupt-price', quantity: 1 }]
   }, providerCorruptPrice);
   assert(
@@ -966,6 +1005,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'a_emporter',
     tableNumber: null,
+    idempotencyKey: 'idem-test-corrupt-opt',
     cart: [{
       menuItemId: 'dish-opt-corrupt',
       quantity: 1,
@@ -998,6 +1038,7 @@ async function runTests() {
     restaurantSlug: 'chez-awa',
     orderMode: 'a_emporter',
     tableNumber: null,
+    idempotencyKey: 'idem-test-corrupt-extra',
     cart: [{
       menuItemId: 'dish-extra-corrupt',
       quantity: 1,
@@ -1154,7 +1195,7 @@ async function runTests() {
 
   assert(
     oneSucceeded && oneBlockedAsInProgress,
-    '7.3.g [SIMULATION] : Réservation atomique transactionnelle en mémoire empêche deux instances d\'accepter simultanément la même commande'
+    '7.3.g [SIMULATION ACID CONCURRENTE EN MÉMOIRE] : Réservation atomique transactionnelle en mémoire empêche deux instances d\'accepter simultanément la même commande'
   );
 
   // EXIGENCE 7 : Coupure réseau lors de l'écriture : commande retrouvée par la sonde ({ status: 'found' }) et réconciliée sans duplication
@@ -1365,6 +1406,112 @@ async function runTests() {
     !resRealFailure.error.includes('La commande n\'existe pas'),
     '7.3.m : Panne non confirmée : ne prétend pas que la commande n\'existe pas et invite à la réconciliation'
   );
+
+  // --- 7.5 : TESTS TRANSACTION ATOMIQUE UNIFIÉE (CAS A, B, C, D, E) ---
+  console.log('  [7.5] Transaction atomique unifiée (Cas A à E)...');
+
+  // Cas A : Replay nominal (clé complétée avec commande terminée identique)
+  const providerCasA = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async executeOrderTransaction({ signature }) {
+      return {
+        success: true,
+        order: { id: 'ord_123', totalAmount: 9500, contentSignature: signature },
+        idempotentReplay: true
+      };
+    }
+  };
+  const resCasA = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: 'idem-cas-a-replay',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerCasA);
+  assert(resCasA.success === true && resCasA.idempotentReplay === true, '7.5.a (Cas A) : Replay nominal d\'une commande déjà complétée');
+
+  // Cas B : Auto-réparation (commande existante sans registre)
+  const providerCasB = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async executeOrderTransaction({ signature }) {
+      return {
+        success: true,
+        order: { id: 'ord_auto_repair', totalAmount: 9500, contentSignature: signature },
+        idempotentReplay: true
+      };
+    }
+  };
+  const resCasB = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: 'idem-cas-b-repair',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerCasB);
+  assert(resCasB.success === true && resCasB.idempotentReplay === true, '7.5.b (Cas B) : Auto-réparation du registre d\'idempotence si la commande existait déjà');
+
+  // Cas C : Incohérence registre sans commande -> Rejet
+  const providerCasC = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async executeOrderTransaction() {
+      return {
+        success: false,
+        error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable."
+      };
+    }
+  };
+  const resCasC = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: 'idem-cas-c-orphan',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerCasC);
+  assert(resCasC.success === false && resCasC.error.includes('Incohérence persistante'), '7.5.c (Cas C) : Rejet formel si registre présent sans document de commande');
+
+  // Cas D : Conflit de signature -> Rejet 409
+  const providerCasD = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async executeOrderTransaction() {
+      return {
+        success: false,
+        conflict: true,
+        error: "Conflit d'idempotence : La clé a déjà été utilisée pour une requête avec un contenu différent."
+      };
+    }
+  };
+  const resCasD = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: 'idem-cas-d-conflict',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerCasD);
+  assert(resCasD.success === false && resCasD.conflict === true, '7.5.d (Cas D) : Rejet avec flag conflict=true lors d\'une altération du contenu pour une même clé');
+
+  // Cas E : Double-écriture nominale
+  const providerCasE = {
+    async getMenuItems() { return mockCatalog; },
+    async getTables() { return mockRealTables; },
+    async executeOrderTransaction({ orderToCreate }) {
+      return {
+        success: true,
+        order: orderToCreate
+      };
+    }
+  };
+  const resCasE = await processOrderSubmission({
+    restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    idempotencyKey: 'idem-cas-e-nominal',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  }, providerCasE);
+  assert(resCasE.success === true && resCasE.order && !resCasE.idempotentReplay, '7.5.e (Cas E) : Double-écriture atomique nominale réussie (commande + registre)');
 
   // --- 7.4 : VÉRIFICATION DU COMPORTEMENT RÉEL DU SERVEUR (server.ts) ---
   console.log('  [7.4] Vérification de server.ts et conformité Admin SDK...');

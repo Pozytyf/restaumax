@@ -38,7 +38,11 @@ export function calculateOrderTotal(
   }, 0);
 }
 
-// In-memory idempotency cache for duplicate submission protection (15 seconds TTL)
+// NOTE D'ARCHITECTURE SUR L'IDEMPOTENCE:
+// Ce cache en mémoire local sert uniquement de garde-fou transitoire côté client
+// contre les double-clics rapides au sein du même navigateur (15s TTL).
+// La véritable garantie d'unicité et d'atomicité multi-instances est assurée
+// côté serveur par la transaction Firestore sur le registre persistant d'idempotence.
 interface CachedSubmission {
   timestamp: number;
   order: RestauOrder;
@@ -48,6 +52,15 @@ const submissionCache = new Map<string, CachedSubmission>();
 
 export function clearOrderSubmissionCache(): void {
   submissionCache.clear();
+}
+
+/**
+ * Génère une clé d'idempotence client aléatoire sécurisée et conforme (8 à 128 caractères).
+ */
+export function generateClientOrderIdempotencyKey(): string {
+  const rand = Math.random().toString(36).substring(2, 12);
+  const now = Date.now().toString(36);
+  return `idem_${now}_${rand}`;
 }
 
 /**

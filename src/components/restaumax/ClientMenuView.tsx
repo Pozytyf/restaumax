@@ -33,7 +33,9 @@ export interface ClientMenuViewProps {
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
-  onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; order?: RestauOrder }>;
+  onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
+  isUncertain?: boolean;
+  onResetUncertainty?: () => void;
 }
 
 type CategoryFilter = 'tous' | 'grillades' | 'plats' | 'entrees' | 'accompagnements' | 'boissons' | 'desserts';
@@ -103,7 +105,9 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
-  onConfirmOrder
+  onConfirmOrder,
+  isUncertain = false,
+  onResetUncertainty
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('tous');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -448,6 +452,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         onUpdateQuantity={onUpdateQuantity}
         onRemoveItem={onRemoveItem}
         onClearCart={onClearCart}
+        isUncertain={isUncertain}
+        onResetUncertainty={onResetUncertainty}
         onConfirmOrder={async (note) => {
           if (!onConfirmOrder) {
             return { success: false, error: "Fonction de commande non configurée." };
