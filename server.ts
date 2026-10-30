@@ -201,11 +201,20 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       throw new Error("Impossible de confirmer l'idempotence : Firebase Admin SDK non initialisé sur le serveur.");
     }
     const docRef = adminDb.collection('idempotency_keys').doc(key);
-    await docRef.set({
-      timestamp: Date.now(),
-      status: 'completed',
-      order,
-      signature
+    await adminDb.runTransaction(async (t: any) => {
+      const snap = await t.get(docRef);
+      if (snap.exists) {
+        const data = snap.data() as ServerIdempotencyRecord;
+        if (data.signature && data.signature !== signature) {
+          throw new Error(`Conflit d'idempotence lors de la validation : la signature ne correspond pas.`);
+        }
+      }
+      t.set(docRef, {
+        timestamp: Date.now(),
+        status: 'completed',
+        order,
+        signature
+      });
     });
   },
 
@@ -214,12 +223,25 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       throw new Error("Impossible de marquer l'état ambigu : Firebase Admin SDK non initialisé sur le serveur.");
     }
     const docRef = adminDb.collection('idempotency_keys').doc(key);
-    await docRef.set({
-      timestamp: Date.now(),
-      status: 'ambiguous',
-      pendingOrderId: orderId,
-      signature,
-      errorReason: reason
+    await adminDb.runTransaction(async (t: any) => {
+      const snap = await t.get(docRef);
+      if (snap.exists) {
+        const data = snap.data() as ServerIdempotencyRecord;
+        if (data.signature && data.signature !== signature) {
+          throw new Error(`Conflit de signature lors du marquage ambigu pour la clé "${key}".`);
+        }
+        // Strict guard: if already completed, do not downgrade to ambiguous
+        if (data.status === 'completed') {
+          return;
+        }
+      }
+      t.set(docRef, {
+        timestamp: Date.now(),
+        status: 'ambiguous',
+        pendingOrderId: orderId,
+        signature,
+        errorReason: reason
+      });
     });
   },
 

@@ -266,8 +266,28 @@ export async function processOrderSubmission(
         };
       }
 
-      // Rejeu immédiat si commande déjà confirmée identique
+      // Rejeu immédiat si commande déjà confirmée identique (avec vérification persistante si disponible)
       if (reservation.status === 'completed' && reservation.record?.order) {
+        if (dataProvider.getOrderById && reservation.record.order.id) {
+          const probe = await dataProvider.getOrderById(cleanSlug, reservation.record.order.id);
+          if (probe.status === 'found') {
+            return {
+              success: true,
+              order: probe.order,
+              idempotentReplay: true
+            };
+          } else if (probe.status === 'error') {
+            return {
+              success: false,
+              error: `Impossible de vérifier l'état persistant de la commande (${probe.error}). Veuillez réessayer plus tard avec la même clé d'idempotence.`
+            };
+          } else {
+            return {
+              success: false,
+              error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable dans Firestore."
+            };
+          }
+        }
         return {
           success: true,
           order: reservation.record.order,
@@ -387,6 +407,26 @@ export async function processOrderSubmission(
         }
 
         if (existingRecord.status === 'completed' && existingRecord.order) {
+          if (dataProvider.getOrderById && existingRecord.order.id) {
+            const probe = await dataProvider.getOrderById(cleanSlug, existingRecord.order.id);
+            if (probe.status === 'found') {
+              return { 
+                success: true, 
+                order: probe.order, 
+                idempotentReplay: true 
+              };
+            } else if (probe.status === 'error') {
+              return {
+                success: false,
+                error: `Impossible de vérifier l'état persistant de la commande (${probe.error}). Veuillez réessayer plus tard avec la même clé d'idempotence.`
+              };
+            } else {
+              return {
+                success: false,
+                error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable dans Firestore."
+              };
+            }
+          }
           return { 
             success: true, 
             order: existingRecord.order,
