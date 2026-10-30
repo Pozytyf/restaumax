@@ -167,12 +167,12 @@ export function validateServiceAccountCredentials(serviceAccountInput, expectedP
  * l'instance créée. La vérification de conformité repose donc sur l'identité stricte
  * de 'options.projectId' et le blocage de toute instance discordante ou concurrente.
  *
- * @param {object} serviceAccount - Identifiants validés
+ * @param {object|null} [serviceAccount=null] - Identifiants validés (ou null en mode émulateur)
  * @param {string} projectId - ID du projet Firebase attendu
  * @param {string} [appName='[DEFAULT]'] - Nom de l'application Firebase Admin
  * @returns {import('firebase-admin/app').App} L'application Firebase Admin initialisée ou réutilisée
  */
-export function initAdminApp(serviceAccount, projectId, appName = DEFAULT_ADMIN_APP_NAME) {
+export function initAdminApp(serviceAccount = null, projectId, appName = DEFAULT_ADMIN_APP_NAME) {
   if (!projectId || typeof projectId !== 'string' || !projectId.trim()) {
     throw new Error(
       "Erreur d'initialisation : 'projectId' est manquant ou vide. Impossible d'initialiser Firebase Admin."
@@ -213,9 +213,11 @@ export function initAdminApp(serviceAccount, projectId, appName = DEFAULT_ADMIN_
   // Aucune application existante pour ce nom : initialisation
   try {
     const appOptions = {
-      credential: cert(serviceAccount),
       projectId: normalizedProjectId,
     };
+    if (serviceAccount) {
+      appOptions.credential = cert(serviceAccount);
+    }
 
     if (appName === DEFAULT_ADMIN_APP_NAME) {
       return initializeApp(appOptions);

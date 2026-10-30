@@ -72,6 +72,10 @@ try {
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
+  } else if (process.env.FIRESTORE_EMULATOR_HOST) {
+    const adminApp = initAdminApp(null as any, appletConfig.projectId);
+    adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
+    console.log(`[RestauMax Server] Firebase Admin SDK initialisé sur l'émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`);
   } else {
     adminInitError = credPath 
       ? `Fichier de credentials spécifié introuvable : ${credPath}` 
@@ -152,8 +156,8 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
 
       // CAS A : Rejeu nominal (La commande existe déjà avec la même signature)
       if (orderExists && orderData) {
-        if (!keyExists) {
-          // Cas B : Auto-réparation du registre
+        if (!keyExists || keyData?.status !== 'completed') {
+          // Auto-réparation du registre ou réconciliation d'un état processing/ambiguous
           t.set(docRefKey, {
             id: keyDocId,
             namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
@@ -161,9 +165,9 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
             signature,
             orderId,
             status: 'completed',
-            createdAt: Date.now(),
+            createdAt: keyData?.createdAt || Date.now(),
             updatedAt: Date.now()
-          });
+          }, { merge: true });
         }
         return {
           success: true,
@@ -172,12 +176,23 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
         };
       }
 
-      // CAS C : Registre existant sans document de commande (Incohérence persistante)
+      // CAS C : Registre existant sans document de commande
       if (keyExists && !orderExists) {
-        return {
-          success: false,
-          error: "Incohérence persistante : Le registre d'idempotence valide la clé mais la commande associée est introuvable dans Firestore. Création bloquée."
-        };
+        if (keyData.status === 'completed') {
+          return {
+            success: false,
+            error: "Incohérence persistante : Le registre d'idempotence valide la clé mais la commande associée est introuvable dans Firestore. Création bloquée."
+          };
+        }
+        const timeoutMs = 15000;
+        const recTime = keyData.createdAt || keyData.updatedAt || keyData.timestamp || 0;
+        if (keyData.status === 'processing' && (Date.now() - recTime < timeoutMs)) {
+          return {
+            success: false,
+            error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
+          };
+        }
+        // Clé ambiguë ou processing expiré sans commande écrite : reprise atomique autorisée
       }
 
       // CAS E : Première soumission nominale (Écriture atomique unique)
