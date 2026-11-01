@@ -17,6 +17,19 @@ import {
   setDoc
 } from 'firebase/firestore';
 
+const appletConfig = JSON.parse(fs.readFileSync(new URL('../firebase-applet-config.json', import.meta.url), 'utf8'));
+const firebaseConfig = JSON.parse(fs.readFileSync(new URL('../firebase.json', import.meta.url), 'utf8'));
+const configuredFirestore = Array.isArray(firebaseConfig.firestore)
+  ? firebaseConfig.firestore.find((entry) => entry.database === appletConfig.firestoreDatabaseId)
+  : firebaseConfig.firestore;
+
+if (!configuredFirestore || configuredFirestore.database !== appletConfig.firestoreDatabaseId) {
+  throw new Error('firebase.json ne cible pas la base Firestore nommée utilisée par le serveur.');
+}
+if (configuredFirestore.rules !== 'firestore.rules') {
+  throw new Error('La base Firestore de production doit utiliser firestore.rules.');
+}
+
 const projectId = 'demo-restaumax';
 const [host, rawPort] = (process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080').split(':');
 const port = Number(rawPort || 8080);
