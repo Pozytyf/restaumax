@@ -29,8 +29,13 @@ service cloud.firestore {
     // 1. Custom Claims role == 'admin' (global manager)
     // 2. Custom Claims role == 'manager' and restaurantSlug == targetSlug
     // 3. Presence of a trusted document in /managers/{uid} with role == 'admin' or role == 'manager' matching targetSlug
+    function isRestaurantActive(targetSlug) {
+      return !exists(/databases/$(database)/documents/restaurants/$(targetSlug)) ||
+        get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.status != 'suspended';
+    }
+
     function hasRestaurantPermission(targetSlug, permission) {
-      return isSignedIn() && (
+      return isSignedIn() && isRestaurantActive(targetSlug) && (
         request.auth.token.role == 'admin' ||
         (
           request.auth.token.restaurantSlug == targetSlug &&
