@@ -42,7 +42,7 @@ export interface RestaurantHubViewProps {
   activeKitchenTicketsCount: number;
   totalSessionSales: number;
   tables?: RestaurantTable[];
-  onSaveTable?: (table: RestaurantTable) => void;
+  onSaveTable?: (table: RestaurantTable) => Promise<void>;
   onDeleteTable?: (tableId: string) => void;
   onNavigateHome: () => void;
   onNavigateToClientMenu: () => void;
@@ -285,7 +285,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       <TableQrGeneratorView
         restaurant={restaurant}
         tables={tables}
-        onSaveTable={onSaveTable || (() => {})}
+        onSaveTable={onSaveTable || (async () => {})}
         onDeleteTable={onDeleteTable || (() => {})}
         onBackToHub={() => setActiveTab('overview')}
       />
