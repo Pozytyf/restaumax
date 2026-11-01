@@ -114,6 +114,26 @@ export type TransactionDecisionResult =
   | { type: 'AUTO_REPAIR'; order: any }
   | { type: 'CREATE_NOMINAL' };
 
+function getIdempotencyTimestampMillis(record: any): number | null {
+  const candidates = [record?.createdAt, record?.updatedAt, record?.timestamp];
+  for (const value of candidates) {
+    let millis: number | null = null;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      millis = value;
+    } else if (typeof value === 'string' && value.trim()) {
+      const numeric = Number(value);
+      const parsed = Number.isFinite(numeric) ? numeric : Date.parse(value);
+      if (Number.isFinite(parsed)) millis = parsed;
+    } else if (value instanceof Date) {
+      millis = value.getTime();
+    } else if (value && typeof value.toMillis === 'function') {
+      try { millis = value.toMillis(); } catch { millis = null; }
+    }
+    if (millis !== null && Number.isFinite(millis) && millis > 0) return millis;
+  }
+  return null;
+}
+
 /**
  * Moteur décisionnel d'intégrité Fail-Closed pour les transactions de commande.
  * Évalue la cohérence des métadonnées, des signatures, des espaces de noms
@@ -302,7 +322,14 @@ export function evaluateOrderTransactionDecision(params: TransactionEvaluationPa
     }
 
     if (keyData.status === 'processing') {
-      const recTime = keyData.createdAt || keyData.updatedAt || keyData.timestamp || 0;
+      const recTime = getIdempotencyTimestampMillis(keyData);
+      if (recTime === null) {
+        return {
+          type: 'REJECT',
+          uncertain: true,
+          error: "Registre d'idempotence incohérent : horodatage de traitement absent ou invalide. Vérification nécessaire avant toute reprise."
+        };
+      }
       if (now - recTime < timeoutMs) {
         return {
           type: 'REJECT',
