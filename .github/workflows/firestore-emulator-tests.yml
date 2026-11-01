@@ -46,9 +46,12 @@ jobs:
           npm run test:lot1
           npm run test:lot2
 
-      - name: 4. Exécution des tests sur le véritable Firestore Emulator (test:emulator en mode strict)
+      - name: 4. Classification des rejets définitifs et des transactions incertaines
+        run: npm run test:order-errors
+
+      - name: 5. Tests sur le véritable Firestore Emulator et Security Rules
         run: |
           npx --yes firebase-tools@15.34.2 emulators:exec --only firestore --project demo-restaumax "FIRESTORE_EMULATOR_STRICT=true npm run test:emulator && npm run test:rules"
 
-      - name: 5. Validation de la compilation de production (build)
+      - name: 6. Validation de la compilation de production (build)
         run: npm run build
