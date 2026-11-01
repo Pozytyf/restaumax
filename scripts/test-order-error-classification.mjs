@@ -106,6 +106,56 @@ assert(
   'Une erreur de lecture du registre d’idempotence bloque la validation et toute nouvelle création'
 );
 
+const multiOptionPayload = {
+  ...payload,
+  idempotencyKey: 'order-errors-multi-group-002',
+  declaredTotal: 3300,
+  cart: [{
+    menuItemId: 'dish-test',
+    quantity: 1,
+    selectedOptions: [
+      { groupId: 'grp-side', optionId: 'opt-rice', extraPrice: 99999 },
+      { groupId: 'grp-cooking', optionId: 'opt-medium', extraPrice: 99999 }
+    ]
+  }]
+};
+const multiOptionResult = await processOrderSubmission(multiOptionPayload, {
+  async getMenuItems() {
+    return [{
+      ...validProvider.getMenuItems && (await validProvider.getMenuItems())[0],
+      optionGroups: [
+        { id: 'grp-side', name: 'Accompagnement', required: true, options: [{ id: 'opt-rice', name: 'Riz', extraPrice: 500 }] },
+        { id: 'grp-cooking', name: 'Cuisson', required: true, options: [{ id: 'opt-medium', name: 'À point', extraPrice: 300 }] }
+      ]
+    }];
+  },
+  async getTables() { return []; },
+  async executeOrderTransaction(params) { return { success: true, order: params.orderToCreate }; }
+});
+assert(
+  multiOptionResult.success === true && multiOptionResult.order?.totalAmount === 3300 && multiOptionResult.order.items[0].selectedOptions?.length === 2,
+  'Les groupes obligatoires multiples sont acceptés et leurs prix sont recalculés depuis le catalogue'
+);
+
+const missingRequiredOption = await processOrderSubmission({
+  ...multiOptionPayload,
+  idempotencyKey: 'order-errors-missing-group-003',
+  cart: [{ menuItemId: 'dish-test', quantity: 1, selectedOptions: [{ groupId: 'grp-side', optionId: 'opt-rice' }] }]
+}, {
+  async getMenuItems() {
+    return [{
+      ...validProvider.getMenuItems && (await validProvider.getMenuItems())[0],
+      optionGroups: [
+        { id: 'grp-side', name: 'Accompagnement', required: true, options: [{ id: 'opt-rice', name: 'Riz', extraPrice: 500 }] },
+        { id: 'grp-cooking', name: 'Cuisson', required: true, options: [{ id: 'opt-medium', name: 'À point', extraPrice: 300 }] }
+      ]
+    }];
+  },
+  async getTables() { return []; },
+  async executeOrderTransaction() { throw new Error('must not be called'); }
+});
+assert(missingRequiredOption.success === false, 'Le serveur refuse une commande à laquelle il manque un groupe obligatoire');
+
 const rejected = await processOrderSubmission(payload, {
   ...validProvider,
   async getMenuItems() { return []; },
