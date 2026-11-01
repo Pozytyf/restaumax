@@ -226,17 +226,17 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           {line.name}
                         </h4>
 
-                        {/* Selected option detail */}
-                        {line.selectedOption && (
-                          <div className="text-[11px] text-slate-600 font-medium mt-0.5">
-                            Accompagnement : <span className="font-bold text-slate-800">{line.selectedOption.optionName}</span>
-                            {line.selectedOption.extraPrice > 0 && (
+                        {/* Selected option groups */}
+                        {(line.selectedOptions?.length ? line.selectedOptions : line.selectedOption ? [line.selectedOption] : []).map((option) => (
+                          <div key={option.groupId} className="text-[11px] text-slate-600 font-medium mt-0.5">
+                            {option.groupName || 'Option'} : <span className="font-bold text-slate-800">{option.optionName}</span>
+                            {option.extraPrice > 0 && (
                               <span className="text-[#ff6500] font-bold ml-1 tnum">
-                                (+{formatFCFA(line.selectedOption.extraPrice)})
+                                (+{formatFCFA(option.extraPrice)})
                               </span>
                             )}
                           </div>
-                        )}
+                        ))}
 
                         {/* Selected extras */}
                         {line.selectedExtras && line.selectedExtras.length > 0 && (
@@ -330,7 +330,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   placeholder="Ex : Servir les boissons fraîches en premier, couverts supplémentaires..."
                   value={customerNote}
                   onChange={(e) => onCustomerNoteChange(e.target.value)}
-                  maxLength={180}
+                  maxLength={150}
                   disabled={isSubmitting || isUncertain}
                   className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg placeholder-slate-400 text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#ff6500] disabled:bg-slate-100 disabled:text-slate-500"
                 />
