@@ -42,7 +42,7 @@ export interface RestaurantHubViewProps {
   activeKitchenTicketsCount: number;
   totalSessionSales: number;
   tables?: RestaurantTable[];
-  onSaveTable?: (table: RestaurantTable) => void;
+  onSaveTable?: (table: RestaurantTable) => Promise<void>;
   onDeleteTable?: (tableId: string) => void;
   onNavigateHome: () => void;
   onNavigateToClientMenu: () => void;
