@@ -897,8 +897,19 @@ export default function App() {
         />
       )}
 
-      {/* 4. Staff Internal Workspaces: /staff */}
+      {/* 4. Protected Staff Internal Workspaces: /staff */}
       {isStaffRoute && (
+        isLoadingAuth ? (
+          <div className="flex-1 flex items-center justify-center p-8 text-sm text-slate-600">
+            Vérification de la session sécurisée...
+          </div>
+        ) : (!authUser || !isAuthorizedManager) ? (
+          <ManagerLoginView
+            onLogin={handleManagerLogin}
+            onBackToMenu={() => navigateTo('/r/chez-awa')}
+            restaurantName={restaurant.name}
+          />
+        ) : (
         <div className="flex-1 flex flex-col">
           <Header
             currentRole={currentRole}
@@ -980,6 +991,7 @@ export default function App() {
             onClose={() => setActiveReceiptModal(null)}
           />
         </div>
+        )
       )}
 
       {/* Restaurant Table QR Code Camera Scanner Modal */}
