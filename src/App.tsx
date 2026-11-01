@@ -23,7 +23,8 @@ import {
   subscribeToRestaurant, 
   subscribeToMenuItems, 
   persistMenuItem, 
-  persistDishAvailability, 
+  persistDishAvailability,
+  deleteMenuItem, 
   submitOrderWithServerValidation,
   subscribeToOrders,
   updateOrderStatus,
@@ -378,6 +379,16 @@ export default function App() {
     persistMenuItem('chez-awa', updatedDish).catch((err) => {
       console.error('Erreur de mise à jour du plat dans Firestore:', err);
     });
+  };
+
+  const handleDeleteDish = async (dishId: string) => {
+    try {
+      await deleteMenuItem('chez-awa', dishId);
+      setRestauMenuItems((prev) => prev.filter((item) => item.id !== dishId));
+    } catch (err) {
+      console.error('Erreur de suppression du plat dans Firestore:', err);
+      window.alert("La suppression n'a pas été enregistrée. Vérifiez vos droits de gestion et réessayez.");
+    }
   };
 
   const handleClientAddToCart = (newItem: ClientCartItem): boolean => {
@@ -773,6 +784,7 @@ export default function App() {
             onToggleDishAvailability={handleToggleDishAvailability}
             onCreateDish={handleCreateDish}
             onUpdateDish={handleUpdateDish}
+            onDeleteDish={handleDeleteDish}
             currentUserEmail={authUser?.email}
             onSignOut={handleManagerSignOut}
           />
