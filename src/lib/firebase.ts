@@ -339,7 +339,7 @@ export async function submitOrderWithServerValidation(
     declaredTotal?: number;
     fallbackCatalog?: RestauMenuItem[];
   }
-): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean; uncertain?: boolean }> {
   try {
     const response = await fetch('/api/orders', {
       method: 'POST',
@@ -362,6 +362,7 @@ export async function submitOrderWithServerValidation(
       return {
         success: false,
         conflict: response.status === 409 || data.conflict === true,
+        uncertain: data.uncertain === true || response.status === 500,
         error: data.error || 'Erreur lors de la validation serveur de la commande.',
       };
     }
@@ -375,7 +376,8 @@ export async function submitOrderWithServerValidation(
     console.error('Erreur appel /api/orders:', err);
     return {
       success: false,
-      error: err?.message || 'Erreur réseau lors de la communication avec le serveur RestauMax.',
+      uncertain: true,
+      error: 'La réponse du serveur est incertaine. Réessayez avec la même clé sans modifier le panier.',
     };
   }
 }
