@@ -828,6 +828,14 @@ async function runTests() {
 
   // Scénario 9: Préservation du panier client en cas d'échec
   const appTsxContent = fs.readFileSync(path.resolve('src/App.tsx'), 'utf-8');
+  const confirmHandlerStart = appTsxContent.indexOf('const handleClientOrderConfirm');
+  const confirmHandlerEnd = appTsxContent.indexOf('const submitRes =', confirmHandlerStart);
+  const confirmHandlerSource = appTsxContent.slice(confirmHandlerStart, confirmHandlerEnd);
+  assert(
+    confirmHandlerSource.includes('isUncertain: isOrderUncertain'),
+    'Scénario 9.b : Une nouvelle tentative conserve l’état incertain dans sessionStorage avant tout appel réseau'
+  );
+
   const checkFailIndex = appTsxContent.indexOf('if (!submitRes.success)');
   const clearCartIndex = appTsxContent.indexOf('setClientCart([])', checkFailIndex);
   assert(
