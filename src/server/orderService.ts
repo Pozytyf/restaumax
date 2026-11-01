@@ -307,7 +307,10 @@ export async function processOrderSubmission(
       }
 
       if (existingOrderProbe.status === 'error') {
-        return { success: false, error: existingOrderProbe.error };
+        return {
+          success: false,
+          error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé d'idempotence."
+        };
       }
 
       if (existingOrderProbe.status === 'found') {
