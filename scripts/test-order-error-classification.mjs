@@ -102,7 +102,7 @@ const registryFailure = await processOrderSubmission(payload, {
   async executeOrderTransaction() { throw new Error('must not be called'); }
 });
 assert(
-  registryFailure.success === false && catalogReadAfterRegistryFailure === false,
+  registryFailure.success === false && registryFailure.uncertain === true && catalogReadAfterRegistryFailure === false,
   'Une erreur de lecture du registre d’idempotence bloque la validation et toute nouvelle création'
 );
 
@@ -169,6 +169,24 @@ assert(
   catalogueFailure.success === false && !catalogueFailure.error?.includes('private-project-and-database-internal-detail'),
   'Les erreurs internes Firestore ne sont jamais exposées dans le message client'
 );
+
+const inProgressReservation = await processOrderSubmission({
+  ...payload,
+  idempotencyKey: 'order-errors-in-progress-005'
+}, {
+  ...validProvider,
+  async reserveIdempotencyKey() { return { status: 'in_progress' }; }
+});
+assert(inProgressReservation.success === false && inProgressReservation.uncertain === true, 'Un registre déjà en cours conserve le panier verrouillé');
+
+const completedWithoutOrder = await processOrderSubmission({
+  ...payload,
+  idempotencyKey: 'order-errors-completed-empty-006'
+}, {
+  ...validProvider,
+  async reserveIdempotencyKey() { return { status: 'completed', record: { status: 'completed' } }; }
+});
+assert(completedWithoutOrder.success === false && completedWithoutOrder.uncertain === true, 'Un registre completed sans commande vérifiable bloque toute nouvelle création');
 
 const rejected = await processOrderSubmission(payload, {
   ...validProvider,
