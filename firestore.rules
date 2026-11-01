@@ -42,7 +42,7 @@ service cloud.firestore {
 
     function hasRestaurantPermission(targetSlug, permission) {
       return isSignedIn() && isAccountActive() && isRestaurantActive(targetSlug) && (
-        request.auth.token.role == 'admin' ||
+        request.auth.token.role in ['admin', 'super_admin'] ||
         (
           request.auth.token.restaurantSlug == targetSlug &&
           request.auth.token.role == 'owner'
