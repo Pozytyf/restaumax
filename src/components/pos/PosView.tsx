@@ -31,6 +31,7 @@ interface PosViewProps {
   discountPercent: number;
   onSetDiscountPercent: (discount: number) => void;
   onSendToKitchen: () => void;
+  isSendingOrder: boolean;
   onOpenPayment: () => void;
   serverName: string;
 }
@@ -59,6 +60,7 @@ export const PosView: React.FC<PosViewProps> = ({
   discountPercent,
   onSetDiscountPercent,
   onSendToKitchen,
+  isSendingOrder,
   onOpenPayment,
   serverName
 }) => {
@@ -292,6 +294,7 @@ export const PosView: React.FC<PosViewProps> = ({
           discountPercent={discountPercent}
           onSetDiscountPercent={onSetDiscountPercent}
           onSendToKitchen={onSendToKitchen}
+          isSendingOrder={isSendingOrder}
           onOpenPayment={onOpenPayment}
           serverName={serverName}
         />
