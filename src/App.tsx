@@ -625,16 +625,16 @@ export default function App() {
     return { success: true, order: confirmedOrder, isReplay: submitRes.idempotentReplay };
   };
 
-  const handleSaveTable = (table: RestaurantTable) => {
+  const handleSaveTable = async (table: RestaurantTable): Promise<void> => {
+    // Ne confirmer la création dans l'interface qu'après l'écriture Firestore.
+    // En cas de refus (droits, restaurant inactif ou réseau), l'erreur remonte au formulaire.
+    await persistTable(activeRestaurantSlug, table);
     setRestauTables(prev => {
       const idx = prev.findIndex(t => t.id === table.id);
       if (idx >= 0) {
         return prev.map(t => t.id === table.id ? table : t);
       }
       return [...prev, table];
-    });
-    persistTable(activeRestaurantSlug, table).catch(err => {
-      console.error('Erreur de persistance de la table dans Firestore:', err);
     });
   };
 
