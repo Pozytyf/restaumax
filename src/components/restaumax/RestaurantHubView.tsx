@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { RestaurantInfo, RestauMenuItem, RestaurantTable } from '../../types/restaumax';
 import { MenuManagementView } from './MenuManagementView';
 import { StaffManagementView } from './StaffManagementView';
+import { RestaurantAdminModuleView } from './RestaurantAdminModuleView';
 import { TableQrGeneratorView } from './TableQrGeneratorView';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
@@ -92,7 +93,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   canManageStaff = false,
   permissions = []
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog' | 'qr_tables' | 'staff'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog' | 'qr_tables' | 'staff' | 'customers' | 'inventory' | 'reports' | 'settings'>('overview');
   // Format current date in French standard
   const todayFormatted = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
@@ -213,9 +214,11 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       title: 'Clients et fidélité',
       subtitle: 'Répertoire & Historique client',
       description: 'Fichier des clients réguliers, préférences de table et programmes de fidélisation prévus.',
-      status: 'to_activate',
-      statusLabel: 'À activer',
-      icon: Users
+      status: 'active',
+      statusLabel: 'Actif',
+      icon: Users,
+      actionLabel: 'Gérer les clients et la fidélité',
+      onAction: () => { sounds.playTap(); setActiveTab('customers'); }
     },
     {
       id: 'inventory',
@@ -223,9 +226,11 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       title: 'Stocks et approvisionnements',
       subtitle: 'Matières premières & Alertes',
       description: 'Fiches techniques des ingrédients, suivi des niveaux d’inventaire et alertes de réapprovisionnement.',
-      status: 'to_activate',
-      statusLabel: 'À activer',
-      icon: Package
+      status: 'active',
+      statusLabel: 'Actif',
+      icon: Package,
+      actionLabel: 'Gérer les stocks et approvisionnements',
+      onAction: () => { sounds.playTap(); setActiveTab('inventory'); }
     },
     {
       id: 'reports',
@@ -233,9 +238,11 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       title: 'Rapports et statistiques',
       subtitle: 'Analyses consolidées & Exports',
       description: 'Tableaux de bord des ventes par période, analyse de marge et exports comptables périodiques.',
-      status: 'to_activate',
-      statusLabel: 'À activer',
-      icon: BarChart3
+      status: 'active',
+      statusLabel: 'Actif',
+      icon: BarChart3,
+      actionLabel: 'Consulter les rapports',
+      onAction: () => { sounds.playTap(); setActiveTab('reports'); }
     },
     {
       id: 'staff',
@@ -255,9 +262,11 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       title: 'Paramètres du restaurant',
       subtitle: 'Configuration de l’établissement',
       description: 'Coordonnées de l’entreprise, horaires d’ouverture, taxes locales et imprimantes de caisse.',
-      status: 'to_activate',
-      statusLabel: 'À activer',
-      icon: Settings
+      status: 'active',
+      statusLabel: 'Actif',
+      icon: Settings,
+      actionLabel: 'Configurer le restaurant',
+      onAction: () => { sounds.playTap(); setActiveTab('settings'); }
     }
   ];
 
@@ -274,6 +283,10 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
         onNavigateToClientMenu={onNavigateToClientMenu}
       />
     );
+  }
+
+  if (activeTab === 'customers' || activeTab === 'inventory' || activeTab === 'reports' || activeTab === 'settings') {
+    return <RestaurantAdminModuleView module={activeTab} restaurant={restaurant} permissions={permissions} onBack={() => setActiveTab('overview')} />;
   }
 
   if (activeTab === 'staff' && canManageStaff) {
@@ -508,11 +521,11 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             <div className="flex items-center gap-2 text-xs">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
                 <CheckCircle2 size={13} />
-                <span>7 Modules Actifs</span>
+                <span>11 Modules Actifs</span>
               </span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 font-bold border border-slate-200">
                 <Clock size={13} />
-                <span>5 À Activer</span>
+                <span>1 Accès réservé</span>
               </span>
             </div>
           </div>
@@ -524,7 +537,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                 menu: ['menu.manage'], 'options-prices': ['menu.view', 'menu.manage'],
                 orders: ['pos.access'], kitchen: ['kitchen.access'],
                 floor: ['tables.manage'], 'cash-register': ['cash.view', 'cash.manage'],
-                reports: ['reports.view'], customers: ['reports.view'], inventory: ['settings.view'], settings: ['settings.view']
+                reports: ['reports.view'], customers: ['customers.view'], inventory: ['inventory.view'], settings: ['settings.view']
               };
               const needed = required[mod.id];
               return !needed || needed.some(permission => permissions.includes(permission));
@@ -618,10 +631,10 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             </div>
             <div className="space-y-1">
               <div className="font-extrabold text-sm text-amber-900">
-                Activation progressive des modules
+                Modules métier opérationnels
               </div>
               <p className="text-amber-800 leading-relaxed text-[11px] sm:text-xs max-w-3xl">
-                Seuls les modules disposant d'un parcours réellement fonctionnel sont marqués « Actifs ». Les cartes des modules futurs (Fidélité, Stocks, Rapports périodiques, Personnel et Paramètres) sont présentées à titre informatif et n'ouvrent aucune page factice.
+                Les modules Clients, Stocks, Rapports et Paramètres disposent désormais d'écrans connectés à Firestore. Les indicateurs de rapports sont calculés à partir des commandes finalisées ; les fonctions de marge, de fiscalité automatisée et d'impression directe nécessitent encore leurs intégrations métier dédiées.
               </p>
             </div>
           </div>
