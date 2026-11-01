@@ -323,6 +323,9 @@ export default function App() {
     const saved = loadPendingOrderIntent();
     return Boolean(saved?.isUncertain);
   });
+  const [clientCustomerNote, setClientCustomerNote] = useState<string>(() => {
+    return loadPendingOrderIntent()?.customerNote || '';
+  });
 
   // Synchronisation automatique de l'intention de commande avec sessionStorage
   useEffect(() => {
@@ -333,13 +336,14 @@ export default function App() {
         tableNumber: activeTableNumber,
         cart: clientCart,
         idempotencyKey: clientOrderIdempotencyKey,
+        customerNote: clientCustomerNote,
         timestamp: Date.now(),
         isUncertain: isOrderUncertain
       });
     } else if (!isOrderUncertain) {
       clearPendingOrderIntent();
     }
-  }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber]);
+  }, [clientCart, clientOrderIdempotencyKey, clientCustomerNote, isOrderUncertain, activeTableNumber]);
 
   const handleToggleDishAvailability = (dishId: string) => {
     const currentDish = restauMenuItems.find((i) => i.id === dishId);
@@ -434,18 +438,21 @@ export default function App() {
     if (isOrderUncertain) return;
     clearPendingOrderIntent();
     setClientCart([]);
+    setClientCustomerNote('');
   };
 
   const handleResetUncertainty = () => {
     clearPendingOrderIntent();
     setIsOrderUncertain(false);
     setClientCart([]);
+    setClientCustomerNote('');
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
   };
 
   // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation & atomic idempotency)
   const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
     const orderMode = activeTableNumber ? 'sur_place' : 'a_emporter';
+    const cleanCustomerNote = (customerNote ?? clientCustomerNote).trim() || undefined;
     
     // La persistance locale est un prérequis : sans elle, un timeout suivi d'un rechargement
     // pourrait perdre la clé d'idempotence et permettre une double commande.
@@ -455,7 +462,7 @@ export default function App() {
       tableNumber: activeTableNumber,
       cart: clientCart,
       idempotencyKey: clientOrderIdempotencyKey,
-      customerNote,
+      customerNote: cleanCustomerNote,
       timestamp: Date.now(),
       isUncertain: false
     });
@@ -476,7 +483,7 @@ export default function App() {
       cart: clientCart,
       orderMode,
       tableNumber: activeTableNumber,
-      customerNote,
+      customerNote: cleanCustomerNote,
       idempotencyKey: clientOrderIdempotencyKey,
       allowedTables: restauTables.length > 0 ? restauTables : undefined,
       declaredTotal: clientDeclaredTotal,
@@ -505,6 +512,7 @@ export default function App() {
     // Succès confirmé (écriture Firestore confirmée) : nettoyage strict de l'intention persistée
     clearPendingOrderIntent();
     setIsOrderUncertain(false);
+    setClientCustomerNote('');
 
     // Renouvellement de la clé d'idempotence pour la prochaine intention de commande
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
@@ -732,6 +740,8 @@ export default function App() {
           onRemoveItem={handleRemoveClientCartItem}
           onClearCart={handleClearClientCart}
           onConfirmOrder={handleClientOrderConfirm}
+          customerNote={clientCustomerNote}
+          onCustomerNoteChange={setClientCustomerNote}
           isUncertain={isOrderUncertain}
           onResetUncertainty={handleResetUncertainty}
           onNavigateHome={() => navigateTo('/')}
