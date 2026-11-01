@@ -1034,6 +1034,7 @@ export default function App() {
 
           <ReceiptModal
             receipt={activeReceiptModal}
+            restaurant={restaurant}
             onClose={() => setActiveReceiptModal(null)}
           />
         </div>
