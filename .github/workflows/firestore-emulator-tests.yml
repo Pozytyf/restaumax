@@ -34,8 +34,8 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Installation propre et reproductible des dépendances npm
-        run: npm ci --legacy-peer-deps
+      - name: Installation temporaire et réconciliation du lockfile
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Mise à jour des dépendances vulnérables sans changement majeur
         run: npm audit fix --legacy-peer-deps
