@@ -44,19 +44,22 @@ export const auth = getAuth(app);
 
 // Isolate local development from production Firebase when explicitly requested.
 // The server uses FIRESTORE_EMULATOR_HOST; the browser SDK needs its own connections.
+// import.meta.env is injected by Vite in the browser but absent when this module
+// is imported directly by Node-based unit tests.
+const viteEnv = import.meta.env;
 const useFirebaseEmulators =
-  import.meta.env.DEV &&
-  import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
+  viteEnv?.DEV === true &&
+  viteEnv?.VITE_USE_FIREBASE_EMULATOR === 'true';
 
 if (useFirebaseEmulators) {
-  const emulatorHost = import.meta.env.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1';
-  const rawFirestorePort = Number(import.meta.env.VITE_FIRESTORE_EMULATOR_PORT || 8080);
+  const emulatorHost = viteEnv?.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1';
+  const rawFirestorePort = Number(viteEnv?.VITE_FIRESTORE_EMULATOR_PORT || 8080);
   const firestorePort =
     Number.isInteger(rawFirestorePort) && rawFirestorePort > 0 && rawFirestorePort <= 65535
       ? rawFirestorePort
       : 8080;
   const authEmulatorUrl =
-    import.meta.env.VITE_FIREBASE_AUTH_EMULATOR_URL || `http://${emulatorHost}:9099`;
+    viteEnv?.VITE_FIREBASE_AUTH_EMULATOR_URL || `http://${emulatorHost}:9099`;
 
   connectFirestoreEmulator(db, emulatorHost, firestorePort);
   connectAuthEmulator(auth, authEmulatorUrl, { disableWarnings: true });
