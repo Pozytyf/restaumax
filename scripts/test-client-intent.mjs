@@ -99,6 +99,16 @@ async function runClientIntentTests() {
   assert(rawStorage !== null, '1.2 : Clé de stockage présente dans sessionStorage');
 
   // -------------------------------------------------------------------------
+  // 1.B Stockage indisponible : la sauvegarde doit échouer explicitement
+  // -------------------------------------------------------------------------
+  console.log('\n--- 1.B Stockage indisponible ---');
+  const originalStorage = window.sessionStorage;
+  window.sessionStorage = null;
+  const unavailableSave = savePendingOrderIntent(intent1);
+  assert(unavailableSave === false, '1.B.1 : Sauvegarde refusée si sessionStorage est indisponible');
+  window.sessionStorage = originalStorage;
+
+  // -------------------------------------------------------------------------
   // 2. Restauration de l'intention après rechargement du navigateur
   // -------------------------------------------------------------------------
   console.log('\n--- 2. Restauration après rechargement (simulation F5 / reload) ---');
