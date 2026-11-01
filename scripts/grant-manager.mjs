@@ -6,7 +6,7 @@
  *    Paramètres du projet > Comptes de service > Générer une nouvelle clé privée.
  * 2. Enregistrer cette clé HORS du dépôt (ex: ~/serviceAccountKey.json).
  * 3. Exécuter ce script avec node :
- *    GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json node scripts/grant-manager.mjs <USER_EMAIL_OU_UID>
+ *    GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json node scripts/grant-manager.mjs <USER_EMAIL_OU_UID> <SLUG_RESTAURANT>
  */
 
 import { getAuth } from 'firebase-admin/auth';
@@ -19,9 +19,15 @@ import {
 
 async function main() {
   const targetUserIdentifier = process.argv[2];
+  const restaurantSlug = process.argv[3];
 
-  if (!targetUserIdentifier) {
-    console.error('Usage: node scripts/grant-manager.mjs <EMAIL_OU_UID_GESTIONNAIRE>');
+  if (!targetUserIdentifier || !restaurantSlug) {
+    console.error('Usage: node scripts/grant-manager.mjs <EMAIL_OU_UID_GESTIONNAIRE> <SLUG_RESTAURANT>');
+    process.exit(1);
+  }
+
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
+    console.error('Slug restaurant invalide. Utilisez 1 à 100 caractères alphanumériques, tirets ou underscores.');
     process.exit(1);
   }
 
@@ -60,7 +66,8 @@ async function main() {
   const existingClaims = userRecord.customClaims || {};
   await adminAuth.setCustomUserClaims(userRecord.uid, {
     ...existingClaims,
-    role: 'manager'
+    role: 'manager',
+    restaurantSlug
   });
   console.log('✓ Custom Claim { role: "manager" } fusionné avec succès.');
 
@@ -69,6 +76,8 @@ async function main() {
     uid: userRecord.uid,
     email: userRecord.email,
     role: 'manager',
+    restaurantSlug,
+    restaurants: [restaurantSlug],
     grantedAt: new Date().toISOString()
   }, { merge: true });
 
