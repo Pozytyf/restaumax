@@ -37,7 +37,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
-    try { const data = await request(); const token = await auth.currentUser?.getIdToken(true); const response = await fetch(`/api/platform-admin?action=staff_list&slug=${encodeURIComponent(restaurantSlug)}`, { headers: { Authorization: `Bearer ${token}` } }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Lecture impossible.'); setStaff(result.staff || []); }
+    try { const token = await auth.currentUser?.getIdToken(true); const response = await fetch(`/api/platform-admin?action=staff_list&slug=${encodeURIComponent(restaurantSlug)}`, { headers: { Authorization: `Bearer ${token}` } }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Lecture impossible.'); setStaff(result.staff || []); }
     catch (e: any) { setError(e.message || 'Impossible de charger le personnel.'); }
     finally { setLoading(false); }
   }, [request, restaurantSlug]);
