@@ -41,6 +41,7 @@ export interface OrderSubmissionResult {
   error?: string;
   idempotentReplay?: boolean;
   conflict?: boolean;
+  uncertain?: boolean;
 }
 
 /**
@@ -507,7 +508,8 @@ export async function processOrderSubmission(
     } catch (err: any) {
       return {
         success: false,
-        error: `Erreur de transaction Firestore lors de l'enregistrement de la commande : ${err.message || String(err)}`
+        uncertain: true,
+        error: "La confirmation de la transaction est incertaine. Réessayez avec la même clé sans modifier le panier."
       };
     }
   }
