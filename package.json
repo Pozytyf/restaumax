@@ -45,5 +45,8 @@
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "@firebase/rules-unit-testing": "^6.0.0"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.13.6"
   }
 }
