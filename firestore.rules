@@ -44,10 +44,6 @@ service cloud.firestore {
       return isSignedIn() && isAccountActive() && isRestaurantActive(targetSlug) && (
         request.auth.token.role in ['admin', 'super_admin'] ||
         (
-          request.auth.token.restaurantSlug == targetSlug &&
-          request.auth.token.role == 'owner'
-        ) ||
-        (
           exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
           get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurantSlug == targetSlug &&
           (
