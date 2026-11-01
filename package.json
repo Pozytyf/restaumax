@@ -45,6 +45,8 @@
     "typescript": "^7.0.2"
   },
   "overrides": {
+    "@grpc/grpc-js": "^1.13.6",
+    "esbuild": "^0.28.2",
     "firebase-admin": {
       "jwks-rsa": {
         "jose": "4.15.9"
