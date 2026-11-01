@@ -23,7 +23,8 @@ import {
   Sparkles,
   Info,
   Edit3,
-  Plus
+  Plus,
+  Trash2
 } from 'lucide-react';
 
 export interface MenuManagementViewProps {
@@ -32,6 +33,7 @@ export interface MenuManagementViewProps {
   onToggleAvailability: (dishId: string) => void;
   onCreateDish: (dish: RestauMenuItem) => void;
   onUpdateDish: (dish: RestauMenuItem) => void;
+  onDeleteDish: (dishId: string) => void;
   onBackToHub: () => void;
   onNavigateToClientMenu: () => void;
 }
@@ -55,6 +57,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
   onToggleAvailability,
   onCreateDish,
   onUpdateDish,
+  onDeleteDish,
   onBackToHub,
   onNavigateToClientMenu
 }) => {
@@ -116,6 +119,15 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
     } else {
       onCreateDish(dish);
     }
+  };
+
+  const handleDeleteDish = (dish: RestauMenuItem) => {
+    const confirmed = window.confirm(
+      `Supprimer définitivement « ${dish.name} » du catalogue ? Cette action ne peut pas être annulée.`
+    );
+    if (!confirmed) return;
+    sounds.playAlert();
+    onDeleteDish(dish.id);
   };
 
   return (
@@ -484,6 +496,14 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                       </button>
 
                       {/* Toggle button */}
+                      <button
+                        onClick={() => handleDeleteDish(item)}
+                        className="p-2 rounded-xl text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors"
+                        title={`Supprimer ${item.name} du catalogue`}
+                        aria-label={`Supprimer ${item.name}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                       <button
                         onClick={() => handleToggle(item.id)}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 ${
