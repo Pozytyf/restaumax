@@ -362,7 +362,9 @@ export async function submitOrderWithServerValidation(
       return {
         success: false,
         conflict: response.status === 409 || data.conflict === true,
-        uncertain: data.uncertain === true || response.status === 500,
+        uncertain: data.uncertain === true ||
+          (response.status >= 500 && response.status !== 503) ||
+          response.status === 408,
         error: data.error || 'Erreur lors de la validation serveur de la commande.',
       };
     }
