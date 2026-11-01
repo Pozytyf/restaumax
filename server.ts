@@ -66,8 +66,17 @@ let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = nu
 try {
   appletConfig = getAppletFirebaseConfig();
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
-  if (credPath && fs.existsSync(credPath)) {
+  if (serviceAccountJson) {
+    // Vercel/serverless: store the service account JSON as a protected environment variable.
+    const parsedCredentials = JSON.parse(serviceAccountJson);
+    const serviceAccount = validateServiceAccountCredentials(parsedCredentials, appletConfig.projectId);
+    const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
+    adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
+    console.log(`[RestauMax Server] Firebase Admin SDK initialisé via variable sécurisée pour la base '${appletConfig.firestoreDatabaseId}'.`);
+  } else if (credPath && fs.existsSync(credPath)) {
+    // Local/server deployments may continue to use a credentials file.
     const serviceAccount = validateServiceAccountCredentials(credPath, appletConfig.projectId);
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
@@ -77,12 +86,13 @@ try {
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé sur l'émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`);
   } else {
-    adminInitError = credPath 
-      ? `Fichier de credentials spécifié introuvable : ${credPath}` 
-      : "Variable GOOGLE_APPLICATION_CREDENTIALS non configurée.";
+    adminInitError = credPath
+      ? "Fichier de credentials administrateur introuvable."
+      : "Aucun credential Firebase Admin configuré (FIREBASE_SERVICE_ACCOUNT_JSON ou GOOGLE_APPLICATION_CREDENTIALS).";
     console.warn(`[RestauMax Server] AVERTISSEMENT : Firebase Admin SDK non initialisé (${adminInitError}). Le traitement de commandes sera désactivé.`);
   }
 } catch (err: any) {
+  // Never log service-account contents; only the validation/error message is retained.
   adminInitError = err.message || String(err);
   console.error(`[RestauMax Server] Erreur lors de l'initialisation de Firebase Admin SDK : ${adminInitError}`);
 }
@@ -641,49 +651,52 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
   }
 };
 
-// 3. Route API : Soumission, recalcul de confiance et persistance de commande
-app.post('/api/orders', async (req, res) => {
-  // RÈGLE CRITIQUE D'AUDIT : Interdire formellement le traitement des commandes
-  // si Firebase Admin SDK n'est pas initialisé correctement.
-  if (!adminDb) {
-    return res.status(503).json({
-      success: false,
-      error: `Service de commande indisponible : Firebase Admin SDK n'est pas initialisé sur le serveur. ` +
-        `Raison : ${adminInitError || 'Identifiants administrateur absents'}. ` +
-        `Pour activer le traitement des commandes en production, configurez GOOGLE_APPLICATION_CREDENTIALS ` +
-        `avec un compte de service autorisé sur le projet '${appletConfig?.projectId || 'Firebase'}'. ` +
-        `Les écritures directes via le SDK client sont formellement interdites par les règles Firestore.`
-    });
-  }
-
-  try {
-    const result = await processOrderSubmission(req.body, serverFirestoreProvider);
-    if (result.success) {
-      return res.status(200).json(result);
-    } else if (result.conflict) {
-      return res.status(409).json(result);
-    } else {
-      return res.status(400).json(result);
-    }
-  } catch (err: any) {
-    console.error('Erreur inattendue API /api/orders:', err);
-    return res.status(500).json({
-      success: false,
-      error: `Erreur interne serveur lors du traitement de la commande : ${err.message || String(err)}`
-    });
-  }
-});
-
-// 4. Route Diagnostic / Santé du serveur
-app.get('/api/health', (_req, res) => {
-  res.json({ 
-    status: 'ok', 
+// Shared handlers used by both the local Express server and Vercel serverless routes.
+export function getServerHealth() {
+  return {
+    status: 'ok',
     hasAdminDb: Boolean(adminDb),
     projectId: appletConfig?.projectId || null,
     databaseId: appletConfig?.firestoreDatabaseId || null,
-    adminInitError,
-    serverTime: Date.now() 
-  });
+    serverTime: Date.now()
+  };
+}
+
+export async function handleOrderSubmission(payload: unknown): Promise<{ statusCode: number; body: any }> {
+  // Fail closed: never accept orders without trusted Firebase Admin credentials.
+  if (!adminDb) {
+    return {
+      statusCode: 503,
+      body: {
+        success: false,
+        error: "Service de commande indisponible : les identifiants sécurisés Firebase Admin ne sont pas configurés sur le serveur."
+      }
+    };
+  }
+
+  try {
+    const result = await processOrderSubmission(payload as any, serverFirestoreProvider);
+    if (result.success) return { statusCode: 200, body: result };
+    if (result.conflict) return { statusCode: 409, body: result };
+    return { statusCode: 400, body: result };
+  } catch (err: any) {
+    console.error('Erreur inattendue API /api/orders:', err?.message || String(err));
+    return {
+      statusCode: 500,
+      body: { success: false, error: "Erreur interne du serveur lors du traitement de la commande." }
+    };
+  }
+}
+
+// Local Express routes. Vercel uses the equivalent files in /api.
+app.post('/api/orders', async (req, res) => {
+  const result = await handleOrderSubmission(req.body);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.get('/api/health', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json(getServerHealth());
 });
 
 // 5. Middleware Vite en développement / Fichiers statiques en production
