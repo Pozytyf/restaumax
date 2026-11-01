@@ -2,11 +2,10 @@
  * RESTAUMAX — Script d'attribution sécurisée du rôle Gestionnaire (Admin SDK)
  *
  * Utilisation :
- * 1. Télécharger une clé de compte de service depuis la console Firebase :
- *    Paramètres du projet > Comptes de service > Générer une nouvelle clé privée.
- * 2. Enregistrer cette clé HORS du dépôt (ex: ~/serviceAccountKey.json).
+ * 1. Recommandé : utiliser les Application Default Credentials (gcloud auth application-default login).
+ * 2. Facultatif : définir GOOGLE_APPLICATION_CREDENTIALS vers une clé conservée HORS du dépôt.
  * 3. Exécuter ce script avec node :
- *    GOOGLE_APPLICATION_CREDENTIALS=~/serviceAccountKey.json node scripts/grant-manager.mjs <USER_EMAIL_OU_UID> <SLUG_RESTAURANT>
+ *    node scripts/grant-manager.mjs <USER_EMAIL_OU_UID> <SLUG_RESTAURANT>
  */
 
 import { getAuth } from 'firebase-admin/auth';
@@ -36,11 +35,13 @@ async function main() {
   console.log(`Projet cible validé : ${firebaseConfig.projectId}`);
   console.log(`Base Firestore ciblée : ${firebaseConfig.firestoreDatabaseId}`);
 
-  // 2. Validation de la clé de compte de service et cohérence du projet
+  // 2. Validation facultative d'une clé de service; sinon, utilisation des ADC.
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  const serviceAccount = validateServiceAccountCredentials(credPath, firebaseConfig.projectId);
+  const serviceAccount = credPath
+    ? validateServiceAccountCredentials(credPath, firebaseConfig.projectId)
+    : null;
 
-  // 3. Initialisation contrôlée de Firebase Admin SDK et de la base Firestore dédiée
+  // 3. Initialisation contrôlée de Firebase Admin SDK et de la base Firestore dédiée.
   const app = initAdminApp(serviceAccount, firebaseConfig.projectId);
   const adminAuth = getAuth(app);
   const db = initAdminFirestore(app, firebaseConfig.firestoreDatabaseId);
