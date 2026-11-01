@@ -2027,8 +2027,8 @@ async function runTests() {
   // Vérification de l'isolation du navigateur local vis-à-vis du projet Firebase de production.
   const firebaseClientContent = fs.readFileSync(path.resolve('src/lib/firebase.ts'), 'utf-8');
   assert(
-    firebaseClientContent.includes('import.meta.env.DEV') &&
-    firebaseClientContent.includes("import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'") &&
+    firebaseClientContent.includes('viteEnv?.DEV === true') &&
+    firebaseClientContent.includes("viteEnv?.VITE_USE_FIREBASE_EMULATOR === 'true'") &&
     firebaseClientContent.includes('connectFirestoreEmulator(db, emulatorHost, firestorePort)'),
     '7.4.e : Le SDK Firestore navigateur bascule vers l’émulateur uniquement en développement local explicite'
   );
