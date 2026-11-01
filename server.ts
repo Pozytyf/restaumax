@@ -166,7 +166,7 @@ export type TransactionDecisionResult =
   | { type: 'CREATE_NOMINAL' };
 
 function getIdempotencyTimestampMillis(record: any): number | null {
-  const candidates = [record?.createdAt, record?.updatedAt, record?.timestamp];
+  const candidates = [record?.updatedAt, record?.timestamp, record?.createdAt];
   for (const value of candidates) {
     let millis: number | null = null;
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -537,7 +537,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
     const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('menuItems').get();
-    return snap.docs.map((d: any) => d.data());
+    return snap.docs.map((d: any) => ({ ...d.data(), id: d.id }));
   },
 
   async getTables(restaurantSlug: string) {
@@ -545,7 +545,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
     const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('tables').get();
-    return snap.docs.map((d: any) => d.data());
+    return snap.docs.map((d: any) => ({ ...d.data(), id: d.id }));
   },
 
   async saveOrder(restaurantSlug: string, order: any) {
@@ -654,9 +654,11 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       const data = snap.data() as ServerIdempotencyRecord;
       if (data.status !== fromStatus) return false;
       if (data.signature !== signature) return false;
+      const now = Date.now();
       t.update(docRef, {
         status: 'processing',
-        timestamp: Date.now(),
+        updatedAt: now,
+        timestamp: now,
         pendingOrderId: null,
         errorReason: null
       });
