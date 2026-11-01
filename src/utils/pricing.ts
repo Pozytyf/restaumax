@@ -158,7 +158,11 @@ export function validateAndBuildOrder(params: ValidateOrderParams):
 
   // Signature du contenu de la commande
   const cartSignature = cart
-    .map(c => `${c.menuItemId}:${c.quantity}:${c.selectedOption?.optionId || ''}:${(c.selectedExtras || []).map(e => e.extraId).sort().join(',')}`)
+    .map(c => {
+      const options = (c.selectedOptions?.length ? c.selectedOptions : c.selectedOption ? [c.selectedOption] : [])
+        .map(option => `${option.groupId}:${option.optionId}`).sort().join(',');
+      return `${c.menuItemId}:${c.quantity}:${options}:${(c.selectedExtras || []).map(e => e.extraId).sort().join(',')}`;
+    })
     .sort()
     .join('|');
   const submissionKey = idempotencyKey 
@@ -212,55 +216,32 @@ export function validateAndBuildOrder(params: ValidateOrderParams):
     }
     const qty = rawQty;
 
-    // Vérification des groupes d'options (obligatoires et exclusifs)
-    let verifiedSelectedOption: RestauOrderItem['selectedOption'] = undefined;
-    let verifiedOptionExtraPrice = 0;
-
-    if (catalogItem.optionGroups && catalogItem.optionGroups.length > 0) {
-      // Trouver tous les groupes d'options obligatoires
-      for (const group of catalogItem.optionGroups) {
-        if (group.required) {
-          const hasSelection = line.selectedOption && line.selectedOption.groupId === group.id;
-          if (!hasSelection) {
-            return {
-              success: false,
-              error: `Une option est obligatoire pour le groupe "${group.name}" du plat "${catalogItem.name}".`
-            };
-          }
-        }
+    // Validation de tous les groupes d'options et recalcul des prix depuis le catalogue.
+    const requestedOptions = line.selectedOptions?.length ? line.selectedOptions : line.selectedOption ? [line.selectedOption] : [];
+    const verifiedSelectedOptions: NonNullable<RestauOrderItem['selectedOptions']> = [];
+    const selectedGroupIds = new Set<string>();
+    for (const requestedOption of requestedOptions) {
+      if (selectedGroupIds.has(requestedOption.groupId)) {
+        return { success: false, error: `Plusieurs options ont été envoyées pour le même groupe de "${catalogItem.name}".` };
       }
+      const catalogGroup = (catalogItem.optionGroups || []).find(group => group.id === requestedOption.groupId);
+      const catalogOption = catalogGroup?.options.find(option => option.id === requestedOption.optionId);
+      if (!catalogGroup || !catalogOption) {
+        return { success: false, error: `Une option sélectionnée pour "${catalogItem.name}" n'existe pas au catalogue.` };
+      }
+      const trustedOptionPrice = Math.max(0, Math.round(Number(catalogOption.extraPrice) || 0));
+      selectedGroupIds.add(catalogGroup.id);
+      verifiedSelectedOptions.push({
+        groupId: catalogGroup.id, groupName: catalogGroup.name,
+        optionId: catalogOption.id, optionName: catalogOption.name, extraPrice: trustedOptionPrice
+      });
     }
-
-    if (line.selectedOption) {
-      // Trouver le groupe dans le catalogue
-      const catalogGroup = (catalogItem.optionGroups || []).find(g => g.id === line.selectedOption?.groupId);
-      if (!catalogGroup) {
-        return {
-          success: false,
-          error: `Le groupe d'options spécifié pour "${catalogItem.name}" n'existe pas.`
-        };
-      }
-
-      // Trouver l'option dans le groupe du catalogue
-      const catalogOption = catalogGroup.options.find(o => o.id === line.selectedOption?.optionId);
-      if (!catalogOption) {
-        return {
-          success: false,
-          error: `L'option sélectionnée pour "${catalogItem.name}" n'existe pas au catalogue.`
-        };
-      }
-
-      // Utiliser impérativement le prix du catalogue, pas celui envoyé par le client !
-      verifiedOptionExtraPrice = Math.max(0, Math.round(Number(catalogOption.extraPrice) || 0));
-
-      verifiedSelectedOption = {
-        groupId: catalogGroup.id,
-        groupName: catalogGroup.name,
-        optionId: catalogOption.id,
-        optionName: catalogOption.name,
-        extraPrice: verifiedOptionExtraPrice
-      };
+    const missingRequiredGroup = (catalogItem.optionGroups || []).find(group => group.required && !selectedGroupIds.has(group.id));
+    if (missingRequiredGroup) {
+      return { success: false, error: `Une option est obligatoire pour le groupe "${missingRequiredGroup.name}" du plat "${catalogItem.name}".` };
     }
+    const verifiedSelectedOption = verifiedSelectedOptions.length === 1 ? verifiedSelectedOptions[0] : undefined;
+    const verifiedOptionExtraPrice = verifiedSelectedOptions.reduce((sum, option) => sum + option.extraPrice, 0);
 
     // Vérification des extras
     let verifiedExtrasCost = 0;
@@ -313,6 +294,7 @@ export function validateAndBuildOrder(params: ValidateOrderParams):
       quantity: qty,
       totalPrice: lineTotal,
       selectedOption: verifiedSelectedOption,
+      selectedOptions: verifiedSelectedOptions.length > 1 ? verifiedSelectedOptions : undefined,
       selectedExtras: verifiedExtrasList.length > 0 ? verifiedExtrasList : undefined,
       prepNotes: sanitizeNote(line.prepNotes, 150)
     });
