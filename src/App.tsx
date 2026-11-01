@@ -467,7 +467,7 @@ export default function App() {
       idempotencyKey: clientOrderIdempotencyKey,
       customerNote: cleanCustomerNote,
       timestamp: Date.now(),
-      isUncertain: false
+      isUncertain: isOrderUncertain
     });
 
     if (!intentSaved) {
