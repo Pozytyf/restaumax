@@ -132,5 +132,11 @@ export interface RestaurantTable {
   capacity: number;
   isActive: boolean;
   qrUrl?: string;
+  status?: 'available' | 'occupied' | 'billing' | 'reserved';
+  currentOrderId?: string;
+  currentTotal?: number;
+  assignedWaiter?: string;
+  covers?: number;
+  seatedAt?: number;
 }
 
