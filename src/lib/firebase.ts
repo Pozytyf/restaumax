@@ -3,7 +3,7 @@ import {
   getAuth, 
   signInWithEmailAndPassword, 
   signOut, 
-  onAuthStateChanged, 
+  onIdTokenChanged, 
   getIdTokenResult,
   connectAuthEmulator,
   type User
@@ -339,7 +339,7 @@ export async function signOutManager(): Promise<void> {
 export function subscribeToAuth(
   callback: (user: User | null, isAuthorizedManager: boolean) => void
 ) {
-  return onAuthStateChanged(auth, async (user) => {
+  return onIdTokenChanged(auth, async (user) => {
     if (!user) {
       callback(null, false);
       return;
