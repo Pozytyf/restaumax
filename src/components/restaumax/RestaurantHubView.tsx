@@ -213,7 +213,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       order: 8,
       title: 'Clients et fidélité',
       subtitle: 'Répertoire & Historique client',
-      description: 'Fichier des clients réguliers, préférences de table et programmes de fidélisation prévus.',
+      description: 'Répertoire des clients, coordonnées, notes et suivi manuel des points de fidélité.',
       status: 'active',
       statusLabel: 'Actif',
       icon: Users,
@@ -225,7 +225,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       order: 9,
       title: 'Stocks et approvisionnements',
       subtitle: 'Matières premières & Alertes',
-      description: 'Fiches techniques des ingrédients, suivi des niveaux d’inventaire et alertes de réapprovisionnement.',
+      description: 'Suivi des matières premières, quantités disponibles, seuils d’alerte et mouvements de stock.',
       status: 'active',
       statusLabel: 'Actif',
       icon: Package,
@@ -237,7 +237,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       order: 10,
       title: 'Rapports et statistiques',
       subtitle: 'Analyses consolidées & Exports',
-      description: 'Tableaux de bord des ventes par période, analyse de marge et exports comptables périodiques.',
+      description: 'Synthèse des commandes finalisées, montants, panier moyen, meilleures ventes et export CSV.',
       status: 'active',
       statusLabel: 'Actif',
       icon: BarChart3,
@@ -261,7 +261,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       order: 12,
       title: 'Paramètres du restaurant',
       subtitle: 'Configuration de l’établissement',
-      description: 'Coordonnées de l’entreprise, horaires d’ouverture, taxes locales et imprimantes de caisse.',
+      description: 'Coordonnées, horaires, ouverture du service, taux de taxe indicatif et format de ticket.',
       status: 'active',
       statusLabel: 'Actif',
       icon: Settings,
@@ -521,11 +521,11 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             <div className="flex items-center gap-2 text-xs">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
                 <CheckCircle2 size={13} />
-                <span>11 Modules Actifs</span>
+                <span>{modules.filter((mod) => mod.status === 'active').length} Modules Actifs</span>
               </span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 font-bold border border-slate-200">
                 <Clock size={13} />
-                <span>1 Accès réservé</span>
+                <span>{modules.filter((mod) => mod.status === 'unavailable').length} Accès réservé(s)</span>
               </span>
             </div>
           </div>
