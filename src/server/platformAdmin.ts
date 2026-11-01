@@ -182,6 +182,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (!memberSnap.exists || memberSnap.data()?.role === 'owner') return json(res, 404, { success: false, error: 'Membre introuvable.' });
       if (action === 'disable_staff') {
         await getAuth().updateUser(staffUid, { disabled: true });
+        await getAuth().revokeRefreshTokens(staffUid);
         await memberRef.set({ active: false, updatedAt: Date.now() }, { merge: true });
         await db.collection('managers').doc(staffUid).set({ active: false }, { merge: true });
         return json(res, 200, { success: true });
