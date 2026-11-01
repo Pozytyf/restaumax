@@ -87,8 +87,11 @@ export function mapRestauOrderToKitchenTicket(
     status: ticketStatus,
     items: order.items.map((it, idx) => {
       const notesArr: string[] = [];
-      if (it.selectedOption?.optionName) {
-        notesArr.push(`Option: ${it.selectedOption.optionName}`);
+      const selectedOptions = it.selectedOptions?.length
+        ? it.selectedOptions
+        : it.selectedOption ? [it.selectedOption] : [];
+      for (const option of selectedOptions) {
+        if (option.optionName) notesArr.push(`Option (${option.groupName || 'Groupe'}): ${option.optionName}`);
       }
       if (it.selectedExtras && it.selectedExtras.length > 0) {
         notesArr.push(`Extras: ${it.selectedExtras.map(e => e.name).join(', ')}`);
