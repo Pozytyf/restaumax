@@ -264,7 +264,7 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
   try {
     // 1. Check Custom Claims (token-based)
     const tokenResult = await getIdTokenResult(user);
-    if (tokenResult.claims && (tokenResult.claims.role === 'manager' || tokenResult.claims.role === 'admin')) {
+    if (tokenResult.claims && (tokenResult.claims.role === 'manager' || tokenResult.claims.role === 'admin' || tokenResult.claims.role === 'owner' || tokenResult.claims.role === 'staff')) {
       return true;
     }
 
@@ -273,7 +273,7 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
     const managerDoc = await getDoc(managerDocRef);
     if (managerDoc.exists()) {
       const data = managerDoc.data();
-      if (data && (data.role === 'manager' || data.role === 'admin')) {
+      if (data && (data.role === 'manager' || data.role === 'admin' || data.role === 'owner' || data.role === 'staff')) {
         return true;
       }
     }
