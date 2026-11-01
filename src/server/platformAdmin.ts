@@ -48,6 +48,7 @@ async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
   const snap = await db.collection('restaurants').doc(slug).get();
   if (!snap.exists) return null;
   const restaurant = snap.data();
+  if (restaurant.status === 'suspended') return null;
   const membership = await db.collection('managers').doc(user.uid).get();
   const member = membership.exists ? membership.data() : null;
   if (restaurant.ownerUid !== user.uid || member?.role !== 'owner' || member?.restaurantSlug !== slug) return null;
