@@ -21,6 +21,7 @@
 
 import { executeOrderTransactionWithDb } from '../server.ts';
 import { deriveIdempotencyIdentifiers, computeOrderSignature } from '../src/server/orderService.ts';
+import { getAppletFirebaseConfig } from '../scripts/firebase-admin-config.mjs';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -202,7 +203,11 @@ async function initializeFirestoreClient() {
       
       const app = getApps().find(a => a.name === 'restaumax-test-emulator') || 
                   initializeApp({ projectId: 'demo-restaumax' }, 'restaumax-test-emulator');
-      const realEmulatorDb = getFirestore(app);
+      const { firestoreDatabaseId } = getAppletFirebaseConfig();
+      const realEmulatorDb = getFirestore(app, firestoreDatabaseId);
+      if (realEmulatorDb.databaseId !== firestoreDatabaseId) {
+        throw new Error(`L’émulateur cible la base "${realEmulatorDb.databaseId}" au lieu de "${firestoreDatabaseId}".`);
+      }
 
       // Sonde de connectivité réelle (ping write/read) avec timeout de 3000ms
       const pingPromise = (async () => {
