@@ -368,7 +368,7 @@ export async function processOrderSubmission(
   } catch (err: any) {
     return { 
       success: false, 
-      error: `Erreur serveur lors de la lecture du catalogue Firestore : ${err.message || 'Échec de connexion'}. Aucun catalogue de secours n'est autorisé.` 
+      error: "Le catalogue est temporairement indisponible. Aucune commande n'a été envoyée; veuillez réessayer." 
     };
   }
 
@@ -393,7 +393,7 @@ export async function processOrderSubmission(
     } catch (err: any) {
       return { 
         success: false, 
-        error: `Erreur serveur lors de la lecture des tables Firestore pour "${cleanSlug}" : ${err.message || 'Panne de connexion'}. Commande sur place refusée.` 
+        error: "La configuration des tables est temporairement indisponible. Aucune commande n'a été envoyée; veuillez réessayer." 
       };
     }
 
@@ -659,7 +659,7 @@ export async function processOrderSubmission(
     } catch (err: any) {
       return {
         success: false,
-        error: `Échec du registre persistant d'idempotence : ${err.message || 'Erreur registre'}. Traitement interrompu pour prévenir tout doublon.`
+        error: "Le registre de commande est temporairement indisponible. Réessayez avec la même clé de commande."
       };
     }
 
@@ -677,7 +677,7 @@ export async function processOrderSubmission(
         if (probe.status === 'found') {
           return { success: true, order: probe.order, idempotentReplay: true };
         } else if (probe.status === 'error') {
-          return { success: false, error: `Impossible de vérifier l'état persistant de la commande (${probe.error}).` };
+          return { success: false, error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé." };
         } else {
           return { success: false, error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable dans Firestore." };
         }
@@ -702,7 +702,7 @@ export async function processOrderSubmission(
       }
       const probe = await dataProvider.getOrderById(cleanSlug, pendingId);
       if (probe.status === 'error') {
-        return { success: false, error: `La vérification de l'état de la commande précédente a échoué (${probe.error}).` };
+        return { success: false, error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé." };
       }
       if (probe.status === 'found') {
         if (dataProvider.commitIdempotencyKey) {
@@ -739,13 +739,13 @@ export async function processOrderSubmission(
         } catch (markErr: any) {
           return {
             success: false,
-            error: `Traitement interrompu : échec de marquage ambigu du registre (${markErr.message}). Pour éviter tout doublon, veuillez réessayer.`
+            error: "Le statut de la commande ne peut pas être confirmé. Réessayez avec la même clé sans modifier le panier."
           };
         }
       }
       return {
         success: false,
-        error: `Statut d'écriture ambigu dans Firestore : ${writeErr.message}. Veuillez relancer avec la même clé.`
+        error: "Le statut de la commande est incertain. Réessayez avec la même clé sans modifier le panier."
       };
     }
   }
