@@ -187,6 +187,7 @@ export default function App() {
   ]);
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isSubmittingPosOrder, setIsSubmittingPosOrder] = useState(false);
   const [activeReceiptModal, setActiveReceiptModal] = useState<PaymentRecord | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const serverName = 'Moussa D.';
@@ -636,31 +637,55 @@ export default function App() {
     );
   };
 
-  const handleSendToKitchen = () => {
-    if (cart.length === 0) return;
-    const ticketNumber = `#T-${Math.floor(100 + Math.random() * 900)}`;
-    const tableName = selectedTable ? selectedTable.name : 'Vente Directe';
+  const handleSendToKitchen = async () => {
+    if (cart.length === 0 || isSubmittingPosOrder) return;
 
-    const newTicket: KitchenTicket = {
-      id: `kt-${Date.now()}`,
-      ticketNumber,
-      tableNumber: tableName,
-      orderType: selectedTable ? 'sur_place' : 'emporter',
-      waiter: serverName,
-      createdAt: new Date(),
-      status: 'in_prep',
-      items: cart.map((item, idx) => ({
-        id: `ki-${Date.now()}-${idx}`,
+    // Never let a client-side discount silently alter a server-calculated order total.
+    if (discountPercent > 0) {
+      window.alert("Les remises POS ne sont pas encore validées côté serveur. Retirez la remise avant d'envoyer cette commande.");
+      return;
+    }
+
+    setIsSubmittingPosOrder(true);
+    try {
+      const clientCart: ClientCartItem[] = cart.map((item) => ({
+        id: item.id,
+        menuItemId: item.menuItem.id,
         name: item.menuItem.name,
+        basePrice: item.menuItem.price,
+        unitPrice: item.menuItem.price,
         quantity: item.quantity,
-        course: item.course,
-        notes: item.specialInstructions,
-        completed: false
-      }))
-    };
+        selectedExtras: [],
+        prepNotes: item.specialInstructions,
+        imageUrl: item.menuItem.imageUrl
+      }));
 
-    setKitchenTickets((prev) => [newTicket, ...prev]);
-    alert(`Commande envoyée en cuisine ! Ticket ${ticketNumber}`);
+      const result = await submitOrderWithServerValidation('chez-awa', {
+        cart: clientCart,
+        orderMode: selectedTable ? 'sur_place' : 'a_emporter',
+        tableNumber: selectedTable?.number || null,
+        idempotencyKey: generateClientOrderIdempotencyKey(),
+        customerNote: `Commande saisie au comptoir par ${serverName}`
+      });
+
+      if (!result.success) {
+        window.alert(`Commande non envoyée : ${result.error}`);
+        return;
+      }
+
+      const ticket = mapRestauOrderToKitchenTicket(result.order);
+      setKitchenTickets((previous) => [
+        ticket,
+        ...previous.filter((existing) => existing.id !== ticket.id)
+      ]);
+      setCart([]);
+      window.alert(`Commande enregistrée et envoyée en cuisine : ${result.order.orderNumber}`);
+    } catch (err) {
+      console.error('Erreur envoi commande POS:', err);
+      window.alert("Impossible d'envoyer la commande. Le panier a été conservé ; réessayez.");
+    } finally {
+      setIsSubmittingPosOrder(false);
+    }
   };
 
   const handleConfirmPayment = (paymentData: {
