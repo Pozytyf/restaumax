@@ -285,7 +285,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       <TableQrGeneratorView
         restaurant={restaurant}
         tables={tables}
-        onSaveTable={onSaveTable || (() => {})}
+        onSaveTable={onSaveTable || (async () => {})}
         onDeleteTable={onDeleteTable || (() => {})}
         onBackToHub={() => setActiveTab('overview')}
       />
