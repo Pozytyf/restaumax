@@ -13,7 +13,6 @@ import {
 } from './types/pos';
 import { 
   INITIAL_MENU_ITEMS, 
-  INITIAL_TABLES, 
   INITIAL_KITCHEN_TICKETS, 
   INITIAL_DRAWER_STATE 
 } from './data/mockData';
@@ -160,8 +159,8 @@ export default function App() {
   // Staff State (POS, Tables, KDS, Manager)
   const [currentRole, setCurrentRole] = useState<Role>('pos');
   const [menuItems, setMenuItems] = useState<MenuItem[]>(INITIAL_MENU_ITEMS);
-  const [tables, setTables] = useState<Table[]>(INITIAL_TABLES);
-  const [selectedTable, setSelectedTable] = useState<Table | null>(tables[1]);
+  const [tables, setTables] = useState<Table[]>([]);
+  const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>(INITIAL_KITCHEN_TICKETS);
@@ -224,6 +223,27 @@ export default function App() {
       tags: dish.tags
     })));
   }, [restauMenuItems]);
+
+  // Use only tables configured in Firestore; do not show invented POS fallback tables.
+  useEffect(() => {
+    const mappedTables: Table[] = restauTables.map((table) => ({
+      id: table.id,
+      number: table.tableNumber,
+      name: `Table ${table.tableNumber}`,
+      zone: table.section === 'vip' ? 'salle' : table.section,
+      capacity: table.capacity,
+      status: table.status || (table.isActive ? 'available' : 'reserved'),
+      currentOrderId: table.currentOrderId,
+      currentTotal: table.currentTotal,
+      assignedWaiter: table.assignedWaiter,
+      seatedAt: typeof table.seatedAt === 'number' ? new Date(table.seatedAt) : undefined,
+      covers: table.covers
+    }));
+    setTables(mappedTables);
+    setSelectedTable((previous) =>
+      previous ? mappedTables.find((table) => table.id === previous.id) || null : null
+    );
+  }, [restauTables]);
 
   // Firestore Realtime Synchronization & Initial Boot Seed
   useEffect(() => {
@@ -724,14 +744,36 @@ export default function App() {
   const handleSelectTableForOrder = (table: Table) => {
     setSelectedTable(table);
     setCurrentRole('pos');
+    if (table.status === 'available') {
+      handleUpdateTableStatus(table.id, 'occupied', table.covers);
+    }
   };
 
   const handleUpdateTableStatus = (tableId: string, status: TableStatus, covers?: number) => {
-    setTables((prev) =>
-      prev.map((t) =>
-        t.id === tableId ? { ...t, status, covers: covers ?? t.covers } : t
-      )
+    const existing = restauTables.find((table) => table.id === tableId);
+    if (!existing) return;
+
+    const updated: RestaurantTable = {
+      ...existing,
+      status,
+      covers: covers ?? existing.covers,
+      seatedAt: status === 'occupied'
+        ? existing.seatedAt ?? Date.now()
+        : status === 'available'
+          ? undefined
+          : existing.seatedAt
+    };
+
+    setRestauTables((previous) =>
+      previous.map((table) => table.id === tableId ? updated : table)
     );
+
+    persistTable('chez-awa', updated).catch((err) => {
+      console.error('Erreur de synchronisation du statut de table:', err);
+      setRestauTables((previous) =>
+        previous.map((table) => table.id === tableId ? existing : table)
+      );
+    });
   };
 
 
