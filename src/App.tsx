@@ -330,7 +330,7 @@ export default function App() {
 
   // Correction C: Subscribe to Orders subcollection for persistent KDS stream
   useEffect(() => {
-    if (!isAuthorizedManager || (!userPermissions.includes('orders.view') && !userPermissions.includes('kitchen.access'))) return;
+    if (!isAuthorizedManager || (!userPermissions.includes('orders.view') && !userPermissions.includes('orders.manage') && !userPermissions.includes('kitchen.access'))) return;
 
     let isMounted = true;
     const unsubOrders = subscribeToOrders(
