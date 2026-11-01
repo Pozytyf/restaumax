@@ -544,7 +544,7 @@ async function runTests() {
 
   // Test 4.2: Protection multi-tenant sur restaurants et sous-collections
   assert(rulesContent.includes("allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage')"), 'Écritures restaurants restreintes au gérant autorisé');
-  assert(rulesContent.includes("allow list: if hasRestaurantPermission(restaurantSlug, 'orders.view');"), 'Liste des commandes privée et réservée au gérant du restaurant');
+  assert(rulesContent.includes("allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view')"), 'Liste des commandes privée et réservée au gérant du restaurant');
 
   // Test 4.3: Restriction stricte des modifications d'ordres KDS
   assert(rulesContent.includes('affectedKeys().hasOnly([\'status\', \'statusUpdatedAt\', \'kitchenNotes\'])'), 'Mise à jour de commande limitée strictement aux statuts opérationnels');
