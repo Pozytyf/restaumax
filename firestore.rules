@@ -153,7 +153,7 @@ service cloud.firestore {
       match /orders/{orderId} {
         allow create: if false;
         allow get: if isValidId(orderId);
-        allow list: if hasRestaurantPermission(restaurantSlug, 'orders.view');
+        allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access'));
         allow update: if (hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access')) 
           && isValidId(orderId) 
           && incoming().id == existing().id
