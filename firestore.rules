@@ -30,12 +30,14 @@ service cloud.firestore {
     // 2. Custom Claims role == 'manager' and restaurantSlug == targetSlug
     // 3. Presence of a trusted document in /managers/{uid} with role == 'admin' or role == 'manager' matching targetSlug
     function isManagerOfRestaurant(targetSlug) {
-      let managerPath = /databases/$(database)/documents/managers/$(request.auth.uid);
-      let managerExists = isSignedIn() && exists(managerPath);
-      let managerData = managerExists ? get(managerPath).data : {};
-      let tokenRole = request.auth.token.get('role', '');
-      let tokenRestaurant = request.auth.token.get('restaurantSlug', '');
-      let tokenRestaurants = request.auth.token.get('restaurants', []);
+      let managerExists = isSignedIn() &&
+        exists(/databases/$(database)/documents/managers/$(request.auth.uid));
+      let managerData = managerExists
+        ? get(/databases/$(database)/documents/managers/$(request.auth.uid)).data
+        : {};
+      let tokenRole = isSignedIn() ? request.auth.token.get('role', '') : '';
+      let tokenRestaurant = isSignedIn() ? request.auth.token.get('restaurantSlug', '') : '';
+      let tokenRestaurants = isSignedIn() ? request.auth.token.get('restaurants', []) : [];
       return isSignedIn() && (
         tokenRole == 'admin' ||
         (tokenRole == 'manager' && (
