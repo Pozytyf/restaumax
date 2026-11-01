@@ -166,7 +166,7 @@ export function computeOrderSignature(payload: {
  * Interface de confiance d'accès aux données Firestore serveur
  */
 export interface ServerFirestoreProvider {
-  getRestaurant?(restaurantSlug: string): Promise<{ isOpen?: boolean } | null>;
+  getRestaurant?(restaurantSlug: string): Promise<{ slug?: string; isOpen?: boolean } | null>;
   getMenuItems(restaurantSlug: string): Promise<RestauMenuItem[]>;
   getTables(restaurantSlug: string): Promise<RestaurantTable[]>;
 
@@ -368,7 +368,7 @@ export async function processOrderSubmission(
   // 5d. Le statut d'ouverture est vérifié côté serveur pour empêcher les commandes restaurant fermé.
   // Le rejeu d'une commande déjà confirmée a été traité plus haut et reste autorisé.
   if (dataProvider.getRestaurant) {
-    let restaurant: { isOpen?: boolean } | null;
+    let restaurant: { slug?: string; isOpen?: boolean } | null;
     try {
       restaurant = await dataProvider.getRestaurant(cleanSlug);
     } catch {
@@ -377,7 +377,7 @@ export async function processOrderSubmission(
         error: "Impossible de vérifier l'état du restaurant. Aucune nouvelle commande n'a été envoyée; veuillez réessayer."
       };
     }
-    if (!restaurant || restaurant.isOpen !== true) {
+    if (!restaurant || restaurant.slug !== cleanSlug || restaurant.isOpen !== true) {
       return { success: false, error: "Ce restaurant est actuellement fermé ou indisponible. Votre commande n'a pas été envoyée." };
     }
   }
