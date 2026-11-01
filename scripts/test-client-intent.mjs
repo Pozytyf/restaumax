@@ -144,9 +144,9 @@ async function runClientIntentTests() {
   assert(window.sessionStorage.getItem(ORDER_INTENT_STORAGE_KEY) === null, '4.2 : Clé sessionStorage supprimée');
 
   // -------------------------------------------------------------------------
-  // 5. Conflit d'intégrité (409) : purge et régénération
+  // 5. Conflit d'intégrité (409) : conservation de l'intention
   // -------------------------------------------------------------------------
-  console.log('\n--- 5. Conflit d\'intégrité (409) : conservation de l'intention ---');
+  console.log("\n--- 5. Conflit d'intégrité (409) : conservation de l'intention ---");
   savePendingOrderIntent({
     ...intent1,
     idempotencyKey: 'conflict-key-002',
