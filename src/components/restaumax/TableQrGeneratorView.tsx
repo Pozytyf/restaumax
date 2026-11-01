@@ -24,7 +24,7 @@ interface TableQrGeneratorViewProps {
   tables: RestaurantTable[];
   isLoading?: boolean;
   error?: string | null;
-  onSaveTable: (table: RestaurantTable) => void;
+  onSaveTable: (table: RestaurantTable) => Promise<void>;
   onDeleteTable: (tableId: string) => void;
   onBackToHub: () => void;
 }
@@ -54,6 +54,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   const [newTableSection, setNewTableSection] = useState<'salle' | 'terrasse' | 'bar' | 'vip'>('salle');
   const [newTableCapacity, setNewTableCapacity] = useState(4);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isSavingTable, setIsSavingTable] = useState(false);
 
   // Sync when prop tables update
   useEffect(() => {
@@ -164,18 +165,19 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     window.print();
   };
 
-  // Handle Add Table
-  const handleCreateNewTable = (e: React.FormEvent) => {
+  // Handle Add Table: persist first, then update the visible list.
+  const handleCreateNewTable = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingTable) return;
+
     const cleanNumber = newTableNumber.trim();
     if (!cleanNumber) {
       setFormError('Veuillez renseigner un numéro ou nom de table valide.');
       return;
     }
 
-    // Check for duplicates
     const exists = tableList.some(
-      t => t.tableNumber.toLowerCase() === cleanNumber.toLowerCase()
+      t => t.tableNumber.trim().toLocaleLowerCase() === cleanNumber.toLocaleLowerCase()
     );
     if (exists) {
       setFormError(`La table "${cleanNumber}" existe déjà.`);
@@ -192,13 +194,21 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
       qrUrl: generateTableQrUrl(appOrigin, restaurant.slug, cleanNumber)
     };
 
-    setTableList(prev => [...prev, newTable]);
-    setSelectedTableId(newId);
-    onSaveTable(newTable);
-    setIsNewTableModalOpen(false);
-    setNewTableNumber('');
+    setIsSavingTable(true);
     setFormError(null);
-    sounds.playSuccess();
+    try {
+      await onSaveTable(newTable);
+      setTableList(prev => prev.some(table => table.id === newId) ? prev : [...prev, newTable]);
+      setSelectedTableId(newId);
+      setIsNewTableModalOpen(false);
+      setNewTableNumber('');
+      sounds.playSuccess();
+    } catch (err) {
+      console.error('Échec de création de la table et de son QR code:', err);
+      setFormError("La table n'a pas été enregistrée. Vérifiez votre connexion et vos droits de gestion des tables, puis réessayez. Aucun QR code n'a été confirmé.");
+    } finally {
+      setIsSavingTable(false);
+    }
   };
 
   return (
@@ -662,9 +672,10 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-[#ff6500] hover:bg-[#e05800] text-white font-black transition-all shadow-sm active:scale-95"
+                  disabled={isSavingTable}
+                  className="px-5 py-2 rounded-xl bg-[#ff6500] hover:bg-[#e05800] text-white font-black transition-all shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-wait"
                 >
-                  Créer et générer le QR
+                  {isSavingTable ? 'Enregistrement...' : 'Créer et générer le QR'}
                 </button>
               </div>
             </form>
