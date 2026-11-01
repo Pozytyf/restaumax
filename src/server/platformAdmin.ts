@@ -66,6 +66,15 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const user = await authenticate(req);
   if (!user) return json(res, 401, { success: false, error: 'Authentification requise.' });
 
+  // Promote only explicitly allowlisted identities to a durable global custom claim.
+  if (
+    typeof user.email === 'string' &&
+    configuredSuperAdmins().includes(user.email.toLowerCase()) &&
+    user.role !== 'super_admin'
+  ) {
+    await getAuth().setCustomUserClaims(user.uid, { role: 'super_admin' });
+  }
+
   const body = req.body || {};
   const action = req.method === 'GET' ? String(req.query?.action || 'overview') : String(body.action || '');
 
