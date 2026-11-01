@@ -1786,7 +1786,7 @@ async function runTests() {
     orderExists: false,
     orderData: null
   });
-  assert(decP.type === 'REJECT' && decP.error.includes('Incohérence persistante'), '7.5.P : Registre orphelin completed sans commande produit un REJECT bloquant');
+  assert(decP.type === 'REJECT' && decP.uncertain === true && decP.error.includes('Incohérence persistante'), '7.5.P : Registre completed orphelin bloque toute création et signale un état incertain');
 
   // Scénario Q : Registre processing non expiré : rejet de la seconde création
   const decQ = evaluateOrderTransactionDecision({
