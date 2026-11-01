@@ -95,6 +95,7 @@ export interface ExecuteOrderTransactionResult {
   error?: string;
   idempotentReplay?: boolean;
   conflict?: boolean;
+  uncertain?: boolean;
 }
 
 /**
