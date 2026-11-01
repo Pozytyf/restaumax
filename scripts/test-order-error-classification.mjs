@@ -152,7 +152,7 @@ const multiOptionPayload = {
   }]
 };
 const multiOptionResult = await processOrderSubmission(multiOptionPayload, {
-  async getRestaurant() { return { isOpen: true }; },
+  async getRestaurant() { return { slug: 'chez-awa', isOpen: true }; },
   async getMenuItems() {
     return [{
       id: 'dish-test', restaurantSlug: 'chez-awa', name: 'Plat de test', category: 'plats',
