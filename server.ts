@@ -524,6 +524,14 @@ export async function executeOrderTransaction(params: any, dbOverride?: any) {
 // Fournisseur Firestore serveur reposant EXCLUSIVEMENT sur Firebase Admin SDK
 // Suppression totale du recours au SDK client pour les écritures de commande
 export const serverFirestoreProvider: ServerFirestoreProvider = {
+  async getRestaurant(restaurantSlug: string) {
+    if (!adminDb) {
+      throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
+    }
+    const snapshot = await adminDb.collection('restaurants').doc(restaurantSlug).get();
+    return snapshot.exists ? snapshot.data() as { isOpen?: boolean } : null;
+  },
+
   async getMenuItems(restaurantSlug: string) {
     if (!adminDb) {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
