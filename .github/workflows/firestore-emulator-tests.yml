@@ -43,10 +43,15 @@ jobs:
           const report = JSON.parse(fs.readFileSync('npm-audit.json', 'utf8'));
           console.log('Vulnérabilités npm :', JSON.stringify(report.metadata?.vulnerabilities || {}));
           for (const [name, item] of Object.entries(report.vulnerabilities || {})) {
-            console.log(`- ${name}: ${item.severity}; direct=${item.isDirect}; fixAvailable=${JSON.stringify(item.fixAvailable)}`);
-            for (const advisory of item.via || []) {
-              if (typeof advisory === 'object') console.log(`  • ${advisory.title} | ${advisory.range} | ${advisory.url}`);
-            }
+            console.log(JSON.stringify({
+              name,
+              severity: item.severity,
+              direct: item.isDirect,
+              range: item.range,
+              fixAvailable: item.fixAvailable,
+              via: item.via,
+              nodes: item.nodes
+            }, null, 2));
           }
           NODE
 
