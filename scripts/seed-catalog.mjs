@@ -15,6 +15,7 @@
  * sur un prétendu écrasement destructif. Utilisez '--merge' pour synchroniser le catalogue.
  */
 
+import 'dotenv/config';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { 
@@ -184,6 +185,22 @@ export function parseSeedArgs(argv = process.argv.slice(2)) {
 }
 
 /**
+ * Résout les credentials du seed. En mode émulateur, aucun compte de service
+ * réel n'est nécessaire ni accepté : Firebase Admin utilise l'émulateur local.
+ */
+export function resolveSeedServiceAccount(firebaseConfig, env = process.env) {
+  if (env.FIRESTORE_EMULATOR_HOST) {
+    return null;
+  }
+
+  const serviceAccountInput = env.FIREBASE_SERVICE_ACCOUNT_JSON
+    ? JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON)
+    : env.GOOGLE_APPLICATION_CREDENTIALS;
+
+  return validateServiceAccountCredentials(serviceAccountInput, firebaseConfig.projectId);
+}
+
+/**
  * Exécute l'initialisation ou la mise à jour non-destructive du catalogue dans Firestore.
  *
  * Comportement :
@@ -249,13 +266,8 @@ export async function main() {
   console.log(`Projet cible validé : ${firebaseConfig.projectId}`);
   console.log(`Base Firestore ciblée : ${firebaseConfig.firestoreDatabaseId}`);
 
-  // 2. Validation des identifiants
-  const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  const serviceAccountInput = serviceAccountJson
-    ? JSON.parse(serviceAccountJson)
-    : credPath;
-  const serviceAccount = validateServiceAccountCredentials(serviceAccountInput, firebaseConfig.projectId);
+  // 2. Validation des identifiants (aucun secret requis en mode émulateur local)
+  const serviceAccount = resolveSeedServiceAccount(firebaseConfig);
 
   // 3. Initialisation de Firebase Admin SDK et de la base Firestore dédiée
   const app = initAdminApp(serviceAccount, firebaseConfig.projectId);
