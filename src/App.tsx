@@ -134,6 +134,9 @@ export default function App() {
   };
 
   const { path: activePathname, table: activeTableNumber } = parsePathInfo(currentPath);
+  const [authRestaurantSlug, setAuthRestaurantSlug] = useState<string>('');
+  const routeRestaurantSlug = activePathname.startsWith('/r/') ? activePathname.split('/')[2] : '';
+  const activeRestaurantSlug = routeRestaurantSlug || authRestaurantSlug || 'chez-awa';
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
   const isStaffRoute = activePathname === '/staff';
@@ -256,14 +259,14 @@ export default function App() {
     testConnection().catch((err) => console.warn('Firestore test connection:', err));
 
     // 2. Subscribe to Restaurant document
-    const unsubRestaurant = subscribeToRestaurant('chez-awa', (updatedRestaurant) => {
+    const unsubRestaurant = subscribeToRestaurant(activeRestaurantSlug, (updatedRestaurant) => {
       if (isMounted && updatedRestaurant) {
         setRestaurant(updatedRestaurant);
       }
     });
 
     // 3. Subscribe to Menu Items subcollection (reflects real state including empty catalog)
-    const unsubMenuItems = subscribeToMenuItems('chez-awa', (items) => {
+    const unsubMenuItems = subscribeToMenuItems(activeRestaurantSlug, (items) => {
       if (isMounted) {
         setRestauMenuItems(items);
       }
@@ -274,7 +277,7 @@ export default function App() {
       unsubRestaurant();
       unsubMenuItems();
     };
-  }, []);
+  }, [activeRestaurantSlug]);
 
   // RestauMax Authentication & Manager Authorization State
   const [authUser, setAuthUser] = useState<User | null>(null);
@@ -301,6 +304,8 @@ export default function App() {
       setAuthUser(user);
       setIsAuthorizedManager(isManager);
       setIsLoadingAuth(false);
+      if (user) user.getIdTokenResult().then((token) => setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '')).catch(() => setAuthRestaurantSlug(''));
+      else setAuthRestaurantSlug('');
     });
 
     return () => unsubAuth();
@@ -311,7 +316,7 @@ export default function App() {
     if (!isAuthorizedManager && !isRestaurantHubRoute) return;
 
     let isMounted = true;
-    const unsubTables = subscribeToTables('chez-awa', (tbls) => {
+    const unsubTables = subscribeToTables(activeRestaurantSlug, (tbls) => {
       if (isMounted) {
         setRestauTables(tbls);
       }
@@ -321,7 +326,7 @@ export default function App() {
       isMounted = false;
       unsubTables();
     };
-  }, [isAuthorizedManager, isRestaurantHubRoute]);
+  }, [isAuthorizedManager, isRestaurantHubRoute, activeRestaurantSlug]);
 
   // Correction C: Subscribe to Orders subcollection for persistent KDS stream
   useEffect(() => {
@@ -329,7 +334,7 @@ export default function App() {
 
     let isMounted = true;
     const unsubOrders = subscribeToOrders(
-      'chez-awa',
+      activeRestaurantSlug,
       (firestoreOrders) => {
         if (!isMounted) return;
         setKitchenTickets((prev) => {
@@ -361,6 +366,7 @@ export default function App() {
       setAuthUser(res.user);
       setIsAuthorizedManager(true);
       const token = await res.user.getIdTokenResult(true);
+      setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
       setIsRestaurantOwner(token.claims.role === 'owner');
       setUserPermissions(token.claims.role === 'owner' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
       return { success: true };
@@ -394,7 +400,7 @@ export default function App() {
   useEffect(() => {
     if (clientCart.length > 0) {
       savePendingOrderIntent({
-        restaurantSlug: 'chez-awa',
+        restaurantSlug: activeRestaurantSlug,
         orderMode: activeTableNumber ? 'sur_place' : 'a_emporter',
         tableNumber: activeTableNumber,
         cart: clientCart,
@@ -419,7 +425,7 @@ export default function App() {
     );
 
     // Asynchronous Firestore persistence
-    persistDishAvailability('chez-awa', dishId, nextAvailable).catch((err) => {
+    persistDishAvailability(activeRestaurantSlug, dishId, nextAvailable).catch((err) => {
       console.error('Erreur de persistance de la disponibilité dans Firestore:', err);
     });
   };
@@ -429,7 +435,7 @@ export default function App() {
     setRestauMenuItems((prev) => [newDish, ...prev]);
 
     // Asynchronous Firestore persistence
-    persistMenuItem('chez-awa', newDish).catch((err) => {
+    persistMenuItem(activeRestaurantSlug, newDish).catch((err) => {
       console.error('Erreur de persistance du nouveau plat dans Firestore:', err);
     });
   };
@@ -448,7 +454,7 @@ export default function App() {
 
   const handleDeleteDish = async (dishId: string) => {
     try {
-      await deleteMenuItem('chez-awa', dishId);
+      await deleteMenuItem(activeRestaurantSlug, dishId);
       setRestauMenuItems((prev) => prev.filter((item) => item.id !== dishId));
     } catch (err) {
       console.error('Erreur de suppression du plat dans Firestore:', err);
@@ -540,7 +546,7 @@ export default function App() {
       0
     );
 
-    const submitRes = await submitOrderWithServerValidation('chez-awa', {
+    const submitRes = await submitOrderWithServerValidation(activeRestaurantSlug, {
       cart: clientCart,
       orderMode,
       tableNumber: activeTableNumber,
@@ -614,14 +620,14 @@ export default function App() {
       }
       return [...prev, table];
     });
-    persistTable('chez-awa', table).catch(err => {
+    persistTable(activeRestaurantSlug, table).catch(err => {
       console.error('Erreur de persistance de la table dans Firestore:', err);
     });
   };
 
   const handleDeleteTable = (tableId: string) => {
     setRestauTables(prev => prev.filter(t => t.id !== tableId));
-    deleteTable('chez-awa', tableId).catch(err => {
+    deleteTable(activeRestaurantSlug, tableId).catch(err => {
       console.error('Erreur de suppression de la table dans Firestore:', err);
     });
   };
@@ -781,7 +787,7 @@ export default function App() {
       else if (status === 'cancelled') firestoreStatus = 'cancelled';
       else firestoreStatus = 'in_prep';
 
-      updateOrderStatus('chez-awa', rawOrderId, firestoreStatus).catch((err) => {
+      updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus).catch((err) => {
         console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
       });
     }
@@ -851,9 +857,9 @@ export default function App() {
           onNavigateHome={() => navigateTo('/')}
           onSelectTableDemo={(tbl) => {
             if (tbl) {
-              navigateTo(`/r/chez-awa?table=${tbl}`);
+              navigateTo(`/r/${activeRestaurantSlug}?table=${tbl}`);
             } else {
-              navigateTo('/r/chez-awa');
+              navigateTo(`/r/${activeRestaurantSlug}`);
             }
           }}
         />
@@ -872,7 +878,7 @@ export default function App() {
         ) : (!authUser || !isAuthorizedManager) ? (
           <ManagerLoginView
             onLogin={handleManagerLogin}
-            onBackToMenu={() => navigateTo('/r/chez-awa')}
+            onBackToMenu={() => navigateTo(`/r/${activeRestaurantSlug}`)}
             restaurantName={restaurant.name}
           />
         ) : (
@@ -887,7 +893,7 @@ export default function App() {
             activeKitchenTicketsCount={activeTicketsCount}
             totalSessionSales={drawerState.totalSales}
             onNavigateHome={() => navigateTo('/')}
-            onNavigateToClientMenu={() => navigateTo('/r/chez-awa')}
+            onNavigateToClientMenu={() => navigateTo(`/r/${activeRestaurantSlug}`)}
             onNavigateToStaffRole={(role) => {
               setCurrentRole(role);
               navigateTo('/staff');
