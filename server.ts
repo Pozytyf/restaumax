@@ -529,7 +529,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
     const snapshot = await adminDb.collection('restaurants').doc(restaurantSlug).get();
-    return snapshot.exists ? snapshot.data() as { isOpen?: boolean } : null;
+    return snapshot.exists ? snapshot.data() as { slug?: string; isOpen?: boolean } : null;
   },
 
   async getMenuItems(restaurantSlug: string) {
@@ -603,22 +603,28 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
             error: `Conflit d'idempotence : La clé "${key}" a déjà été utilisée pour une requête différente.`
           };
         }
-        if (data.status === 'completed' && data.order) {
-          return { status: 'completed' as const, record: data };
+        if (data.status === 'completed') {
+          if (data.order) return { status: 'completed' as const, record: data };
+          return { status: 'ambiguous' as const, record: data, error: "Registre completed sans commande vérifiable." };
         }
-        if (data.status === 'ambiguous' && data.pendingOrderId) {
+        if (data.status === 'ambiguous') {
           return { status: 'ambiguous' as const, record: data };
         }
+        if (data.status === 'failed') {
+          return { status: 'conflict' as const, record: data, error: "Cette clé correspond à une tentative échouée définitivement. Une nouvelle clé est nécessaire." };
+        }
         if (data.status === 'processing') {
-          const recTime = data.createdAt || data.timestamp || 0;
-          if (now - recTime < timeoutMs) {
+          const recTime = getIdempotencyTimestampMillis(data);
+          if (recTime === null || now - recTime < timeoutMs) {
             return {
               status: 'in_progress' as const,
               record: data,
-              error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
+              error: "Une requête identique avec cette clé d'idempotence est déjà en cours ou son horodatage est invalide."
             };
           }
-          // Timeout expiré : reprise atomique de la réservation
+          // Timeout expiré avec un horodatage fiable : reprise atomique de la réservation
+        } else {
+          return { status: 'ambiguous' as const, record: data, error: "Statut du registre d'idempotence non reconnu." };
         }
       }
 
