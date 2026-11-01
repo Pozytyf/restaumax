@@ -158,6 +158,18 @@ const missingRequiredOption = await processOrderSubmission({
 });
 assert(missingRequiredOption.success === false, 'Le serveur refuse une commande à laquelle il manque un groupe obligatoire');
 
+const catalogueFailure = await processOrderSubmission({
+  ...payload,
+  idempotencyKey: 'order-errors-catalogue-failure-004'
+}, {
+  async getMenuItems() { throw new Error('private-project-and-database-internal-detail'); },
+  async getTables() { return []; }
+});
+assert(
+  catalogueFailure.success === false && !catalogueFailure.error?.includes('private-project-and-database-internal-detail'),
+  'Les erreurs internes Firestore ne sont jamais exposées dans le message client'
+);
+
 const rejected = await processOrderSubmission(payload, {
   ...validProvider,
   async getMenuItems() { return []; },
