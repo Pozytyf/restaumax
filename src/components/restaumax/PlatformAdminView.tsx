@@ -28,6 +28,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     });
     const data = await response.json();
     if (!response.ok || !data.success) throw new Error(data.error || 'Opération refusée.');
+    // The first allowlisted request may have just received the super-admin custom claim.
+    await auth.currentUser?.getIdToken(true);
     return data;
   }, []);
 
