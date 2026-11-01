@@ -325,7 +325,7 @@ export default function App() {
 
   // Correction C: Subscribe to Orders subcollection for persistent KDS stream
   useEffect(() => {
-    if (!isAuthorizedManager && !isStaffRoute) return;
+    if (!isAuthorizedManager || (!userPermissions.includes('orders.view') && !userPermissions.includes('kitchen.access'))) return;
 
     let isMounted = true;
     const unsubOrders = subscribeToOrders(
@@ -353,7 +353,7 @@ export default function App() {
       isMounted = false;
       unsubOrders();
     };
-  }, [isAuthorizedManager, isStaffRoute]);
+  }, [isAuthorizedManager, isStaffRoute, userPermissions]);
 
   const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const res = await signInManager(email, pass);
@@ -939,6 +939,7 @@ export default function App() {
         <div className="flex-1 flex flex-col">
           <Header
             currentRole={currentRole}
+            permissions={userPermissions}
             onSelectRole={(r) => {
               sounds.playTap();
               setCurrentRole(r);
@@ -955,7 +956,7 @@ export default function App() {
           />
 
           <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            {currentRole === 'pos' && (
+            {currentRole === 'pos' && userPermissions.includes('pos.access') && (
               <PosView
                 menuItems={menuItems}
                 cart={cart}
@@ -976,7 +977,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'floor' && (
+            {currentRole === 'floor' && (userPermissions.includes('tables.view') || userPermissions.includes('tables.manage')) && (
               <FloorView
                 tables={tables}
                 onSelectTableForOrder={handleSelectTableForOrder}
@@ -985,7 +986,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'kds' && (
+            {currentRole === 'kds' && userPermissions.includes('kitchen.access') && (
               <KdsView
                 tickets={kitchenTickets}
                 onToggleItemComplete={handleToggleKdsItem}
@@ -993,7 +994,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'manager' && (
+            {currentRole === 'manager' && (userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')) && (
               <ManagerView
                 drawerState={drawerState}
                 transactions={transactions}
