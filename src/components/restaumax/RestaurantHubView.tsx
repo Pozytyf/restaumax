@@ -49,6 +49,7 @@ export interface RestaurantHubViewProps {
   onToggleDishAvailability: (dishId: string) => void;
   onCreateDish: (dish: RestauMenuItem) => void;
   onUpdateDish: (dish: RestauMenuItem) => void;
+  onDeleteDish: (dishId: string) => void;
   currentUserEmail?: string | null;
   onSignOut?: () => void;
 }
@@ -82,6 +83,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   onToggleDishAvailability,
   onCreateDish,
   onUpdateDish,
+  onDeleteDish,
   currentUserEmail,
   onSignOut
 }) => {
@@ -260,6 +262,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
         onToggleAvailability={onToggleDishAvailability}
         onCreateDish={onCreateDish}
         onUpdateDish={onUpdateDish}
+        onDeleteDish={onDeleteDish}
         onBackToHub={() => setActiveTab('overview')}
         onNavigateToClientMenu={onNavigateToClientMenu}
       />
