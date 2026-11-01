@@ -291,7 +291,7 @@ export default function App() {
   useEffect(() => {
     let active = true;
     if (!authUser) { setIsRestaurantOwner(false); setUserPermissions([]); return; }
-    authUser.getIdTokenResult().then((token) => {
+    authUser.getIdTokenResult(true).then((token) => {
       if (!active) return;
       const owner = token.claims.role === 'owner';
       const superAdmin = token.claims.role === 'super_admin' || token.claims.role === 'admin';
