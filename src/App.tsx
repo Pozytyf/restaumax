@@ -245,9 +245,9 @@ export default function App() {
     return () => unsubAuth();
   }, []);
 
-  // Subscribe to Tables subcollection when manager is authorized or management hub is active
+  // Subscribe to operational table data only after manager authorization
   useEffect(() => {
-    if (!isAuthorizedManager && !isRestaurantHubRoute) return;
+    if (!isAuthorizedManager) return;
 
     let isMounted = true;
     const unsubTables = subscribeToTables('chez-awa', (tbls) => {
