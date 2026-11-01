@@ -447,8 +447,9 @@ export default function App() {
   const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
     const orderMode = activeTableNumber ? 'sur_place' : 'a_emporter';
     
-    // Sauvegarder l'intention client complète dans sessionStorage AVANT la soumission
-    savePendingOrderIntent({
+    // La persistance locale est un prérequis : sans elle, un timeout suivi d'un rechargement
+    // pourrait perdre la clé d'idempotence et permettre une double commande.
+    const intentSaved = savePendingOrderIntent({
       restaurantSlug: 'chez-awa',
       orderMode,
       tableNumber: activeTableNumber,
@@ -458,6 +459,13 @@ export default function App() {
       timestamp: Date.now(),
       isUncertain: false
     });
+
+    if (!intentSaved) {
+      return {
+        success: false,
+        error: "Impossible de sécuriser votre commande sur cet appareil (stockage indisponible). Activez le stockage du navigateur puis réessayez. Aucune commande n'a été envoyée."
+      };
+    }
 
     const clientDeclaredTotal = clientCart.reduce(
       (sum, item) => sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1),
