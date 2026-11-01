@@ -34,18 +34,18 @@ service cloud.firestore {
         get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.status != 'suspended';
     }
 
+    function isAccountActive() {
+      return !isSignedIn() ||
+        !exists(/databases/$(database)/documents/managers/$(request.auth.uid)) ||
+        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active != false;
+    }
+
     function hasRestaurantPermission(targetSlug, permission) {
-      return isSignedIn() && isRestaurantActive(targetSlug) && (
+      return isSignedIn() && isAccountActive() && isRestaurantActive(targetSlug) && (
         request.auth.token.role == 'admin' ||
         (
           request.auth.token.restaurantSlug == targetSlug &&
-          (
-            request.auth.token.role == 'owner' ||
-            (
-              request.auth.token.role in ['manager', 'staff'] &&
-              permission in request.auth.token.permissions
-            )
-          )
+          request.auth.token.role == 'owner'
         ) ||
         (
           exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
