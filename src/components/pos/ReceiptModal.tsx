@@ -1,14 +1,16 @@
 import React from 'react';
 import { PaymentRecord } from '../../types/pos';
+import type { RestaurantInfo } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { Printer, CheckCircle, X } from 'lucide-react';
 
 interface ReceiptModalProps {
   receipt: PaymentRecord | null;
   onClose: () => void;
+  restaurant?: RestaurantInfo;
 }
 
-export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) => {
+export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, restaurant }) => {
   if (!receipt) return null;
 
   const handlePrint = () => {
@@ -45,20 +47,20 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
         </div>
 
         {/* Printable Thermal Receipt Container */}
-        <div className="p-6 font-mono text-[12px] text-slate-800 bg-[#fdfdfc] border-b border-dashed border-slate-300 print:p-0">
+        <div className="p-6 font-mono text-[12px] text-slate-800 bg-[#fdfdfc] border-b border-dashed border-slate-300 print:p-0 mx-auto" style={{ width: "100%", maxWidth: restaurant?.receiptPaperWidth || "80mm" }}>
           {/* Header */}
           <div className="text-center pb-3 border-b border-dashed border-slate-300">
             <h3 className="font-sans font-extrabold text-base tracking-tight text-slate-900 uppercase">
-              Culinary Velocity
+              {restaurant?.name || 'Restaurant'}
             </h3>
             <p className="text-[10px] text-slate-500 font-sans">
-              Haute Gastronomie & Grillades au Feu de Bois
+              {restaurant?.tagline || 'Merci de votre confiance'}
             </p>
             <p className="text-[10px] text-slate-500 font-sans mt-0.5">
-              Boulevard de Marseille, Zone 4 - Abidjan
+              {[restaurant?.address, restaurant?.city].filter(Boolean).join(' · ')}
             </p>
             <p className="text-[10px] text-slate-500 font-sans">
-              Tél: +225 07 00 12 34 56
+              {restaurant?.phone ? 'Tél: ' + restaurant.phone : ''}
             </p>
           </div>
 
@@ -142,7 +144,8 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
             <p className="font-bold text-slate-800">
               MERCI DE VOTRE VISITE ET À TRÈS BIENTÔT !
             </p>
-            <p>TVA 18% incluse dans les prix affichés.</p>
+            {restaurant?.taxRatePercent ? <p>Taxe configurée : {restaurant.taxRatePercent}%</p> : null}
+            {restaurant?.receiptFooter ? <p>{restaurant.receiptFooter}</p> : null}
             <div className="pt-1 flex justify-center">
               <div className="w-40 h-7 bg-slate-200 rounded flex items-center justify-center text-[9px] text-slate-500 font-mono tracking-widest">
                 ||| | || |||| | ||| |
