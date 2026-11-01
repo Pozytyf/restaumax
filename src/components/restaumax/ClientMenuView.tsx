@@ -34,6 +34,8 @@ export interface ClientMenuViewProps {
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
   onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
+  customerNote: string;
+  onCustomerNoteChange: (note: string) => void;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
 }
@@ -106,6 +108,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   onRemoveItem,
   onClearCart,
   onConfirmOrder,
+  customerNote,
+  onCustomerNoteChange,
   isUncertain = false,
   onResetUncertainty
 }) => {
@@ -452,6 +456,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         onUpdateQuantity={onUpdateQuantity}
         onRemoveItem={onRemoveItem}
         onClearCart={onClearCart}
+        customerNote={customerNote}
+        onCustomerNoteChange={onCustomerNoteChange}
         isUncertain={isUncertain}
         onResetUncertainty={onResetUncertainty}
         onConfirmOrder={async (note) => {
