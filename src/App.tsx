@@ -280,14 +280,18 @@ export default function App() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [isAuthorizedManager, setIsAuthorizedManager] = useState<boolean>(false);
   const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
+  const [userPermissions, setUserPermissions] = useState<string[]>([]);
   const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
 
   useEffect(() => {
     let active = true;
-    if (!authUser) { setIsRestaurantOwner(false); return; }
+    if (!authUser) { setIsRestaurantOwner(false); setUserPermissions([]); return; }
     authUser.getIdTokenResult().then((token) => {
-      if (active) setIsRestaurantOwner(token.claims.role === 'owner');
-    }).catch(() => { if (active) setIsRestaurantOwner(false); });
+      if (!active) return;
+      const owner = token.claims.role === 'owner';
+      setIsRestaurantOwner(owner);
+      setUserPermissions(owner ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+    }).catch(() => { if (active) { setIsRestaurantOwner(false); setUserPermissions([]); } });
     return () => { active = false; };
   }, [authUser]);
 
@@ -358,6 +362,7 @@ export default function App() {
       setIsAuthorizedManager(true);
       const token = await res.user.getIdTokenResult(true);
       setIsRestaurantOwner(token.claims.role === 'owner');
+      setUserPermissions(token.claims.role === 'owner' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
       return { success: true };
     }
     return { success: false, error: res.error };
@@ -368,6 +373,7 @@ export default function App() {
     setAuthUser(null);
     setIsAuthorizedManager(false);
     setIsRestaurantOwner(false);
+    setUserPermissions([]);
   };
 
   // RestauMax Client Cart & Idempotency Key State (Preserved across routing and page reloads via sessionStorage)
@@ -892,6 +898,7 @@ export default function App() {
             onDeleteDish={handleDeleteDish}
             currentUserEmail={authUser?.email}
             canManageStaff={isRestaurantOwner}
+            permissions={userPermissions}
             onSignOut={handleManagerSignOut}
           />
         )
