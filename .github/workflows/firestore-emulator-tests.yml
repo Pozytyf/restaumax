@@ -1,0 +1,51 @@
+name: RestauMax — Tests Firestore Emulator & Qualité
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-emulator:
+    name: Validation Transactionnelle Firestore Emulator (Mode Strict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Récupération du code source
+        uses: actions/checkout@v4
+
+      - name: Configuration de Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Configuration de Java 17 (Requis pour Firestore Emulator)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Installation propre des dépendances npm
+        run: npm ci
+
+      - name: 1. Contrôle statique TypeScript (lint)
+        run: npm run lint
+
+      - name: 2. Tests de persistance de l'intention client (test:intent)
+        run: npm run test:intent
+
+      - name: 3. Tests unitaires et contrats d'idempotence (test:lot1 & test:lot2)
+        run: |
+          npm run test:lot1
+          npm run test:lot2
+
+      - name: 4. Exécution des tests sur le véritable Firestore Emulator (test:emulator en mode strict)
+        run: |
+          npx firebase-tools emulators:exec --only firestore --project demo-restaumax "FIRESTORE_EMULATOR_STRICT=true npm run test:emulator"
+
+      - name: 5. Validation de la compilation de production (build)
+        run: npm run build

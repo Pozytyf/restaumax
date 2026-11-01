@@ -174,10 +174,24 @@ function createSdkContractDb() {
 }
 
 /**
- * Initialise le client Firestore selon la présence ou non de FIRESTORE_EMULATOR_HOST.
+ * Initialise le client Firestore selon la présence ou non de FIRESTORE_EMULATOR_HOST
+ * et le paramètre FIRESTORE_EMULATOR_STRICT.
  */
 async function initializeFirestoreClient() {
   const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+  const isStrictMode = process.env.FIRESTORE_EMULATOR_STRICT === 'true' || 
+                       process.env.FIRESTORE_EMULATOR_STRICT === '1' ||
+                       process.env.STRICT_EMULATOR === 'true';
+
+  if (isStrictMode) {
+    console.log(`[MODE STRICT FIRESTORE EMULATOR ACTIVÉ]`);
+    if (!emulatorHost) {
+      console.error(`\n❌ ERREUR FATALE : Mode strict activé (FIRESTORE_EMULATOR_STRICT=true) mais FIRESTORE_EMULATOR_HOST est absent.`);
+      console.error(`   L'exécution exige un émulateur Firestore réel en cours d'exécution.`);
+      console.error(`   Aucun basculement vers le driver en mémoire n'est autorisé dans ce mode.\n`);
+      process.exit(1);
+    }
+  }
 
   if (emulatorHost) {
     console.log(`[MODE INTÉGRATION ÉMULATEUR FIRESTORE]`);
@@ -187,9 +201,38 @@ async function initializeFirestoreClient() {
       const { getFirestore } = await import('firebase-admin/firestore');
       
       const app = getApps().find(a => a.name === 'restaumax-test-emulator') || 
-                  initializeApp({ projectId: 'demo-restaumax-test' }, 'restaumax-test-emulator');
+                  initializeApp({ projectId: 'demo-restaumax' }, 'restaumax-test-emulator');
       const realEmulatorDb = getFirestore(app);
-      
+
+      // Sonde de connectivité réelle (ping write/read) avec timeout de 3000ms
+      const pingPromise = (async () => {
+        const pingRef = realEmulatorDb.collection('_healthcheck').doc('emulator_ping');
+        await pingRef.set({ ping: true, timestamp: Date.now() });
+        const pingSnap = await pingRef.get();
+        if (!pingSnap.exists) {
+          throw new Error("L'écriture test de connectivité n'a pas pu être relue sur l'émulateur.");
+        }
+        await pingRef.delete();
+      })();
+
+      const timeoutPromise = new Promise((_, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error(`Délai de connexion dépassé (3000ms) vers l'émulateur sur ${emulatorHost}.`));
+        }, 3000);
+        if (timer.unref) timer.unref();
+      });
+
+      await Promise.race([pingPromise, timeoutPromise]);
+      console.log(`  ✓ Connectivité confirmée avec Firestore Emulator (${emulatorHost}, projet: demo-restaumax)`);
+
+      // Nettoyage préalable des collections de test pour garantir le déterminisme
+      const keysSnap = await realEmulatorDb.collection('idempotency_keys').get();
+      const batch = realEmulatorDb.batch();
+      keysSnap.docs.forEach(d => batch.delete(d.ref));
+      const ordersSnap = await realEmulatorDb.collection('restaurants').doc('chez-awa').collection('orders').get();
+      ordersSnap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+
       // Adaptateur d'inspection pour les tests
       return {
         isEmulator: true,
@@ -218,6 +261,11 @@ async function initializeFirestoreClient() {
         }
       };
     } catch (err) {
+      if (isStrictMode) {
+        console.error(`\n❌ ERREUR FATALE [MODE STRICT] : Échec de communication avec Firestore Emulator (${emulatorHost}) : ${err.message}`);
+        console.error(`   Aucun basculement vers le driver en mémoire n'est autorisé en mode strict.\n`);
+        process.exit(1);
+      }
       console.warn(`  [ATTENTION] Impossible de connecter l'émulateur réel (${err.message}). Utilisation du driver SDK conforme.`);
     }
   }
@@ -447,7 +495,7 @@ async function runTestSuite() {
   console.log('\n--- 10. Deux requêtes concurrentes avec la même clé ---');
   const p10 = buildTestOrderPayload('chez-awa', 'real-tx-concurrent-010', '8', 11000);
 
-  // Exécution séquentielle/concurrente de deux transactions identiques
+  // Exécution concurrente de deux transactions identiques
   const [txResA, txResB] = await Promise.all([
     executeOrderTransactionWithDb(db, p10),
     executeOrderTransactionWithDb(db, p10)
@@ -456,9 +504,17 @@ async function runTestSuite() {
   assert(txResA.success === true, '10.1 : Transaction concurrente A réussie');
   assert(txResB.success === true, '10.2 : Transaction concurrente B réussie');
   
-  // Une transaction doit être création ou rejeu, et l'autre rejeu (ou les deux traitées de façon idempotente)
-  const atLeastOneReplay = txResA.idempotentReplay || txResB.idempotentReplay;
-  assert(atLeastOneReplay, '10.3 : Au moins l\'une des transactions signale un rejeu idempotent (aucune création en double)');
+  // Exactement une transaction crée la commande et l'autre effectue un rejeu idempotent (0 duplication)
+  const oneCreatedAndOneReplayed = 
+    (!txResA.idempotentReplay && txResB.idempotentReplay) ||
+    (txResA.idempotentReplay && !txResB.idempotentReplay);
+  assert(oneCreatedAndOneReplayed, '10.3 : Exactement une transaction crée la commande et l\'autre effectue un rejeu idempotent');
+
+  // Vérification directe de la persistance stricte dans Firestore
+  const order10Doc = await client.getOrder('chez-awa', p10.orderId);
+  const key10Doc = await client.getIdempotencyKey(p10.keyDocId);
+  assert(order10Doc !== null && order10Doc.id === p10.orderId, '10.4 : Exactement 1 document de commande persisté pour cette clé');
+  assert(key10Doc !== null && key10Doc.status === 'completed', '10.5 : Exactement 1 registre d\'idempotence persisté avec status: completed');
 
   // -------------------------------------------------------------------------
   // 11. VÉRIFICATION DU NOMBRE RÉEL DE DOCUMENTS PERSISTÉS
@@ -473,7 +529,6 @@ async function runTestSuite() {
   assert(totalKeys >= 5, `11.2 : Nombre total de registres d'idempotence cohérent (${totalKeys})`);
   
   // Vérification de non-duplication : p10 n'a généré qu'UNE SEULE commande
-  const order10Doc = await client.getOrder('chez-awa', p10.orderId);
   assert(order10Doc?.id === p10.orderId, '11.3 : La commande concurrente p10 existe sous son identifiant unique et sans collision');
 
   // -------------------------------------------------------------------------
