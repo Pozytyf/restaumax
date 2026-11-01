@@ -37,7 +37,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { 
-  processOrderSubmission, 
+  processOrderSubmission,
+  DEFAULT_IDEMPOTENCY_TIMEOUT_MS,
   ServerFirestoreProvider,
   ServerIdempotencyRecord,
   OrderProbeResult,
@@ -130,7 +131,7 @@ export function evaluateOrderTransactionDecision(params: TransactionEvaluationPa
     orderExists,
     orderData,
     now = Date.now(),
-    timeoutMs = 15000
+    timeoutMs = DEFAULT_IDEMPOTENCY_TIMEOUT_MS
   } = params;
 
   // 1. Contrôle strict du registre s'il existe (Fail-Closed)
