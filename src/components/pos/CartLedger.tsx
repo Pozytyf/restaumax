@@ -26,6 +26,7 @@ interface CartLedgerProps {
   discountPercent: number;
   onSetDiscountPercent: (discount: number) => void;
   onSendToKitchen: () => void;
+  isSendingOrder: boolean;
   onOpenPayment: () => void;
   serverName: string;
 }
@@ -42,6 +43,7 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
   discountPercent,
   onSetDiscountPercent,
   onSendToKitchen,
+  isSendingOrder,
   onOpenPayment,
   serverName
 }) => {
@@ -308,7 +310,8 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
         <div className="flex flex-col gap-2 pt-1">
           <button
             type="button"
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || isSendingOrder}
+            aria-busy={isSendingOrder}
             onClick={() => {
               sounds.playKitchenBell();
               onSendToKitchen();
@@ -316,7 +319,7 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
             className="w-full h-11 bg-white/10 hover:bg-white/15 active:bg-white/20 disabled:opacity-40 disabled:pointer-events-none text-white text-xs sm:text-sm font-bold rounded-lg border border-white/20 transition-all flex items-center justify-center gap-2"
           >
             <ChefHat size={16} />
-            <span>Envoyer en Cuisine</span>
+            <span>{isSendingOrder ? 'Envoi en cours…' : 'Envoyer en Cuisine'}</span>
           </button>
 
           <button
