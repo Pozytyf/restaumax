@@ -135,8 +135,10 @@ export default function App() {
 
   const { path: activePathname, table: activeTableNumber } = parsePathInfo(currentPath);
   const [authRestaurantSlug, setAuthRestaurantSlug] = useState<string>('');
+  const [authIsSuperAdmin, setAuthIsSuperAdmin] = useState<boolean>(false);
   const routeRestaurantSlug = activePathname.startsWith('/r/') ? activePathname.split('/')[2] : '';
-  const activeRestaurantSlug = routeRestaurantSlug || authRestaurantSlug || 'chez-awa';
+  const queryRestaurantSlug = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('restaurant') || ''; } catch { return ''; } })();
+  const activeRestaurantSlug = routeRestaurantSlug || (authIsSuperAdmin ? queryRestaurantSlug : authRestaurantSlug) || authRestaurantSlug || 'chez-awa';
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
   const isStaffRoute = activePathname === '/staff';
@@ -304,8 +306,11 @@ export default function App() {
       setAuthUser(user);
       setIsAuthorizedManager(isManager);
       setIsLoadingAuth(false);
-      if (user) user.getIdTokenResult().then((token) => setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '')).catch(() => setAuthRestaurantSlug(''));
-      else setAuthRestaurantSlug('');
+      if (user) user.getIdTokenResult().then((token) => {
+        setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
+        setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
+      }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); });
+      else { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); }
     });
 
     return () => unsubAuth();
@@ -367,6 +372,7 @@ export default function App() {
       setIsAuthorizedManager(true);
       const token = await res.user.getIdTokenResult(true);
       setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
+      setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
       setIsRestaurantOwner(token.claims.role === 'owner');
       setUserPermissions(token.claims.role === 'owner' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
       return { success: true };
@@ -379,6 +385,8 @@ export default function App() {
     setAuthUser(null);
     setIsAuthorizedManager(false);
     setIsRestaurantOwner(false);
+    setAuthIsSuperAdmin(false);
+    setAuthRestaurantSlug('');
     setUserPermissions([]);
   };
 
@@ -903,7 +911,7 @@ export default function App() {
             onUpdateDish={handleUpdateDish}
             onDeleteDish={handleDeleteDish}
             currentUserEmail={authUser?.email}
-            canManageStaff={isRestaurantOwner}
+            canManageStaff={isRestaurantOwner || authIsSuperAdmin}
             permissions={userPermissions}
             onSignOut={handleManagerSignOut}
           />
