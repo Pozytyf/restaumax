@@ -166,6 +166,7 @@ export function computeOrderSignature(payload: {
  * Interface de confiance d'accès aux données Firestore serveur
  */
 export interface ServerFirestoreProvider {
+  getRestaurant?(restaurantSlug: string): Promise<{ isOpen?: boolean } | null>;
   getMenuItems(restaurantSlug: string): Promise<RestauMenuItem[]>;
   getTables(restaurantSlug: string): Promise<RestaurantTable[]>;
 
@@ -364,6 +365,23 @@ export async function processOrderSubmission(
     }
   }
 
+  // 5d. Le statut d'ouverture est vérifié côté serveur pour empêcher les commandes restaurant fermé.
+  // Le rejeu d'une commande déjà confirmée a été traité plus haut et reste autorisé.
+  if (dataProvider.getRestaurant) {
+    let restaurant: { isOpen?: boolean } | null;
+    try {
+      restaurant = await dataProvider.getRestaurant(cleanSlug);
+    } catch {
+      return {
+        success: false,
+        error: "Impossible de vérifier l'état du restaurant. Aucune nouvelle commande n'a été envoyée; veuillez réessayer."
+      };
+    }
+    if (!restaurant || restaurant.isOpen !== true) {
+      return { success: false, error: "Ce restaurant est actuellement fermé ou indisponible. Votre commande n'a pas été envoyée." };
+    }
+  }
+
   // 6. Validation préalable du catalogue Firestore (Lecture de référence)
   let catalog: RestauMenuItem[];
   try {
@@ -540,10 +558,18 @@ export async function processOrderSubmission(
 
     // Validation des suppléments (extras)
     const verifiedExtrasList: Array<{ extraId: string; name: string; price: number }> = [];
+    if (line.selectedExtras !== undefined && !Array.isArray(line.selectedExtras)) {
+      return { success: false, error: `Les suppléments sélectionnés pour "${catalogItem.name}" sont invalides.` };
+    }
     if (line.selectedExtras && Array.isArray(line.selectedExtras)) {
       const availableExtrasMap = new Map((catalogItem.availableExtras || []).map(e => [e.id, e]));
+      const selectedExtraIds = new Set<string>();
 
       for (const reqExtra of line.selectedExtras) {
+        if (selectedExtraIds.has(reqExtra.extraId)) {
+          return { success: false, error: `Le supplément "${reqExtra.extraId}" a été sélectionné plusieurs fois pour "${catalogItem.name}".` };
+        }
+        selectedExtraIds.add(reqExtra.extraId);
         const catalogExtra = availableExtrasMap.get(reqExtra.extraId);
         if (!catalogExtra) {
           return { 
