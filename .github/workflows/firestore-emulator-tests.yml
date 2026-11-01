@@ -1,5 +1,8 @@
 name: RestauMax — Tests Firestore Emulator & Qualité
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [ main ]
@@ -17,23 +20,33 @@ jobs:
       - name: Récupération du code source
         uses: actions/checkout@v4
 
-      - name: Configuration de Node.js 22 (LTS)
+      - name: Configuration de Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: 'npm'
 
-      - name: Configuration de Java 17 (Requis pour Firestore Emulator)
+      - name: Configuration de Java 21 (Requis pour Firebase CLI)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
-      - name: Installation propre des dépendances npm
+      - name: Installation propre et reproductible des dépendances npm
         run: npm ci --legacy-peer-deps
+
+      - name: Audit de sécurité des dépendances npm
+        run: npm audit --audit-level=moderate
 
       - name: 1. Contrôle statique TypeScript (lint)
         run: npm run lint
+
+      - name: Validation syntaxique des scripts d'administration
+        run: |
+          node --check scripts/firebase-admin-config.mjs
+          node --check scripts/grant-manager.mjs
+          node --check scripts/test-firestore-rules.mjs
+          node --check scripts/test-order-error-classification.mjs
 
       - name: 2. Tests de persistance de l'intention client (test:intent)
         run: npm run test:intent
@@ -43,9 +56,12 @@ jobs:
           npm run test:lot1
           npm run test:lot2
 
-      - name: 4. Exécution des tests sur le véritable Firestore Emulator (test:emulator en mode strict)
-        run: |
-          npx firebase-tools emulators:exec --only firestore --project demo-restaumax "FIRESTORE_EMULATOR_STRICT=true npm run test:emulator"
+      - name: 4. Classification des rejets définitifs et des transactions incertaines
+        run: npm run test:order-errors
 
-      - name: 5. Validation de la compilation de production (build)
+      - name: 5. Tests sur le véritable Firestore Emulator et Security Rules
+        run: |
+          npx --yes firebase-tools@15.34.2 emulators:exec --only firestore --project demo-restaumax "FIRESTORE_EMULATOR_STRICT=true npm run test:emulator && npm run test:rules"
+
+      - name: 6. Validation de la compilation de production (build)
         run: npm run build

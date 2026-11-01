@@ -6,7 +6,7 @@
  * 2. Restauration exacte après rechargement du navigateur (simulation reload).
  * 3. Préservation stricte de la même clé d'idempotence et du panier lors d'une défaillance réseau / 5xx.
  * 4. Nettoyage strict de l'intention lors d'une confirmation de commande (200).
- * 5. Régénération propre de la clé et nettoyage lors d'un conflit d'intégrité (409).
+ * 5. Conservation de l'intention en état incertain lors d'un conflit d'intégrité (409), pour éviter un doublon.
  * 6. Résilience face à un stockage corrompu ou mal formé (Fail-Safe).
  * 7. Annulation explicite par l'utilisateur avec avertissement et réinitialisation.
  */
@@ -99,6 +99,16 @@ async function runClientIntentTests() {
   assert(rawStorage !== null, '1.2 : Clé de stockage présente dans sessionStorage');
 
   // -------------------------------------------------------------------------
+  // 1.B Stockage indisponible : la sauvegarde doit échouer explicitement
+  // -------------------------------------------------------------------------
+  console.log('\n--- 1.B Stockage indisponible ---');
+  const originalStorage = window.sessionStorage;
+  window.sessionStorage = null;
+  const unavailableSave = savePendingOrderIntent(intent1);
+  assert(unavailableSave === false, '1.B.1 : Sauvegarde refusée si sessionStorage est indisponible');
+  window.sessionStorage = originalStorage;
+
+  // -------------------------------------------------------------------------
   // 2. Restauration de l'intention après rechargement du navigateur
   // -------------------------------------------------------------------------
   console.log('\n--- 2. Restauration après rechargement (simulation F5 / reload) ---');
@@ -134,9 +144,9 @@ async function runClientIntentTests() {
   assert(window.sessionStorage.getItem(ORDER_INTENT_STORAGE_KEY) === null, '4.2 : Clé sessionStorage supprimée');
 
   // -------------------------------------------------------------------------
-  // 5. Conflit d'intégrité (409) : purge et régénération
+  // 5. Conflit d'intégrité (409) : conservation de l'intention
   // -------------------------------------------------------------------------
-  console.log('\n--- 5. Conflit d\'intégrité (409) : purge pour nouvelle intention ---');
+  console.log("\n--- 5. Conflit d'intégrité (409) : conservation de l'intention ---");
   savePendingOrderIntent({
     ...intent1,
     idempotencyKey: 'conflict-key-002',
@@ -144,9 +154,12 @@ async function runClientIntentTests() {
   });
   assert(loadPendingOrderIntent() !== null, '5.1 : Intention avant conflit présente');
 
-  // En cas de conflit (Cas D), App.tsx appelle clearPendingOrderIntent()
-  clearPendingOrderIntent();
-  assert(loadPendingOrderIntent() === null, '5.2 : Intention nettoyée après conflit 409');
+  // Un conflit peut signaler qu'une commande antérieure existe déjà : ne jamais purger ni renouveler la clé automatiquement.
+  updatePendingOrderIntentUncertainty(true);
+  const afterConflict = loadPendingOrderIntent();
+  assert(afterConflict !== null, '5.2 : Intention conservée après conflit 409');
+  assert(afterConflict?.idempotencyKey === 'conflict-key-002', '5.3 : Clé d’idempotence inchangée après conflit 409');
+  assert(afterConflict?.isUncertain === true, '5.4 : Intention verrouillée en état incertain après conflit 409');
 
   // -------------------------------------------------------------------------
   // 6. Résilience aux données corrompues (Fail-Safe)

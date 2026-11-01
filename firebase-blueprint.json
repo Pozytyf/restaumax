@@ -41,18 +41,20 @@
     },
     "Manager": {
       "title": "Manager",
-      "description": "Habilitation de gestion attribuée côté serveur",
+      "description": "Habilitation de gestion attribuée côté serveur et limitée à un ou plusieurs restaurants",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
         "email": { "type": "string" },
-        "role": { "type": "string" }
+        "role": { "type": "string" },
+        "restaurantSlug": { "type": "string" },
+        "restaurants": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["uid", "role"]
     },
     "Order": {
       "title": "Order",
-      "description": "Commande client passée via QR code sur place ou à emporter",
+      "description": "Commande créée exclusivement via l'API serveur de confiance; lecture réservée aux gestionnaires autorisés",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -73,7 +75,7 @@
     },
     "Table": {
       "title": "Table",
-      "description": "Table du restaurant avec numéro, zone et QR code associé",
+      "description": "Table et métadonnées QR; consultation et gestion réservées aux gestionnaires autorisés",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -101,11 +103,11 @@
     },
     "/restaurants/{restaurantSlug}/orders/{orderId}": {
       "schema": "Order",
-      "description": "Commandes passées par les clients (création publique avec validation stricte, gestion par managers)"
+      "description": "Commandes créées exclusivement par le backend sécurisé; lecture et mise à jour opérationnelle par les gestionnaires autorisés"
     },
     "/restaurants/{restaurantSlug}/tables/{tableId}": {
       "schema": "Table",
-      "description": "Tables configurées et métadonnées QR (consultation publique, gestion par managers)"
+      "description": "Tables configurées et métadonnées QR; accès réservé aux gestionnaires autorisés"
     }
   }
 }

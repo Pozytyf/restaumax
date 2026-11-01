@@ -144,19 +144,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     setIsSubmitting(true);
     sounds.playTap();
 
-    // Preserve compatibility with ClientCartItem contract
-    const primaryOption = selectedOptionsList[0];
-    const compositeOption: SelectedOption | undefined = selectedOptionsList.length === 0
-      ? undefined
-      : selectedOptionsList.length === 1
-      ? primaryOption
-      : {
-          groupId: selectedOptionsList.map(o => o.groupId).join('+'),
-          groupName: selectedOptionsList.map(o => o.groupName).join(' / '),
-          optionId: selectedOptionsList.map(o => o.optionId).join('+'),
-          optionName: selectedOptionsList.map(o => `${o.groupName}: ${o.optionName}`).join(' · '),
-          extraPrice: optionsCost
-        };
+    // Preserve the exact option-group structure; never concatenate IDs into a fake group.
+    const singleSelectedOption = selectedOptionsList.length === 1 ? selectedOptionsList[0] : undefined;
 
     const newCartItem: ClientCartItem = {
       id: `cart-line-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -165,7 +154,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       basePrice: item.price,
       unitPrice,
       quantity,
-      selectedOption: compositeOption,
+      selectedOption: singleSelectedOption,
+      selectedOptions: selectedOptionsList.length > 1 ? selectedOptionsList : undefined,
       selectedExtras,
       prepNotes: prepNotes.trim() ? prepNotes.trim() : undefined,
       imageUrl: item.imageUrl

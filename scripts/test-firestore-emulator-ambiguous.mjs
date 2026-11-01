@@ -21,6 +21,7 @@
 
 import { executeOrderTransactionWithDb } from '../server.ts';
 import { deriveIdempotencyIdentifiers, computeOrderSignature } from '../src/server/orderService.ts';
+import { getAppletFirebaseConfig } from '../scripts/firebase-admin-config.mjs';
 
 let totalTests = 0;
 let passedTests = 0;
@@ -202,7 +203,11 @@ async function initializeFirestoreClient() {
       
       const app = getApps().find(a => a.name === 'restaumax-test-emulator') || 
                   initializeApp({ projectId: 'demo-restaumax' }, 'restaumax-test-emulator');
-      const realEmulatorDb = getFirestore(app);
+      const { firestoreDatabaseId } = getAppletFirebaseConfig();
+      const realEmulatorDb = getFirestore(app, firestoreDatabaseId);
+      if (realEmulatorDb.databaseId !== firestoreDatabaseId) {
+        throw new Error(`L’émulateur cible la base "${realEmulatorDb.databaseId}" au lieu de "${firestoreDatabaseId}".`);
+      }
 
       // Sonde de connectivité réelle (ping write/read) avec timeout de 3000ms
       const pingPromise = (async () => {
@@ -463,6 +468,26 @@ async function runTestSuite() {
   const res8 = await executeOrderTransactionWithDb(db, p8);
   assert(res8.success === false, '8.1 : Registre completed sans commande rejeté');
   assert(res8.error?.includes('Incohérence persistante'), '8.2 : Erreur explicite sur l\'absence de commande');
+
+  // -------------------------------------------------------------------------
+  // 8b. REGISTRE PROCESSING SANS HORODATAGE FIABLE
+  // -------------------------------------------------------------------------
+  console.log('\n--- 8b. Registre processing avec horodatage invalide ---');
+  const p8b = buildTestOrderPayload('chez-awa', 'real-tx-key-invalid-time-008b', '6b', 6100);
+  await client.injectKey(p8b.keyDocId, {
+    id: p8b.keyDocId,
+    namespacedKey: `chez-awa:${p8b.idempotencyKey}`,
+    restaurantSlug: 'chez-awa',
+    signature: p8b.signature,
+    orderId: p8b.orderId,
+    status: 'processing',
+    createdAt: 'invalid-timestamp',
+    updatedAt: 'also-invalid'
+  });
+  const res8b = await executeOrderTransactionWithDb(db, p8b);
+  assert(res8b.success === false && res8b.uncertain === true, '8b.1 : Registre processing sans horodatage fiable bloqué en mode incertain');
+  const orderDoc8b = await client.getOrder('chez-awa', p8b.orderId);
+  assert(!orderDoc8b, '8b.2 : Aucune commande créée lorsque l’horodatage du registre est invalide');
 
   // -------------------------------------------------------------------------
   // 9. REPRISE APRÈS ÉTAT AMBIGU (Cas C -> E)

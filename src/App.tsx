@@ -87,8 +87,11 @@ export function mapRestauOrderToKitchenTicket(
     status: ticketStatus,
     items: order.items.map((it, idx) => {
       const notesArr: string[] = [];
-      if (it.selectedOption?.optionName) {
-        notesArr.push(`Option: ${it.selectedOption.optionName}`);
+      const selectedOptions = it.selectedOptions?.length
+        ? it.selectedOptions
+        : it.selectedOption ? [it.selectedOption] : [];
+      for (const option of selectedOptions) {
+        if (option.optionName) notesArr.push(`Option (${option.groupName || 'Groupe'}): ${option.optionName}`);
       }
       if (it.selectedExtras && it.selectedExtras.length > 0) {
         notesArr.push(`Extras: ${it.selectedExtras.map(e => e.name).join(', ')}`);
@@ -245,9 +248,9 @@ export default function App() {
     return () => unsubAuth();
   }, []);
 
-  // Subscribe to Tables subcollection when manager is authorized or management hub is active
+  // Subscribe to operational table data only after manager authorization
   useEffect(() => {
-    if (!isAuthorizedManager && !isRestaurantHubRoute) return;
+    if (!isAuthorizedManager) return;
 
     let isMounted = true;
     const unsubTables = subscribeToTables('chez-awa', (tbls) => {
@@ -323,6 +326,9 @@ export default function App() {
     const saved = loadPendingOrderIntent();
     return Boolean(saved?.isUncertain);
   });
+  const [clientCustomerNote, setClientCustomerNote] = useState<string>(() => {
+    return loadPendingOrderIntent()?.customerNote || '';
+  });
 
   // Synchronisation automatique de l'intention de commande avec sessionStorage
   useEffect(() => {
@@ -333,13 +339,14 @@ export default function App() {
         tableNumber: activeTableNumber,
         cart: clientCart,
         idempotencyKey: clientOrderIdempotencyKey,
+        customerNote: clientCustomerNote,
         timestamp: Date.now(),
         isUncertain: isOrderUncertain
       });
     } else if (!isOrderUncertain) {
       clearPendingOrderIntent();
     }
-  }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber]);
+  }, [clientCart, clientOrderIdempotencyKey, clientCustomerNote, isOrderUncertain, activeTableNumber]);
 
   const handleToggleDishAvailability = (dishId: string) => {
     const currentDish = restauMenuItems.find((i) => i.id === dishId);
@@ -434,30 +441,41 @@ export default function App() {
     if (isOrderUncertain) return;
     clearPendingOrderIntent();
     setClientCart([]);
+    setClientCustomerNote('');
   };
 
   const handleResetUncertainty = () => {
     clearPendingOrderIntent();
     setIsOrderUncertain(false);
     setClientCart([]);
+    setClientCustomerNote('');
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
   };
 
   // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation & atomic idempotency)
   const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
     const orderMode = activeTableNumber ? 'sur_place' : 'a_emporter';
+    const cleanCustomerNote = (customerNote ?? clientCustomerNote).trim() || undefined;
     
-    // Sauvegarder l'intention client complète dans sessionStorage AVANT la soumission
-    savePendingOrderIntent({
+    // La persistance locale est un prérequis : sans elle, un timeout suivi d'un rechargement
+    // pourrait perdre la clé d'idempotence et permettre une double commande.
+    const intentSaved = savePendingOrderIntent({
       restaurantSlug: 'chez-awa',
       orderMode,
       tableNumber: activeTableNumber,
       cart: clientCart,
       idempotencyKey: clientOrderIdempotencyKey,
-      customerNote,
+      customerNote: cleanCustomerNote,
       timestamp: Date.now(),
-      isUncertain: false
+      isUncertain: isOrderUncertain
     });
+
+    if (!intentSaved) {
+      return {
+        success: false,
+        error: "Impossible de sécuriser votre commande sur cet appareil (stockage indisponible). Activez le stockage du navigateur puis réessayez. Aucune commande n'a été envoyée."
+      };
+    }
 
     const clientDeclaredTotal = clientCart.reduce(
       (sum, item) => sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1),
@@ -468,7 +486,7 @@ export default function App() {
       cart: clientCart,
       orderMode,
       tableNumber: activeTableNumber,
-      customerNote,
+      customerNote: cleanCustomerNote,
       idempotencyKey: clientOrderIdempotencyKey,
       allowedTables: restauTables.length > 0 ? restauTables : undefined,
       declaredTotal: clientDeclaredTotal,
@@ -477,19 +495,25 @@ export default function App() {
 
     if (!submitRes.success) {
       if (submitRes.conflict) {
-        // Conflit d'intégrité d'idempotence (Cas D) : vider l'intention et régénérer la clé pour une nouvelle intention propre
-        clearPendingOrderIntent();
-        setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
-        setIsOrderUncertain(false);
-        return { 
-          success: false, 
-          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Veuillez soumettre à nouveau." 
+        // Une clé déjà associée à une autre intention peut correspondre à une commande persistée.
+        // Ne jamais effacer l'intention ni générer une nouvelle clé automatiquement : cela pourrait doubler la commande.
+        setIsOrderUncertain(true);
+        updatePendingOrderIntentUncertainty(true);
+        return {
+          success: false,
+          error: submitRes.error || "Cette clé est déjà associée à une autre commande. Votre panier est verrouillé pour éviter un doublon; une vérification est nécessaire."
         };
       }
 
-      // Échec serveur / réseau : état incertain, panier verrouillé, conservation stricte de la même clé et du panier dans sessionStorage
-      setIsOrderUncertain(true);
-      updatePendingOrderIntentUncertainty(true);
+      if (submitRes.uncertain) {
+        // Réponse perdue ou transaction encore en cours : conserver strictement la même intention.
+        setIsOrderUncertain(true);
+        updatePendingOrderIntentUncertainty(true);
+      } else {
+        // Rejet explicite avant écriture : aucun risque de doublon, le client peut corriger son panier.
+        setIsOrderUncertain(false);
+        updatePendingOrderIntentUncertainty(false);
+      }
       return { success: false, error: submitRes.error };
     }
 
@@ -497,6 +521,7 @@ export default function App() {
     // Succès confirmé (écriture Firestore confirmée) : nettoyage strict de l'intention persistée
     clearPendingOrderIntent();
     setIsOrderUncertain(false);
+    setClientCustomerNote('');
 
     // Renouvellement de la clé d'idempotence pour la prochaine intention de commande
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
@@ -724,6 +749,8 @@ export default function App() {
           onRemoveItem={handleRemoveClientCartItem}
           onClearCart={handleClearClientCart}
           onConfirmOrder={handleClientOrderConfirm}
+          customerNote={clientCustomerNote}
+          onCustomerNoteChange={setClientCustomerNote}
           isUncertain={isOrderUncertain}
           onResetUncertainty={handleResetUncertainty}
           onNavigateHome={() => navigateTo('/')}

@@ -34,6 +34,8 @@ export interface ClientMenuViewProps {
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
   onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
+  customerNote: string;
+  onCustomerNoteChange: (note: string) => void;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
 }
@@ -51,20 +53,25 @@ const CATEGORIES: { id: CategoryFilter; label: string; icon: React.ComponentType
 ];
 
 // Normalise la signature d'une option composite ou simple de façon déterministe
-export const getNormalizedOptionSignature = (selectedOption?: SelectedOption): string => {
+export const getNormalizedOptionSignature = (
+  selectedOption?: SelectedOption,
+  selectedOptions?: SelectedOption[]
+): string => {
+  if (selectedOptions && selectedOptions.length > 0) {
+    return selectedOptions
+      .map(option => ({ groupId: option.groupId.trim(), optionId: option.optionId.trim() }))
+      .sort((a, b) => a.groupId.localeCompare(b.groupId) || a.optionId.localeCompare(b.optionId))
+      .map(option => `grp:${option.groupId}=opt:${option.optionId}`)
+      .join('|');
+  }
   if (!selectedOption) return '';
   const groupParts = selectedOption.groupId ? selectedOption.groupId.split('+') : [];
   const optionParts = selectedOption.optionId ? selectedOption.optionId.split('+') : [];
-
   if (groupParts.length > 0 && groupParts.length === optionParts.length) {
-    const pairs = groupParts.map((gid, idx) => ({
-      groupId: gid.trim(),
-      optionId: (optionParts[idx] || '').trim()
-    }));
+    const pairs = groupParts.map((gid, idx) => ({ groupId: gid.trim(), optionId: (optionParts[idx] || '').trim() }));
     pairs.sort((a, b) => a.groupId.localeCompare(b.groupId) || a.optionId.localeCompare(b.optionId));
-    return pairs.map(p => `grp:${p.groupId}=opt:${p.optionId}`).join('|');
+    return pairs.map(option => `grp:${option.groupId}=opt:${option.optionId}`).join('|');
   }
-
   return `grp:${selectedOption.groupId || ''}=opt:${selectedOption.optionId || ''}`;
 };
 
@@ -79,8 +86,8 @@ export const getNormalizedExtrasSignature = (extras?: SelectedExtra[]): string =
 export const areCartConfigurationsEqual = (itemA: ClientCartItem, itemB: ClientCartItem): boolean => {
   if (itemA.menuItemId !== itemB.menuItemId) return false;
 
-  const optA = getNormalizedOptionSignature(itemA.selectedOption);
-  const optB = getNormalizedOptionSignature(itemB.selectedOption);
+  const optA = getNormalizedOptionSignature(itemA.selectedOption, itemA.selectedOptions);
+  const optB = getNormalizedOptionSignature(itemB.selectedOption, itemB.selectedOptions);
   if (optA !== optB) return false;
 
   const extA = getNormalizedExtrasSignature(itemA.selectedExtras);
@@ -106,6 +113,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   onRemoveItem,
   onClearCart,
   onConfirmOrder,
+  customerNote,
+  onCustomerNoteChange,
   isUncertain = false,
   onResetUncertainty
 }) => {
@@ -452,6 +461,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         onUpdateQuantity={onUpdateQuantity}
         onRemoveItem={onRemoveItem}
         onClearCart={onClearCart}
+        customerNote={customerNote}
+        onCustomerNoteChange={onCustomerNoteChange}
         isUncertain={isUncertain}
         onResetUncertainty={onResetUncertainty}
         onConfirmOrder={async (note) => {

@@ -753,7 +753,7 @@ async function runTests() {
     cart: [{ menuItemId: 'dish-capitaine', quantity: 1 }]
   }, failingCatalogProvider);
   assert(
-    srvResCatalogFailure.success === false && srvResCatalogFailure.error && srvResCatalogFailure.error.includes('Aucun catalogue de secours'),
+    srvResCatalogFailure.success === false && srvResCatalogFailure.error && srvResCatalogFailure.error.includes('Le catalogue est temporairement indisponible'),
     'Scénario 5.a : Échec franc et rejet immédiat si la lecture Firestore échoue (interdiction formelle de catalogue de secours)'
   );
 
@@ -828,6 +828,14 @@ async function runTests() {
 
   // Scénario 9: Préservation du panier client en cas d'échec
   const appTsxContent = fs.readFileSync(path.resolve('src/App.tsx'), 'utf-8');
+  const confirmHandlerStart = appTsxContent.indexOf('const handleClientOrderConfirm');
+  const confirmHandlerEnd = appTsxContent.indexOf('const submitRes =', confirmHandlerStart);
+  const confirmHandlerSource = appTsxContent.slice(confirmHandlerStart, confirmHandlerEnd);
+  assert(
+    confirmHandlerSource.includes('isUncertain: isOrderUncertain'),
+    'Scénario 9.b : Une nouvelle tentative conserve l’état incertain dans sessionStorage avant tout appel réseau'
+  );
+
   const checkFailIndex = appTsxContent.indexOf('if (!submitRes.success)');
   const clearCartIndex = appTsxContent.indexOf('setClientCart([])', checkFailIndex);
   assert(
@@ -865,7 +873,7 @@ async function runTests() {
     cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
   }, providerTableReadError);
   assert(
-    resTableReadError.success === false && resTableReadError.error.includes('Erreur serveur lors de la lecture des tables'),
+    resTableReadError.success === false && resTableReadError.error.includes('La configuration des tables est temporairement indisponible'),
     '7.1.a : Panne de lecture des tables entraîne un rejet formel sans création'
   );
 
@@ -1115,8 +1123,8 @@ async function runTests() {
   }, providerWithBrokenRegistry);
   assert(
     resBrokenRegistry.success === false && 
-    resBrokenRegistry.error.includes('Échec du registre persistant d\'idempotence') &&
-    resBrokenRegistry.error.toLowerCase().includes('interrompu'),
+    resBrokenRegistry.error.includes('Le registre de commande est temporairement indisponible') &&
+    resBrokenRegistry.uncertain === true,
     '7.3.d : Arrêt immédiat (Fail-Fast) sans création si la réservation persistante échoue'
   );
 
@@ -1275,7 +1283,8 @@ async function runTests() {
   }, providerWithProbeError);
   assert(
     resProbeError.success === false &&
-    resProbeError.error.includes('La vérification de l\'état de la commande précédente a échoué') &&
+    resProbeError.error.includes('Impossible de vérifier la commande précédente') &&
+    resProbeError.uncertain === true &&
     orderCreatedInProbeErrorTest === false,
     '7.3.i : Sonde Firestore en erreur jamais assimilée à une commande absente : interrompt formellement et bloque la création d\'un doublon'
   );
@@ -1349,7 +1358,8 @@ async function runTests() {
   }, providerWithCommitFailure);
   assert(
     resCommitFailure.success === false &&
-    resCommitFailure.error.includes('enregistrée dans Firestore mais la confirmation d\'idempotence a échoué') &&
+    resCommitFailure.error.includes('La commande a peut-être été enregistrée, mais sa confirmation a échoué') &&
+    resCommitFailure.uncertain === true &&
     markedAmbiguousWithOrderId !== null,
     '7.3.k : Échec de commitIdempotencyKey après écriture réussie : ne produit pas un faux succès, renvoie incertitude et préserve l\'état ambigu'
   );
@@ -1379,8 +1389,8 @@ async function runTests() {
   }, providerWithMarkAmbiguousFailure);
   assert(
     resMarkFailure.success === false &&
-    resMarkFailure.error.includes('échec de marquage ambigu du registre') &&
-    resMarkFailure.error.toLowerCase().includes('interrompu'),
+    resMarkFailure.error.includes('Le statut de la commande ne peut pas être confirmé') &&
+    resMarkFailure.uncertain === true,
     '7.3.l : Échec de markIdempotencyAmbiguous interrompt formellement le traitement sans masquer l\'erreur'
   );
 
@@ -1406,9 +1416,10 @@ async function runTests() {
   }, providerWithRealFailure);
 
   assert(
-    resRealFailure.success === false && 
-    resRealFailure.error.includes('Statut d\'écriture ambigu dans Firestore') &&
-    !resRealFailure.error.includes('La commande n\'existe pas'),
+    resRealFailure.success === false &&
+    resRealFailure.error.includes('Le statut de la commande est incertain') &&
+    resRealFailure.uncertain === true &&
+    !resRealFailure.error.includes('UNAVAILABLE: Datastore service error'),
     '7.3.m : Panne non confirmée : ne prétend pas que la commande n\'existe pas et invite à la réconciliation'
   );
 
@@ -1786,7 +1797,7 @@ async function runTests() {
     orderExists: false,
     orderData: null
   });
-  assert(decP.type === 'REJECT' && decP.error.includes('Incohérence persistante'), '7.5.P : Registre orphelin completed sans commande produit un REJECT bloquant');
+  assert(decP.type === 'REJECT' && decP.uncertain === true && decP.error.includes('Incohérence persistante'), '7.5.P : Registre completed orphelin bloque toute création et signale un état incertain');
 
   // Scénario Q : Registre processing non expiré : rejet de la seconde création
   const decQ = evaluateOrderTransactionDecision({
@@ -1796,13 +1807,13 @@ async function runTests() {
     orderId: baseOrderId,
     signature: baseSig,
     keyExists: true,
-    keyData: { ...validKeyData, status: 'processing', createdAt: Date.now() - 2000 },
+    keyData: { ...validKeyData, status: 'processing', createdAt: Date.now() - 25000, updatedAt: Date.now() - 2000, timestamp: Date.now() - 2000 },
     orderExists: false,
     orderData: null,
     now: Date.now(),
     timeoutMs: 15000
   });
-  assert(decQ.type === 'REJECT' && decQ.error.includes('déjà en cours de traitement'), '7.5.Q : Registre processing non expiré bloque toute deuxième création');
+  assert(decQ.type === 'REJECT' && decQ.uncertain === true && decQ.error.includes('encore en cours'), '7.5.Q : Registre processing non expiré bloque toute deuxième création en signalant un état incertain');
 
   // Scénario R : Registre processing expiré : comportement explicitement justifié et sécurisé
   const decR = evaluateOrderTransactionDecision({
@@ -1812,7 +1823,7 @@ async function runTests() {
     orderId: baseOrderId,
     signature: baseSig,
     keyExists: true,
-    keyData: { ...validKeyData, status: 'processing', createdAt: Date.now() - 25000 },
+    keyData: { ...validKeyData, status: 'processing', createdAt: Date.now() - 25000, updatedAt: Date.now() - 25000, timestamp: Date.now() - 25000 },
     orderExists: false,
     orderData: null,
     now: Date.now(),

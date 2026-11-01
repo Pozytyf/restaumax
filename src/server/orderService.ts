@@ -8,6 +8,8 @@ import {
 } from '../types/restaumax.js';
 import { calculateOrderTotal, sanitizeNote } from '../utils/pricing.js';
 
+export const DEFAULT_IDEMPOTENCY_TIMEOUT_MS = 15_000;
+
 export interface OrderSubmissionPayload {
   restaurantSlug: string;
   cart: Array<{
@@ -21,6 +23,13 @@ export interface OrderSubmissionPayload {
       optionName?: string;
       extraPrice?: number;
     };
+    selectedOptions?: Array<{
+      groupId: string;
+      groupName?: string;
+      optionId: string;
+      optionName?: string;
+      extraPrice?: number;
+    }>;
     selectedExtras?: Array<{
       extraId: string;
       name?: string;
@@ -41,6 +50,7 @@ export interface OrderSubmissionResult {
   error?: string;
   idempotentReplay?: boolean;
   conflict?: boolean;
+  uncertain?: boolean;
 }
 
 /**
@@ -94,6 +104,7 @@ export interface ExecuteOrderTransactionResult {
   error?: string;
   idempotentReplay?: boolean;
   conflict?: boolean;
+  uncertain?: boolean;
 }
 
 /**
@@ -129,9 +140,13 @@ export function computeOrderSignature(payload: {
 
   const canonicalItems = (payload.cart || [])
     .map(c => {
-      const opt = c.selectedOption 
-        ? `${(c.selectedOption.groupId || '').trim()}:${(c.selectedOption.optionId || '').trim()}`
-        : '';
+      const optionSelections = Array.isArray(c.selectedOptions) && c.selectedOptions.length > 0
+        ? c.selectedOptions
+        : c.selectedOption ? [c.selectedOption] : [];
+      const opt = optionSelections
+        .map(option => `${(option.groupId || '').trim()}:${(option.optionId || '').trim()}`)
+        .sort()
+        .join(',');
       const extras = (c.selectedExtras || [])
         .map(e => (e.extraId || '').trim())
         .filter(Boolean)
@@ -151,6 +166,7 @@ export function computeOrderSignature(payload: {
  * Interface de confiance d'accès aux données Firestore serveur
  */
 export interface ServerFirestoreProvider {
+  getRestaurant?(restaurantSlug: string): Promise<{ slug?: string; isOpen?: boolean } | null>;
   getMenuItems(restaurantSlug: string): Promise<RestauMenuItem[]>;
   getTables(restaurantSlug: string): Promise<RestaurantTable[]>;
 
@@ -200,6 +216,9 @@ export async function processOrderSubmission(
     return { success: false, error: "Identifiant du restaurant manquant ou invalide." };
   }
   const cleanSlug = restaurantSlug.trim();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(cleanSlug)) {
+    return { success: false, error: "Identifiant du restaurant invalide." };
+  }
 
   // 2. Validation de la clé d'idempotence (Obligatoire et format strict)
   if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
@@ -219,6 +238,9 @@ export async function processOrderSubmission(
   // 3. Validation du panier non vide
   if (!cart || !Array.isArray(cart) || cart.length === 0) {
     return { success: false, error: "Le panier est vide. Impossible de créer une commande." };
+  }
+  if (cart.length > 50) {
+    return { success: false, error: "Votre panier contient trop de lignes. Limitez-le à 50 articles différents." };
   }
 
   // 4. Validation du mode de commande
@@ -254,6 +276,118 @@ export async function processOrderSubmission(
     }
   }
 
+  // 5c. Si un registre d'idempotence existe déjà, vérifier une commande persistée
+  // avant la validation du catalogue (qui peut avoir changé depuis le premier envoi).
+  if (
+    dataProvider.executeOrderTransaction &&
+    dataProvider.getIdempotencyRecord &&
+    dataProvider.getOrderById
+  ) {
+    let existingKeyRecord: ServerIdempotencyRecord | null;
+    try {
+      existingKeyRecord = await dataProvider.getIdempotencyRecord(keyDocId);
+    } catch (err: any) {
+      return {
+        success: false,
+        uncertain: true,
+        error: "Impossible de vérifier la clé de commande existante. Réessayez avec la même clé sans modifier le panier."
+      };
+    }
+
+    if (existingKeyRecord) {
+      if (
+        existingKeyRecord.restaurantSlug !== cleanSlug ||
+        existingKeyRecord.orderId !== orderId ||
+        existingKeyRecord.signature !== currentSignature
+      ) {
+        return {
+          success: false,
+          conflict: true,
+          error: "Conflit d'idempotence : cette clé est déjà associée à une autre commande."
+        };
+      }
+
+      if (existingKeyRecord.status === 'failed') {
+        return {
+          success: false,
+          conflict: true,
+          error: "La tentative précédente a échoué définitivement. Une nouvelle clé de commande est nécessaire."
+        };
+      }
+
+      let existingOrderProbe: OrderProbeResult;
+      try {
+        existingOrderProbe = await dataProvider.getOrderById(cleanSlug, orderId);
+      } catch (err: any) {
+        return {
+          success: false,
+          uncertain: true,
+          error: "Impossible de vérifier l'existence de la commande précédente. Réessayez avec la même clé."
+        };
+      }
+
+      if (existingOrderProbe.status === 'error') {
+        return {
+          success: false,
+          uncertain: true,
+          error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé d'idempotence."
+        };
+      }
+
+      if (existingOrderProbe.status === 'found') {
+        const replayResult = await dataProvider.executeOrderTransaction({
+          restaurantSlug: cleanSlug,
+          idempotencyKey: cleanKey,
+          keyDocId,
+          orderId,
+          signature: currentSignature,
+          orderToCreate: existingOrderProbe.order
+        });
+
+        return replayResult.success
+          ? { ...replayResult, idempotentReplay: true }
+          : replayResult;
+      }
+
+      if (existingOrderProbe.status === 'not_found') {
+        if (existingKeyRecord.status === 'completed') {
+          return {
+            success: false,
+            uncertain: true,
+            error: "Le registre indique une commande confirmée, mais le document de commande est introuvable. Ne modifiez pas le panier; une vérification est nécessaire."
+          };
+        }
+        if (existingKeyRecord.status === 'processing') {
+          const startedAt = existingKeyRecord.updatedAt || existingKeyRecord.timestamp || existingKeyRecord.createdAt || 0;
+          if (Date.now() - startedAt < DEFAULT_IDEMPOTENCY_TIMEOUT_MS) {
+            return {
+              success: false,
+              uncertain: true,
+              error: "La commande précédente est encore en cours de traitement. Réessayez avec la même clé sans modifier le panier."
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // 5d. Le statut d'ouverture est vérifié côté serveur pour empêcher les commandes restaurant fermé.
+  // Le rejeu d'une commande déjà confirmée a été traité plus haut et reste autorisé.
+  if (dataProvider.getRestaurant) {
+    let restaurant: { slug?: string; isOpen?: boolean } | null;
+    try {
+      restaurant = await dataProvider.getRestaurant(cleanSlug);
+    } catch {
+      return {
+        success: false,
+        error: "Impossible de vérifier l'état du restaurant. Aucune nouvelle commande n'a été envoyée; veuillez réessayer."
+      };
+    }
+    if (!restaurant || restaurant.slug !== cleanSlug || restaurant.isOpen !== true) {
+      return { success: false, error: "Ce restaurant est actuellement fermé ou indisponible. Votre commande n'a pas été envoyée." };
+    }
+  }
+
   // 6. Validation préalable du catalogue Firestore (Lecture de référence)
   let catalog: RestauMenuItem[];
   try {
@@ -261,7 +395,7 @@ export async function processOrderSubmission(
   } catch (err: any) {
     return { 
       success: false, 
-      error: `Erreur serveur lors de la lecture du catalogue Firestore : ${err.message || 'Échec de connexion'}. Aucun catalogue de secours n'est autorisé.` 
+      error: "Le catalogue est temporairement indisponible. Aucune commande n'a été envoyée; veuillez réessayer." 
     };
   }
 
@@ -286,7 +420,7 @@ export async function processOrderSubmission(
     } catch (err: any) {
       return { 
         success: false, 
-        error: `Erreur serveur lors de la lecture des tables Firestore pour "${cleanSlug}" : ${err.message || 'Panne de connexion'}. Commande sur place refusée.` 
+        error: "La configuration des tables est temporairement indisponible. Aucune commande n'a été envoyée; veuillez réessayer." 
       };
     }
 
@@ -345,7 +479,7 @@ export async function processOrderSubmission(
       };
     }
 
-    if (catalogItem.restaurantSlug && catalogItem.restaurantSlug !== cleanSlug) {
+    if (catalogItem.restaurantSlug !== cleanSlug) {
       return { 
         success: false, 
         error: `Le plat "${catalogItem.name}" n'appartient pas au restaurant "${cleanSlug}".` 
@@ -368,56 +502,80 @@ export async function processOrderSubmission(
     }
     const qty = rawQty;
 
-    // Validation des options obligatoires et facultatives
+    // Validation serveur de chaque groupe d'options, obligatoire ou facultatif.
+    // Compatibilité : les anciennes intentions à choix composite (groupId/optionId séparés par '+')
+    // sont normalisées sans faire confiance aux noms ni aux prix envoyés par le client.
     const requiredGroups = (catalogItem.optionGroups || []).filter(g => g.required);
-    let verifiedSelectedOption: RestauOrderItem['selectedOption'] = undefined;
-
-    if (requiredGroups.length > 0 && !line.selectedOption) {
-      return { 
-        success: false, 
-        error: `Une option obligatoire (${requiredGroups.map(g => g.name).join(', ')}) est requise pour "${catalogItem.name}".` 
-      };
+    if (line.selectedOptions !== undefined && !Array.isArray(line.selectedOptions)) {
+      return { success: false, error: `Les options sélectionnées pour "${catalogItem.name}" sont invalides.` };
+    }
+    let requestedOptions = Array.isArray(line.selectedOptions) && line.selectedOptions.length > 0
+      ? line.selectedOptions
+      : line.selectedOption ? [line.selectedOption] : [];
+    if ((!line.selectedOptions || line.selectedOptions.length === 0) && line.selectedOption?.groupId?.includes('+') && line.selectedOption?.optionId?.includes('+')) {
+      const legacyGroups = line.selectedOption.groupId.split('+');
+      const legacyOptions = line.selectedOption.optionId.split('+');
+      if (legacyGroups.length === legacyOptions.length && legacyGroups.length > 1) {
+        requestedOptions = legacyGroups.map((groupId, index) => ({ groupId, optionId: legacyOptions[index] }));
+      }
     }
 
-    if (line.selectedOption) {
-      const targetGroup = (catalogItem.optionGroups || []).find(g => g.id === line.selectedOption!.groupId);
+    const verifiedSelectedOptions: NonNullable<RestauOrderItem['selectedOptions']> = [];
+    const selectedGroupIds = new Set<string>();
+    for (const requestedOption of requestedOptions) {
+      if (!requestedOption || typeof requestedOption.groupId !== 'string' || typeof requestedOption.optionId !== 'string') {
+        return { success: false, error: `Une option sélectionnée pour "${catalogItem.name}" est malformée.` };
+      }
+      if (selectedGroupIds.has(requestedOption.groupId)) {
+        return { success: false, error: `Plusieurs options ont été envoyées pour le même groupe de "${catalogItem.name}".` };
+      }
+      const targetGroup = (catalogItem.optionGroups || []).find(g => g.id === requestedOption.groupId);
       if (!targetGroup) {
-        return { 
-          success: false, 
-          error: `Le groupe d'options spécifié pour "${catalogItem.name}" n'existe pas.` 
-        };
+        return { success: false, error: `Le groupe d'options "${requestedOption.groupId}" n'existe pas pour "${catalogItem.name}".` };
       }
-
-      const targetOption = targetGroup.options.find(o => o.id === line.selectedOption!.optionId);
+      const targetOption = targetGroup.options.find(o => o.id === requestedOption.optionId);
       if (!targetOption) {
-        return { 
-          success: false, 
-          error: `L'option "${line.selectedOption.optionId}" est introuvable dans le groupe "${targetGroup.name}".` 
-        };
+        return { success: false, error: `L'option "${requestedOption.optionId}" est introuvable dans le groupe "${targetGroup.name}".` };
       }
-
       if (typeof targetOption.extraPrice !== 'number' || !Number.isFinite(targetOption.extraPrice) || targetOption.extraPrice < 0) {
         return {
           success: false,
           error: `Donnée de catalogue corrompue : L'option "${targetOption.name}" possède un surcoût invalide (${targetOption.extraPrice}).`
         };
       }
-
-      verifiedSelectedOption = {
+      selectedGroupIds.add(targetGroup.id);
+      verifiedSelectedOptions.push({
         groupId: targetGroup.id,
         groupName: targetGroup.name,
         optionId: targetOption.id,
         optionName: targetOption.name,
         extraPrice: targetOption.extraPrice
+      });
+    }
+
+    const missingRequiredGroups = requiredGroups.filter(group => !selectedGroupIds.has(group.id));
+    if (missingRequiredGroups.length > 0) {
+      return {
+        success: false,
+        error: `Une option obligatoire (${missingRequiredGroups.map(group => group.name).join(', ')}) est requise pour "${catalogItem.name}".`
       };
     }
+    const verifiedSelectedOption = verifiedSelectedOptions.length === 1 ? verifiedSelectedOptions[0] : undefined;
 
     // Validation des suppléments (extras)
     const verifiedExtrasList: Array<{ extraId: string; name: string; price: number }> = [];
+    if (line.selectedExtras !== undefined && !Array.isArray(line.selectedExtras)) {
+      return { success: false, error: `Les suppléments sélectionnés pour "${catalogItem.name}" sont invalides.` };
+    }
     if (line.selectedExtras && Array.isArray(line.selectedExtras)) {
       const availableExtrasMap = new Map((catalogItem.availableExtras || []).map(e => [e.id, e]));
+      const selectedExtraIds = new Set<string>();
 
       for (const reqExtra of line.selectedExtras) {
+        if (selectedExtraIds.has(reqExtra.extraId)) {
+          return { success: false, error: `Le supplément "${reqExtra.extraId}" a été sélectionné plusieurs fois pour "${catalogItem.name}".` };
+        }
+        selectedExtraIds.add(reqExtra.extraId);
         const catalogExtra = availableExtrasMap.get(reqExtra.extraId);
         if (!catalogExtra) {
           return { 
@@ -442,7 +600,7 @@ export async function processOrderSubmission(
     }
 
     const trustedBasePrice = catalogItem.price;
-    const optionExtraPrice = verifiedSelectedOption ? verifiedSelectedOption.extraPrice : 0;
+    const optionExtraPrice = verifiedSelectedOptions.reduce((sum, option) => sum + option.extraPrice, 0);
     const extrasCost = verifiedExtrasList.reduce((sum, e) => sum + e.price, 0);
     const trustedUnitPrice = trustedBasePrice + optionExtraPrice + extrasCost;
     const lineTotal = trustedUnitPrice * qty;
@@ -456,6 +614,7 @@ export async function processOrderSubmission(
       quantity: qty,
       totalPrice: lineTotal,
       selectedOption: verifiedSelectedOption,
+      selectedOptions: verifiedSelectedOptions.length > 1 ? verifiedSelectedOptions : undefined,
       selectedExtras: verifiedExtrasList.length > 0 ? verifiedExtrasList : undefined,
       prepNotes: sanitizeNote(line.prepNotes, 150)
     });
@@ -507,7 +666,8 @@ export async function processOrderSubmission(
     } catch (err: any) {
       return {
         success: false,
-        error: `Erreur de transaction Firestore lors de l'enregistrement de la commande : ${err.message || String(err)}`
+        uncertain: true,
+        error: "La confirmation de la transaction est incertaine. Réessayez avec la même clé sans modifier le panier."
       };
     }
   }
@@ -534,7 +694,8 @@ export async function processOrderSubmission(
     } catch (err: any) {
       return {
         success: false,
-        error: `Échec du registre persistant d'idempotence : ${err.message || 'Erreur registre'}. Traitement interrompu pour prévenir tout doublon.`
+        uncertain: true,
+        error: "Le registre de commande est temporairement indisponible. Réessayez avec la même clé de commande."
       };
     }
 
@@ -546,15 +707,23 @@ export async function processOrderSubmission(
       };
     }
 
+    if (reservation.status === 'completed' && !reservation.record?.order) {
+      return {
+        success: false,
+        uncertain: true,
+        error: "Le registre confirme une commande mais ne contient pas de résultat vérifiable. Une vérification est nécessaire avant toute nouvelle commande."
+      };
+    }
+
     if (reservation.status === 'completed' && reservation.record?.order) {
       if (dataProvider.getOrderById && reservation.record.order.id) {
         const probe = await dataProvider.getOrderById(cleanSlug, reservation.record.order.id);
         if (probe.status === 'found') {
           return { success: true, order: probe.order, idempotentReplay: true };
         } else if (probe.status === 'error') {
-          return { success: false, error: `Impossible de vérifier l'état persistant de la commande (${probe.error}).` };
+          return { success: false, uncertain: true, error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé." };
         } else {
-          return { success: false, error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable dans Firestore." };
+          return { success: false, uncertain: true, error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable dans Firestore. Vérification nécessaire." };
         }
       }
       return { success: true, order: reservation.record.order, idempotentReplay: true };
@@ -563,21 +732,22 @@ export async function processOrderSubmission(
     if (reservation.status === 'in_progress') {
       return {
         success: false,
-        error: reservation.error || "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
+        uncertain: true,
+        error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement. Réessayez avec la même clé sans modifier le panier."
       };
     }
 
     if (reservation.status === 'ambiguous') {
       const pendingId = reservation.record?.pendingOrderId;
       if (!pendingId) {
-        return { success: false, error: "La clé d'idempotence est dans un état ambigu sans identifiant traçable. Nouvelle tentative interrompue." };
+        return { success: false, uncertain: true, error: "La clé d'idempotence est dans un état ambigu sans identifiant traçable. Vérification nécessaire avant toute nouvelle tentative." };
       }
       if (!dataProvider.getOrderById) {
-        return { success: false, error: "Sonde Firestore indisponible : impossible de vérifier si la commande précédente a été enregistrée." };
+        return { success: false, uncertain: true, error: "Impossible de vérifier si la commande précédente a été enregistrée. Réessayez avec la même clé." };
       }
       const probe = await dataProvider.getOrderById(cleanSlug, pendingId);
       if (probe.status === 'error') {
-        return { success: false, error: `La vérification de l'état de la commande précédente a échoué (${probe.error}).` };
+        return { success: false, uncertain: true, error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé." };
       }
       if (probe.status === 'found') {
         if (dataProvider.commitIdempotencyKey) {
@@ -585,11 +755,12 @@ export async function processOrderSubmission(
         }
         return { success: true, order: probe.order, idempotentReplay: true };
       }
-      if (dataProvider.transitionKeyToProcessing) {
-        const transitioned = await dataProvider.transitionKeyToProcessing(cleanKey, currentSignature, 'ambiguous');
-        if (!transitioned) {
-          return { success: false, error: "Une autre instance a déjà repris le traitement de cette clé d'idempotence ambiguë." };
-        }
+      if (!dataProvider.transitionKeyToProcessing) {
+        return { success: false, uncertain: true, error: "La reprise sécurisée de cette commande n'est pas disponible. Vérification nécessaire." };
+      }
+      const transitioned = await dataProvider.transitionKeyToProcessing(cleanKey, currentSignature, 'ambiguous');
+      if (!transitioned) {
+        return { success: false, uncertain: true, error: "Une autre instance a déjà repris le traitement de cette clé. Réessayez avec la même clé." };
       }
     }
   }
@@ -614,13 +785,15 @@ export async function processOrderSubmission(
         } catch (markErr: any) {
           return {
             success: false,
-            error: `Traitement interrompu : échec de marquage ambigu du registre (${markErr.message}). Pour éviter tout doublon, veuillez réessayer.`
+            uncertain: true,
+            error: "Le statut de la commande ne peut pas être confirmé. Réessayez avec la même clé sans modifier le panier."
           };
         }
       }
       return {
         success: false,
-        error: `Statut d'écriture ambigu dans Firestore : ${writeErr.message}. Veuillez relancer avec la même clé.`
+        uncertain: true,
+        error: "Le statut de la commande est incertain. Réessayez avec la même clé sans modifier le panier."
       };
     }
   }
@@ -638,7 +811,8 @@ export async function processOrderSubmission(
       }
       return {
         success: false,
-        error: `La commande a été enregistrée dans Firestore mais la confirmation d'idempotence a échoué (${commitErr.message}).`
+        uncertain: true,
+        error: "La commande a peut-être été enregistrée, mais sa confirmation a échoué. Réessayez avec la même clé sans modifier le panier."
       };
     }
   }

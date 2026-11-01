@@ -55,6 +55,7 @@ export interface ClientCartItem {
   unitPrice: number; // basePrice + selectedOption.extraPrice + extras
   quantity: number;
   selectedOption?: SelectedOption;
+  selectedOptions?: SelectedOption[];
   selectedExtras: SelectedExtra[];
   prepNotes?: string;
   imageUrl: string;
@@ -101,6 +102,7 @@ export interface RestauOrderItem {
   quantity: number;
   totalPrice: number;
   selectedOption?: OrderItemOption;
+  selectedOptions?: OrderItemOption[];
   selectedExtras?: OrderItemExtra[];
   prepNotes?: string;
 }

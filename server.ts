@@ -37,7 +37,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { 
-  processOrderSubmission, 
+  processOrderSubmission,
+  DEFAULT_IDEMPOTENCY_TIMEOUT_MS,
   ServerFirestoreProvider,
   ServerIdempotencyRecord,
   OrderProbeResult,
@@ -56,7 +57,58 @@ const isProd = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
-app.use(express.json());
+
+// Cloud Run is behind Google's trusted proxy. Outside Cloud Run, trust proxy only
+// when explicitly configured to avoid accepting spoofed X-Forwarded-For headers.
+const trustProxySetting = (process.env.TRUST_PROXY || '').trim().toLowerCase();
+if (trustProxySetting === '1' || trustProxySetting === 'true') {
+  app.set('trust proxy', 1);
+} else if (trustProxySetting === '0' || trustProxySetting === 'false') {
+  app.set('trust proxy', false);
+} else if (process.env.K_SERVICE) {
+  app.set('trust proxy', 1);
+}
+
+app.use(express.json({ limit: '100kb' }));
+
+// Per-instance fixed-window protection for the public QR order endpoint.
+// For multi-instance/global enforcement, add an edge or shared-store limiter before launch.
+const orderRateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
+const ORDER_RATE_LIMIT_WINDOW_MS = 60_000;
+const ORDER_RATE_LIMIT_MAX_REQUESTS = 60;
+const ORDER_RATE_LIMIT_MAX_CLIENTS = 10_000;
+
+function orderSubmissionRateLimiter(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  let bucket = orderRateLimitBuckets.get(clientIp);
+
+  if (!bucket || bucket.resetAt <= now) {
+    if (!bucket && orderRateLimitBuckets.size >= ORDER_RATE_LIMIT_MAX_CLIENTS) {
+      for (const [ip, entry] of orderRateLimitBuckets) {
+        if (entry.resetAt <= now) orderRateLimitBuckets.delete(ip);
+      }
+      if (orderRateLimitBuckets.size >= ORDER_RATE_LIMIT_MAX_CLIENTS) {
+        const oldestIp = orderRateLimitBuckets.keys().next().value;
+        if (oldestIp) orderRateLimitBuckets.delete(oldestIp);
+      }
+    }
+    bucket = { count: 0, resetAt: now + ORDER_RATE_LIMIT_WINDOW_MS };
+    orderRateLimitBuckets.set(clientIp, bucket);
+  }
+
+  bucket.count += 1;
+  if (bucket.count > ORDER_RATE_LIMIT_MAX_REQUESTS) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+    return res.status(429).json({
+      success: false,
+      error: 'Trop de tentatives de commande depuis cette connexion. Veuillez patienter avant de réessayer.'
+    });
+  }
+
+  next();
+}
 
 // 1. Initialisation stricte de Firebase Admin SDK
 let adminDb: any = null;
@@ -67,20 +119,26 @@ try {
   appletConfig = getAppletFirebaseConfig();
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-  if (credPath && fs.existsSync(credPath)) {
+  if (credPath) {
+    if (!fs.existsSync(credPath)) {
+      throw new Error("Le chemin GOOGLE_APPLICATION_CREDENTIALS est défini mais le fichier est introuvable.");
+    }
     const serviceAccount = validateServiceAccountCredentials(credPath, appletConfig.projectId);
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
-    console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
-  } else if (process.env.FIRESTORE_EMULATOR_HOST) {
+    console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec une clé de service validée pour la base '${appletConfig.firestoreDatabaseId}'.`);
+  } else if (process.env.FIRESTORE_EMULATOR_HOST || isProd) {
+    // En production (Cloud Run), utiliser le compte de service attaché au runtime via ADC.
+    // En CI/local, Firebase Admin détecte automatiquement FIRESTORE_EMULATOR_HOST.
     const adminApp = initAdminApp(null as any, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
-    console.log(`[RestauMax Server] Firebase Admin SDK initialisé sur l'émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`);
+    const authMode = process.env.FIRESTORE_EMULATOR_HOST
+      ? `émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`
+      : 'Application Default Credentials (ADC)';
+    console.log(`[RestauMax Server] Firebase Admin SDK initialisé via ${authMode} pour la base '${appletConfig.firestoreDatabaseId}'.`);
   } else {
-    adminInitError = credPath 
-      ? `Fichier de credentials spécifié introuvable : ${credPath}` 
-      : "Variable GOOGLE_APPLICATION_CREDENTIALS non configurée.";
-    console.warn(`[RestauMax Server] AVERTISSEMENT : Firebase Admin SDK non initialisé (${adminInitError}). Le traitement de commandes sera désactivé.`);
+    adminInitError = "Firebase Admin SDK non configuré en développement local. Configurez l'émulateur Firestore ou GOOGLE_APPLICATION_CREDENTIALS.";
+    console.warn(`[RestauMax Server] ${adminInitError}`);
   }
 } catch (err: any) {
   adminInitError = err.message || String(err);
@@ -101,11 +159,31 @@ export interface TransactionEvaluationParams {
 }
 
 export type TransactionDecisionResult = 
-  | { type: 'REJECT'; error: string; conflict?: boolean }
+  | { type: 'REJECT'; error: string; conflict?: boolean; uncertain?: boolean }
   | { type: 'REPLAY_NOMINAL'; order: any }
   | { type: 'RECONCILE_AND_REPLAY'; order: any }
   | { type: 'AUTO_REPAIR'; order: any }
   | { type: 'CREATE_NOMINAL' };
+
+function getIdempotencyTimestampMillis(record: any): number | null {
+  const candidates = [record?.updatedAt, record?.timestamp, record?.createdAt];
+  for (const value of candidates) {
+    let millis: number | null = null;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      millis = value;
+    } else if (typeof value === 'string' && value.trim()) {
+      const numeric = Number(value);
+      const parsed = Number.isFinite(numeric) ? numeric : Date.parse(value);
+      if (Number.isFinite(parsed)) millis = parsed;
+    } else if (value instanceof Date) {
+      millis = value.getTime();
+    } else if (value && typeof value.toMillis === 'function') {
+      try { millis = value.toMillis(); } catch { millis = null; }
+    }
+    if (millis !== null && Number.isFinite(millis) && millis > 0) return millis;
+  }
+  return null;
+}
 
 /**
  * Moteur décisionnel d'intégrité Fail-Closed pour les transactions de commande.
@@ -124,7 +202,7 @@ export function evaluateOrderTransactionDecision(params: TransactionEvaluationPa
     orderExists,
     orderData,
     now = Date.now(),
-    timeoutMs = 15000
+    timeoutMs = DEFAULT_IDEMPOTENCY_TIMEOUT_MS
   } = params;
 
   // 1. Contrôle strict du registre s'il existe (Fail-Closed)
@@ -187,7 +265,8 @@ export function evaluateOrderTransactionDecision(params: TransactionEvaluationPa
     if (keyData.status === 'failed') {
       return {
         type: 'REJECT',
-        error: "La tentative précédente associée à cette clé d'idempotence s'est terminée par un échec définitif. Réutilisation interdite."
+        conflict: true,
+        error: "La tentative précédente associée à cette clé d'idempotence s'est terminée par un échec définitif. Une nouvelle clé est nécessaire."
       };
     }
   }
@@ -288,16 +367,25 @@ export function evaluateOrderTransactionDecision(params: TransactionEvaluationPa
     if (keyData.status === 'completed') {
       return {
         type: 'REJECT',
-        error: "Incohérence persistante : Le registre d'idempotence valide la clé mais la commande associée est introuvable dans Firestore. Création bloquée."
+        uncertain: true,
+        error: "Incohérence persistante : Le registre confirme la clé mais la commande associée est introuvable. Création bloquée; une vérification est nécessaire."
       };
     }
 
     if (keyData.status === 'processing') {
-      const recTime = keyData.createdAt || keyData.updatedAt || keyData.timestamp || 0;
+      const recTime = getIdempotencyTimestampMillis(keyData);
+      if (recTime === null) {
+        return {
+          type: 'REJECT',
+          uncertain: true,
+          error: "Registre d'idempotence incohérent : horodatage de traitement absent ou invalide. Vérification nécessaire avant toute reprise."
+        };
+      }
       if (now - recTime < timeoutMs) {
         return {
           type: 'REJECT',
-          error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
+          uncertain: true,
+          error: "Une requête identique avec cette clé d'idempotence est encore en cours. Réessayez sans modifier le panier."
         };
       }
       // Timeout expiré et la commande n'a pas été écrite dans Firestore : reprise autorisée
@@ -358,6 +446,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       return {
         success: false,
         conflict: decision.conflict,
+        uncertain: decision.uncertain,
         error: decision.error
       };
     }
@@ -435,12 +524,20 @@ export async function executeOrderTransaction(params: any, dbOverride?: any) {
 // Fournisseur Firestore serveur reposant EXCLUSIVEMENT sur Firebase Admin SDK
 // Suppression totale du recours au SDK client pour les écritures de commande
 export const serverFirestoreProvider: ServerFirestoreProvider = {
+  async getRestaurant(restaurantSlug: string) {
+    if (!adminDb) {
+      throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
+    }
+    const snapshot = await adminDb.collection('restaurants').doc(restaurantSlug).get();
+    return snapshot.exists ? snapshot.data() as { slug?: string; isOpen?: boolean } : null;
+  },
+
   async getMenuItems(restaurantSlug: string) {
     if (!adminDb) {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
     const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('menuItems').get();
-    return snap.docs.map((d: any) => d.data());
+    return snap.docs.map((d: any) => ({ ...d.data(), id: d.id }));
   },
 
   async getTables(restaurantSlug: string) {
@@ -448,7 +545,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
     const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('tables').get();
-    return snap.docs.map((d: any) => d.data());
+    return snap.docs.map((d: any) => ({ ...d.data(), id: d.id }));
   },
 
   async saveOrder(restaurantSlug: string, order: any) {
@@ -506,22 +603,28 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
             error: `Conflit d'idempotence : La clé "${key}" a déjà été utilisée pour une requête différente.`
           };
         }
-        if (data.status === 'completed' && data.order) {
-          return { status: 'completed' as const, record: data };
+        if (data.status === 'completed') {
+          if (data.order) return { status: 'completed' as const, record: data };
+          return { status: 'ambiguous' as const, record: data, error: "Registre completed sans commande vérifiable." };
         }
-        if (data.status === 'ambiguous' && data.pendingOrderId) {
+        if (data.status === 'ambiguous') {
           return { status: 'ambiguous' as const, record: data };
         }
+        if (data.status === 'failed') {
+          return { status: 'conflict' as const, record: data, error: "Cette clé correspond à une tentative échouée définitivement. Une nouvelle clé est nécessaire." };
+        }
         if (data.status === 'processing') {
-          const recTime = data.createdAt || data.timestamp || 0;
-          if (now - recTime < timeoutMs) {
+          const recTime = getIdempotencyTimestampMillis(data);
+          if (recTime === null || now - recTime < timeoutMs) {
             return {
               status: 'in_progress' as const,
               record: data,
-              error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
+              error: "Une requête identique avec cette clé d'idempotence est déjà en cours ou son horodatage est invalide."
             };
           }
-          // Timeout expiré : reprise atomique de la réservation
+          // Timeout expiré avec un horodatage fiable : reprise atomique de la réservation
+        } else {
+          return { status: 'ambiguous' as const, record: data, error: "Statut du registre d'idempotence non reconnu." };
         }
       }
 
@@ -551,9 +654,11 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       const data = snap.data() as ServerIdempotencyRecord;
       if (data.status !== fromStatus) return false;
       if (data.signature !== signature) return false;
+      const now = Date.now();
       t.update(docRef, {
         status: 'processing',
-        timestamp: Date.now(),
+        updatedAt: now,
+        timestamp: now,
         pendingOrderId: null,
         errorReason: null
       });
@@ -621,8 +726,9 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     try {
       const snap = await adminDb.collection('idempotency_keys').doc(key).get();
       return snap.exists ? (snap.data() as ServerIdempotencyRecord) : null;
-    } catch {
-      return null;
+    } catch (err: any) {
+      console.warn('[RestauMax Server] Échec de lecture du registre d’idempotence:', err.message || String(err));
+      throw new Error('Impossible de lire le registre d’idempotence.');
     }
   },
 
@@ -642,17 +748,13 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
 };
 
 // 3. Route API : Soumission, recalcul de confiance et persistance de commande
-app.post('/api/orders', async (req, res) => {
+app.post('/api/orders', orderSubmissionRateLimiter, async (req, res) => {
   // RÈGLE CRITIQUE D'AUDIT : Interdire formellement le traitement des commandes
   // si Firebase Admin SDK n'est pas initialisé correctement.
   if (!adminDb) {
     return res.status(503).json({
       success: false,
-      error: `Service de commande indisponible : Firebase Admin SDK n'est pas initialisé sur le serveur. ` +
-        `Raison : ${adminInitError || 'Identifiants administrateur absents'}. ` +
-        `Pour activer le traitement des commandes en production, configurez GOOGLE_APPLICATION_CREDENTIALS ` +
-        `avec un compte de service autorisé sur le projet '${appletConfig?.projectId || 'Firebase'}'. ` +
-        `Les écritures directes via le SDK client sont formellement interdites par les règles Firestore.`
+      error: "Le service de commande est temporairement indisponible. Veuillez réessayer ultérieurement."
     });
   }
 
@@ -662,6 +764,8 @@ app.post('/api/orders', async (req, res) => {
       return res.status(200).json(result);
     } else if (result.conflict) {
       return res.status(409).json(result);
+    } else if (result.uncertain) {
+      return res.status(503).json(result);
     } else {
       return res.status(400).json(result);
     }
@@ -669,20 +773,18 @@ app.post('/api/orders', async (req, res) => {
     console.error('Erreur inattendue API /api/orders:', err);
     return res.status(500).json({
       success: false,
-      error: `Erreur interne serveur lors du traitement de la commande : ${err.message || String(err)}`
+      uncertain: true,
+      error: "La confirmation de la commande est incertaine. Réessayez avec la même clé sans modifier le panier."
     });
   }
 });
 
 // 4. Route Diagnostic / Santé du serveur
 app.get('/api/health', (_req, res) => {
-  res.json({ 
-    status: 'ok', 
-    hasAdminDb: Boolean(adminDb),
-    projectId: appletConfig?.projectId || null,
-    databaseId: appletConfig?.firestoreDatabaseId || null,
-    adminInitError,
-    serverTime: Date.now() 
+  res.json({
+    status: 'ok',
+    orderSubmissionEnabled: Boolean(adminDb),
+    serverTime: Date.now()
   });
 });
 

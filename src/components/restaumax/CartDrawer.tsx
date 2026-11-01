@@ -26,6 +26,8 @@ interface CartDrawerProps {
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
   onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; isReplay?: boolean }>;
+  customerNote: string;
+  onCustomerNoteChange: (note: string) => void;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
 }
@@ -39,12 +41,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onRemoveItem,
   onClearCart,
   onConfirmOrder,
+  customerNote,
+  onCustomerNoteChange,
   isUncertain = false,
   onResetUncertainty
 }) => {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [customerNote, setCustomerNote] = useState<string>('');
 
   if (!isOpen) return null;
 
@@ -62,7 +65,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       const result = await onConfirmOrder(customerNote.trim() || undefined);
       if (result.success) {
         // Successful submission: drawer is closed or transitioned by parent
-        setCustomerNote('');
+        onCustomerNoteChange('');
         setIsSubmitting(false);
       } else {
         // Failed submission: keep cart intact, display explicit message
@@ -157,8 +160,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             <div className="flex items-start gap-2">
               <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
               <div className="leading-snug">
-                <span className="font-black text-amber-900">Transmission incertaine (Réseau) : </span>
-                La commande a peut-être été enregistrée par le serveur. Pour empêcher tout doublon, votre panier est verrouillé. Cliquez ci-dessous pour vérifier et finaliser en toute sécurité avec la même clé.
+                <span className="font-black text-amber-900">Commande non confirmée : </span>
+                Le serveur n'a pas pu confirmer l'état de cette tentative. Une commande a peut-être déjà été enregistrée. Pour éviter un doublon, votre panier reste verrouillé; toute nouvelle tentative doit conserver la même clé.
               </div>
             </div>
             {onResetUncertainty && (
@@ -180,7 +183,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         )}
 
         {/* Error notification if submission failed */}
-        {submitError && !isUncertain && (
+        {submitError && (
           <div className="mx-4 mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 shrink-0 animate-in fade-in">
             <AlertCircle size={15} className="text-rose-600 shrink-0 mt-0.5" />
             <div className="flex-1 leading-snug">
@@ -223,17 +226,17 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           {line.name}
                         </h4>
 
-                        {/* Selected option detail */}
-                        {line.selectedOption && (
-                          <div className="text-[11px] text-slate-600 font-medium mt-0.5">
-                            Accompagnement : <span className="font-bold text-slate-800">{line.selectedOption.optionName}</span>
-                            {line.selectedOption.extraPrice > 0 && (
+                        {/* Selected option groups */}
+                        {(line.selectedOptions?.length ? line.selectedOptions : line.selectedOption ? [line.selectedOption] : []).map((option) => (
+                          <div key={option.groupId} className="text-[11px] text-slate-600 font-medium mt-0.5">
+                            {option.groupName || 'Option'} : <span className="font-bold text-slate-800">{option.optionName}</span>
+                            {option.extraPrice > 0 && (
                               <span className="text-[#ff6500] font-bold ml-1 tnum">
-                                (+{formatFCFA(line.selectedOption.extraPrice)})
+                                (+{formatFCFA(option.extraPrice)})
                               </span>
                             )}
                           </div>
-                        )}
+                        ))}
 
                         {/* Selected extras */}
                         {line.selectedExtras && line.selectedExtras.length > 0 && (
@@ -326,8 +329,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   type="text"
                   placeholder="Ex : Servir les boissons fraîches en premier, couverts supplémentaires..."
                   value={customerNote}
-                  onChange={(e) => setCustomerNote(e.target.value)}
-                  maxLength={180}
+                  onChange={(e) => onCustomerNoteChange(e.target.value)}
+                  maxLength={150}
                   disabled={isSubmitting || isUncertain}
                   className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg placeholder-slate-400 text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#ff6500] disabled:bg-slate-100 disabled:text-slate-500"
                 />

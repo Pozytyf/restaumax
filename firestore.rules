@@ -30,21 +30,29 @@ service cloud.firestore {
     // 2. Custom Claims role == 'manager' and restaurantSlug == targetSlug
     // 3. Presence of a trusted document in /managers/{uid} with role == 'admin' or role == 'manager' matching targetSlug
     function isManagerOfRestaurant(targetSlug) {
+      let managerExists = isSignedIn() &&
+        exists(/databases/$(database)/documents/managers/$(request.auth.uid));
+      let managerData = managerExists
+        ? get(/databases/$(database)/documents/managers/$(request.auth.uid)).data
+        : {'role': '', 'restaurantSlug': '', 'restaurants': []};
+      let tokenRole = isSignedIn() ? request.auth.token.get('role', '') : '';
+      let tokenRestaurant = isSignedIn() ? request.auth.token.get('restaurantSlug', '') : '';
+      let tokenRestaurants = isSignedIn() ? request.auth.token.get('restaurants', []) : [];
       return isSignedIn() && (
-        request.auth.token.role == 'admin' ||
-        (request.auth.token.role == 'manager' && request.auth.token.restaurantSlug == targetSlug) ||
+        tokenRole == 'admin' ||
+        (tokenRole == 'manager' && (
+          tokenRestaurant == targetSlug ||
+          targetSlug in tokenRestaurants
+        )) ||
         (
-          exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
+          managerExists &&
           (
-            get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'admin' ||
+            managerData.get('role', '') == 'admin' ||
             (
-              get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'manager' &&
+              managerData.get('role', '') == 'manager' &&
               (
-                get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurantSlug == targetSlug ||
-                (
-                  'restaurants' in get(/databases/$(database)/documents/managers/$(request.auth.uid)).data &&
-                  targetSlug in get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurants
-                )
+                managerData.get('restaurantSlug', '') == targetSlug ||
+                targetSlug in managerData.get('restaurants', [])
               )
             )
           )
@@ -106,8 +114,10 @@ service cloud.firestore {
     match /restaurants/{restaurantSlug} {
       allow get: if isValidId(restaurantSlug);
       allow list: if false;
-      allow create: if isManagerOfRestaurant(restaurantSlug) && isValidId(restaurantSlug) && isValidRestaurant(incoming());
-      allow update: if isManagerOfRestaurant(restaurantSlug) && isValidId(restaurantSlug) && isValidRestaurant(incoming());
+      allow create: if isManagerOfRestaurant(restaurantSlug) && isValidId(restaurantSlug)
+        && isValidRestaurant(incoming()) && incoming().slug == restaurantSlug;
+      allow update: if isManagerOfRestaurant(restaurantSlug) && isValidId(restaurantSlug)
+        && isValidRestaurant(incoming()) && incoming().slug == restaurantSlug;
       allow delete: if false;
 
       // Menu catalog subcollection
@@ -116,29 +126,33 @@ service cloud.firestore {
       match /menuItems/{dishId} {
         allow get: if isValidId(dishId);
         allow list: if true;
-        allow create: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
-        allow update: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
+        allow create: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId)
+          && isValidMenuItem(incoming()) && incoming().id == dishId && incoming().restaurantSlug == restaurantSlug;
+        allow update: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId)
+          && isValidMenuItem(incoming()) && incoming().id == dishId && incoming().restaurantSlug == restaurantSlug;
         allow delete: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId);
       }
 
-      // Tables subcollection
-      // Public get and list so customers can see table information
-      // Create/update/delete restricted strictly to verified managers of this restaurant
+      // Tables subcollection: données opérationnelles réservées au personnel autorisé.
+      // Le client QR transmet le numéro de table; la validation réelle est faite côté serveur.
       match /tables/{tableId} {
-        allow get, list: if true;
-        allow create, update: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId) && isValidTable(incoming());
+        allow get: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId);
+        allow list: if isManagerOfRestaurant(restaurantSlug);
+        allow create, update: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId)
+          && isValidTable(incoming()) && incoming().id == tableId;
         allow delete: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId);
       }
 
       // Orders subcollection
       // Create: STRICTLY FORBIDDEN from client SDK (must go through trusted server backend /api/orders)
-      // Get: customer can view confirmed order by exact ID
-      // List: restricted strictly to authorized managers of this restaurant (protects customer privacy and restaurant order stream)
-      // Update: restricted strictly to authorized managers of this restaurant, and limited to operational status fields
+      // Get/List: réservés aux gestionnaires autorisés de ce restaurant.
+      // L'accès public par identifiant seul exposerait les données client d'une commande.
+      // Le suivi client devra utiliser un mécanisme dédié avec jeton opaque non devinable.
+      // Update: limité aux champs opérationnels par les gestionnaires autorisés.
       // Delete: STRICTLY FORBIDDEN (audit trail preserved)
       match /orders/{orderId} {
         allow create: if false;
-        allow get: if isValidId(orderId);
+        allow get: if isManagerOfRestaurant(restaurantSlug) && isValidId(orderId);
         allow list: if isManagerOfRestaurant(restaurantSlug);
         allow update: if isManagerOfRestaurant(restaurantSlug) 
           && isValidId(orderId) 
