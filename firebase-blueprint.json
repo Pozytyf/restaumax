@@ -5,85 +5,222 @@
       "description": "Informations du restaurant, statut d'ouverture et coordonnées",
       "type": "object",
       "properties": {
-        "slug": { "type": "string" },
-        "name": { "type": "string" },
-        "tagline": { "type": "string" },
-        "address": { "type": "string" },
-        "city": { "type": "string" },
-        "phone": { "type": "string" },
-        "currency": { "type": "string" },
-        "bannerUrl": { "type": "string" },
-        "logoUrl": { "type": "string" },
-        "isOpen": { "type": "boolean" },
-        "openingHours": { "type": "string" }
+        "slug": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "tagline": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "city": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "bannerUrl": {
+          "type": "string"
+        },
+        "logoUrl": {
+          "type": "string"
+        },
+        "isOpen": {
+          "type": "boolean"
+        },
+        "openingHours": {
+          "type": "string"
+        }
       },
-      "required": ["slug", "name", "isOpen"]
+      "required": [
+        "slug",
+        "name",
+        "isOpen"
+      ]
     },
     "MenuItem": {
       "title": "MenuItem",
       "description": "Plat ou boisson du catalogue avec tarifs, déclinaisons et disponibilité",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "restaurantSlug": { "type": "string" },
-        "name": { "type": "string" },
-        "category": { "type": "string" },
-        "price": { "type": "number" },
-        "description": { "type": "string" },
-        "imageUrl": { "type": "string" },
-        "available": { "type": "boolean" },
-        "prepTimeMinutes": { "type": "number" },
-        "tags": { "type": "array" },
-        "optionGroups": { "type": "array" },
-        "availableExtras": { "type": "array" }
+        "id": {
+          "type": "string"
+        },
+        "restaurantSlug": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "price": {
+          "type": "number"
+        },
+        "description": {
+          "type": "string"
+        },
+        "imageUrl": {
+          "type": "string"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "prepTimeMinutes": {
+          "type": "number"
+        },
+        "tags": {
+          "type": "array"
+        },
+        "optionGroups": {
+          "type": "array"
+        },
+        "availableExtras": {
+          "type": "array"
+        }
       },
-      "required": ["id", "restaurantSlug", "name", "category", "price", "available"]
+      "required": [
+        "id",
+        "restaurantSlug",
+        "name",
+        "category",
+        "price",
+        "available"
+      ]
     },
     "Manager": {
       "title": "Manager",
-      "description": "Habilitation de gestion attribuée côté serveur",
+      "description": "Habilitation de gestion attribuée côté serveur et limitée à un ou plusieurs restaurants",
       "type": "object",
       "properties": {
-        "uid": { "type": "string" },
-        "email": { "type": "string" },
-        "role": { "type": "string" }
+        "uid": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "restaurantSlug": {
+          "type": "string"
+        },
+        "restaurants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       },
-      "required": ["uid", "role"]
+      "required": [
+        "uid",
+        "role"
+      ]
     },
     "Order": {
       "title": "Order",
-      "description": "Commande client passée via QR code sur place ou à emporter",
+      "description": "Commande créée exclusivement via l'API serveur de confiance; lecture réservée aux gestionnaires autorisés",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "orderNumber": { "type": "string" },
-        "restaurantSlug": { "type": "string" },
-        "orderMode": { "type": "string", "enum": ["sur_place", "a_emporter"] },
-        "tableNumber": { "type": "string" },
-        "items": { "type": "array" },
-        "itemsCount": { "type": "number" },
-        "totalAmount": { "type": "number" },
-        "currency": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "in_prep", "ready", "completed", "cancelled"] },
-        "customerNote": { "type": "string" },
-        "createdAt": { "type": "number" },
-        "createdAtIso": { "type": "string" }
+        "id": {
+          "type": "string"
+        },
+        "orderNumber": {
+          "type": "string"
+        },
+        "restaurantSlug": {
+          "type": "string"
+        },
+        "orderMode": {
+          "type": "string",
+          "enum": [
+            "sur_place",
+            "a_emporter"
+          ]
+        },
+        "tableNumber": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array"
+        },
+        "itemsCount": {
+          "type": "number"
+        },
+        "totalAmount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_prep",
+            "ready",
+            "completed",
+            "cancelled"
+          ]
+        },
+        "customerNote": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "number"
+        },
+        "createdAtIso": {
+          "type": "string"
+        }
       },
-      "required": ["id", "orderNumber", "restaurantSlug", "orderMode", "items", "totalAmount", "status"]
+      "required": [
+        "id",
+        "orderNumber",
+        "restaurantSlug",
+        "orderMode",
+        "items",
+        "totalAmount",
+        "status"
+      ]
     },
     "Table": {
       "title": "Table",
-      "description": "Table du restaurant avec numéro, zone et QR code associé",
+      "description": "Table et métadonnées QR; consultation et gestion réservées aux gestionnaires autorisés",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "tableNumber": { "type": "string" },
-        "section": { "type": "string" },
-        "capacity": { "type": "number" },
-        "isActive": { "type": "boolean" },
-        "qrUrl": { "type": "string" }
+        "id": {
+          "type": "string"
+        },
+        "tableNumber": {
+          "type": "string"
+        },
+        "section": {
+          "type": "string"
+        },
+        "capacity": {
+          "type": "number"
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "qrUrl": {
+          "type": "string"
+        }
       },
-      "required": ["id", "tableNumber", "capacity", "isActive"]
+      "required": [
+        "id",
+        "tableNumber",
+        "capacity",
+        "isActive"
+      ]
     }
   },
   "firestore": {
@@ -101,11 +238,11 @@
     },
     "/restaurants/{restaurantSlug}/orders/{orderId}": {
       "schema": "Order",
-      "description": "Commandes passées par les clients (création publique avec validation stricte, gestion par managers)"
+      "description": "Commandes créées exclusivement par le backend sécurisé; lecture et mise à jour opérationnelle par les gestionnaires autorisés"
     },
     "/restaurants/{restaurantSlug}/tables/{tableId}": {
       "schema": "Table",
-      "description": "Tables configurées et métadonnées QR (consultation publique, gestion par managers)"
+      "description": "Tables configurées et métadonnées QR; accès réservé aux gestionnaires autorisés"
     }
   }
 }
