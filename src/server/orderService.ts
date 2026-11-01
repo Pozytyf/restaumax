@@ -216,6 +216,9 @@ export async function processOrderSubmission(
     return { success: false, error: "Identifiant du restaurant manquant ou invalide." };
   }
   const cleanSlug = restaurantSlug.trim();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(cleanSlug)) {
+    return { success: false, error: "Identifiant du restaurant invalide." };
+  }
 
   // 2. Validation de la clé d'idempotence (Obligatoire et format strict)
   if (!idempotencyKey || typeof idempotencyKey !== 'string' || !idempotencyKey.trim()) {
@@ -235,6 +238,9 @@ export async function processOrderSubmission(
   // 3. Validation du panier non vide
   if (!cart || !Array.isArray(cart) || cart.length === 0) {
     return { success: false, error: "Le panier est vide. Impossible de créer une commande." };
+  }
+  if (cart.length > 50) {
+    return { success: false, error: "Votre panier contient trop de lignes. Limitez-le à 50 articles différents." };
   }
 
   // 4. Validation du mode de commande
@@ -352,7 +358,7 @@ export async function processOrderSubmission(
           };
         }
         if (existingKeyRecord.status === 'processing') {
-          const startedAt = existingKeyRecord.createdAt || existingKeyRecord.updatedAt || existingKeyRecord.timestamp || 0;
+          const startedAt = existingKeyRecord.updatedAt || existingKeyRecord.timestamp || existingKeyRecord.createdAt || 0;
           if (Date.now() - startedAt < DEFAULT_IDEMPOTENCY_TIMEOUT_MS) {
             return {
               success: false,
@@ -473,7 +479,7 @@ export async function processOrderSubmission(
       };
     }
 
-    if (catalogItem.restaurantSlug && catalogItem.restaurantSlug !== cleanSlug) {
+    if (catalogItem.restaurantSlug !== cleanSlug) {
       return { 
         success: false, 
         error: `Le plat "${catalogItem.name}" n'appartient pas au restaurant "${cleanSlug}".` 
