@@ -34,7 +34,7 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/managers/$(request.auth.uid));
       let managerData = managerExists
         ? get(/databases/$(database)/documents/managers/$(request.auth.uid)).data
-        : {};
+        : {'role': '', 'restaurantSlug': '', 'restaurants': []};
       let tokenRole = isSignedIn() ? request.auth.token.get('role', '') : '';
       let tokenRestaurant = isSignedIn() ? request.auth.token.get('restaurantSlug', '') : '';
       let tokenRestaurants = isSignedIn() ? request.auth.token.get('restaurants', []) : [];
