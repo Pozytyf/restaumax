@@ -90,6 +90,22 @@ assert(
   'Une commande déjà persistée est rejouée même si le catalogue a changé depuis le premier envoi'
 );
 
+let catalogReadAfterRegistryFailure = false;
+const registryFailure = await processOrderSubmission(payload, {
+  ...validProvider,
+  async getIdempotencyRecord() { throw new Error('simulated registry read failure'); },
+  async getOrderById() { return { status: 'not_found' }; },
+  async getMenuItems() {
+    catalogReadAfterRegistryFailure = true;
+    return [];
+  },
+  async executeOrderTransaction() { throw new Error('must not be called'); }
+});
+assert(
+  registryFailure.success === false && catalogReadAfterRegistryFailure === false,
+  'Une erreur de lecture du registre d’idempotence bloque la validation et toute nouvelle création'
+);
+
 const rejected = await processOrderSubmission(payload, {
   ...validProvider,
   async getMenuItems() { return []; },
