@@ -122,7 +122,8 @@ const multiOptionPayload = {
 const multiOptionResult = await processOrderSubmission(multiOptionPayload, {
   async getMenuItems() {
     return [{
-      ...validProvider.getMenuItems && (await validProvider.getMenuItems())[0],
+      id: 'dish-test', restaurantSlug: 'chez-awa', name: 'Plat de test', category: 'plats',
+      price: 2500, available: true,
       optionGroups: [
         { id: 'grp-side', name: 'Accompagnement', required: true, options: [{ id: 'opt-rice', name: 'Riz', extraPrice: 500 }] },
         { id: 'grp-cooking', name: 'Cuisson', required: true, options: [{ id: 'opt-medium', name: 'À point', extraPrice: 300 }] }
@@ -144,7 +145,8 @@ const missingRequiredOption = await processOrderSubmission({
 }, {
   async getMenuItems() {
     return [{
-      ...validProvider.getMenuItems && (await validProvider.getMenuItems())[0],
+      id: 'dish-test', restaurantSlug: 'chez-awa', name: 'Plat de test', category: 'plats',
+      price: 2500, available: true,
       optionGroups: [
         { id: 'grp-side', name: 'Accompagnement', required: true, options: [{ id: 'opt-rice', name: 'Riz', extraPrice: 500 }] },
         { id: 'grp-cooking', name: 'Cuisson', required: true, options: [{ id: 'opt-medium', name: 'À point', extraPrice: 300 }] }
