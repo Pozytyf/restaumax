@@ -279,7 +279,17 @@ export default function App() {
   // RestauMax Authentication & Manager Authorization State
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [isAuthorizedManager, setIsAuthorizedManager] = useState<boolean>(false);
+  const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
+
+  useEffect(() => {
+    let active = true;
+    if (!authUser) { setIsRestaurantOwner(false); return; }
+    authUser.getIdTokenResult().then((token) => {
+      if (active) setIsRestaurantOwner(token.claims.role === 'owner');
+    }).catch(() => { if (active) setIsRestaurantOwner(false); });
+    return () => { active = false; };
+  }, [authUser]);
 
   // Subscribe to Firebase Auth and evaluate Manager privileges
   useEffect(() => {
@@ -346,6 +356,8 @@ export default function App() {
     if (res.success && res.user) {
       setAuthUser(res.user);
       setIsAuthorizedManager(true);
+      const token = await res.user.getIdTokenResult(true);
+      setIsRestaurantOwner(token.claims.role === 'owner');
       return { success: true };
     }
     return { success: false, error: res.error };
@@ -355,6 +367,7 @@ export default function App() {
     await signOutManager();
     setAuthUser(null);
     setIsAuthorizedManager(false);
+    setIsRestaurantOwner(false);
   };
 
   // RestauMax Client Cart & Idempotency Key State (Preserved across routing and page reloads via sessionStorage)
@@ -878,6 +891,7 @@ export default function App() {
             onUpdateDish={handleUpdateDish}
             onDeleteDish={handleDeleteDish}
             currentUserEmail={authUser?.email}
+            canManageStaff={isRestaurantOwner}
             onSignOut={handleManagerSignOut}
           />
         )
