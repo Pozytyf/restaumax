@@ -2002,11 +2002,14 @@ async function runTests() {
     '7.4.a : server.ts ne recourt JAMAIS au SDK Firebase client pour écrire ou lire'
   );
 
-  // Vérification du verrou HTTP 503 si Firebase Admin SDK n'est pas initialisé
+  // Vérification du verrou HTTP 503 si Firebase Admin SDK n'est pas initialisé.
+  // server.ts expose statusCode: 503 ; api/orders.ts transmet ce code à la réponse HTTP.
+  const ordersApiContent = fs.readFileSync(path.resolve('api/orders.ts'), 'utf-8');
   assert(
-    serverTsContent.includes('if (!adminDb)') && 
-    serverTsContent.includes('res.status(503)'),
-    '7.4.b : server.ts interdit formellement le traitement de commandes si Firebase Admin SDK est absent (HTTP 503)'
+    serverTsContent.includes('if (!adminDb)') &&
+    serverTsContent.includes('statusCode: 503') &&
+    ordersApiContent.includes('res.status(result.statusCode)'),
+    '7.4.b : server.ts refuse les commandes sans Firebase Admin (503) et api/orders.ts transmet le statut HTTP'
   );
 
   // Vérification de l'écriture de commande exclusive via Firebase Admin SDK
