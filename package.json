@@ -14,7 +14,8 @@
     "test:lot2": "tsx scripts/test-lot2.mjs",
     "test:emulator": "tsx scripts/test-firestore-emulator-ambiguous.mjs",
     "test:intent": "tsx scripts/test-client-intent.mjs",
-    "test": "npm run test:lot1 && npm run test:lot2 && npm run test:emulator && npm run test:intent"
+    "test": "npm run test:lot1 && npm run test:lot2 && npm run test:emulator && npm run test:intent",
+    "test:rules": "node scripts/test-firestore-rules.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -41,6 +42,7 @@
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "@firebase/rules-unit-testing": "^6.0.0"
   }
 }
