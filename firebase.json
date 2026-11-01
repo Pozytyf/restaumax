@@ -1,6 +1,7 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "firestore.rules",
+    "database": "ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf"
   },
   "emulators": {
     "firestore": {
