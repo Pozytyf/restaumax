@@ -140,6 +140,40 @@ service cloud.firestore {
         allow delete: if hasRestaurantPermission(restaurantSlug, 'tables.manage') && isValidId(tableId);
       }
 
+      // Customer directory: private to authorized restaurant staff.
+      match /customers/{customerId} {
+        allow get, list: if hasRestaurantPermission(restaurantSlug, 'customers.view') || hasRestaurantPermission(restaurantSlug, 'customers.manage');
+        allow create, update: if hasRestaurantPermission(restaurantSlug, 'customers.manage')
+          && isValidId(customerId)
+          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
+          && incoming().phone is string && incoming().phone.size() > 0 && incoming().phone.size() <= 40
+          && incoming().loyaltyPoints is number && incoming().loyaltyPoints >= 0;
+        allow delete: if hasRestaurantPermission(restaurantSlug, 'customers.manage') && isValidId(customerId);
+      }
+
+      // Inventory catalog and immutable stock movement audit trail.
+      match /inventoryItems/{itemId} {
+        allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
+        allow create, update: if hasRestaurantPermission(restaurantSlug, 'inventory.manage')
+          && isValidId(itemId)
+          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
+          && incoming().unit is string && incoming().unit.size() > 0 && incoming().unit.size() <= 20
+          && incoming().quantity is number && incoming().quantity >= 0
+          && incoming().minQuantity is number && incoming().minQuantity >= 0
+          && incoming().unitCost is number && incoming().unitCost >= 0;
+        allow delete: if hasRestaurantPermission(restaurantSlug, 'inventory.manage') && isValidId(itemId);
+      }
+
+      match /stockMovements/{movementId} {
+        allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
+        allow create: if hasRestaurantPermission(restaurantSlug, 'inventory.manage')
+          && isValidId(movementId)
+          && incoming().itemId is string && incoming().itemId.size() > 0
+          && incoming().delta is number && incoming().delta != 0
+          && incoming().quantityAfter is number && incoming().quantityAfter >= 0;
+        allow update, delete: if false;
+      }
+
       // Orders subcollection
       // Create: STRICTLY FORBIDDEN from client SDK (must go through trusted server backend /api/orders)
       // Get: customer can view confirmed order by exact ID
@@ -149,7 +183,7 @@ service cloud.firestore {
       match /orders/{orderId} {
         allow create: if false;
         allow get: if isValidId(orderId);
-        allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access'));
+        allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view'));
         allow update: if (hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access')) 
           && isValidId(orderId) 
           && incoming().id == existing().id
