@@ -9,7 +9,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { initializeApp, cert, getApps, getApp } from 'firebase-admin/app';
+import { initializeApp, cert, getApps, getApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -217,6 +217,9 @@ export function initAdminApp(serviceAccount = null, projectId, appName = DEFAULT
     };
     if (serviceAccount) {
       appOptions.credential = cert(serviceAccount);
+    } else if (!process.env.FIRESTORE_EMULATOR_HOST) {
+      // Cloud Run and other Google runtimes expose short-lived credentials through ADC.
+      appOptions.credential = applicationDefault();
     }
 
     if (appName === DEFAULT_ADMIN_APP_NAME) {
