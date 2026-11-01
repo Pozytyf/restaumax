@@ -125,16 +125,16 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                       </span>
                     </div>
 
-                    {item.selectedOption && (
-                      <p className="text-[11px] text-slate-500 ml-7 mt-0.5">
-                        ↳ {item.selectedOption.optionName}
-                        {item.selectedOption.extraPrice > 0 && (
+                    {(item.selectedOptions?.length ? item.selectedOptions : item.selectedOption ? [item.selectedOption] : []).map((option) => (
+                      <p key={option.groupId} className="text-[11px] text-slate-500 ml-7 mt-0.5">
+                        ↳ {option.groupName || 'Option'} : {option.optionName}
+                        {option.extraPrice > 0 && (
                           <span className="text-[#ff6500] font-bold ml-1">
-                            (+{formatFCFA(item.selectedOption.extraPrice)})
+                            (+{formatFCFA(option.extraPrice)})
                           </span>
                         )}
                       </p>
-                    )}
+                    ))}
 
                     {item.selectedExtras && item.selectedExtras.length > 0 && (
                       <p className="text-[10px] text-slate-400 ml-7 mt-0.5">
