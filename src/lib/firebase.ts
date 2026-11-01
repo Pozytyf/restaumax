@@ -217,22 +217,35 @@ export async function persistDishAvailability(restaurantSlug: string, dishId: st
  * 1. Via Custom Claims (role === 'manager' or 'admin')
  * 2. Via trusted server-side document in /managers/{uid}
  */
-export async function checkIsManager(user: User | null): Promise<boolean> {
-  if (!user) return false;
+export async function checkIsManager(
+  user: User | null,
+  restaurantSlug: string = 'chez-awa'
+): Promise<boolean> {
+  if (!user || !restaurantSlug) return false;
 
   try {
-    // 1. Check Custom Claims (token-based)
+    // L'interface applique le même périmètre multi-restaurant que firestore.rules.
     const tokenResult = await getIdTokenResult(user);
-    if (tokenResult.claims && (tokenResult.claims.role === 'manager' || tokenResult.claims.role === 'admin')) {
+    const claims = tokenResult.claims || {};
+    if (claims.role === 'admin') return true;
+    if (
+      claims.role === 'manager' &&
+      (claims.restaurantSlug === restaurantSlug ||
+        (Array.isArray(claims.restaurants) && claims.restaurants.includes(restaurantSlug)))
+    ) {
       return true;
     }
 
-    // 2. Check trusted Firestore collection /managers/{uid} with strict role validation
-    const managerDocRef = doc(db, 'managers', user.uid);
-    const managerDoc = await getDoc(managerDocRef);
+    // Repli sur le document d'habilitation de confiance, avec contrôle du restaurant.
+    const managerDoc = await getDoc(doc(db, 'managers', user.uid));
     if (managerDoc.exists()) {
       const data = managerDoc.data();
-      if (data && (data.role === 'manager' || data.role === 'admin')) {
+      if (data?.role === 'admin') return true;
+      if (
+        data?.role === 'manager' &&
+        (data.restaurantSlug === restaurantSlug ||
+          (Array.isArray(data.restaurants) && data.restaurants.includes(restaurantSlug)))
+      ) {
         return true;
       }
     }
