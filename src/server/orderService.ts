@@ -282,7 +282,8 @@ export async function processOrderSubmission(
     } catch (err: any) {
       return {
         success: false,
-        error: "Impossible de vérifier la clé de commande existante. Réessayez sans modifier le panier."
+        uncertain: true,
+        error: "Impossible de vérifier la clé de commande existante. Réessayez avec la même clé sans modifier le panier."
       };
     }
 
@@ -313,6 +314,7 @@ export async function processOrderSubmission(
       } catch (err: any) {
         return {
           success: false,
+          uncertain: true,
           error: "Impossible de vérifier l'existence de la commande précédente. Réessayez avec la même clé."
         };
       }
@@ -320,6 +322,7 @@ export async function processOrderSubmission(
       if (existingOrderProbe.status === 'error') {
         return {
           success: false,
+          uncertain: true,
           error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé d'idempotence."
         };
       }
@@ -659,6 +662,7 @@ export async function processOrderSubmission(
     } catch (err: any) {
       return {
         success: false,
+        uncertain: true,
         error: "Le registre de commande est temporairement indisponible. Réessayez avec la même clé de commande."
       };
     }
@@ -671,15 +675,23 @@ export async function processOrderSubmission(
       };
     }
 
+    if (reservation.status === 'completed' && !reservation.record?.order) {
+      return {
+        success: false,
+        uncertain: true,
+        error: "Le registre confirme une commande mais ne contient pas de résultat vérifiable. Une vérification est nécessaire avant toute nouvelle commande."
+      };
+    }
+
     if (reservation.status === 'completed' && reservation.record?.order) {
       if (dataProvider.getOrderById && reservation.record.order.id) {
         const probe = await dataProvider.getOrderById(cleanSlug, reservation.record.order.id);
         if (probe.status === 'found') {
           return { success: true, order: probe.order, idempotentReplay: true };
         } else if (probe.status === 'error') {
-          return { success: false, error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé." };
+          return { success: false, uncertain: true, error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé." };
         } else {
-          return { success: false, error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable dans Firestore." };
+          return { success: false, uncertain: true, error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable dans Firestore. Vérification nécessaire." };
         }
       }
       return { success: true, order: reservation.record.order, idempotentReplay: true };
@@ -688,21 +700,22 @@ export async function processOrderSubmission(
     if (reservation.status === 'in_progress') {
       return {
         success: false,
-        error: reservation.error || "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
+        uncertain: true,
+        error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement. Réessayez avec la même clé sans modifier le panier."
       };
     }
 
     if (reservation.status === 'ambiguous') {
       const pendingId = reservation.record?.pendingOrderId;
       if (!pendingId) {
-        return { success: false, error: "La clé d'idempotence est dans un état ambigu sans identifiant traçable. Nouvelle tentative interrompue." };
+        return { success: false, uncertain: true, error: "La clé d'idempotence est dans un état ambigu sans identifiant traçable. Vérification nécessaire avant toute nouvelle tentative." };
       }
       if (!dataProvider.getOrderById) {
-        return { success: false, error: "Sonde Firestore indisponible : impossible de vérifier si la commande précédente a été enregistrée." };
+        return { success: false, uncertain: true, error: "Impossible de vérifier si la commande précédente a été enregistrée. Réessayez avec la même clé." };
       }
       const probe = await dataProvider.getOrderById(cleanSlug, pendingId);
       if (probe.status === 'error') {
-        return { success: false, error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé." };
+        return { success: false, uncertain: true, error: "Impossible de vérifier la commande précédente. Réessayez avec la même clé." };
       }
       if (probe.status === 'found') {
         if (dataProvider.commitIdempotencyKey) {
@@ -710,11 +723,12 @@ export async function processOrderSubmission(
         }
         return { success: true, order: probe.order, idempotentReplay: true };
       }
-      if (dataProvider.transitionKeyToProcessing) {
-        const transitioned = await dataProvider.transitionKeyToProcessing(cleanKey, currentSignature, 'ambiguous');
-        if (!transitioned) {
-          return { success: false, error: "Une autre instance a déjà repris le traitement de cette clé d'idempotence ambiguë." };
-        }
+      if (!dataProvider.transitionKeyToProcessing) {
+        return { success: false, uncertain: true, error: "La reprise sécurisée de cette commande n'est pas disponible. Vérification nécessaire." };
+      }
+      const transitioned = await dataProvider.transitionKeyToProcessing(cleanKey, currentSignature, 'ambiguous');
+      if (!transitioned) {
+        return { success: false, uncertain: true, error: "Une autre instance a déjà repris le traitement de cette clé. Réessayez avec la même clé." };
       }
     }
   }
@@ -739,12 +753,14 @@ export async function processOrderSubmission(
         } catch (markErr: any) {
           return {
             success: false,
+            uncertain: true,
             error: "Le statut de la commande ne peut pas être confirmé. Réessayez avec la même clé sans modifier le panier."
           };
         }
       }
       return {
         success: false,
+        uncertain: true,
         error: "Le statut de la commande est incertain. Réessayez avec la même clé sans modifier le panier."
       };
     }
@@ -763,7 +779,8 @@ export async function processOrderSubmission(
       }
       return {
         success: false,
-        error: `La commande a été enregistrée dans Firestore mais la confirmation d'idempotence a échoué (${commitErr.message}).`
+        uncertain: true,
+        error: "La commande a peut-être été enregistrée, mais sa confirmation a échoué. Réessayez avec la même clé sans modifier le panier."
       };
     }
   }
