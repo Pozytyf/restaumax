@@ -59,6 +59,7 @@ import { RestaurantHubView } from './components/restaumax/RestaurantHubView';
 import { ManagerLoginView } from './components/restaumax/ManagerLoginView';
 import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
 import { QrScannerModal } from './components/restaumax/QrScannerModal';
+import { PlatformAdminView } from './components/restaumax/PlatformAdminView';
 
 /**
  * Mappe de façon déterministe et stable une commande Firestore RestauOrder vers un ticket KDS KitchenTicket
@@ -136,8 +137,9 @@ export default function App() {
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
   const isStaffRoute = activePathname === '/staff';
+  const isPlatformAdminRoute = activePathname === '/admin';
   const isRestaurantHubRoute = activePathname.startsWith('/gestion');
-  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute;
+  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute && !isPlatformAdminRoute;
 
   // Sync with browser history
   useEffect(() => {
@@ -881,7 +883,10 @@ export default function App() {
         )
       )}
 
-      {/* 3. RestauMax Home Landing Page: / */}
+      {/* 3. Central platform administration: /admin */}
+      {isPlatformAdminRoute && <PlatformAdminView onBack={() => navigateTo('/')} />}
+
+      {/* 4. RestauMax Home Landing Page: / */}
       {isHomePageRoute && (
         <HomePage
           onGoToMenuWithTable={(tbl) => {
@@ -897,7 +902,7 @@ export default function App() {
         />
       )}
 
-      {/* 4. Protected Staff Internal Workspaces: /staff */}
+      {/* 5. Protected Staff Internal Workspaces: /staff */}
       {isStaffRoute && (
         isLoadingAuth ? (
           <div className="flex-1 flex items-center justify-center p-8 text-sm text-slate-600">
