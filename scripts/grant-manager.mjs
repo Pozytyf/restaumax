@@ -103,7 +103,7 @@ async function main() {
   }, { merge: true });
 
   console.log(`✓ Document Firestore validé dans ${db.databaseId}/managers/${userRecord.uid}.`);
-  console.log(`✓ L'utilisateur ${userRecord.email} est désormais habilité comme Gestionnaire RestauMax.`);
+  console.log(`✓ L'utilisateur ${userRecord.email} est désormais habilité sur ${restaurantSlug} (rôle : ${assignedRole}).`);
 }
 
 main().catch((err) => {
