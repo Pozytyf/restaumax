@@ -319,6 +319,119 @@ export function evaluateOrderTransactionDecision(params: TransactionEvaluationPa
   return { type: 'CREATE_NOMINAL' };
 }
 
+// Exécute la véritable transaction atomique d'idempotence Firestore en mode Fail-Closed.
+// Permet l'injection directe d'une instance Firestore (adminDb de production ou Firestore Emulator).
+export async function executeOrderTransactionWithDb(db: any, params: any) {
+  if (!db) {
+    throw new Error("Opération refusée : Instance Firestore non disponible.");
+  }
+  const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate } = params;
+  const docRefKey = db.collection('idempotency_keys').doc(keyDocId);
+  const docRefOrder = db.collection('restaurants').doc(restaurantSlug).collection('orders').doc(orderId);
+
+  return await db.runTransaction(async (t: any) => {
+    // 1. Lectures préalables obligatoires
+    const [snapKey, snapOrder] = await Promise.all([
+      t.get(docRefKey),
+      t.get(docRefOrder)
+    ]);
+
+    const keyExists = snapKey.exists;
+    const orderExists = snapOrder.exists;
+    const keyData = keyExists ? snapKey.data() : null;
+    const orderData = orderExists ? snapOrder.data() : null;
+
+    // 2. Décision d'intégrité Fail-Closed
+    const decision = evaluateOrderTransactionDecision({
+      restaurantSlug,
+      idempotencyKey,
+      keyDocId,
+      orderId,
+      signature,
+      keyExists,
+      keyData,
+      orderExists,
+      orderData
+    });
+
+    if (decision.type === 'REJECT') {
+      return {
+        success: false,
+        conflict: decision.conflict,
+        error: decision.error
+      };
+    }
+
+    if (decision.type === 'REPLAY_NOMINAL') {
+      return {
+        success: true,
+        order: decision.order,
+        idempotentReplay: true
+      };
+    }
+
+    if (decision.type === 'RECONCILE_AND_REPLAY') {
+      t.set(docRefKey, {
+        id: keyDocId,
+        namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
+        restaurantSlug,
+        signature,
+        orderId,
+        status: 'completed',
+        createdAt: keyData?.createdAt || Date.now(),
+        updatedAt: Date.now()
+      }, { merge: true });
+      return {
+        success: true,
+        order: decision.order,
+        idempotentReplay: true
+      };
+    }
+
+    if (decision.type === 'AUTO_REPAIR') {
+      t.set(docRefKey, {
+        id: keyDocId,
+        namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
+        restaurantSlug,
+        signature,
+        orderId,
+        status: 'completed',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      return {
+        success: true,
+        order: decision.order,
+        idempotentReplay: true
+      };
+    }
+
+    // CREATE_NOMINAL : Première soumission nominale ou reprise après échec
+    t.set(docRefOrder, orderToCreate);
+    t.set(docRefKey, {
+      id: keyDocId,
+      namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
+      restaurantSlug,
+      signature,
+      orderId,
+      status: 'completed',
+      createdAt: keyData?.createdAt || Date.now(),
+      updatedAt: Date.now()
+    });
+
+    return {
+      success: true,
+      order: orderToCreate,
+      idempotentReplay: false
+    };
+  });
+}
+
+export async function executeOrderTransaction(params: any, dbOverride?: any) {
+  const db = dbOverride || adminDb;
+  return await executeOrderTransactionWithDb(db, params);
+}
+
 // Fournisseur Firestore serveur reposant EXCLUSIVEMENT sur Firebase Admin SDK
 // Suppression totale du recours au SDK client pour les écritures de commande
 export const serverFirestoreProvider: ServerFirestoreProvider = {
@@ -350,110 +463,12 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
   },
 
   // Transaction atomique unifiée Fail-Closed (L'exigence centrale 4.4 : Création et finalisation dans la même transaction Firestore)
-  async executeOrderTransaction(params: any) {
-    if (!adminDb) {
+  async executeOrderTransaction(params: any, dbOverride?: any) {
+    const db = dbOverride || adminDb;
+    if (!db) {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
-    const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate } = params;
-    const docRefKey = adminDb.collection('idempotency_keys').doc(keyDocId);
-    const docRefOrder = adminDb.collection('restaurants').doc(restaurantSlug).collection('orders').doc(orderId);
-
-    return await adminDb.runTransaction(async (t: any) => {
-      // 1. Lectures préalables obligatoires
-      const [snapKey, snapOrder] = await Promise.all([
-        t.get(docRefKey),
-        t.get(docRefOrder)
-      ]);
-
-      const keyExists = snapKey.exists;
-      const orderExists = snapOrder.exists;
-      const keyData = keyExists ? snapKey.data() : null;
-      const orderData = orderExists ? snapOrder.data() : null;
-
-      // 2. Décision d'intégrité Fail-Closed
-      const decision = evaluateOrderTransactionDecision({
-        restaurantSlug,
-        idempotencyKey,
-        keyDocId,
-        orderId,
-        signature,
-        keyExists,
-        keyData,
-        orderExists,
-        orderData
-      });
-
-      if (decision.type === 'REJECT') {
-        return {
-          success: false,
-          conflict: decision.conflict,
-          error: decision.error
-        };
-      }
-
-      if (decision.type === 'REPLAY_NOMINAL') {
-        return {
-          success: true,
-          order: decision.order,
-          idempotentReplay: true
-        };
-      }
-
-      if (decision.type === 'RECONCILE_AND_REPLAY') {
-        t.set(docRefKey, {
-          id: keyDocId,
-          namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
-          restaurantSlug,
-          signature,
-          orderId,
-          status: 'completed',
-          createdAt: keyData?.createdAt || Date.now(),
-          updatedAt: Date.now()
-        }, { merge: true });
-        return {
-          success: true,
-          order: decision.order,
-          idempotentReplay: true
-        };
-      }
-
-      if (decision.type === 'AUTO_REPAIR') {
-        t.set(docRefKey, {
-          id: keyDocId,
-          namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
-          restaurantSlug,
-          signature,
-          orderId,
-          status: 'completed',
-          createdAt: Date.now(),
-          updatedAt: Date.now()
-        });
-        return {
-          success: true,
-          order: decision.order,
-          idempotentReplay: true
-        };
-      }
-
-      // CREATE_NOMINAL : Première soumission nominale ou reprise après échec
-      t.set(docRefOrder, orderToCreate);
-      t.set(docRefKey, {
-        id: keyDocId,
-        namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
-        restaurantSlug,
-        signature,
-        orderId,
-        status: 'completed',
-        createdAt: keyData?.createdAt || Date.now(),
-        updatedAt: Date.now()
-      });
-
-      return {
-        success: true,
-        order: orderToCreate,
-        idempotentReplay: false
-      };
-    });
+    return await executeOrderTransactionWithDb(db, params);
   },
 
   // Sonde de vérification Firestore stricte (distingue 'found', 'not_found' et 'error')

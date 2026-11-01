@@ -130,12 +130,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             </div>
             <button
               onClick={() => {
-                if (window.confirm('Voulez-vous vider tous les articles du panier ?')) {
+                const message = isUncertain 
+                  ? "Attention : une commande a peut-être déjà été transmise au restaurant. Voulez-vous vraiment abandonner et vider votre panier ?"
+                  : "Voulez-vous vider tous les articles du panier ?";
+                if (window.confirm(message)) {
                   sounds.playTap();
-                  onClearCart();
+                  if (isUncertain && onResetUncertainty) {
+                    onResetUncertainty();
+                  } else {
+                    onClearCart();
+                  }
                 }
               }}
-              disabled={isSubmitting || isUncertain}
+              disabled={isSubmitting}
               className="text-rose-700 hover:text-rose-900 hover:underline flex items-center gap-1 font-bold text-[10px] disabled:opacity-50"
             >
               <Trash2 size={11} />

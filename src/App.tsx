@@ -18,7 +18,7 @@ import {
   INITIAL_DRAWER_STATE 
 } from './data/mockData';
 import { CHEZ_AWA_RESTAURANT, CHEZ_AWA_MENU_ITEMS } from './data/restaumaxData';
-import { RestauMenuItem, ClientCartItem, RestaurantInfo, RestauOrder, RestaurantTable } from './types/restaumax';
+import { RestauMenuItem, ClientCartItem, RestaurantInfo, RestauOrder, RestaurantTable, RestauOrderStatus } from './types/restaumax';
 import { 
   subscribeToRestaurant, 
   subscribeToMenuItems, 
@@ -36,8 +36,13 @@ import {
   subscribeToAuth,
   type User
 } from './lib/firebase';
-import { RestauOrderStatus } from './types/restaumax';
 import { validateAndBuildOrder, generateClientOrderIdempotencyKey } from './utils/pricing';
+import { 
+  savePendingOrderIntent, 
+  loadPendingOrderIntent, 
+  clearPendingOrderIntent, 
+  updatePendingOrderIntentUncertainty 
+} from './utils/orderIntentStorage';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -305,10 +310,36 @@ export default function App() {
     setIsAuthorizedManager(false);
   };
 
-  // RestauMax Client Cart & Idempotency Key State (Preserved across routing)
-  const [clientCart, setClientCart] = useState<ClientCartItem[]>([]);
-  const [clientOrderIdempotencyKey, setClientOrderIdempotencyKey] = useState<string>(() => generateClientOrderIdempotencyKey());
-  const [isOrderUncertain, setIsOrderUncertain] = useState<boolean>(false);
+  // RestauMax Client Cart & Idempotency Key State (Preserved across routing and page reloads via sessionStorage)
+  const [clientCart, setClientCart] = useState<ClientCartItem[]>(() => {
+    const saved = loadPendingOrderIntent();
+    return saved?.cart && saved.cart.length > 0 ? saved.cart : [];
+  });
+  const [clientOrderIdempotencyKey, setClientOrderIdempotencyKey] = useState<string>(() => {
+    const saved = loadPendingOrderIntent();
+    return saved?.idempotencyKey ? saved.idempotencyKey : generateClientOrderIdempotencyKey();
+  });
+  const [isOrderUncertain, setIsOrderUncertain] = useState<boolean>(() => {
+    const saved = loadPendingOrderIntent();
+    return Boolean(saved?.isUncertain);
+  });
+
+  // Synchronisation automatique de l'intention de commande avec sessionStorage
+  useEffect(() => {
+    if (clientCart.length > 0) {
+      savePendingOrderIntent({
+        restaurantSlug: 'chez-awa',
+        orderMode: activeTableNumber ? 'sur_place' : 'a_emporter',
+        tableNumber: activeTableNumber,
+        cart: clientCart,
+        idempotencyKey: clientOrderIdempotencyKey,
+        timestamp: Date.now(),
+        isUncertain: isOrderUncertain
+      });
+    } else if (!isOrderUncertain) {
+      clearPendingOrderIntent();
+    }
+  }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber]);
 
   const handleToggleDishAvailability = (dishId: string) => {
     const currentDish = restauMenuItems.find((i) => i.id === dishId);
@@ -401,10 +432,12 @@ export default function App() {
 
   const handleClearClientCart = () => {
     if (isOrderUncertain) return;
+    clearPendingOrderIntent();
     setClientCart([]);
   };
 
   const handleResetUncertainty = () => {
+    clearPendingOrderIntent();
     setIsOrderUncertain(false);
     setClientCart([]);
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
@@ -412,6 +445,20 @@ export default function App() {
 
   // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation & atomic idempotency)
   const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
+    const orderMode = activeTableNumber ? 'sur_place' : 'a_emporter';
+    
+    // Sauvegarder l'intention client complète dans sessionStorage AVANT la soumission
+    savePendingOrderIntent({
+      restaurantSlug: 'chez-awa',
+      orderMode,
+      tableNumber: activeTableNumber,
+      cart: clientCart,
+      idempotencyKey: clientOrderIdempotencyKey,
+      customerNote,
+      timestamp: Date.now(),
+      isUncertain: false
+    });
+
     const clientDeclaredTotal = clientCart.reduce(
       (sum, item) => sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1),
       0
@@ -419,7 +466,7 @@ export default function App() {
 
     const submitRes = await submitOrderWithServerValidation('chez-awa', {
       cart: clientCart,
-      orderMode: activeTableNumber ? 'sur_place' : 'a_emporter',
+      orderMode,
       tableNumber: activeTableNumber,
       customerNote,
       idempotencyKey: clientOrderIdempotencyKey,
@@ -430,7 +477,8 @@ export default function App() {
 
     if (!submitRes.success) {
       if (submitRes.conflict) {
-        // Conflit d'intégrité d'idempotence (Cas D) : régénérer la clé pour permettre une nouvelle intention propre
+        // Conflit d'intégrité d'idempotence (Cas D) : vider l'intention et régénérer la clé pour une nouvelle intention propre
+        clearPendingOrderIntent();
         setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
         setIsOrderUncertain(false);
         return { 
@@ -439,12 +487,15 @@ export default function App() {
         };
       }
 
-      // Échec serveur / réseau : état incertain, panier verrouillé, conservation stricte de la même clé d'idempotence
+      // Échec serveur / réseau : état incertain, panier verrouillé, conservation stricte de la même clé et du panier dans sessionStorage
       setIsOrderUncertain(true);
+      updatePendingOrderIntentUncertainty(true);
       return { success: false, error: submitRes.error };
     }
 
     const confirmedOrder = submitRes.order;
+    // Succès confirmé (écriture Firestore confirmée) : nettoyage strict de l'intention persistée
+    clearPendingOrderIntent();
     setIsOrderUncertain(false);
 
     // Renouvellement de la clé d'idempotence pour la prochaine intention de commande
