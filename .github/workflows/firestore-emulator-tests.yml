@@ -29,8 +29,8 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Installation propre des dépendances npm
-        run: npm ci --legacy-peer-deps
+      - name: Installation des dépendances npm (réconciliation du lockfile)
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: 1. Contrôle statique TypeScript (lint)
         run: npm run lint
