@@ -296,7 +296,7 @@ export default function App() {
       const owner = token.claims.role === 'owner';
       const superAdmin = token.claims.role === 'super_admin' || token.claims.role === 'admin';
       setIsRestaurantOwner(owner);
-      setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
     }).catch(() => { if (active) { setIsRestaurantOwner(false); setUserPermissions([]); } });
     return () => { active = false; };
   }, [authUser]);
@@ -313,7 +313,7 @@ export default function App() {
         setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
         setAuthIsSuperAdmin(superAdmin);
         setIsRestaurantOwner(owner);
-        setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+        setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
       }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setUserPermissions([]); });
       else { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); }
     });
@@ -379,7 +379,7 @@ export default function App() {
       setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
       setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
       setIsRestaurantOwner(token.claims.role === 'owner');
-      setUserPermissions(token.claims.role === 'owner' || token.claims.role === 'super_admin' || token.claims.role === 'admin' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setUserPermissions(token.claims.role === 'owner' || token.claims.role === 'super_admin' || token.claims.role === 'admin' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
       return { success: true };
     }
     return { success: false, error: res.error };
@@ -426,43 +426,41 @@ export default function App() {
     }
   }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber]);
 
-  const handleToggleDishAvailability = (dishId: string) => {
-    const currentDish = restauMenuItems.find((i) => i.id === dishId);
-    const nextAvailable = currentDish ? currentDish.available === false : false;
-
-    // Optimistic local state update
-    setRestauMenuItems((prev) =>
-      prev.map((item) =>
+  const handleToggleDishAvailability = async (dishId: string) => {
+    const currentDish = restauMenuItems.find((item) => item.id === dishId);
+    if (!currentDish) return;
+    const nextAvailable = currentDish.available === false;
+    try {
+      await persistDishAvailability(activeRestaurantSlug, dishId, nextAvailable);
+      setRestauMenuItems((prev) => prev.map((item) =>
         item.id === dishId ? { ...item, available: nextAvailable } : item
-      )
-    );
-
-    // Asynchronous Firestore persistence
-    persistDishAvailability(activeRestaurantSlug, dishId, nextAvailable).catch((err) => {
+      ));
+    } catch (err) {
       console.error('Erreur de persistance de la disponibilité dans Firestore:', err);
-    });
+      window.alert("La disponibilité n'a pas été modifiée. Vérifiez votre connexion et vos droits, puis réessayez.");
+    }
   };
 
-  const handleCreateDish = (newDish: RestauMenuItem) => {
-    // Optimistic local state update
-    setRestauMenuItems((prev) => [newDish, ...prev]);
-
-    // Asynchronous Firestore persistence
-    persistMenuItem(activeRestaurantSlug, newDish).catch((err) => {
+  const handleCreateDish = async (newDish: RestauMenuItem) => {
+    try {
+      await persistMenuItem(activeRestaurantSlug, newDish);
+      setRestauMenuItems((prev) => [newDish, ...prev]);
+    } catch (err) {
       console.error('Erreur de persistance du nouveau plat dans Firestore:', err);
-    });
+      window.alert("Le plat n'a pas été enregistré. Vérifiez les champs et vos droits, puis réessayez.");
+    }
   };
 
-  const handleUpdateDish = (updatedDish: RestauMenuItem) => {
-    // Optimistic local state update
-    setRestauMenuItems((prev) =>
-      prev.map((item) => (item.id === updatedDish.id ? updatedDish : item))
-    );
-
-    // Asynchronous Firestore persistence
-    persistMenuItem(activeRestaurantSlug, updatedDish).catch((err) => {
+  const handleUpdateDish = async (updatedDish: RestauMenuItem) => {
+    try {
+      await persistMenuItem(activeRestaurantSlug, updatedDish);
+      setRestauMenuItems((prev) => prev.map((item) =>
+        item.id === updatedDish.id ? updatedDish : item
+      ));
+    } catch (err) {
       console.error('Erreur de mise à jour du plat dans Firestore:', err);
-    });
+      window.alert("Les modifications du plat n'ont pas été enregistrées. Réessayez.");
+    }
   };
 
   const handleDeleteDish = async (dishId: string) => {
@@ -638,11 +636,14 @@ export default function App() {
     });
   };
 
-  const handleDeleteTable = (tableId: string) => {
-    setRestauTables(prev => prev.filter(t => t.id !== tableId));
-    deleteTable(activeRestaurantSlug, tableId).catch(err => {
+  const handleDeleteTable = async (tableId: string) => {
+    try {
+      await deleteTable(activeRestaurantSlug, tableId);
+      setRestauTables(prev => prev.filter(t => t.id !== tableId));
+    } catch (err) {
       console.error('Erreur de suppression de la table dans Firestore:', err);
-    });
+      window.alert("La table n'a pas été supprimée. Vérifiez vos droits et réessayez.");
+    }
   };
 
   // POS Handlers
@@ -1034,6 +1035,7 @@ export default function App() {
 
           <ReceiptModal
             receipt={activeReceiptModal}
+            restaurant={restaurant}
             onClose={() => setActiveReceiptModal(null)}
           />
         </div>

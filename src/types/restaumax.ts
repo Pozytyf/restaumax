@@ -72,6 +72,9 @@ export interface RestaurantInfo {
   logoUrl: string;
   isOpen: boolean;
   openingHours: string;
+  taxRatePercent?: number;
+  receiptFooter?: string;
+  receiptPaperWidth?: '58mm' | '80mm';
 }
 
 export type OrderMode = 'sur_place' | 'a_emporter';

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { auth } from '../../lib/firebase';
-import { ArrowLeft, UserPlus, Shield, UserX, RefreshCw } from 'lucide-react';
+import { ArrowLeft, UserPlus, Shield, UserX, RefreshCw, Eye, EyeOff } from 'lucide-react';
 
 const PERMISSIONS = [
   ['menu.view', 'Consulter le menu'], ['menu.manage', 'Modifier le menu'],
@@ -8,7 +8,7 @@ const PERMISSIONS = [
   ['tables.view', 'Consulter les tables'], ['tables.manage', 'Gérer les tables'],
   ['pos.access', 'Accéder à la caisse'], ['kitchen.access', 'Accéder à la cuisine'],
   ['cash.view', 'Consulter la caisse'], ['cash.manage', 'Gérer les encaissements'],
-  ['reports.view', 'Consulter les rapports'], ['staff.view', 'Consulter le personnel'],
+  ['reports.view', 'Consulter les rapports'], ['customers.view', 'Consulter les clients'], ['customers.manage', 'Gérer les clients'], ['inventory.view', 'Consulter les stocks'], ['inventory.manage', 'Gérer les stocks'], ['staff.view', 'Consulter le personnel'],
   ['staff.manage', 'Gérer le personnel'], ['settings.view', 'Consulter les paramètres'],
   ['settings.manage', 'Modifier les paramètres']
 ] as const;
@@ -23,6 +23,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [editRole, setEditRole] = useState<'manager'|'staff'>('staff');
   const [editPermissions, setEditPermissions] = useState<string[]>([]);
+  const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'staff' as 'manager'|'staff', permissions: ['menu.view','orders.view','tables.view','kitchen.access'] });
 
   const request = useCallback(async (body?: Record<string, unknown>) => {
@@ -102,7 +103,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
         <div className="grid gap-3 md:grid-cols-2">
           <input required placeholder="Nom complet" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="rounded-lg border border-slate-300 p-3"/>
           <input required type="email" placeholder="Adresse e-mail" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} className="rounded-lg border border-slate-300 p-3"/>
-          <input required minLength={10} type="password" placeholder="Mot de passe initial (10 caractères min.)" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} className="rounded-lg border border-slate-300 p-3"/>
+          <div className="relative"><input required minLength={10} type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="Mot de passe initial (10 caractères min.)" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} className="w-full rounded-lg border border-slate-300 p-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div>
           <select value={form.role} onChange={e=>setForm({...form,role:e.target.value as 'manager'|'staff'})} className="rounded-lg border border-slate-300 p-3"><option value="staff">Personnel</option><option value="manager">Gérant</option></select>
         </div>
         <div><p className="mb-2 text-sm font-bold">Autorisations accordées</p><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{PERMISSIONS.map(([id,label])=><label key={id} className="flex items-center gap-2 rounded-lg bg-slate-50 p-2 text-sm"><input type="checkbox" checked={form.permissions.includes(id)} onChange={()=>togglePermission(id)}/>{label}</label>)}</div></div>
