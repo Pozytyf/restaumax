@@ -41,6 +41,13 @@ jobs:
       - name: 1. Contrôle statique TypeScript (lint)
         run: npm run lint
 
+      - name: Validation syntaxique des scripts d'administration
+        run: |
+          node --check scripts/firebase-admin-config.mjs
+          node --check scripts/grant-manager.mjs
+          node --check scripts/test-firestore-rules.mjs
+          node --check scripts/test-order-error-classification.mjs
+
       - name: 2. Tests de persistance de l'intention client (test:intent)
         run: npm run test:intent
 
