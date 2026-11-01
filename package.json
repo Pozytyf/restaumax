@@ -15,7 +15,8 @@
     "test:emulator": "tsx scripts/test-firestore-emulator-ambiguous.mjs",
     "test:intent": "tsx scripts/test-client-intent.mjs",
     "test": "npm run test:lot1 && npm run test:lot2 && npm run test:emulator && npm run test:intent",
-    "test:rules": "node scripts/test-firestore-rules.mjs"
+    "test:rules": "node scripts/test-firestore-rules.mjs",
+    "test:order-errors": "tsx scripts/test-order-error-classification.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
