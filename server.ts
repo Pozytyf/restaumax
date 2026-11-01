@@ -57,7 +57,58 @@ const isProd = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
-app.use(express.json());
+
+// Cloud Run is behind Google's trusted proxy. Outside Cloud Run, trust proxy only
+// when explicitly configured to avoid accepting spoofed X-Forwarded-For headers.
+const trustProxySetting = (process.env.TRUST_PROXY || '').trim().toLowerCase();
+if (trustProxySetting === '1' || trustProxySetting === 'true') {
+  app.set('trust proxy', 1);
+} else if (trustProxySetting === '0' || trustProxySetting === 'false') {
+  app.set('trust proxy', false);
+} else if (process.env.K_SERVICE) {
+  app.set('trust proxy', 1);
+}
+
+app.use(express.json({ limit: '100kb' }));
+
+// Per-instance fixed-window protection for the public QR order endpoint.
+// For multi-instance/global enforcement, add an edge or shared-store limiter before launch.
+const orderRateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
+const ORDER_RATE_LIMIT_WINDOW_MS = 60_000;
+const ORDER_RATE_LIMIT_MAX_REQUESTS = 60;
+const ORDER_RATE_LIMIT_MAX_CLIENTS = 10_000;
+
+function orderSubmissionRateLimiter(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  let bucket = orderRateLimitBuckets.get(clientIp);
+
+  if (!bucket || bucket.resetAt <= now) {
+    if (!bucket && orderRateLimitBuckets.size >= ORDER_RATE_LIMIT_MAX_CLIENTS) {
+      for (const [ip, entry] of orderRateLimitBuckets) {
+        if (entry.resetAt <= now) orderRateLimitBuckets.delete(ip);
+      }
+      if (orderRateLimitBuckets.size >= ORDER_RATE_LIMIT_MAX_CLIENTS) {
+        const oldestIp = orderRateLimitBuckets.keys().next().value;
+        if (oldestIp) orderRateLimitBuckets.delete(oldestIp);
+      }
+    }
+    bucket = { count: 0, resetAt: now + ORDER_RATE_LIMIT_WINDOW_MS };
+    orderRateLimitBuckets.set(clientIp, bucket);
+  }
+
+  bucket.count += 1;
+  if (bucket.count > ORDER_RATE_LIMIT_MAX_REQUESTS) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+    return res.status(429).json({
+      success: false,
+      error: 'Trop de tentatives de commande depuis cette connexion. Veuillez patienter avant de réessayer.'
+    });
+  }
+
+  next();
+}
 
 // 1. Initialisation stricte de Firebase Admin SDK
 let adminDb: any = null;
@@ -681,7 +732,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
 };
 
 // 3. Route API : Soumission, recalcul de confiance et persistance de commande
-app.post('/api/orders', async (req, res) => {
+app.post('/api/orders', orderSubmissionRateLimiter, async (req, res) => {
   // RÈGLE CRITIQUE D'AUDIT : Interdire formellement le traitement des commandes
   // si Firebase Admin SDK n'est pas initialisé correctement.
   if (!adminDb) {
