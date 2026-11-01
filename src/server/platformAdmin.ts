@@ -90,7 +90,16 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 400, { success: false, error: 'Renseignez le restaurant, le propriétaire, un e-mail valide et un mot de passe temporaire de 10 caractères minimum.' });
         }
         const restaurantRef = db.collection('restaurants').doc(slug);
-        if ((await restaurantRef.get()).exists) return json(res, 409, { success: false, error: 'Ce slug de restaurant existe déjà.' });
+        let reservationCreated = false;
+        try {
+          await restaurantRef.create({ slug, name, status: 'provisioning', createdAt: Date.now(), createdBy: user.uid });
+          reservationCreated = true;
+        } catch (reservationError: any) {
+          if (reservationError?.code === 6 || reservationError?.code === 'already-exists') {
+            return json(res, 409, { success: false, error: 'Ce slug de restaurant existe déjà.' });
+          }
+          throw reservationError;
+        }
 
         const auth = getAuth();
         let ownerUser: any = null;
@@ -120,6 +129,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 201, { success: true, restaurant: { slug, name }, owner: { uid: ownerUser.uid, email: ownerEmail } });
         } catch (error: any) {
           if (ownerUser?.uid) await auth.deleteUser(ownerUser.uid).catch(() => undefined);
+          if (reservationCreated) await restaurantRef.delete().catch(() => undefined);
           throw error;
         }
       }
