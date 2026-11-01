@@ -495,13 +495,13 @@ export default function App() {
 
     if (!submitRes.success) {
       if (submitRes.conflict) {
-        // Conflit d'intégrité d'idempotence (Cas D) : vider l'intention et régénérer la clé pour une nouvelle intention propre
-        clearPendingOrderIntent();
-        setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
-        setIsOrderUncertain(false);
-        return { 
-          success: false, 
-          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Veuillez soumettre à nouveau." 
+        // Une clé déjà associée à une autre intention peut correspondre à une commande persistée.
+        // Ne jamais effacer l'intention ni générer une nouvelle clé automatiquement : cela pourrait doubler la commande.
+        setIsOrderUncertain(true);
+        updatePendingOrderIntentUncertainty(true);
+        return {
+          success: false,
+          error: submitRes.error || "Cette clé est déjà associée à une autre commande. Votre panier est verrouillé pour éviter un doublon; une vérification est nécessaire."
         };
       }
 
