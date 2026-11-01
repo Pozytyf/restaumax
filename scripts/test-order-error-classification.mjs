@@ -63,6 +63,18 @@ const persistedOrder = {
 let catalogReadDuringReplay = false;
 const replay = await processOrderSubmission(payload, {
   ...validProvider,
+  async getIdempotencyRecord() {
+    return {
+      id: replayIds.keyDocId,
+      namespacedKey: `${payload.restaurantSlug}:${payload.idempotencyKey}`,
+      restaurantSlug: payload.restaurantSlug,
+      signature: replaySignature,
+      orderId: replayIds.orderId,
+      status: 'completed',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+  },
   async getOrderById() { return { status: 'found', order: persistedOrder }; },
   async getMenuItems() {
     catalogReadDuringReplay = true;
