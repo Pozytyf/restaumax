@@ -35,6 +35,21 @@ jobs:
       - name: Installation propre et reproductible des dépendances npm
         run: npm ci --legacy-peer-deps
 
+      - name: Audit de sécurité des dépendances npm
+        run: |
+          npm audit --json > npm-audit.json || true
+          node <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('npm-audit.json', 'utf8'));
+          console.log('Vulnérabilités npm :', JSON.stringify(report.metadata?.vulnerabilities || {}));
+          for (const [name, item] of Object.entries(report.vulnerabilities || {})) {
+            console.log(`- ${name}: ${item.severity}; direct=${item.isDirect}; fixAvailable=${JSON.stringify(item.fixAvailable)}`);
+            for (const advisory of item.via || []) {
+              if (typeof advisory === 'object') console.log(`  • ${advisory.title} | ${advisory.range} | ${advisory.url}`);
+            }
+          }
+          NODE
+
       - name: 1. Contrôle statique TypeScript (lint)
         run: npm run lint
 
