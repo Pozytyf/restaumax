@@ -54,6 +54,7 @@ export interface RestaurantHubViewProps {
   currentUserEmail?: string | null;
   onSignOut?: () => void;
   canManageStaff?: boolean;
+  permissions?: string[];
 }
 
 interface ModuleDefinition {
@@ -88,7 +89,8 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   onDeleteDish,
   currentUserEmail,
   onSignOut,
-  canManageStaff = false
+  canManageStaff = false,
+  permissions = []
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog' | 'qr_tables' | 'staff'>('overview');
   // Format current date in French standard
@@ -516,7 +518,17 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {modules.filter((mod) => mod.id !== 'staff' || canManageStaff).map((mod) => {
+            {modules.filter((mod) => {
+              if (mod.id === 'staff') return canManageStaff;
+              const required: Record<string, string[]> = {
+                menu: ['menu.view', 'menu.manage'], 'options-prices': ['menu.view', 'menu.manage'],
+                orders: ['pos.access', 'orders.view', 'orders.manage'], kitchen: ['kitchen.access'],
+                floor: ['tables.view', 'tables.manage'], 'cash-register': ['cash.view', 'cash.manage'],
+                reports: ['reports.view'], customers: ['reports.view'], inventory: ['settings.view'], settings: ['settings.view']
+              };
+              const needed = required[mod.id];
+              return !needed || needed.some(permission => permissions.includes(permission));
+            }).map((mod) => {
               const Icon = mod.icon;
               const isActive = mod.status === 'active';
 
