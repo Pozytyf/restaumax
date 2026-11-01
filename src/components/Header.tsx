@@ -64,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
             Terminal POS
           </button>}
 
-          {(permissions.includes('tables.view') || permissions.includes('tables.manage')) && <button
+          {permissions.includes('tables.manage') && <button
             onClick={() => onSelectRole('floor')}
             className={`px-3 py-1.5 text-xs lg:text-sm font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
               currentRole === 'floor'
