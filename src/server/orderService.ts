@@ -8,6 +8,8 @@ import {
 } from '../types/restaumax.js';
 import { calculateOrderTotal, sanitizeNote } from '../utils/pricing.js';
 
+export const DEFAULT_IDEMPOTENCY_TIMEOUT_MS = 15_000;
+
 export interface OrderSubmissionPayload {
   restaurantSlug: string;
   cart: Array<{
@@ -321,6 +323,26 @@ export async function processOrderSubmission(
         return replayResult.success
           ? { ...replayResult, idempotentReplay: true }
           : replayResult;
+      }
+
+      if (existingOrderProbe.status === 'not_found') {
+        if (existingKeyRecord.status === 'completed') {
+          return {
+            success: false,
+            uncertain: true,
+            error: "Le registre indique une commande confirmée, mais le document de commande est introuvable. Ne modifiez pas le panier; une vérification est nécessaire."
+          };
+        }
+        if (existingKeyRecord.status === 'processing') {
+          const startedAt = existingKeyRecord.createdAt || existingKeyRecord.updatedAt || existingKeyRecord.timestamp || 0;
+          if (Date.now() - startedAt < DEFAULT_IDEMPOTENCY_TIMEOUT_MS) {
+            return {
+              success: false,
+              uncertain: true,
+              error: "La commande précédente est encore en cours de traitement. Réessayez avec la même clé sans modifier le panier."
+            };
+          }
+        }
       }
     }
   }
