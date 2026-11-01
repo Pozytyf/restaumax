@@ -632,8 +632,9 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     try {
       const snap = await adminDb.collection('idempotency_keys').doc(key).get();
       return snap.exists ? (snap.data() as ServerIdempotencyRecord) : null;
-    } catch {
-      return null;
+    } catch (err: any) {
+      console.warn('[RestauMax Server] Échec de lecture du registre d’idempotence:', err.message || String(err));
+      throw new Error('Impossible de lire le registre d’idempotence.');
     }
   },
 
