@@ -1,7 +1,7 @@
 name: RestauMax — Tests Firestore Emulator & Qualité
 
 permissions:
-  contents: write
+  contents: read
 
 on:
   push:
@@ -19,8 +19,6 @@ jobs:
     steps:
       - name: Récupération du code source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Configuration de Node.js 24
         uses: actions/setup-node@v4
@@ -34,26 +32,8 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Installation temporaire et réconciliation du lockfile
-        run: npm install --legacy-peer-deps --no-audit --no-fund
-
-      - name: Mise à jour des dépendances vulnérables sans changement majeur
-        run: npm audit fix --legacy-peer-deps
-
-      - name: Commit du lockfile après audit
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          BRANCH_NAME: ${{ github.head_ref }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          if git diff --cached --quiet; then
-            echo "Aucune mise à jour du lockfile nécessaire."
-            exit 0
-          fi
-          git commit -m "chore: apply safe npm audit fixes"
-          git push origin "HEAD:${BRANCH_NAME}"
+      - name: Installation propre et reproductible des dépendances npm
+        run: npm ci --legacy-peer-deps
 
       - name: Audit de sécurité des dépendances npm
         run: |
