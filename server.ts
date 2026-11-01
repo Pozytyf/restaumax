@@ -75,7 +75,7 @@ try {
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec une clé de service validée pour la base '${appletConfig.firestoreDatabaseId}'.`);
-  } else {
+  } else if (process.env.FIRESTORE_EMULATOR_HOST || isProd) {
     // En production (Cloud Run), utiliser le compte de service attaché au runtime via ADC.
     // En CI/local, Firebase Admin détecte automatiquement FIRESTORE_EMULATOR_HOST.
     const adminApp = initAdminApp(null as any, appletConfig.projectId);
@@ -84,6 +84,9 @@ try {
       ? `émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`
       : 'Application Default Credentials (ADC)';
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé via ${authMode} pour la base '${appletConfig.firestoreDatabaseId}'.`);
+  } else {
+    adminInitError = "Firebase Admin SDK non configuré en développement local. Configurez l'émulateur Firestore ou GOOGLE_APPLICATION_CREDENTIALS.";
+    console.warn(`[RestauMax Server] ${adminInitError}`);
   }
 } catch (err: any) {
   adminInitError = err.message || String(err);
