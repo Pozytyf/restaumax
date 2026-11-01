@@ -4,8 +4,9 @@ import {
   signInWithEmailAndPassword, 
   signOut, 
   onAuthStateChanged, 
-  getIdTokenResult, 
-  type User 
+  getIdTokenResult,
+  connectAuthEmulator,
+  type User
 } from 'firebase/auth';
 
 export type { User };
@@ -21,7 +22,8 @@ import {
   onSnapshot,
   query,
   orderBy,
-  writeBatch
+  writeBatch,
+  connectFirestoreEmulator
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { 
@@ -39,6 +41,32 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 // CRITICAL: The app will break without passing the configured firestoreDatabaseId
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+
+// Isolate local development from production Firebase when explicitly requested.
+// The server uses FIRESTORE_EMULATOR_HOST; the browser SDK needs its own connections.
+// import.meta.env is injected by Vite in the browser but absent when this module
+// is imported directly by Node-based unit tests.
+const viteEnv = import.meta.env;
+const useFirebaseEmulators =
+  viteEnv?.DEV === true &&
+  viteEnv?.VITE_USE_FIREBASE_EMULATOR === 'true';
+
+if (useFirebaseEmulators) {
+  const emulatorHost = viteEnv?.VITE_FIRESTORE_EMULATOR_HOST || '127.0.0.1';
+  const rawFirestorePort = Number(viteEnv?.VITE_FIRESTORE_EMULATOR_PORT || 8080);
+  const firestorePort =
+    Number.isInteger(rawFirestorePort) && rawFirestorePort > 0 && rawFirestorePort <= 65535
+      ? rawFirestorePort
+      : 8080;
+  const authEmulatorUrl =
+    viteEnv?.VITE_FIREBASE_AUTH_EMULATOR_URL || `http://${emulatorHost}:9099`;
+
+  connectFirestoreEmulator(db, emulatorHost, firestorePort);
+  connectAuthEmulator(auth, authEmulatorUrl, { disableWarnings: true });
+  console.info(
+    `[RestauMax] Firebase Emulator activé (Firestore: ${emulatorHost}:${firestorePort}, Auth: ${authEmulatorUrl}).`
+  );
+}
 
 // Error Handling Specification
 export enum OperationType {
