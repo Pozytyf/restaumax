@@ -447,7 +447,7 @@ export default function App() {
     );
 
     // Asynchronous Firestore persistence
-    persistMenuItem('chez-awa', updatedDish).catch((err) => {
+    persistMenuItem(activeRestaurantSlug, updatedDish).catch((err) => {
       console.error('Erreur de mise à jour du plat dans Firestore:', err);
     });
   };
@@ -531,7 +531,7 @@ export default function App() {
     
     // Sauvegarder l'intention client complète dans sessionStorage AVANT la soumission
     savePendingOrderIntent({
-      restaurantSlug: 'chez-awa',
+      restaurantSlug: activeRestaurantSlug,
       orderMode,
       tableNumber: activeTableNumber,
       cart: clientCart,
@@ -687,7 +687,7 @@ export default function App() {
         imageUrl: item.menuItem.imageUrl
       }));
 
-      const result = await submitOrderWithServerValidation('chez-awa', {
+      const result = await submitOrderWithServerValidation(activeRestaurantSlug, {
         cart: clientCart,
         orderMode: selectedTable ? 'sur_place' : 'a_emporter',
         tableNumber: selectedTable?.number || null,
@@ -820,7 +820,7 @@ export default function App() {
       previous.map((table) => table.id === tableId ? updated : table)
     );
 
-    persistTable('chez-awa', updated).catch((err) => {
+    persistTable(activeRestaurantSlug, updated).catch((err) => {
       console.error('Erreur de synchronisation du statut de table:', err);
       setRestauTables((previous) =>
         previous.map((table) => table.id === tableId ? existing : table)
@@ -918,9 +918,9 @@ export default function App() {
         <HomePage
           onGoToMenuWithTable={(tbl) => {
             if (tbl) {
-              navigateTo(`/r/chez-awa?table=${tbl}`);
+              navigateTo(`/r/${activeRestaurantSlug}?table=${tbl}`);
             } else {
-              navigateTo('/r/chez-awa');
+              navigateTo(`/r/${activeRestaurantSlug}`);
             }
           }}
           onGoToStaffTools={() => navigateTo('/staff')}
@@ -938,7 +938,7 @@ export default function App() {
         ) : (!authUser || !isAuthorizedManager) ? (
           <ManagerLoginView
             onLogin={handleManagerLogin}
-            onBackToMenu={() => navigateTo('/r/chez-awa')}
+            onBackToMenu={() => navigateTo(`/r/${activeRestaurantSlug}`)}
             restaurantName={restaurant.name}
           />
         ) : (
