@@ -296,7 +296,8 @@ export function evaluateOrderTransactionDecision(params: TransactionEvaluationPa
     if (keyData.status === 'completed') {
       return {
         type: 'REJECT',
-        error: "Incohérence persistante : Le registre d'idempotence valide la clé mais la commande associée est introuvable dans Firestore. Création bloquée."
+        uncertain: true,
+        error: "Incohérence persistante : Le registre confirme la clé mais la commande associée est introuvable. Création bloquée; une vérification est nécessaire."
       };
     }
 
