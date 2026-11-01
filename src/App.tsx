@@ -502,9 +502,15 @@ export default function App() {
         };
       }
 
-      // Échec serveur / réseau : état incertain, panier verrouillé, conservation stricte de la même clé et du panier dans sessionStorage
-      setIsOrderUncertain(true);
-      updatePendingOrderIntentUncertainty(true);
+      if (submitRes.uncertain) {
+        // Réponse perdue ou transaction encore en cours : conserver strictement la même intention.
+        setIsOrderUncertain(true);
+        updatePendingOrderIntentUncertainty(true);
+      } else {
+        // Rejet explicite avant écriture : aucun risque de doublon, le client peut corriger son panier.
+        setIsOrderUncertain(false);
+        updatePendingOrderIntentUncertainty(false);
+      }
       return { success: false, error: submitRes.error };
     }
 
