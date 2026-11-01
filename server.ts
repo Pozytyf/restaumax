@@ -451,7 +451,11 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     if (!adminDb) {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
-    const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('menuItems').get();
+    const restaurantRef = adminDb.collection('restaurants').doc(restaurantSlug);
+    const restaurantSnap = await restaurantRef.get();
+    if (!restaurantSnap.exists) throw new Error("Restaurant introuvable.");
+    if (restaurantSnap.data()?.status === 'suspended') throw new Error("Restaurant suspendu : les commandes sont temporairement désactivées.");
+    const snap = await restaurantRef.collection('menuItems').get();
     return snap.docs.map((d: any) => d.data());
   },
 
