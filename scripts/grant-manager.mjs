@@ -46,6 +46,11 @@ async function main() {
   const db = initAdminFirestore(app, firebaseConfig.firestoreDatabaseId);
 
   console.log(`Connexion confirmée sur la base : ${db.databaseId}`);
+  const restaurantSnapshot = await db.collection('restaurants').doc(restaurantSlug).get();
+  if (!restaurantSnapshot.exists) {
+    throw new Error(`Le restaurant "${restaurantSlug}" n'existe pas dans la base ${db.databaseId}. Attribution refusée.`);
+  }
+  console.log(`Restaurant vérifié : ${restaurantSlug}`);
   console.log(`Recherche de l'utilisateur : ${targetUserIdentifier}...`);
 
   let userRecord;
@@ -62,22 +67,38 @@ async function main() {
 
   console.log(`Utilisateur identifié : ${userRecord.email} (UID: ${userRecord.uid})`);
 
-  // 4. Fusion des Custom Claims pour préserver d'éventuelles claims existantes
+  // 4. Fusion des habilitations sans retirer les rôles ou restaurants déjà accordés.
   const existingClaims = userRecord.customClaims || {};
+  const managerRef = db.collection('managers').doc(userRecord.uid);
+  const existingManagerSnapshot = await managerRef.get();
+  const existingManager = existingManagerSnapshot.exists ? existingManagerSnapshot.data() : {};
+  const assignedRestaurants = [...new Set([
+    ...(Array.isArray(existingClaims.restaurants) ? existingClaims.restaurants : []),
+    ...(typeof existingClaims.restaurantSlug === 'string' ? [existingClaims.restaurantSlug] : []),
+    ...(Array.isArray(existingManager?.restaurants) ? existingManager.restaurants : []),
+    ...(typeof existingManager?.restaurantSlug === 'string' ? [existingManager.restaurantSlug] : []),
+    restaurantSlug
+  ].filter((value) => typeof value === 'string' && value.trim()))];
+  const assignedRole =
+    existingClaims.role === 'admin' || existingManager?.role === 'admin'
+      ? 'admin'
+      : 'manager';
+
   await adminAuth.setCustomUserClaims(userRecord.uid, {
     ...existingClaims,
-    role: 'manager',
+    role: assignedRole,
+    restaurants: assignedRestaurants,
     restaurantSlug
   });
-  console.log('✓ Custom Claim { role: "manager" } fusionné avec succès.');
+  console.log(`✓ Habilitation ${assignedRole} mise à jour pour ${assignedRestaurants.length} restaurant(s).`);
 
-  // 5. Enregistrement sécurisé dans la collection Firestore /managers/{uid} de la base spécifique
-  await db.collection('managers').doc(userRecord.uid).set({
+  // 5. Enregistrement sécurisé dans la collection Firestore /managers/{uid} de la base spécifique.
+  await managerRef.set({
     uid: userRecord.uid,
     email: userRecord.email,
-    role: 'manager',
+    role: assignedRole,
     restaurantSlug,
-    restaurants: [restaurantSlug],
+    restaurants: assignedRestaurants,
     grantedAt: new Date().toISOString()
   }, { merge: true });
 
