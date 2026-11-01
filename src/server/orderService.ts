@@ -256,6 +256,43 @@ export async function processOrderSubmission(
     }
   }
 
+  // 5c. Rejouer une commande déjà persistée AVANT de relire le catalogue.
+  // Un plat peut être désactivé après la première écriture alors que le client n'a pas reçu la réponse.
+  // Dans ce cas, la commande existante fait autorité et doit être retournée via la transaction d'idempotence.
+  if (dataProvider.executeOrderTransaction && dataProvider.getOrderById) {
+    let existingOrderProbe: OrderProbeResult;
+    try {
+      existingOrderProbe = await dataProvider.getOrderById(cleanSlug, orderId);
+    } catch (err: any) {
+      return {
+        success: false,
+        error: "Impossible de vérifier l'existence d'une commande précédente. Réessayez avec la même clé d'idempotence."
+      };
+    }
+
+    if (existingOrderProbe.status === 'error') {
+      return {
+        success: false,
+        error: existingOrderProbe.error
+      };
+    }
+
+    if (existingOrderProbe.status === 'found') {
+      const replayResult = await dataProvider.executeOrderTransaction({
+        restaurantSlug: cleanSlug,
+        idempotencyKey: cleanKey,
+        keyDocId,
+        orderId,
+        signature: currentSignature,
+        orderToCreate: existingOrderProbe.order
+      });
+
+      return replayResult.success
+        ? { ...replayResult, idempotentReplay: true }
+        : replayResult;
+    }
+  }
+
   // 6. Validation préalable du catalogue Firestore (Lecture de référence)
   let catalog: RestauMenuItem[];
   try {
