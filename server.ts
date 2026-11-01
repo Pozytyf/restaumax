@@ -86,8 +86,240 @@ try {
   adminInitError = err.message || String(err);
   console.error(`[RestauMax Server] Erreur lors de l'initialisation de Firebase Admin SDK : ${adminInitError}`);
 }
+export interface TransactionEvaluationParams {
+  restaurantSlug: string;
+  idempotencyKey: string;
+  keyDocId: string;
+  orderId: string;
+  signature: string;
+  keyExists: boolean;
+  keyData: any;
+  orderExists: boolean;
+  orderData: any;
+  now?: number;
+  timeoutMs?: number;
+}
 
-// 2. Fournisseur Firestore serveur reposant EXCLUSIVEMENT sur Firebase Admin SDK
+export type TransactionDecisionResult = 
+  | { type: 'REJECT'; error: string; conflict?: boolean }
+  | { type: 'REPLAY_NOMINAL'; order: any }
+  | { type: 'RECONCILE_AND_REPLAY'; order: any }
+  | { type: 'AUTO_REPAIR'; order: any }
+  | { type: 'CREATE_NOMINAL' };
+
+/**
+ * Moteur décisionnel d'intégrité Fail-Closed pour les transactions de commande.
+ * Évalue la cohérence des métadonnées, des signatures, des espaces de noms
+ * et des états documentaires avant toute autorisation d'écriture ou de rejeu.
+ */
+export function evaluateOrderTransactionDecision(params: TransactionEvaluationParams): TransactionDecisionResult {
+  const {
+    restaurantSlug,
+    idempotencyKey,
+    keyDocId,
+    orderId,
+    signature,
+    keyExists,
+    keyData,
+    orderExists,
+    orderData,
+    now = Date.now(),
+    timeoutMs = 15000
+  } = params;
+
+  // 1. Contrôle strict du registre s'il existe (Fail-Closed)
+  if (keyExists) {
+    if (!keyData || typeof keyData !== 'object') {
+      return { type: 'REJECT', error: "Registre d'idempotence corrompu : données non exploitables." };
+    }
+
+    // 1.1 Présence et conformité de la signature
+    if (!keyData.signature || typeof keyData.signature !== 'string' || !keyData.signature.trim()) {
+      return { type: 'REJECT', error: "Registre d'idempotence corrompu : signature de requête absente ou invalide." };
+    }
+    if (keyData.signature !== signature) {
+      return {
+        type: 'REJECT',
+        conflict: true,
+        error: `Conflit d'idempotence : La clé "${idempotencyKey}" a déjà été utilisée pour une intention différente (signature de requête divergente).`
+      };
+    }
+
+    // 1.2 Identifiant documentaire du registre
+    if (!keyData.id || keyData.id !== keyDocId) {
+      return {
+        type: 'REJECT',
+        error: `Incohérence documentaire : l'identifiant du registre (${keyData.id}) ne correspond pas à l'identifiant attendu (${keyDocId}).`
+      };
+    }
+
+    // 1.3 Restaurant et espace de noms
+    if (!keyData.restaurantSlug || keyData.restaurantSlug !== restaurantSlug) {
+      return {
+        type: 'REJECT',
+        error: `Violation d'isolation multi-tenant : le restaurant du registre (${keyData.restaurantSlug}) ne correspond pas au restaurant de la requête (${restaurantSlug}).`
+      };
+    }
+    const expectedNamespace = `${restaurantSlug}:${idempotencyKey}`;
+    if (!keyData.namespacedKey || keyData.namespacedKey !== expectedNamespace) {
+      return {
+        type: 'REJECT',
+        error: `Incohérence d'espace de noms : l'espace de noms du registre (${keyData.namespacedKey}) ne correspond pas à l'espace de noms attendu (${expectedNamespace}).`
+      };
+    }
+
+    // 1.4 Identifiant de commande rattaché
+    if (!keyData.orderId || keyData.orderId !== orderId) {
+      return {
+        type: 'REJECT',
+        error: `Incohérence d'identifiant de commande : l'identifiant de commande du registre (${keyData.orderId}) ne correspond pas à l'identifiant dérivé (${orderId}).`
+      };
+    }
+
+    // 1.5 Statut du registre
+    const validStatuses = ['completed', 'processing', 'ambiguous', 'failed'];
+    if (!keyData.status || !validStatuses.includes(keyData.status)) {
+      return {
+        type: 'REJECT',
+        error: `Registre d'idempotence corrompu : statut absent ou non reconnu (${keyData.status}).`
+      };
+    }
+    if (keyData.status === 'failed') {
+      return {
+        type: 'REJECT',
+        error: "La tentative précédente associée à cette clé d'idempotence s'est terminée par un échec définitif. Réutilisation interdite."
+      };
+    }
+  }
+
+  // 2. Contrôle strict de la commande si elle existe (Fail-Closed)
+  if (orderExists) {
+    if (!orderData || typeof orderData !== 'object') {
+      return { type: 'REJECT', error: "Document de commande corrompu : données non exploitables." };
+    }
+
+    // 2.1 Présence et conformité de la signature de contenu
+    if (!orderData.contentSignature || typeof orderData.contentSignature !== 'string' || !orderData.contentSignature.trim()) {
+      return { type: 'REJECT', error: "Document de commande corrompu : signature de contenu absente ou invalide." };
+    }
+    if (orderData.contentSignature !== signature) {
+      return {
+        type: 'REJECT',
+        conflict: true,
+        error: "Conflit critique : Un document de commande existe déjà avec des données divergentes sous cet identifiant."
+      };
+    }
+
+    // 2.2 Identifiant de la commande
+    if (!orderData.id || orderData.id !== orderId) {
+      return {
+        type: 'REJECT',
+        error: `Incohérence d'identifiant de commande : l'identifiant du document (${orderData.id}) ne correspond pas à l'identifiant dérivé (${orderId}).`
+      };
+    }
+
+    // 2.3 Restaurant associé
+    if (!orderData.restaurantSlug || orderData.restaurantSlug !== restaurantSlug) {
+      return {
+        type: 'REJECT',
+        error: `Violation d'isolation multi-tenant : le restaurant de la commande (${orderData.restaurantSlug}) ne correspond pas au restaurant de la requête (${restaurantSlug}).`
+      };
+    }
+
+    // 2.4 Rattachement de la clé et du registre
+    if (!orderData.idempotencyKey || orderData.idempotencyKey !== idempotencyKey) {
+      return {
+        type: 'REJECT',
+        error: `Incohérence de rattachement : la clé d'idempotence de la commande (${orderData.idempotencyKey}) ne correspond pas à la clé de la requête (${idempotencyKey}).`
+      };
+    }
+    if (!orderData.idempotencyDocId || orderData.idempotencyDocId !== keyDocId) {
+      return {
+        type: 'REJECT',
+        error: `Incohérence documentaire : l'identifiant de registre de la commande (${orderData.idempotencyDocId}) ne correspond pas à l'identifiant attendu (${keyDocId}).`
+      };
+    }
+  }
+
+  // 3. Cohérence croisée lorsque les deux documents existent
+  if (keyExists && orderExists) {
+    if (keyData.orderId !== orderData.id) {
+      return {
+        type: 'REJECT',
+        error: `Discordance critique : l'identifiant de commande du registre (${keyData.orderId}) ne correspond pas à l'identifiant du document de commande (${orderData.id}).`
+      };
+    }
+    if (keyData.signature !== orderData.contentSignature) {
+      return {
+        type: 'REJECT',
+        error: "Divergence interne : la signature du registre ne correspond pas à la signature de contenu de la commande."
+      };
+    }
+    if (keyData.restaurantSlug !== orderData.restaurantSlug) {
+      return {
+        type: 'REJECT',
+        error: "Incohérence multi-tenant : le restaurant du registre ne correspond pas au restaurant de la commande."
+      };
+    }
+
+    if (keyData.status === 'completed') {
+      return { type: 'REPLAY_NOMINAL', order: orderData };
+    }
+
+    if (keyData.status === 'processing' || keyData.status === 'ambiguous') {
+      return { type: 'RECONCILE_AND_REPLAY', order: orderData };
+    }
+
+    return {
+      type: 'REJECT',
+      error: `Statut de registre incompatible avec un rejeu (${keyData.status}).`
+    };
+  }
+
+  // 4. Commande existante SANS registre : Auto-réparation strictement contrôlée (Cas B)
+  if (orderExists && !keyExists) {
+    // La commande a déjà validé avec succès tous les contrôles d'identité, de restaurant,
+    // de signature et de rattachement au point 2 ci-dessus.
+    return { type: 'AUTO_REPAIR', order: orderData };
+  }
+
+  // 5. Registre existant SANS commande : Gestion du registre orphelin (Cas C)
+  if (keyExists && !orderExists) {
+    if (keyData.status === 'completed') {
+      return {
+        type: 'REJECT',
+        error: "Incohérence persistante : Le registre d'idempotence valide la clé mais la commande associée est introuvable dans Firestore. Création bloquée."
+      };
+    }
+
+    if (keyData.status === 'processing') {
+      const recTime = keyData.createdAt || keyData.updatedAt || keyData.timestamp || 0;
+      if (now - recTime < timeoutMs) {
+        return {
+          type: 'REJECT',
+          error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
+        };
+      }
+      // Timeout expiré et la commande n'a pas été écrite dans Firestore : reprise autorisée
+      return { type: 'CREATE_NOMINAL' };
+    }
+
+    if (keyData.status === 'ambiguous') {
+      // Clé marquée ambiguë et confirmation de l'absence de commande dans Firestore : reprise autorisée
+      return { type: 'CREATE_NOMINAL' };
+    }
+
+    return {
+      type: 'REJECT',
+      error: `Registre orphelin dans un état non récupérable (${keyData.status}).`
+    };
+  }
+
+  // 6. Aucun des deux documents n'existe : Première soumission nominale (Cas E)
+  return { type: 'CREATE_NOMINAL' };
+}
+
+// Fournisseur Firestore serveur reposant EXCLUSIVEMENT sur Firebase Admin SDK
 // Suppression totale du recours au SDK client pour les écritures de commande
 export const serverFirestoreProvider: ServerFirestoreProvider = {
   async getMenuItems(restaurantSlug: string) {
@@ -117,7 +349,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     await adminDb.collection('restaurants').doc(restaurantSlug).collection('orders').doc(order.id).set(order);
   },
 
-  // Transaction atomique unifiée (L'exigence centrale 4.4 : Création et finalisation dans la même transaction Firestore)
+  // Transaction atomique unifiée Fail-Closed (L'exigence centrale 4.4 : Création et finalisation dans la même transaction Firestore)
   async executeOrderTransaction(params: any) {
     if (!adminDb) {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
@@ -138,64 +370,72 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       const keyData = keyExists ? snapKey.data() : null;
       const orderData = orderExists ? snapOrder.data() : null;
 
-      // CAS D : Signatures divergentes (Conflit d'idempotence)
-      if (keyExists && keyData.signature && keyData.signature !== signature) {
+      // 2. Décision d'intégrité Fail-Closed
+      const decision = evaluateOrderTransactionDecision({
+        restaurantSlug,
+        idempotencyKey,
+        keyDocId,
+        orderId,
+        signature,
+        keyExists,
+        keyData,
+        orderExists,
+        orderData
+      });
+
+      if (decision.type === 'REJECT') {
         return {
           success: false,
-          conflict: true,
-          error: `Conflit d'idempotence : La clé "${idempotencyKey}" a déjà été utilisée pour une intention différente (restaurant, mode de commande, table, articles ou notes distincts).`
-        };
-      }
-      if (orderExists && orderData.contentSignature && orderData.contentSignature !== signature) {
-        return {
-          success: false,
-          conflict: true,
-          error: `Conflit critique : Un document de commande existe déjà avec des données divergentes sous cet identifiant.`
+          conflict: decision.conflict,
+          error: decision.error
         };
       }
 
-      // CAS A : Rejeu nominal (La commande existe déjà avec la même signature)
-      if (orderExists && orderData) {
-        if (!keyExists || keyData?.status !== 'completed') {
-          // Auto-réparation du registre ou réconciliation d'un état processing/ambiguous
-          t.set(docRefKey, {
-            id: keyDocId,
-            namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
-            restaurantSlug,
-            signature,
-            orderId,
-            status: 'completed',
-            createdAt: keyData?.createdAt || Date.now(),
-            updatedAt: Date.now()
-          }, { merge: true });
-        }
+      if (decision.type === 'REPLAY_NOMINAL') {
         return {
           success: true,
-          order: orderData,
+          order: decision.order,
           idempotentReplay: true
         };
       }
 
-      // CAS C : Registre existant sans document de commande
-      if (keyExists && !orderExists) {
-        if (keyData.status === 'completed') {
-          return {
-            success: false,
-            error: "Incohérence persistante : Le registre d'idempotence valide la clé mais la commande associée est introuvable dans Firestore. Création bloquée."
-          };
-        }
-        const timeoutMs = 15000;
-        const recTime = keyData.createdAt || keyData.updatedAt || keyData.timestamp || 0;
-        if (keyData.status === 'processing' && (Date.now() - recTime < timeoutMs)) {
-          return {
-            success: false,
-            error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
-          };
-        }
-        // Clé ambiguë ou processing expiré sans commande écrite : reprise atomique autorisée
+      if (decision.type === 'RECONCILE_AND_REPLAY') {
+        t.set(docRefKey, {
+          id: keyDocId,
+          namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
+          restaurantSlug,
+          signature,
+          orderId,
+          status: 'completed',
+          createdAt: keyData?.createdAt || Date.now(),
+          updatedAt: Date.now()
+        }, { merge: true });
+        return {
+          success: true,
+          order: decision.order,
+          idempotentReplay: true
+        };
       }
 
-      // CAS E : Première soumission nominale (Écriture atomique unique)
+      if (decision.type === 'AUTO_REPAIR') {
+        t.set(docRefKey, {
+          id: keyDocId,
+          namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
+          restaurantSlug,
+          signature,
+          orderId,
+          status: 'completed',
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+        return {
+          success: true,
+          order: decision.order,
+          idempotentReplay: true
+        };
+      }
+
+      // CREATE_NOMINAL : Première soumission nominale ou reprise après échec
       t.set(docRefOrder, orderToCreate);
       t.set(docRefKey, {
         id: keyDocId,
@@ -204,7 +444,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
         signature,
         orderId,
         status: 'completed',
-        createdAt: Date.now(),
+        createdAt: keyData?.createdAt || Date.now(),
         updatedAt: Date.now()
       });
 
@@ -453,7 +693,10 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Erreur fatale au démarrage du serveur:', err);
-  process.exit(1);
-});
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMainModule) {
+  startServer().catch((err) => {
+    console.error('Erreur fatale au démarrage du serveur:', err);
+    process.exit(1);
+  });
+}

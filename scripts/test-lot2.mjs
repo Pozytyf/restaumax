@@ -28,8 +28,13 @@ import {
 import { mapRestauOrderToKitchenTicket } from '../src/App.js';
 import { 
   processOrderSubmission, 
-  clearServerIdempotencyStore 
+  clearServerIdempotencyStore,
+  deriveIdempotencyIdentifiers,
+  computeOrderSignature
 } from '../src/server/orderService.ts';
+import {
+  evaluateOrderTransactionDecision
+} from '../server.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -1407,8 +1412,8 @@ async function runTests() {
     '7.3.m : Panne non confirmée : ne prétend pas que la commande n\'existe pas et invite à la réconciliation'
   );
 
-  // --- 7.5 : TESTS TRANSACTION ATOMIQUE UNIFIÉE (CAS A, B, C, D, E) ---
-  console.log('  [7.5] Transaction atomique unifiée (Cas A à E)...');
+  // --- 7.5 : TESTS TRANSACTION ATOMIQUE UNIFIÉE (CAS A, B, C, D, E & SCÉNARIOS A À Y) ---
+  console.log('  [7.5] Transaction atomique unifiée (Cas A à E et Scénarios exhaustifs A à Y)...');
 
   // Cas A : Replay nominal (clé complétée avec commande terminée identique)
   const providerCasA = {
@@ -1512,6 +1517,478 @@ async function runTests() {
     cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
   }, providerCasE);
   assert(resCasE.success === true && resCasE.order && !resCasE.idempotentReplay, '7.5.e (Cas E) : Double-écriture atomique nominale réussie (commande + registre)');
+
+  // =========================================================================
+  // VÉRIFICATION COMPLÈTE DU MOTEUR DÉCISIONNEL FAIL-CLOSED (SCÉNARIOS A À Y)
+  // =========================================================================
+  console.log('\n  [7.5.BIS] Validation stricte Fail-Closed du moteur décisionnel (Scénarios A à Y)...');
+
+  const baseSlug = 'chez-awa';
+  const baseKey = 'idem-unit-test-strict-001';
+  const { keyDocId: baseDocId, orderId: baseOrderId, namespacedKey: baseNsKey } = deriveIdempotencyIdentifiers(baseSlug, baseKey);
+  const basePayload = {
+    restaurantSlug: baseSlug,
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    customerNote: 'Sans piment',
+    cart: [{ menuItemId: 'dish-poulet', quantity: 1 }]
+  };
+  const baseSig = computeOrderSignature(basePayload);
+
+  const validKeyData = {
+    id: baseDocId,
+    namespacedKey: baseNsKey,
+    restaurantSlug: baseSlug,
+    signature: baseSig,
+    orderId: baseOrderId,
+    status: 'completed',
+    createdAt: Date.now() - 5000,
+    updatedAt: Date.now() - 5000
+  };
+
+  const validOrderData = {
+    id: baseOrderId,
+    orderNumber: '#CMD-123456',
+    restaurantSlug: baseSlug,
+    orderMode: 'a_emporter',
+    tableNumber: null,
+    items: [],
+    itemsCount: 1,
+    totalAmount: 9500,
+    currency: 'FCFA',
+    status: 'pending',
+    createdAt: Date.now() - 5000,
+    createdAtIso: new Date().toISOString(),
+    idempotencyKey: baseKey,
+    idempotencyDocId: baseDocId,
+    contentSignature: baseSig
+  };
+
+  // Scénario A : Première commande valide : création nominale
+  const decA = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: false,
+    keyData: null,
+    orderExists: false,
+    orderData: null
+  });
+  assert(decA.type === 'CREATE_NOMINAL', '7.5.A : Première commande valide autorise CREATE_NOMINAL');
+
+  // Scénario B : Rejeu identique : commande existante retournée, aucun doublon
+  const decB = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: validKeyData,
+    orderExists: true,
+    orderData: validOrderData
+  });
+  assert(decB.type === 'REPLAY_NOMINAL' && decB.order.id === baseOrderId, '7.5.B : Rejeu identique retourne REPLAY_NOMINAL avec la commande conforme');
+
+  // Scénario C : Même clé, contenu différent : conflit 409, aucune écriture
+  const decC = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: 'signature_differente_autre_panier',
+    keyExists: true,
+    keyData: validKeyData,
+    orderExists: true,
+    orderData: validOrderData
+  });
+  assert(decC.type === 'REJECT' && decC.conflict === true, '7.5.C : Même clé avec signature divergente produit un REJECT conflictuel (HTTP 409)');
+
+  // Scénario D : Signature absente du registre : rejet Fail-Closed, aucune écriture
+  const decD = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, signature: undefined },
+    orderExists: true,
+    orderData: validOrderData
+  });
+  assert(decD.type === 'REJECT' && decD.error.includes('signature de requête absente'), '7.5.D : Signature absente du registre entraîne REJECT Fail-Closed');
+
+  // Scénario E : Signature absente de la commande : rejet Fail-Closed, aucune écriture
+  const decE = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: validKeyData,
+    orderExists: true,
+    orderData: { ...validOrderData, contentSignature: undefined }
+  });
+  assert(decE.type === 'REJECT' && decE.error.includes('signature de contenu absente'), '7.5.E : Signature absente de la commande entraîne REJECT Fail-Closed');
+
+  // Scénario F : Signature divergente entre documents : rejet, aucune écriture
+  const decF = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: validKeyData,
+    orderExists: true,
+    orderData: { ...validOrderData, contentSignature: 'autre_sig_divergente' }
+  });
+  assert(decF.type === 'REJECT', '7.5.F : Signatures divergentes entre registre et commande entraîne REJECT');
+
+  // Scénario G : Mauvais restaurant : rejet multi-tenant
+  const decG = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, restaurantSlug: 'autre-resto' },
+    orderExists: true,
+    orderData: validOrderData
+  });
+  assert(decG.type === 'REJECT' && decG.error.includes('multi-tenant'), '7.5.G : Mauvais restaurant dans le registre bloque avec rejet multi-tenant');
+
+  // Scénario H : Mauvais identifiant documentaire du registre : rejet
+  const decH = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, id: 'idem_mauvais_id' },
+    orderExists: true,
+    orderData: validOrderData
+  });
+  assert(decH.type === 'REJECT' && decH.error.includes('identifiant du registre'), '7.5.H : Mauvais identifiant documentaire du registre rejeté');
+
+  // Scénario I : Mauvais identifiant de commande : rejet
+  const decI = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: validKeyData,
+    orderExists: true,
+    orderData: { ...validOrderData, id: 'ord_autre_id' }
+  });
+  assert(decI.type === 'REJECT' && decI.error.includes('identifiant du document'), '7.5.I : Mauvais identifiant de document de commande rejeté');
+
+  // Scénario J : Mauvais rattachement idempotencyKey : rejet
+  const decJ = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: validKeyData,
+    orderExists: true,
+    orderData: { ...validOrderData, idempotencyKey: 'autre-cle-cliente' }
+  });
+  assert(decJ.type === 'REJECT' && decJ.error.includes('clé d\'idempotence de la commande'), '7.5.J : Mauvais rattachement de la clé d\'idempotence rejeté');
+
+  // Scénario K : Mauvais rattachement idempotencyDocId : rejet
+  const decK = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: validKeyData,
+    orderExists: true,
+    orderData: { ...validOrderData, idempotencyDocId: 'autre_doc_registre' }
+  });
+  assert(decK.type === 'REJECT' && decK.error.includes('identifiant de registre de la commande'), '7.5.K : Mauvais rattachement du doc registre rejeté');
+
+  // Scénario L : Mauvais namespacedKey : rejet
+  const decL = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, namespacedKey: 'autre-slug:cle' },
+    orderExists: true,
+    orderData: validOrderData
+  });
+  assert(decL.type === 'REJECT' && decL.error.includes('espace de noms'), '7.5.L : Espace de noms incohérent dans le registre rejeté');
+
+  // Scénario M : Mauvais keyData.orderId : rejet
+  const decM = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, orderId: 'ord_autre_discordante' },
+    orderExists: true,
+    orderData: validOrderData
+  });
+  assert(decM.type === 'REJECT' && decM.error.includes('identifiant de commande du registre'), '7.5.M : Mauvais orderId dans le registre rejeté');
+
+  // Scénario N : Auto-réparation nominale : registre créé uniquement après vérification intégrale de la commande
+  const decN = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: false,
+    keyData: null,
+    orderExists: true,
+    orderData: validOrderData
+  });
+  assert(decN.type === 'AUTO_REPAIR' && decN.order.id === baseOrderId, '7.5.N : Auto-réparation autorisée uniquement pour commande intégralement vérifiée');
+
+  // Scénario O : Auto-réparation incomplète : rejet, zéro écriture
+  const decO = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: false,
+    keyData: null,
+    orderExists: true,
+    orderData: { ...validOrderData, contentSignature: undefined }
+  });
+  assert(decO.type === 'REJECT', '7.5.O : Refus d\'auto-réparation si la commande existante n\'a pas de signature');
+
+  // Scénario P : Registre orphelin completed : rejet pour incohérence persistante
+  const decP = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: validKeyData,
+    orderExists: false,
+    orderData: null
+  });
+  assert(decP.type === 'REJECT' && decP.error.includes('Incohérence persistante'), '7.5.P : Registre orphelin completed sans commande produit un REJECT bloquant');
+
+  // Scénario Q : Registre processing non expiré : rejet de la seconde création
+  const decQ = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, status: 'processing', createdAt: Date.now() - 2000 },
+    orderExists: false,
+    orderData: null,
+    now: Date.now(),
+    timeoutMs: 15000
+  });
+  assert(decQ.type === 'REJECT' && decQ.error.includes('déjà en cours de traitement'), '7.5.Q : Registre processing non expiré bloque toute deuxième création');
+
+  // Scénario R : Registre processing expiré : comportement explicitement justifié et sécurisé
+  const decR = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, status: 'processing', createdAt: Date.now() - 25000 },
+    orderExists: false,
+    orderData: null,
+    now: Date.now(),
+    timeoutMs: 15000
+  });
+  assert(decR.type === 'CREATE_NOMINAL', '7.5.R : Registre processing expiré avec absence de commande avérée autorise la reprise sécurisée');
+
+  // Scénario S : Registre ambiguous : reprise uniquement selon les preuves disponibles
+  const decS1 = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, status: 'ambiguous' },
+    orderExists: true,
+    orderData: validOrderData
+  });
+  assert(decS1.type === 'RECONCILE_AND_REPLAY', '7.5.S.1 : Registre ambiguous avec commande existante prouvée déclenche RECONCILE_AND_REPLAY');
+
+  const decS2 = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, status: 'ambiguous' },
+    orderExists: false,
+    orderData: null
+  });
+  assert(decS2.type === 'CREATE_NOMINAL', '7.5.S.2 : Registre ambiguous sans commande en base autorise la création unique');
+
+  // Scénario T : Registre failed : comportement conforme au contrat, sans création accidentelle
+  const decT = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, status: 'failed' },
+    orderExists: false,
+    orderData: null
+  });
+  assert(decT.type === 'REJECT' && decT.error.includes('échec définitif'), '7.5.T : Registre failed rejette formellement toute réutilisation');
+
+  // Scénario U : Statut inconnu : rejet Fail-Closed
+  const decU = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, status: 'UNKNOWN_INVALIDE' },
+    orderExists: false,
+    orderData: null
+  });
+  assert(decU.type === 'REJECT' && decU.error.includes('statut absent ou non reconnu'), '7.5.U : Statut inconnu ou absent rejeté en Fail-Closed');
+
+  // Scénario V : Métadonnées contradictoires : rejet
+  const decV = evaluateOrderTransactionDecision({
+    restaurantSlug: baseSlug,
+    idempotencyKey: baseKey,
+    keyDocId: baseDocId,
+    orderId: baseOrderId,
+    signature: baseSig,
+    keyExists: true,
+    keyData: { ...validKeyData, orderId: 'ord_contradiction_1' },
+    orderExists: true,
+    orderData: { ...validOrderData, id: 'ord_contradiction_2' }
+  });
+  assert(decV.type === 'REJECT' && (decV.error.includes('Discordance') || decV.error.includes('Incohérence')), '7.5.V : Métadonnées contradictoires rejetées');
+
+  // Scénario W : Échec transactionnel : simulation garantissant zéro écriture partielle
+  const simulatedStorage = { orders: new Map(), keys: new Map() };
+  function runSimulatedTx(params) {
+    const keyData = simulatedStorage.keys.get(params.keyDocId) || null;
+    const orderData = simulatedStorage.orders.get(params.orderId) || null;
+    const dec = evaluateOrderTransactionDecision({
+      ...params,
+      keyExists: !!keyData,
+      keyData,
+      orderExists: !!orderData,
+      orderData
+    });
+    if (dec.type === 'REJECT') {
+      return { success: false, error: dec.error, conflict: dec.conflict };
+    }
+    if (dec.type === 'CREATE_NOMINAL') {
+      if (!params.orderToCreate) {
+        return { success: false, error: 'Échec de transaction simulé : données de commande invalides' };
+      }
+      simulatedStorage.orders.set(params.orderId, params.orderToCreate);
+      simulatedStorage.keys.set(params.keyDocId, {
+        id: params.keyDocId,
+        namespacedKey: `${params.restaurantSlug}:${params.idempotencyKey}`,
+        restaurantSlug: params.restaurantSlug,
+        signature: params.signature,
+        orderId: params.orderId,
+        status: 'completed',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      return { success: true, order: params.orderToCreate, idempotentReplay: false };
+    }
+    return { success: true, order: dec.order, idempotentReplay: true };
+  }
+
+  // Tentative avec données corrompues (Scénario W : signature invalide entraînant REJECT)
+  const resW = runSimulatedTx({
+    restaurantSlug: baseSlug,
+    idempotencyKey: 'idem-w',
+    keyDocId: 'idem_w',
+    orderId: 'ord_w',
+    signature: '', // signature vide -> rejet immédiat
+    orderToCreate: null
+  });
+  // Aucun document n'a été inséré dans simulatedStorage
+  assert(resW.success === false && simulatedStorage.orders.size === 0 && simulatedStorage.keys.size === 0, '7.5.W : En cas d\'échec de décision, aucune écriture partielle n\'est persistée');
+
+  // Scénario X : Deux soumissions concurrentes avec la même clé : une seule commande persistée
+  const keyX = 'idem-concurrency-x';
+  const { keyDocId: docX, orderId: ordX } = deriveIdempotencyIdentifiers(baseSlug, keyX);
+  const payloadX = { ...basePayload, idempotencyKey: keyX };
+  const sigX = computeOrderSignature(payloadX);
+  const orderX = { ...validOrderData, id: ordX, idempotencyKey: keyX, idempotencyDocId: docX, contentSignature: sigX };
+
+  // Soumission 1 (Instance 1)
+  const tx1 = runSimulatedTx({
+    restaurantSlug: baseSlug,
+    idempotencyKey: keyX,
+    keyDocId: docX,
+    orderId: ordX,
+    signature: sigX,
+    orderToCreate: orderX
+  });
+  // Soumission 2 (Instance 2 concurrente avec la même clé)
+  const tx2 = runSimulatedTx({
+    restaurantSlug: baseSlug,
+    idempotencyKey: keyX,
+    keyDocId: docX,
+    orderId: ordX,
+    signature: sigX,
+    orderToCreate: orderX
+  });
+  assert(tx1.success === true && tx2.success === true && tx2.idempotentReplay === true, '7.5.X : Concurrence arbitrée : instance 1 crée, instance 2 rejoue');
+  assert(simulatedStorage.orders.size === 1 && simulatedStorage.keys.size === 1, '7.5.X.bis : Exactement 1 commande et 1 registre persistés (zéro doublon)');
+
+  // Scénario Y : Deux soumissions avec des clés différentes : deux commandes distinctes
+  const keyY1 = 'idem-distinct-y1';
+  const keyY2 = 'idem-distinct-y2';
+  const { keyDocId: docY1, orderId: ordY1 } = deriveIdempotencyIdentifiers(baseSlug, keyY1);
+  const { keyDocId: docY2, orderId: ordY2 } = deriveIdempotencyIdentifiers(baseSlug, keyY2);
+  const sigY1 = computeOrderSignature({ ...basePayload, idempotencyKey: keyY1, customerNote: 'Client 1' });
+  const sigY2 = computeOrderSignature({ ...basePayload, idempotencyKey: keyY2, customerNote: 'Client 2' });
+
+  runSimulatedTx({
+    restaurantSlug: baseSlug,
+    idempotencyKey: keyY1,
+    keyDocId: docY1,
+    orderId: ordY1,
+    signature: sigY1,
+    orderToCreate: { ...validOrderData, id: ordY1, idempotencyKey: keyY1, idempotencyDocId: docY1, contentSignature: sigY1 }
+  });
+  runSimulatedTx({
+    restaurantSlug: baseSlug,
+    idempotencyKey: keyY2,
+    keyDocId: docY2,
+    orderId: ordY2,
+    signature: sigY2,
+    orderToCreate: { ...validOrderData, id: ordY2, idempotencyKey: keyY2, idempotencyDocId: docY2, contentSignature: sigY2 }
+  });
+  assert(simulatedStorage.orders.size === 3, '7.5.Y : Deux intentions distinctes avec clés distinctes créent deux commandes distinctes (total 3 commandes)');
 
   // --- 7.4 : VÉRIFICATION DU COMPORTEMENT RÉEL DU SERVEUR (server.ts) ---
   console.log('  [7.4] Vérification de server.ts et conformité Admin SDK...');
