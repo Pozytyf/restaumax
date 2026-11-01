@@ -202,6 +202,29 @@ export default function App() {
   const [restauMenuItems, setRestauMenuItems] = useState<RestauMenuItem[]>(CHEZ_AWA_MENU_ITEMS);
   const [restauTables, setRestauTables] = useState<RestaurantTable[]>([]);
 
+  // The staff POS must use the same live catalogue as the customer QR menu.
+  // This prevents different prices, names or availability between the two sales channels.
+  useEffect(() => {
+    setMenuItems(restauMenuItems.map((dish) => ({
+      id: dish.id,
+      name: dish.name,
+      category: dish.category,
+      price: dish.price,
+      description: dish.description,
+      imageUrl: dish.imageUrl,
+      available: dish.available !== false,
+      prepTimeMinutes: dish.prepTimeMinutes,
+      course: dish.category === 'entrees'
+        ? 'entree'
+        : dish.category === 'boissons'
+          ? 'boisson'
+          : dish.category === 'desserts'
+            ? 'dessert'
+            : 'plat',
+      tags: dish.tags
+    })));
+  }, [restauMenuItems]);
+
   // Firestore Realtime Synchronization & Initial Boot Seed
   useEffect(() => {
     let isMounted = true;
