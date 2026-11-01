@@ -67,20 +67,23 @@ try {
   appletConfig = getAppletFirebaseConfig();
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-  if (credPath && fs.existsSync(credPath)) {
+  if (credPath) {
+    if (!fs.existsSync(credPath)) {
+      throw new Error("Le chemin GOOGLE_APPLICATION_CREDENTIALS est défini mais le fichier est introuvable.");
+    }
     const serviceAccount = validateServiceAccountCredentials(credPath, appletConfig.projectId);
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
-    console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
-  } else if (process.env.FIRESTORE_EMULATOR_HOST) {
+    console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec une clé de service validée pour la base '${appletConfig.firestoreDatabaseId}'.`);
+  } else {
+    // En production (Cloud Run), utiliser le compte de service attaché au runtime via ADC.
+    // En CI/local, Firebase Admin détecte automatiquement FIRESTORE_EMULATOR_HOST.
     const adminApp = initAdminApp(null as any, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
-    console.log(`[RestauMax Server] Firebase Admin SDK initialisé sur l'émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`);
-  } else {
-    adminInitError = credPath 
-      ? `Fichier de credentials spécifié introuvable : ${credPath}` 
-      : "Variable GOOGLE_APPLICATION_CREDENTIALS non configurée.";
-    console.warn(`[RestauMax Server] AVERTISSEMENT : Firebase Admin SDK non initialisé (${adminInitError}). Le traitement de commandes sera désactivé.`);
+    const authMode = process.env.FIRESTORE_EMULATOR_HOST
+      ? `émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`
+      : 'Application Default Credentials (ADC)';
+    console.log(`[RestauMax Server] Firebase Admin SDK initialisé via ${authMode} pour la base '${appletConfig.firestoreDatabaseId}'.`);
   }
 } catch (err: any) {
   adminInitError = err.message || String(err);
