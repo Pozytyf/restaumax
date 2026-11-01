@@ -88,6 +88,9 @@ try {
       tableNumber: '4', items: [{ id: 'line-1', name: 'Poulet braisé', quantity: 1 }],
       totalAmount: 9500, status: 'pending'
     });
+    await setDoc(doc(db, 'managers', 'manager-doc-only'), {
+      uid: 'manager-doc-only', role: 'manager', restaurantSlug: 'chez-awa', restaurants: []
+    });
   });
 
   const publicDb = env.unauthenticatedContext().firestore();
@@ -97,6 +100,8 @@ try {
   const otherManagerDb = env.authenticatedContext('manager-other', {
     role: 'manager', restaurantSlug: 'autre-restaurant'
   }).firestore();
+  const documentManagerDb = env.authenticatedContext('manager-doc-only').firestore();
+  const unrelatedUserDb = env.authenticatedContext('unrelated-user').firestore();
 
   console.log('\nRESTAUMAX — VALIDATION DES RÈGLES FIRESTORE');
   await expectSucceeds(
@@ -118,6 +123,28 @@ try {
   await expectSucceeds(
     getDocs(collection(managerDb, 'restaurants/chez-awa/tables')),
     'Le gestionnaire du restaurant peut lister ses tables'
+  );
+  await expectSucceeds(
+    getDoc(doc(documentManagerDb, 'managers', 'manager-doc-only')),
+    'Un gestionnaire peut lire son propre document d’habilitation'
+  );
+  await expectSucceeds(
+    getDocs(collection(documentManagerDb, 'restaurants/chez-awa/tables')),
+    'Le document d’habilitation autorise le gestionnaire sur son restaurant'
+  );
+  await expectFails(
+    getDoc(doc(unrelatedUserDb, 'managers', 'manager-doc-only')),
+    'Un utilisateur ne peut pas lire le document d’habilitation d’un autre utilisateur'
+  );
+  await expectFails(
+    getDoc(doc(publicDb, 'managers', 'manager-doc-only')),
+    'Un visiteur anonyme ne peut pas lire un document d’habilitation'
+  );
+  await expectFails(
+    setDoc(doc(documentManagerDb, 'managers', 'manager-doc-only'), {
+      uid: 'manager-doc-only', role: 'admin', restaurantSlug: 'autre-restaurant'
+    }),
+    'Un gestionnaire ne peut pas modifier son propre document d’habilitation'
   );
   await expectSucceeds(
     getDoc(doc(managerDb, 'restaurants/chez-awa/orders', 'ord_private_123')),
