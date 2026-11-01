@@ -8,7 +8,7 @@ const PERMISSIONS = [
   ['tables.view', 'Consulter les tables'], ['tables.manage', 'Gérer les tables'],
   ['pos.access', 'Accéder à la caisse'], ['kitchen.access', 'Accéder à la cuisine'],
   ['cash.view', 'Consulter la caisse'], ['cash.manage', 'Gérer les encaissements'],
-  ['reports.view', 'Consulter les rapports'], ['staff.view', 'Consulter le personnel'],
+  ['reports.view', 'Consulter les rapports'], ['customers.view', 'Consulter les clients'], ['customers.manage', 'Gérer les clients'], ['inventory.view', 'Consulter les stocks'], ['inventory.manage', 'Gérer les stocks'], ['staff.view', 'Consulter le personnel'],
   ['staff.manage', 'Gérer le personnel'], ['settings.view', 'Consulter les paramètres'],
   ['settings.manage', 'Modifier les paramètres']
 ] as const;
