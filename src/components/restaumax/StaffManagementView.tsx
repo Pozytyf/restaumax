@@ -20,6 +20,9 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [editingUid, setEditingUid] = useState<string | null>(null);
+  const [editRole, setEditRole] = useState<'manager'|'staff'>('staff');
+  const [editPermissions, setEditPermissions] = useState<string[]>([]);
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'staff' as 'manager'|'staff', permissions: ['menu.view','orders.view','tables.view','kitchen.access'] });
 
   const request = useCallback(async (body?: Record<string, unknown>) => {
@@ -63,6 +66,26 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
     finally { setLoading(false); }
   };
 
+  const beginEdit = (member: StaffMember) => {
+    setEditingUid(member.uid);
+    setEditRole(member.role === 'manager' ? 'manager' : 'staff');
+    setEditPermissions(member.permissions || []);
+  };
+
+  const saveEdit = async (uid: string) => {
+    setLoading(true); setError('');
+    try {
+      await request({ action: 'update_staff', slug: restaurantSlug, uid, role: editRole, permissions: editPermissions });
+      setEditingUid(null); setNotice('Autorisations mises à jour. Le membre devra se reconnecter pour renouveler ses droits.');
+      await refresh();
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const toggleEditPermission = (permission: string) => setEditPermissions(prev =>
+    prev.includes(permission) ? prev.filter(p => p !== permission) : [...prev, permission]
+  );
+
   const togglePermission = (permission: string) => setForm(prev => ({
     ...prev, permissions: prev.permissions.includes(permission)
       ? prev.permissions.filter(p => p !== permission) : [...prev.permissions, permission]
@@ -88,7 +111,10 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
       </form>
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="flex items-center justify-between border-b border-slate-200 p-4"><h2 className="font-bold">Comptes du restaurant</h2><button onClick={refresh} disabled={loading} className="flex items-center gap-2 text-sm"><RefreshCw size={14}/> Actualiser</button></div>
-        {staff.map(member=><div key={member.uid} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4 last:border-0"><div><p className="font-bold">{member.displayName} {member.role === 'owner' && <span className="text-xs text-orange-600">· Propriétaire</span>}</p><p className="text-xs text-slate-500">{member.email} · {member.role === 'manager' ? 'Gérant' : member.role === 'owner' ? 'Propriétaire' : 'Personnel'}</p><p className="mt-1 text-xs text-slate-500">{member.permissions?.length || 0} autorisation(s) · {member.active ? 'Actif' : 'Désactivé'}</p></div>{member.role !== 'owner' && member.active && <button onClick={()=>disable(member)} className="flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700"><UserX size={14}/> Désactiver</button>}</div>)}
+        {staff.map(member=><div key={member.uid} className="border-b border-slate-100 p-4 last:border-0">
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold">{member.displayName} {member.role === 'owner' && <span className="text-xs text-orange-600">· Propriétaire</span>}</p><p className="text-xs text-slate-500">{member.email} · {member.role === 'manager' ? 'Gérant' : member.role === 'owner' ? 'Propriétaire' : 'Personnel'}</p><p className="mt-1 text-xs text-slate-500">{member.permissions?.length || 0} autorisation(s) · {member.active ? 'Actif' : 'Désactivé'}</p></div>{member.role !== 'owner' && <div className="flex gap-2">{member.active && <button onClick={()=>beginEdit(member)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">Modifier les droits</button>}{member.active && <button onClick={()=>disable(member)} className="flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700"><UserX size={14}/> Désactiver</button>}</div>}</div>
+          {editingUid === member.uid && <div className="mt-4 space-y-3 rounded-xl bg-slate-50 p-4"><select value={editRole} onChange={e=>setEditRole(e.target.value as 'manager'|'staff')} className="rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="staff">Personnel</option><option value="manager">Gérant</option></select><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{PERMISSIONS.map(([id,label])=><label key={id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editPermissions.includes(id)} onChange={()=>toggleEditPermission(id)}/>{label}</label>)}</div><div className="flex gap-2"><button disabled={loading} onClick={()=>saveEdit(member.uid)} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white">Enregistrer les droits</button><button onClick={()=>setEditingUid(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-xs">Annuler</button></div></div>}
+        </div>)}
         {staff.length === 0 && <p className="p-6 text-center text-sm text-slate-500">Aucun membre enregistré.</p>}
       </section>
     </div>
