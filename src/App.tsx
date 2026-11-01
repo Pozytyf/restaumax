@@ -308,9 +308,13 @@ export default function App() {
       setIsAuthorizedManager(isManager);
       setIsLoadingAuth(false);
       if (user) user.getIdTokenResult().then((token) => {
+        const owner = token.claims.role === 'owner';
+        const superAdmin = token.claims.role === 'super_admin' || token.claims.role === 'admin';
         setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
-        setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
-      }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); });
+        setAuthIsSuperAdmin(superAdmin);
+        setIsRestaurantOwner(owner);
+        setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setUserPermissions([]); });
       else { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); }
     });
 
