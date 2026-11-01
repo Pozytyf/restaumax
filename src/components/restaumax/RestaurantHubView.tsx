@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { RestaurantInfo, RestauMenuItem, RestaurantTable } from '../../types/restaumax';
 import { MenuManagementView } from './MenuManagementView';
+import { StaffManagementView } from './StaffManagementView';
 import { TableQrGeneratorView } from './TableQrGeneratorView';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
@@ -52,6 +53,7 @@ export interface RestaurantHubViewProps {
   onDeleteDish: (dishId: string) => void;
   currentUserEmail?: string | null;
   onSignOut?: () => void;
+  canManageStaff?: boolean;
 }
 
 interface ModuleDefinition {
@@ -85,9 +87,10 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   onUpdateDish,
   onDeleteDish,
   currentUserEmail,
-  onSignOut
+  onSignOut,
+  canManageStaff = false
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog' | 'qr_tables'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog' | 'qr_tables' | 'staff'>('overview');
   // Format current date in French standard
   const todayFormatted = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
@@ -236,11 +239,13 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       id: 'staff',
       order: 11,
       title: 'Personnel et rôles',
-      subtitle: 'Serveurs, Équipes & Droits',
-      description: 'Gestion des profils employés, plannings de service et attribution des droits par poste.',
-      status: 'to_activate',
-      statusLabel: 'À activer',
-      icon: UserCheck
+      subtitle: 'Comptes, gérants & autorisations',
+      description: 'Le propriétaire crée les comptes, choisit les rôles et contrôle chaque autorisation accordée.',
+      status: canManageStaff ? 'active' : 'unavailable',
+      statusLabel: canManageStaff ? 'Gestion propriétaire' : 'Réservé au propriétaire',
+      icon: UserCheck,
+      actionLabel: canManageStaff ? 'Gérer le personnel et les droits' : undefined,
+      onAction: canManageStaff ? () => { sounds.playTap(); setActiveTab('staff'); } : undefined
     },
     {
       id: 'settings',
@@ -267,6 +272,10 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
         onNavigateToClientMenu={onNavigateToClientMenu}
       />
     );
+  }
+
+  if (activeTab === 'staff' && canManageStaff) {
+    return <StaffManagementView restaurantSlug={restaurant.slug} onBack={() => setActiveTab('overview')} />;
   }
 
   if (activeTab === 'qr_tables') {
@@ -507,7 +516,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {modules.map((mod) => {
+            {modules.filter((mod) => mod.id !== 'staff' || canManageStaff).map((mod) => {
               const Icon = mod.icon;
               const isActive = mod.status === 'active';
 
