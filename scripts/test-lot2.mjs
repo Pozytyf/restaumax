@@ -543,8 +543,8 @@ async function runTests() {
   assert(rulesContent.includes('isManagerOfRestaurant(targetSlug)'), 'Définit la fonction de vérification avec portée restaurant (isManagerOfRestaurant)');
 
   // Test 4.2: Protection multi-tenant sur restaurants et sous-collections
-  assert(rulesContent.includes('allow create: if isManagerOfRestaurant(restaurantSlug)'), 'Écritures restaurants restreintes au gérant autorisé');
-  assert(rulesContent.includes('allow list: if isManagerOfRestaurant(restaurantSlug);'), 'Liste des commandes privée et réservée au gérant du restaurant');
+  assert(rulesContent.includes("allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage')"), 'Écritures restaurants restreintes au gérant autorisé');
+  assert(rulesContent.includes("allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view')"), 'Liste des commandes privée et réservée au gérant du restaurant');
 
   // Test 4.3: Restriction stricte des modifications d'ordres KDS
   assert(rulesContent.includes('affectedKeys().hasOnly([\'status\', \'statusUpdatedAt\', \'kitchenNotes\'])'), 'Mise à jour de commande limitée strictement aux statuts opérationnels');
@@ -820,8 +820,8 @@ async function runTests() {
 
   // Scénario 8: Règles Firestore multi-tenant et mise à jour KDS préservées
   assert(
-    rulesContent.includes('isManagerOfRestaurant(restaurantSlug)') &&
-    rulesContent.includes('allow list: if isManagerOfRestaurant(restaurantSlug);') &&
+    rulesContent.includes("hasRestaurantPermission(restaurantSlug, 'orders.view')") &&
+    rulesContent.includes("hasRestaurantPermission(restaurantSlug, 'orders.manage')") &&
     rulesContent.includes('affectedKeys().hasOnly([\'status\', \'statusUpdatedAt\', \'kitchenNotes\'])'),
     'Scénario 8 : Multi-tenant préservé et modifications KDS strictement encadrées'
   );

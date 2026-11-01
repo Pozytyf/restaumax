@@ -11,6 +11,7 @@ interface HeaderProps {
   onQuickNewOrder: () => void;
   kitchenTicketsCount: number;
   onNavigateToHub?: () => void;
+  permissions?: string[];
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -20,7 +21,8 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleAudio,
   onQuickNewOrder,
   kitchenTicketsCount,
-  onNavigateToHub
+  onNavigateToHub,
+  permissions = []
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-[#101d2d] text-white border-b border-[#1f2e42] px-4 lg:px-8 py-3.5 shadow-sm">
@@ -51,7 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          <button
+          {permissions.includes('pos.access') && <button
             onClick={() => onSelectRole('pos')}
             className={`px-3 py-1.5 text-xs lg:text-sm font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
               currentRole === 'pos'
@@ -60,9 +62,9 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             Terminal POS
-          </button>
+          </button>}
 
-          <button
+          {permissions.includes('tables.manage') && <button
             onClick={() => onSelectRole('floor')}
             className={`px-3 py-1.5 text-xs lg:text-sm font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
               currentRole === 'floor'
@@ -71,9 +73,9 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             Plan de Salle
-          </button>
+          </button>}
 
-          <button
+          {permissions.includes('kitchen.access') && <button
             onClick={() => onSelectRole('kds')}
             className={`px-3 py-1.5 text-xs lg:text-sm font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
               currentRole === 'kds'
@@ -87,9 +89,9 @@ export const Header: React.FC<HeaderProps> = ({
                 {kitchenTicketsCount}
               </span>
             )}
-          </button>
+          </button>}
 
-          <button
+          {(permissions.includes('cash.view') || permissions.includes('cash.manage')) && <button
             onClick={() => onSelectRole('manager')}
             className={`px-3 py-1.5 text-xs lg:text-sm font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
               currentRole === 'manager'
@@ -98,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             Supervision & Caisse
-          </button>
+          </button>}
         </nav>
 
         {/* Zone 3: 1 Primary Action */}
@@ -112,7 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
             {audioEnabled ? <Volume2 size={18} /> : <VolumeX size={18} className="text-slate-500" />}
           </button>
 
-          <button
+          {permissions.includes('pos.access') && <button
             onClick={() => {
               sounds.playTap();
               onQuickNewOrder();
@@ -122,7 +124,7 @@ export const Header: React.FC<HeaderProps> = ({
             <Plus size={16} strokeWidth={2.5} />
             <span className="hidden sm:inline">Nouvelle Commande</span>
             <span className="sm:hidden">Nouveau</span>
-          </button>
+          </button>}
         </div>
       </div>
     </header>

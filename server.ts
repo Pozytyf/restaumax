@@ -37,6 +37,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
 import { 
   processOrderSubmission, 
   ServerFirestoreProvider,
@@ -60,7 +61,7 @@ const app = express();
 app.use(express.json());
 
 // 1. Initialisation stricte de Firebase Admin SDK
-let adminDb: any = null;
+export let adminDb: any = null;
 let adminInitError: string | null = null;
 let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = null;
 
@@ -450,7 +451,11 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     if (!adminDb) {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
     }
-    const snap = await adminDb.collection('restaurants').doc(restaurantSlug).collection('menuItems').get();
+    const restaurantRef = adminDb.collection('restaurants').doc(restaurantSlug);
+    const restaurantSnap = await restaurantRef.get();
+    if (!restaurantSnap.exists) throw new Error("Restaurant introuvable.");
+    if (restaurantSnap.data()?.status === 'suspended') throw new Error("Restaurant suspendu : les commandes sont temporairement désactivées.");
+    const snap = await restaurantRef.collection('menuItems').get();
     return snap.docs.map((d: any) => d.data());
   },
 
@@ -689,7 +694,16 @@ export async function handleOrderSubmission(payload: unknown): Promise<{ statusC
   }
 }
 
+// Shared platform administration handler used by Express and Vercel.
+export async function handlePlatformAdmin(req: any, res: any, db: any = adminDb) {
+  return runPlatformAdmin(req, res, db);
+}
+
 // Local Express routes. Vercel uses the equivalent files in /api.
+app.all('/api/platform-admin', async (req, res) => {
+  await handlePlatformAdmin(req, res);
+});
+
 app.post('/api/orders', async (req, res) => {
   const result = await handleOrderSubmission(req.body);
   return res.status(result.statusCode).json(result.body);

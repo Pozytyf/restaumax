@@ -59,6 +59,7 @@ import { RestaurantHubView } from './components/restaumax/RestaurantHubView';
 import { ManagerLoginView } from './components/restaumax/ManagerLoginView';
 import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
 import { QrScannerModal } from './components/restaumax/QrScannerModal';
+import { PlatformAdminView } from './components/restaumax/PlatformAdminView';
 
 /**
  * Mappe de façon déterministe et stable une commande Firestore RestauOrder vers un ticket KDS KitchenTicket
@@ -133,11 +134,17 @@ export default function App() {
   };
 
   const { path: activePathname, table: activeTableNumber } = parsePathInfo(currentPath);
+  const [authRestaurantSlug, setAuthRestaurantSlug] = useState<string>('');
+  const [authIsSuperAdmin, setAuthIsSuperAdmin] = useState<boolean>(false);
+  const routeRestaurantSlug = activePathname.startsWith('/r/') ? activePathname.split('/')[2] : '';
+  const queryRestaurantSlug = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('restaurant') || ''; } catch { return ''; } })();
+  const activeRestaurantSlug = routeRestaurantSlug || (authIsSuperAdmin ? queryRestaurantSlug : authRestaurantSlug) || authRestaurantSlug || 'chez-awa';
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
   const isStaffRoute = activePathname === '/staff';
+  const isPlatformAdminRoute = activePathname === '/admin';
   const isRestaurantHubRoute = activePathname.startsWith('/gestion');
-  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute;
+  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute && !isPlatformAdminRoute;
 
   // Sync with browser history
   useEffect(() => {
@@ -254,14 +261,14 @@ export default function App() {
     testConnection().catch((err) => console.warn('Firestore test connection:', err));
 
     // 2. Subscribe to Restaurant document
-    const unsubRestaurant = subscribeToRestaurant('chez-awa', (updatedRestaurant) => {
+    const unsubRestaurant = subscribeToRestaurant(activeRestaurantSlug, (updatedRestaurant) => {
       if (isMounted && updatedRestaurant) {
         setRestaurant(updatedRestaurant);
       }
     });
 
     // 3. Subscribe to Menu Items subcollection (reflects real state including empty catalog)
-    const unsubMenuItems = subscribeToMenuItems('chez-awa', (items) => {
+    const unsubMenuItems = subscribeToMenuItems(activeRestaurantSlug, (items) => {
       if (isMounted) {
         setRestauMenuItems(items);
       }
@@ -272,12 +279,27 @@ export default function App() {
       unsubRestaurant();
       unsubMenuItems();
     };
-  }, []);
+  }, [activeRestaurantSlug]);
 
   // RestauMax Authentication & Manager Authorization State
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [isAuthorizedManager, setIsAuthorizedManager] = useState<boolean>(false);
+  const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
+  const [userPermissions, setUserPermissions] = useState<string[]>([]);
   const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
+
+  useEffect(() => {
+    let active = true;
+    if (!authUser) { setIsRestaurantOwner(false); setUserPermissions([]); return; }
+    authUser.getIdTokenResult(true).then((token) => {
+      if (!active) return;
+      const owner = token.claims.role === 'owner';
+      const superAdmin = token.claims.role === 'super_admin' || token.claims.role === 'admin';
+      setIsRestaurantOwner(owner);
+      setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+    }).catch(() => { if (active) { setIsRestaurantOwner(false); setUserPermissions([]); } });
+    return () => { active = false; };
+  }, [authUser]);
 
   // Subscribe to Firebase Auth and evaluate Manager privileges
   useEffect(() => {
@@ -285,6 +307,15 @@ export default function App() {
       setAuthUser(user);
       setIsAuthorizedManager(isManager);
       setIsLoadingAuth(false);
+      if (user) user.getIdTokenResult().then((token) => {
+        const owner = token.claims.role === 'owner';
+        const superAdmin = token.claims.role === 'super_admin' || token.claims.role === 'admin';
+        setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
+        setAuthIsSuperAdmin(superAdmin);
+        setIsRestaurantOwner(owner);
+        setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setUserPermissions([]); });
+      else { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); }
     });
 
     return () => unsubAuth();
@@ -295,7 +326,7 @@ export default function App() {
     if (!isAuthorizedManager && !isRestaurantHubRoute) return;
 
     let isMounted = true;
-    const unsubTables = subscribeToTables('chez-awa', (tbls) => {
+    const unsubTables = subscribeToTables(activeRestaurantSlug, (tbls) => {
       if (isMounted) {
         setRestauTables(tbls);
       }
@@ -305,15 +336,15 @@ export default function App() {
       isMounted = false;
       unsubTables();
     };
-  }, [isAuthorizedManager, isRestaurantHubRoute]);
+  }, [isAuthorizedManager, isRestaurantHubRoute, activeRestaurantSlug]);
 
   // Correction C: Subscribe to Orders subcollection for persistent KDS stream
   useEffect(() => {
-    if (!isAuthorizedManager && !isStaffRoute) return;
+    if (!isAuthorizedManager || (!userPermissions.includes('orders.view') && !userPermissions.includes('orders.manage') && !userPermissions.includes('kitchen.access'))) return;
 
     let isMounted = true;
     const unsubOrders = subscribeToOrders(
-      'chez-awa',
+      activeRestaurantSlug,
       (firestoreOrders) => {
         if (!isMounted) return;
         setKitchenTickets((prev) => {
@@ -337,13 +368,18 @@ export default function App() {
       isMounted = false;
       unsubOrders();
     };
-  }, [isAuthorizedManager, isStaffRoute]);
+  }, [isAuthorizedManager, isStaffRoute, userPermissions]);
 
   const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const res = await signInManager(email, pass);
     if (res.success && res.user) {
       setAuthUser(res.user);
       setIsAuthorizedManager(true);
+      const token = await res.user.getIdTokenResult(true);
+      setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
+      setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
+      setIsRestaurantOwner(token.claims.role === 'owner');
+      setUserPermissions(token.claims.role === 'owner' || token.claims.role === 'super_admin' || token.claims.role === 'admin' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
       return { success: true };
     }
     return { success: false, error: res.error };
@@ -353,6 +389,10 @@ export default function App() {
     await signOutManager();
     setAuthUser(null);
     setIsAuthorizedManager(false);
+    setIsRestaurantOwner(false);
+    setAuthIsSuperAdmin(false);
+    setAuthRestaurantSlug('');
+    setUserPermissions([]);
   };
 
   // RestauMax Client Cart & Idempotency Key State (Preserved across routing and page reloads via sessionStorage)
@@ -373,7 +413,7 @@ export default function App() {
   useEffect(() => {
     if (clientCart.length > 0) {
       savePendingOrderIntent({
-        restaurantSlug: 'chez-awa',
+        restaurantSlug: activeRestaurantSlug,
         orderMode: activeTableNumber ? 'sur_place' : 'a_emporter',
         tableNumber: activeTableNumber,
         cart: clientCart,
@@ -398,7 +438,7 @@ export default function App() {
     );
 
     // Asynchronous Firestore persistence
-    persistDishAvailability('chez-awa', dishId, nextAvailable).catch((err) => {
+    persistDishAvailability(activeRestaurantSlug, dishId, nextAvailable).catch((err) => {
       console.error('Erreur de persistance de la disponibilité dans Firestore:', err);
     });
   };
@@ -408,7 +448,7 @@ export default function App() {
     setRestauMenuItems((prev) => [newDish, ...prev]);
 
     // Asynchronous Firestore persistence
-    persistMenuItem('chez-awa', newDish).catch((err) => {
+    persistMenuItem(activeRestaurantSlug, newDish).catch((err) => {
       console.error('Erreur de persistance du nouveau plat dans Firestore:', err);
     });
   };
@@ -420,14 +460,14 @@ export default function App() {
     );
 
     // Asynchronous Firestore persistence
-    persistMenuItem('chez-awa', updatedDish).catch((err) => {
+    persistMenuItem(activeRestaurantSlug, updatedDish).catch((err) => {
       console.error('Erreur de mise à jour du plat dans Firestore:', err);
     });
   };
 
   const handleDeleteDish = async (dishId: string) => {
     try {
-      await deleteMenuItem('chez-awa', dishId);
+      await deleteMenuItem(activeRestaurantSlug, dishId);
       setRestauMenuItems((prev) => prev.filter((item) => item.id !== dishId));
     } catch (err) {
       console.error('Erreur de suppression du plat dans Firestore:', err);
@@ -504,7 +544,7 @@ export default function App() {
     
     // Sauvegarder l'intention client complète dans sessionStorage AVANT la soumission
     savePendingOrderIntent({
-      restaurantSlug: 'chez-awa',
+      restaurantSlug: activeRestaurantSlug,
       orderMode,
       tableNumber: activeTableNumber,
       cart: clientCart,
@@ -519,7 +559,7 @@ export default function App() {
       0
     );
 
-    const submitRes = await submitOrderWithServerValidation('chez-awa', {
+    const submitRes = await submitOrderWithServerValidation(activeRestaurantSlug, {
       cart: clientCart,
       orderMode,
       tableNumber: activeTableNumber,
@@ -593,14 +633,14 @@ export default function App() {
       }
       return [...prev, table];
     });
-    persistTable('chez-awa', table).catch(err => {
+    persistTable(activeRestaurantSlug, table).catch(err => {
       console.error('Erreur de persistance de la table dans Firestore:', err);
     });
   };
 
   const handleDeleteTable = (tableId: string) => {
     setRestauTables(prev => prev.filter(t => t.id !== tableId));
-    deleteTable('chez-awa', tableId).catch(err => {
+    deleteTable(activeRestaurantSlug, tableId).catch(err => {
       console.error('Erreur de suppression de la table dans Firestore:', err);
     });
   };
@@ -660,7 +700,7 @@ export default function App() {
         imageUrl: item.menuItem.imageUrl
       }));
 
-      const result = await submitOrderWithServerValidation('chez-awa', {
+      const result = await submitOrderWithServerValidation(activeRestaurantSlug, {
         cart: clientCart,
         orderMode: selectedTable ? 'sur_place' : 'a_emporter',
         tableNumber: selectedTable?.number || null,
@@ -760,7 +800,7 @@ export default function App() {
       else if (status === 'cancelled') firestoreStatus = 'cancelled';
       else firestoreStatus = 'in_prep';
 
-      updateOrderStatus('chez-awa', rawOrderId, firestoreStatus).catch((err) => {
+      updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus).catch((err) => {
         console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
       });
     }
@@ -793,7 +833,7 @@ export default function App() {
       previous.map((table) => table.id === tableId ? updated : table)
     );
 
-    persistTable('chez-awa', updated).catch((err) => {
+    persistTable(activeRestaurantSlug, updated).catch((err) => {
       console.error('Erreur de synchronisation du statut de table:', err);
       setRestauTables((previous) =>
         previous.map((table) => table.id === tableId ? existing : table)
@@ -830,9 +870,9 @@ export default function App() {
           onNavigateHome={() => navigateTo('/')}
           onSelectTableDemo={(tbl) => {
             if (tbl) {
-              navigateTo(`/r/chez-awa?table=${tbl}`);
+              navigateTo(`/r/${activeRestaurantSlug}?table=${tbl}`);
             } else {
-              navigateTo('/r/chez-awa');
+              navigateTo(`/r/${activeRestaurantSlug}`);
             }
           }}
         />
@@ -851,7 +891,7 @@ export default function App() {
         ) : (!authUser || !isAuthorizedManager) ? (
           <ManagerLoginView
             onLogin={handleManagerLogin}
-            onBackToMenu={() => navigateTo('/r/chez-awa')}
+            onBackToMenu={() => navigateTo(`/r/${activeRestaurantSlug}`)}
             restaurantName={restaurant.name}
           />
         ) : (
@@ -866,7 +906,7 @@ export default function App() {
             activeKitchenTicketsCount={activeTicketsCount}
             totalSessionSales={drawerState.totalSales}
             onNavigateHome={() => navigateTo('/')}
-            onNavigateToClientMenu={() => navigateTo('/r/chez-awa')}
+            onNavigateToClientMenu={() => navigateTo(`/r/${activeRestaurantSlug}`)}
             onNavigateToStaffRole={(role) => {
               setCurrentRole(role);
               navigateTo('/staff');
@@ -876,19 +916,24 @@ export default function App() {
             onUpdateDish={handleUpdateDish}
             onDeleteDish={handleDeleteDish}
             currentUserEmail={authUser?.email}
+            canManageStaff={isRestaurantOwner || authIsSuperAdmin}
+            permissions={userPermissions}
             onSignOut={handleManagerSignOut}
           />
         )
       )}
 
-      {/* 3. RestauMax Home Landing Page: / */}
+      {/* 3. Central platform administration: /admin */}
+      {isPlatformAdminRoute && <PlatformAdminView onBack={() => navigateTo('/')} onOpenRestaurant={(slug) => navigateTo(`/gestion?restaurant=${encodeURIComponent(slug)}`)} />}
+
+      {/* 4. RestauMax Home Landing Page: / */}
       {isHomePageRoute && (
         <HomePage
           onGoToMenuWithTable={(tbl) => {
             if (tbl) {
-              navigateTo(`/r/chez-awa?table=${tbl}`);
+              navigateTo(`/r/${activeRestaurantSlug}?table=${tbl}`);
             } else {
-              navigateTo('/r/chez-awa');
+              navigateTo(`/r/${activeRestaurantSlug}`);
             }
           }}
           onGoToStaffTools={() => navigateTo('/staff')}
@@ -897,7 +942,7 @@ export default function App() {
         />
       )}
 
-      {/* 4. Protected Staff Internal Workspaces: /staff */}
+      {/* 5. Protected Staff Internal Workspaces: /staff */}
       {isStaffRoute && (
         isLoadingAuth ? (
           <div className="flex-1 flex items-center justify-center p-8 text-sm text-slate-600">
@@ -906,13 +951,14 @@ export default function App() {
         ) : (!authUser || !isAuthorizedManager) ? (
           <ManagerLoginView
             onLogin={handleManagerLogin}
-            onBackToMenu={() => navigateTo('/r/chez-awa')}
+            onBackToMenu={() => navigateTo(`/r/${activeRestaurantSlug}`)}
             restaurantName={restaurant.name}
           />
         ) : (
         <div className="flex-1 flex flex-col">
           <Header
             currentRole={currentRole}
+            permissions={userPermissions}
             onSelectRole={(r) => {
               sounds.playTap();
               setCurrentRole(r);
@@ -929,7 +975,7 @@ export default function App() {
           />
 
           <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            {currentRole === 'pos' && (
+            {currentRole === 'pos' && userPermissions.includes('pos.access') && (
               <PosView
                 menuItems={menuItems}
                 cart={cart}
@@ -950,7 +996,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'floor' && (
+            {currentRole === 'floor' && userPermissions.includes('tables.manage') && (
               <FloorView
                 tables={tables}
                 onSelectTableForOrder={handleSelectTableForOrder}
@@ -959,7 +1005,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'kds' && (
+            {currentRole === 'kds' && userPermissions.includes('kitchen.access') && (
               <KdsView
                 tickets={kitchenTickets}
                 onToggleItemComplete={handleToggleKdsItem}
@@ -967,7 +1013,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'manager' && (
+            {currentRole === 'manager' && (userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')) && (
               <ManagerView
                 drawerState={drawerState}
                 transactions={transactions}
