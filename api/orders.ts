@@ -1,4 +1,4 @@
-import { handleOrderSubmission } from '../server';
+import { handleOrderSubmission } from '../server.ts';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
