@@ -30,21 +30,27 @@ service cloud.firestore {
     // 2. Custom Claims role == 'manager' and restaurantSlug == targetSlug
     // 3. Presence of a trusted document in /managers/{uid} with role == 'admin' or role == 'manager' matching targetSlug
     function isManagerOfRestaurant(targetSlug) {
+      let managerPath = /databases/$(database)/documents/managers/$(request.auth.uid);
+      let managerExists = isSignedIn() && exists(managerPath);
+      let managerData = managerExists ? get(managerPath).data : {};
+      let tokenRole = request.auth.token.get('role', '');
+      let tokenRestaurant = request.auth.token.get('restaurantSlug', '');
+      let tokenRestaurants = request.auth.token.get('restaurants', []);
       return isSignedIn() && (
-        request.auth.token.role == 'admin' ||
-        (request.auth.token.role == 'manager' && request.auth.token.restaurantSlug == targetSlug) ||
+        tokenRole == 'admin' ||
+        (tokenRole == 'manager' && (
+          tokenRestaurant == targetSlug ||
+          targetSlug in tokenRestaurants
+        )) ||
         (
-          exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
+          managerExists &&
           (
-            get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'admin' ||
+            managerData.get('role', '') == 'admin' ||
             (
-              get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'manager' &&
+              managerData.get('role', '') == 'manager' &&
               (
-                get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurantSlug == targetSlug ||
-                (
-                  'restaurants' in get(/databases/$(database)/documents/managers/$(request.auth.uid)).data &&
-                  targetSlug in get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurants
-                )
+                managerData.get('restaurantSlug', '') == targetSlug ||
+                targetSlug in managerData.get('restaurants', [])
               )
             )
           )
@@ -128,7 +134,8 @@ service cloud.firestore {
       // Tables subcollection: données opérationnelles réservées au personnel autorisé.
       // Le client QR transmet le numéro de table; la validation réelle est faite côté serveur.
       match /tables/{tableId} {
-        allow get, list: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId);
+        allow get: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId);
+        allow list: if isManagerOfRestaurant(restaurantSlug);
         allow create, update: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId)
           && isValidTable(incoming()) && incoming().id == tableId;
         allow delete: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId);
