@@ -256,40 +256,72 @@ export async function processOrderSubmission(
     }
   }
 
-  // 5c. Rejouer une commande déjà persistée AVANT de relire le catalogue.
-  // Un plat peut être désactivé après la première écriture alors que le client n'a pas reçu la réponse.
-  // Dans ce cas, la commande existante fait autorité et doit être retournée via la transaction d'idempotence.
-  if (dataProvider.executeOrderTransaction && dataProvider.getOrderById) {
-    let existingOrderProbe: OrderProbeResult;
+  // 5c. Si un registre d'idempotence existe déjà, vérifier une commande persistée
+  // avant la validation du catalogue (qui peut avoir changé depuis le premier envoi).
+  if (
+    dataProvider.executeOrderTransaction &&
+    dataProvider.getIdempotencyRecord &&
+    dataProvider.getOrderById
+  ) {
+    let existingKeyRecord: ServerIdempotencyRecord | null;
     try {
-      existingOrderProbe = await dataProvider.getOrderById(cleanSlug, orderId);
+      existingKeyRecord = await dataProvider.getIdempotencyRecord(keyDocId);
     } catch (err: any) {
       return {
         success: false,
-        error: "Impossible de vérifier l'existence d'une commande précédente. Réessayez avec la même clé d'idempotence."
+        error: "Impossible de vérifier la clé de commande existante. Réessayez sans modifier le panier."
       };
     }
 
-    if (existingOrderProbe.status === 'error') {
-      return {
-        success: false,
-        error: existingOrderProbe.error
-      };
-    }
+    if (existingKeyRecord) {
+      if (
+        existingKeyRecord.restaurantSlug !== cleanSlug ||
+        existingKeyRecord.orderId !== orderId ||
+        existingKeyRecord.signature !== currentSignature
+      ) {
+        return {
+          success: false,
+          conflict: true,
+          error: "Conflit d'idempotence : cette clé est déjà associée à une autre commande."
+        };
+      }
 
-    if (existingOrderProbe.status === 'found') {
-      const replayResult = await dataProvider.executeOrderTransaction({
-        restaurantSlug: cleanSlug,
-        idempotencyKey: cleanKey,
-        keyDocId,
-        orderId,
-        signature: currentSignature,
-        orderToCreate: existingOrderProbe.order
-      });
+      if (existingKeyRecord.status === 'failed') {
+        return {
+          success: false,
+          conflict: true,
+          error: "La tentative précédente a échoué définitivement. Une nouvelle clé de commande est nécessaire."
+        };
+      }
 
-      return replayResult.success
-        ? { ...replayResult, idempotentReplay: true }
-        : replayResult;
+      let existingOrderProbe: OrderProbeResult;
+      try {
+        existingOrderProbe = await dataProvider.getOrderById(cleanSlug, orderId);
+      } catch (err: any) {
+        return {
+          success: false,
+          error: "Impossible de vérifier l'existence de la commande précédente. Réessayez avec la même clé."
+        };
+      }
+
+      if (existingOrderProbe.status === 'error') {
+        return { success: false, error: existingOrderProbe.error };
+      }
+
+      if (existingOrderProbe.status === 'found') {
+        const replayResult = await dataProvider.executeOrderTransaction({
+          restaurantSlug: cleanSlug,
+          idempotencyKey: cleanKey,
+          keyDocId,
+          orderId,
+          signature: currentSignature,
+          orderToCreate: existingOrderProbe.order
+        });
+
+        return replayResult.success
+          ? { ...replayResult, idempotentReplay: true }
+          : replayResult;
+      }
     }
   }
 
