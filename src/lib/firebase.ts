@@ -213,6 +213,19 @@ export async function persistDishAvailability(restaurantSlug: string, dishId: st
 }
 
 /**
+ * Permanently remove a menu item. Firestore rules restrict this to an authenticated
+ * manager of the restaurant; historical orders keep their own item snapshots.
+ */
+export async function deleteMenuItem(restaurantSlug: string, dishId: string): Promise<void> {
+  const path = `restaurants/${restaurantSlug}/menuItems/${dishId}`;
+  try {
+    await deleteDoc(doc(db, 'restaurants', restaurantSlug, 'menuItems', dishId));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+/**
  * Checks if a given Firebase user has the manager role:
  * 1. Via Custom Claims (role === 'manager' or 'admin')
  * 2. Via trusted server-side document in /managers/{uid}
