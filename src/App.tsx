@@ -933,6 +933,7 @@ export default function App() {
                 discountPercent={discountPercent}
                 onSetDiscountPercent={setDiscountPercent}
                 onSendToKitchen={handleSendToKitchen}
+                isSendingOrder={isSubmittingPosOrder}
                 onOpenPayment={() => setIsPaymentModalOpen(true)}
                 serverName={serverName}
               />
