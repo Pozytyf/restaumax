@@ -648,11 +648,7 @@ app.post('/api/orders', async (req, res) => {
   if (!adminDb) {
     return res.status(503).json({
       success: false,
-      error: `Service de commande indisponible : Firebase Admin SDK n'est pas initialisé sur le serveur. ` +
-        `Raison : ${adminInitError || 'Identifiants administrateur absents'}. ` +
-        `Pour activer le traitement des commandes en production, configurez GOOGLE_APPLICATION_CREDENTIALS ` +
-        `avec un compte de service autorisé sur le projet '${appletConfig?.projectId || 'Firebase'}'. ` +
-        `Les écritures directes via le SDK client sont formellement interdites par les règles Firestore.`
+      error: "Le service de commande est temporairement indisponible. Veuillez réessayer ultérieurement."
     });
   }
 
@@ -669,20 +665,17 @@ app.post('/api/orders', async (req, res) => {
     console.error('Erreur inattendue API /api/orders:', err);
     return res.status(500).json({
       success: false,
-      error: `Erreur interne serveur lors du traitement de la commande : ${err.message || String(err)}`
+      error: "Une erreur interne est survenue lors du traitement de la commande. Veuillez réessayer."
     });
   }
 });
 
 // 4. Route Diagnostic / Santé du serveur
 app.get('/api/health', (_req, res) => {
-  res.json({ 
-    status: 'ok', 
-    hasAdminDb: Boolean(adminDb),
-    projectId: appletConfig?.projectId || null,
-    databaseId: appletConfig?.firestoreDatabaseId || null,
-    adminInitError,
-    serverTime: Date.now() 
+  res.json({
+    status: 'ok',
+    orderSubmissionEnabled: Boolean(adminDb),
+    serverTime: Date.now()
   });
 });
 
