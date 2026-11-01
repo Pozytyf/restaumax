@@ -470,6 +470,26 @@ async function runTestSuite() {
   assert(res8.error?.includes('Incohérence persistante'), '8.2 : Erreur explicite sur l\'absence de commande');
 
   // -------------------------------------------------------------------------
+  // 8b. REGISTRE PROCESSING SANS HORODATAGE FIABLE
+  // -------------------------------------------------------------------------
+  console.log('\n--- 8b. Registre processing avec horodatage invalide ---');
+  const p8b = buildTestOrderPayload('chez-awa', 'real-tx-key-invalid-time-008b', '6b', 6100);
+  await client.injectKey(p8b.keyDocId, {
+    id: p8b.keyDocId,
+    namespacedKey: `chez-awa:${p8b.idempotencyKey}`,
+    restaurantSlug: 'chez-awa',
+    signature: p8b.signature,
+    orderId: p8b.orderId,
+    status: 'processing',
+    createdAt: 'invalid-timestamp',
+    updatedAt: 'also-invalid'
+  });
+  const res8b = await executeOrderTransactionWithDb(db, p8b);
+  assert(res8b.success === false && res8b.uncertain === true, '8b.1 : Registre processing sans horodatage fiable bloqué en mode incertain');
+  const orderDoc8b = await client.getOrder('chez-awa', p8b.orderId);
+  assert(!orderDoc8b, '8b.2 : Aucune commande créée lorsque l’horodatage du registre est invalide');
+
+  // -------------------------------------------------------------------------
   // 9. REPRISE APRÈS ÉTAT AMBIGU (Cas C -> E)
   // -------------------------------------------------------------------------
   console.log('\n--- 9. Reprise après état ambigu (Cas C -> E) ---');
