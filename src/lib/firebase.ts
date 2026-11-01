@@ -262,27 +262,26 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
   if (!user) return false;
 
   try {
-    // 1. Check Custom Claims (token-based)
     const tokenResult = await getIdTokenResult(user);
-    if (tokenResult.claims && (tokenResult.claims.role === 'manager' || tokenResult.claims.role === 'admin' || tokenResult.claims.role === 'owner' || tokenResult.claims.role === 'staff')) {
+    if (tokenResult.claims?.role === 'admin' || tokenResult.claims?.role === 'super_admin') {
       return true;
     }
 
-    // 2. Check trusted Firestore collection /managers/{uid} with strict role validation
+    // Restaurant owner, manager and staff privileges must also exist in the trusted
+    // server-provisioned membership document. This allows immediate account revocation.
     const managerDocRef = doc(db, 'managers', user.uid);
     const managerDoc = await getDoc(managerDocRef);
-    if (managerDoc.exists()) {
-      const data = managerDoc.data();
-      if (data && (data.role === 'manager' || data.role === 'admin' || data.role === 'owner' || data.role === 'staff')) {
-        return true;
-      }
-    }
+    if (!managerDoc.exists()) return false;
+    const data = managerDoc.data();
+    return Boolean(
+      data &&
+      data.active !== false &&
+      ['owner', 'manager', 'staff'].includes(data.role)
+    );
   } catch (err) {
     console.warn('Erreur lors de la vérification des privilèges gestionnaire:', err);
     return false;
   }
-
-  return false;
 }
 
 /**
