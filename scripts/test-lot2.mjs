@@ -1802,7 +1802,7 @@ async function runTests() {
     now: Date.now(),
     timeoutMs: 15000
   });
-  assert(decQ.type === 'REJECT' && decQ.error.includes('déjà en cours de traitement'), '7.5.Q : Registre processing non expiré bloque toute deuxième création');
+  assert(decQ.type === 'REJECT' && decQ.error.includes('encore en cours'), '7.5.Q : Registre processing non expiré bloque toute deuxième création');
 
   // Scénario R : Registre processing expiré : comportement explicitement justifié et sécurisé
   const decR = evaluateOrderTransactionDecision({
