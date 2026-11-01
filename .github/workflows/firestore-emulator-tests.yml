@@ -30,7 +30,7 @@ jobs:
           java-version: '17'
 
       - name: Installation propre des dépendances npm
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: 1. Contrôle statique TypeScript (lint)
         run: npm run lint
