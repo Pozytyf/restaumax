@@ -1,4 +1,4 @@
-import { getServerHealth } from '../server';
+import { getServerHealth } from '../server.ts';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
