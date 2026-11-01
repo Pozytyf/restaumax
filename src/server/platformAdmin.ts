@@ -3,7 +3,7 @@ import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage',
   'tables.view', 'tables.manage', 'pos.access', 'kitchen.access',
-  'cash.view', 'cash.manage', 'reports.view', 'staff.view', 'staff.manage',
+  'cash.view', 'cash.manage', 'reports.view', 'customers.view', 'customers.manage', 'inventory.view', 'inventory.manage', 'staff.view', 'staff.manage',
   'settings.view', 'settings.manage'
 ] as const;
 
