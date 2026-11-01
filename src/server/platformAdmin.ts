@@ -156,7 +156,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '');
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
       const owner = await requireOwner(db, user, slug);
-      if (!owner || owner.role !== 'owner') return json(res, 403, { success: false, error: 'Seul le propriétaire de ce restaurant peut gérer son personnel.' });
+      if (!owner || (owner.role !== 'owner' && owner.role !== 'super_admin')) return json(res, 403, { success: false, error: 'Accès propriétaire ou super-administrateur requis.' });
 
       const staffRef = db.collection('restaurants').doc(slug).collection('staff');
       if (action === 'staff_list') {
