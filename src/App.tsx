@@ -924,7 +924,7 @@ export default function App() {
       )}
 
       {/* 3. Central platform administration: /admin */}
-      {isPlatformAdminRoute && <PlatformAdminView onBack={() => navigateTo('/')} />}
+      {isPlatformAdminRoute && <PlatformAdminView onBack={() => navigateTo('/')} onOpenRestaurant={(slug) => navigateTo(`/gestion?restaurant=${encodeURIComponent(slug)}`)} />}
 
       {/* 4. RestauMax Home Landing Page: / */}
       {isHomePageRoute && (
