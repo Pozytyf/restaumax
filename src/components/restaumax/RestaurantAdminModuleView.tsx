@@ -3,7 +3,7 @@ import {
   addDoc, collection, deleteDoc, doc, onSnapshot, query, runTransaction, updateDoc
 } from 'firebase/firestore';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Package, Users, BarChart3, Settings } from 'lucide-react';
-import { db, persistRestaurant } from '../../lib/firebase';
+import { auth, db, persistRestaurant } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 
@@ -42,19 +42,18 @@ export const RestaurantAdminModuleView: React.FC<{
 
   useEffect(() => {
     setError('');
-    const base = collection(db, 'restaurants', restaurant.slug);
     if (module === 'customers') {
-      return onSnapshot(collection(base, 'customers'), snap => {
+      return onSnapshot(collection(db, 'restaurants', restaurant.slug, 'customers'), snap => {
         setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer)).sort((a,b) => a.name.localeCompare(b.name)));
       }, err => setError(err.message));
     }
     if (module === 'inventory') {
-      return onSnapshot(collection(base, 'inventoryItems'), snap => {
+      return onSnapshot(collection(db, 'restaurants', restaurant.slug, 'inventoryItems'), snap => {
         setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem)).sort((a,b) => a.name.localeCompare(b.name)));
       }, err => setError(err.message));
     }
     if (module === 'reports') {
-      return onSnapshot(query(collection(base, 'orders')), snap => {
+      return onSnapshot(query(collection(db, 'restaurants', restaurant.slug, 'orders')), snap => {
         setOrders(snap.docs.map(d => d.data() as RestauOrder));
       }, err => setError(err.message));
     }
@@ -134,7 +133,7 @@ export const RestaurantAdminModuleView: React.FC<{
         const current = Number(snap.data().quantity || 0);
         if (current + delta < 0) throw new Error('Stock insuffisant : sortie refusée.');
         tx.update(itemRef, { quantity: current + delta, updatedAt: Date.now() });
-        tx.set(movementRef, { itemId: item.id, itemName: item.name, delta, quantityAfter: current + delta, createdAt: Date.now(), createdBy: 'manager' });
+        tx.set(movementRef, { itemId: item.id, itemName: item.name, delta, quantityAfter: current + delta, createdAt: Date.now(), createdBy: auth.currentUser?.uid || 'unknown' });
       });
       setNotice(delta > 0 ? 'Entrée de stock enregistrée.' : 'Sortie de stock enregistrée.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Mouvement de stock impossible.'); }
