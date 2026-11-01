@@ -26,6 +26,8 @@ interface CartDrawerProps {
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
   onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; isReplay?: boolean }>;
+  customerNote: string;
+  onCustomerNoteChange: (note: string) => void;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
 }
@@ -39,12 +41,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onRemoveItem,
   onClearCart,
   onConfirmOrder,
+  customerNote,
+  onCustomerNoteChange,
   isUncertain = false,
   onResetUncertainty
 }) => {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [customerNote, setCustomerNote] = useState<string>('');
 
   if (!isOpen) return null;
 
@@ -62,7 +65,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       const result = await onConfirmOrder(customerNote.trim() || undefined);
       if (result.success) {
         // Successful submission: drawer is closed or transitioned by parent
-        setCustomerNote('');
+        onCustomerNoteChange('');
         setIsSubmitting(false);
       } else {
         // Failed submission: keep cart intact, display explicit message
@@ -326,7 +329,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   type="text"
                   placeholder="Ex : Servir les boissons fraîches en premier, couverts supplémentaires..."
                   value={customerNote}
-                  onChange={(e) => setCustomerNote(e.target.value)}
+                  onChange={(e) => onCustomerNoteChange(e.target.value)}
                   maxLength={180}
                   disabled={isSubmitting || isUncertain}
                   className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg placeholder-slate-400 text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#ff6500] disabled:bg-slate-100 disabled:text-slate-500"
