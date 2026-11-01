@@ -104,7 +104,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           batch.set(restaurantRef, {
             slug, name, isOpen: false, ownerUid: ownerUser.uid, ownerName, ownerEmail,
             status: 'active', createdAt: now, createdBy: user.uid,
-            currency: 'FCFA', country: "Côte d'Ivoire"
+            tagline: '', address: '', city: '', phone: '', bannerUrl: '', logoUrl: '',
+            openingHours: '', currency: 'FCFA', country: "Côte d'Ivoire"
           });
           batch.set(db.collection('managers').doc(ownerUser.uid), {
             uid: ownerUser.uid, email: ownerEmail, displayName: ownerName,
