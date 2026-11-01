@@ -106,6 +106,38 @@ assert(
   'Une erreur de lecture du registre d’idempotence bloque la validation et toute nouvelle création'
 );
 
+let menuReadForClosedRestaurant = false;
+const closedRestaurantResult = await processOrderSubmission({
+  ...payload,
+  idempotencyKey: 'order-errors-closed-restaurant-007'
+}, {
+  async getRestaurant() { return { isOpen: false }; },
+  async getMenuItems() { menuReadForClosedRestaurant = true; return await validProvider.getMenuItems(); },
+  async getTables() { return []; },
+  async executeOrderTransaction() { throw new Error('must not be called'); }
+});
+assert(
+  closedRestaurantResult.success === false && menuReadForClosedRestaurant === false,
+  'Un restaurant fermé est bloqué côté serveur avant lecture du catalogue et toute écriture'
+);
+
+const duplicateExtraResult = await processOrderSubmission({
+  ...payload,
+  idempotencyKey: 'order-errors-duplicate-extra-008',
+  cart: [{ menuItemId: 'dish-test', quantity: 1, selectedExtras: [{ extraId: 'ext-sauce' }, { extraId: 'ext-sauce' }] }]
+}, {
+  async getMenuItems() {
+    return [{
+      id: 'dish-test', restaurantSlug: 'chez-awa', name: 'Plat de test', category: 'plats',
+      price: 2500, available: true, optionGroups: [],
+      availableExtras: [{ id: 'ext-sauce', name: 'Sauce', price: 300 }]
+    }];
+  },
+  async getTables() { return []; },
+  async executeOrderTransaction() { throw new Error('must not be called'); }
+});
+assert(duplicateExtraResult.success === false, 'Un même supplément ne peut pas être facturé deux fois sur une ligne');
+
 const multiOptionPayload = {
   ...payload,
   idempotencyKey: 'order-errors-multi-group-002',
@@ -120,6 +152,7 @@ const multiOptionPayload = {
   }]
 };
 const multiOptionResult = await processOrderSubmission(multiOptionPayload, {
+  async getRestaurant() { return { isOpen: true }; },
   async getMenuItems() {
     return [{
       id: 'dish-test', restaurantSlug: 'chez-awa', name: 'Plat de test', category: 'plats',
