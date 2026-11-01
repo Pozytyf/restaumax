@@ -1,4 +1,8 @@
-import { processOrderSubmission } from '../src/server/orderService.ts';
+import {
+  processOrderSubmission,
+  deriveIdempotencyIdentifiers,
+  computeOrderSignature
+} from '../src/server/orderService.ts';
 
 let total = 0;
 let passed = 0;
@@ -40,6 +44,38 @@ const validProvider = {
 };
 
 console.log('\nRESTAUMAX — CLASSIFICATION DES RÉPONSES DE COMMANDE');
+
+const replaySignature = computeOrderSignature(payload);
+const replayIds = deriveIdempotencyIdentifiers(payload.restaurantSlug, payload.idempotencyKey);
+const persistedOrder = {
+  id: replayIds.orderId,
+  orderNumber: replayIds.orderNumber,
+  restaurantSlug: payload.restaurantSlug,
+  idempotencyKey: payload.idempotencyKey,
+  idempotencySignature: replaySignature,
+  orderMode: payload.orderMode,
+  tableNumber: null,
+  items: [{ id: 'line-1', menuItemId: 'dish-test', name: 'Plat de test', quantity: 1, unitPrice: 2500, subtotal: 2500 }],
+  totalAmount: 2500,
+  status: 'pending',
+  createdAt: Date.now()
+};
+let catalogReadDuringReplay = false;
+const replay = await processOrderSubmission(payload, {
+  ...validProvider,
+  async getOrderById() { return { status: 'found', order: persistedOrder }; },
+  async getMenuItems() {
+    catalogReadDuringReplay = true;
+    return []; // Le plat a été désactivé après la création initiale.
+  },
+  async executeOrderTransaction(params) {
+    return { success: true, order: params.orderToCreate, idempotentReplay: true };
+  }
+});
+assert(
+  replay.success === true && replay.idempotentReplay === true && catalogReadDuringReplay === false,
+  'Une commande déjà persistée est rejouée même si le catalogue a changé depuis le premier envoi'
+);
 
 const rejected = await processOrderSubmission(payload, {
   ...validProvider,
