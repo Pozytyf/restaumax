@@ -160,8 +160,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             <div className="flex items-start gap-2">
               <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
               <div className="leading-snug">
-                <span className="font-black text-amber-900">Transmission incertaine (Réseau) : </span>
-                La commande a peut-être été enregistrée par le serveur. Pour empêcher tout doublon, votre panier est verrouillé. Cliquez ci-dessous pour vérifier et finaliser en toute sécurité avec la même clé.
+                <span className="font-black text-amber-900">Commande non confirmée : </span>
+                Le serveur n'a pas pu confirmer l'état de cette tentative. Une commande a peut-être déjà été enregistrée. Pour éviter un doublon, votre panier reste verrouillé; toute nouvelle tentative doit conserver la même clé.
               </div>
             </div>
             {onResetUncertainty && (
@@ -183,7 +183,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         )}
 
         {/* Error notification if submission failed */}
-        {submitError && !isUncertain && (
+        {submitError && (
           <div className="mx-4 mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 shrink-0 animate-in fade-in">
             <AlertCircle size={15} className="text-rose-600 shrink-0 mt-0.5" />
             <div className="flex-1 leading-snug">
