@@ -111,6 +111,13 @@ service cloud.firestore {
     // Public get by exact identifier (slug) for customers scanning QR code
     // List of all restaurants: FORBIDDEN (not needed by QR menu or single-restaurant hub)
     // Create/update restricted strictly to verified managers of this restaurant
+    // Un gestionnaire peut lire uniquement son propre document d'habilitation.
+    // Les créations et modifications restent exclusivement réservées à l'Admin SDK.
+    match /managers/{managerId} {
+      allow get: if isSignedIn() && request.auth.uid == managerId;
+      allow list, create, update, delete: if false;
+    }
+
     match /restaurants/{restaurantSlug} {
       allow get: if isValidId(restaurantSlug);
       allow list: if false;
