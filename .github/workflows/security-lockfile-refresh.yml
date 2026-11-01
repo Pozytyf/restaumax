@@ -29,13 +29,15 @@ jobs:
           cache: npm
 
       - name: Refresh lockfile without force upgrades
-        run: npm install --package-lock-only --legacy-peer-deps --ignore-scripts
+        run: |
+          npm audit fix --legacy-peer-deps
+          npm install --package-lock-only --legacy-peer-deps --ignore-scripts
 
       - name: Install exact locked dependencies
         run: npm ci --legacy-peer-deps
 
       - name: Block high-severity dependency advisories
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
 
       - name: Typecheck, tests and production build
         run: |
