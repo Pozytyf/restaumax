@@ -101,7 +101,7 @@ export interface TransactionEvaluationParams {
 }
 
 export type TransactionDecisionResult = 
-  | { type: 'REJECT'; error: string; conflict?: boolean }
+  | { type: 'REJECT'; error: string; conflict?: boolean; uncertain?: boolean }
   | { type: 'REPLAY_NOMINAL'; order: any }
   | { type: 'RECONCILE_AND_REPLAY'; order: any }
   | { type: 'AUTO_REPAIR'; order: any }
@@ -187,7 +187,8 @@ export function evaluateOrderTransactionDecision(params: TransactionEvaluationPa
     if (keyData.status === 'failed') {
       return {
         type: 'REJECT',
-        error: "La tentative précédente associée à cette clé d'idempotence s'est terminée par un échec définitif. Réutilisation interdite."
+        conflict: true,
+        error: "La tentative précédente associée à cette clé d'idempotence s'est terminée par un échec définitif. Une nouvelle clé est nécessaire."
       };
     }
   }
@@ -297,7 +298,8 @@ export function evaluateOrderTransactionDecision(params: TransactionEvaluationPa
       if (now - recTime < timeoutMs) {
         return {
           type: 'REJECT',
-          error: "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
+          uncertain: true,
+          error: "Une requête identique avec cette clé d'idempotence est encore en cours. Réessayez sans modifier le panier."
         };
       }
       // Timeout expiré et la commande n'a pas été écrite dans Firestore : reprise autorisée
@@ -358,6 +360,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       return {
         success: false,
         conflict: decision.conflict,
+        uncertain: decision.uncertain,
         error: decision.error
       };
     }
@@ -658,6 +661,8 @@ app.post('/api/orders', async (req, res) => {
       return res.status(200).json(result);
     } else if (result.conflict) {
       return res.status(409).json(result);
+    } else if (result.uncertain) {
+      return res.status(503).json(result);
     } else {
       return res.status(400).json(result);
     }
@@ -665,7 +670,8 @@ app.post('/api/orders', async (req, res) => {
     console.error('Erreur inattendue API /api/orders:', err);
     return res.status(500).json({
       success: false,
-      error: "Une erreur interne est survenue lors du traitement de la commande. Veuillez réessayer."
+      uncertain: true,
+      error: "La confirmation de la commande est incertaine. Réessayez avec la même clé sans modifier le panier."
     });
   }
 });
