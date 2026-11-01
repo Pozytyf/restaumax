@@ -521,9 +521,9 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             {modules.filter((mod) => {
               if (mod.id === 'staff') return canManageStaff;
               const required: Record<string, string[]> = {
-                menu: ['menu.view', 'menu.manage'], 'options-prices': ['menu.view', 'menu.manage'],
-                orders: ['pos.access', 'orders.view', 'orders.manage'], kitchen: ['kitchen.access'],
-                floor: ['tables.view', 'tables.manage'], 'cash-register': ['cash.view', 'cash.manage'],
+                menu: ['menu.manage'], 'options-prices': ['menu.view', 'menu.manage'],
+                orders: ['pos.access'], kitchen: ['kitchen.access'],
+                floor: ['tables.manage'], 'cash-register': ['cash.view', 'cash.manage'],
                 reports: ['reports.view'], customers: ['reports.view'], inventory: ['settings.view'], settings: ['settings.view']
               };
               const needed = required[mod.id];
