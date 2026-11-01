@@ -106,8 +106,10 @@ service cloud.firestore {
     match /restaurants/{restaurantSlug} {
       allow get: if isValidId(restaurantSlug);
       allow list: if false;
-      allow create: if isManagerOfRestaurant(restaurantSlug) && isValidId(restaurantSlug) && isValidRestaurant(incoming());
-      allow update: if isManagerOfRestaurant(restaurantSlug) && isValidId(restaurantSlug) && isValidRestaurant(incoming());
+      allow create: if isManagerOfRestaurant(restaurantSlug) && isValidId(restaurantSlug)
+        && isValidRestaurant(incoming()) && incoming().slug == restaurantSlug;
+      allow update: if isManagerOfRestaurant(restaurantSlug) && isValidId(restaurantSlug)
+        && isValidRestaurant(incoming()) && incoming().slug == restaurantSlug;
       allow delete: if false;
 
       // Menu catalog subcollection
@@ -116,17 +118,19 @@ service cloud.firestore {
       match /menuItems/{dishId} {
         allow get: if isValidId(dishId);
         allow list: if true;
-        allow create: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
-        allow update: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
+        allow create: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId)
+          && isValidMenuItem(incoming()) && incoming().id == dishId && incoming().restaurantSlug == restaurantSlug;
+        allow update: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId)
+          && isValidMenuItem(incoming()) && incoming().id == dishId && incoming().restaurantSlug == restaurantSlug;
         allow delete: if isManagerOfRestaurant(restaurantSlug) && isValidId(dishId);
       }
 
-      // Tables subcollection
-      // Public get and list so customers can see table information
-      // Create/update/delete restricted strictly to verified managers of this restaurant
+      // Tables subcollection: données opérationnelles réservées au personnel autorisé.
+      // Le client QR transmet le numéro de table; la validation réelle est faite côté serveur.
       match /tables/{tableId} {
-        allow get, list: if true;
-        allow create, update: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId) && isValidTable(incoming());
+        allow get, list: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId);
+        allow create, update: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId)
+          && isValidTable(incoming()) && incoming().id == tableId;
         allow delete: if isManagerOfRestaurant(restaurantSlug) && isValidId(tableId);
       }
 
