@@ -6,7 +6,7 @@
  * 2. Restauration exacte après rechargement du navigateur (simulation reload).
  * 3. Préservation stricte de la même clé d'idempotence et du panier lors d'une défaillance réseau / 5xx.
  * 4. Nettoyage strict de l'intention lors d'une confirmation de commande (200).
- * 5. Régénération propre de la clé et nettoyage lors d'un conflit d'intégrité (409).
+ * 5. Conservation de l'intention en état incertain lors d'un conflit d'intégrité (409), pour éviter un doublon.
  * 6. Résilience face à un stockage corrompu ou mal formé (Fail-Safe).
  * 7. Annulation explicite par l'utilisateur avec avertissement et réinitialisation.
  */
@@ -146,7 +146,7 @@ async function runClientIntentTests() {
   // -------------------------------------------------------------------------
   // 5. Conflit d'intégrité (409) : purge et régénération
   // -------------------------------------------------------------------------
-  console.log('\n--- 5. Conflit d\'intégrité (409) : purge pour nouvelle intention ---');
+  console.log('\n--- 5. Conflit d\'intégrité (409) : conservation de l'intention ---');
   savePendingOrderIntent({
     ...intent1,
     idempotencyKey: 'conflict-key-002',
@@ -154,9 +154,12 @@ async function runClientIntentTests() {
   });
   assert(loadPendingOrderIntent() !== null, '5.1 : Intention avant conflit présente');
 
-  // En cas de conflit (Cas D), App.tsx appelle clearPendingOrderIntent()
-  clearPendingOrderIntent();
-  assert(loadPendingOrderIntent() === null, '5.2 : Intention nettoyée après conflit 409');
+  // Un conflit peut signaler qu'une commande antérieure existe déjà : ne jamais purger ni renouveler la clé automatiquement.
+  updatePendingOrderIntentUncertainty(true);
+  const afterConflict = loadPendingOrderIntent();
+  assert(afterConflict !== null, '5.2 : Intention conservée après conflit 409');
+  assert(afterConflict?.idempotencyKey === 'conflict-key-002', '5.3 : Clé d’idempotence inchangée après conflit 409');
+  assert(afterConflict?.isUncertain === true, '5.4 : Intention verrouillée en état incertain après conflit 409');
 
   // -------------------------------------------------------------------------
   // 6. Résilience aux données corrompues (Fail-Safe)
