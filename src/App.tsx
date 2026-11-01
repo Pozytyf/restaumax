@@ -294,8 +294,9 @@ export default function App() {
     authUser.getIdTokenResult().then((token) => {
       if (!active) return;
       const owner = token.claims.role === 'owner';
+      const superAdmin = token.claims.role === 'super_admin' || token.claims.role === 'admin';
       setIsRestaurantOwner(owner);
-      setUserPermissions(owner ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
     }).catch(() => { if (active) { setIsRestaurantOwner(false); setUserPermissions([]); } });
     return () => { active = false; };
   }, [authUser]);
@@ -374,7 +375,7 @@ export default function App() {
       setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
       setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
       setIsRestaurantOwner(token.claims.role === 'owner');
-      setUserPermissions(token.claims.role === 'owner' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setUserPermissions(token.claims.role === 'owner' || token.claims.role === 'super_admin' || token.claims.role === 'admin' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
       return { success: true };
     }
     return { success: false, error: res.error };
