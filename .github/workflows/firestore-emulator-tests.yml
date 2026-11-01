@@ -1,7 +1,7 @@
 name: RestauMax — Tests Firestore Emulator & Qualité
 
 permissions:
-  contents: write
+  contents: read
 
 on:
   push:
@@ -19,8 +19,6 @@ jobs:
     steps:
       - name: Récupération du code source
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Configuration de Node.js 24
         uses: actions/setup-node@v4
@@ -34,31 +32,8 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Installation des dépendances npm (réconciliation du lockfile)
-        run: npm install --legacy-peer-deps --no-audit --no-fund
-
-      - name: Commit du lockfile npm régénéré
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          BRANCH_NAME: ${{ github.head_ref }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package-lock.json
-          if git diff --cached --quiet; then
-            echo "Le package-lock.json est déjà synchronisé."
-            exit 0
-          fi
-          git commit -m "chore: regenerate package-lock for npm ci"
-          git push origin "HEAD:${BRANCH_NAME}"
-
-      - name: Export temporaire du lockfile npm réconcilié
-        uses: actions/upload-artifact@v4
-        with:
-          name: restaumax-package-lock-reconciled
-          path: package-lock.json
-          if-no-files-found: error
-          retention-days: 1
+      - name: Installation propre et reproductible des dépendances npm
+        run: npm ci --legacy-peer-deps
 
       - name: 1. Contrôle statique TypeScript (lint)
         run: npm run lint
