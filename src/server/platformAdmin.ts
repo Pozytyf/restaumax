@@ -127,7 +127,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (action === 'set_restaurant_status') {
         const slug = String(body.slug || '');
         if (!slug || !['active', 'suspended'].includes(body.status)) return json(res, 400, { success: false, error: 'Paramètres de statut invalides.' });
-        await db.collection('restaurants').doc(slug).set({ status: body.status, updatedAt: Date.now(), updatedBy: user.uid }, { merge: true });
+        await db.collection('restaurants').doc(slug).set({ status: body.status, ...(body.status === 'suspended' ? { isOpen: false } : {}), updatedAt: Date.now(), updatedBy: user.uid }, { merge: true });
         return json(res, 200, { success: true });
       }
     }
