@@ -983,7 +983,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'floor' && (userPermissions.includes('tables.view') || userPermissions.includes('tables.manage')) && (
+            {currentRole === 'floor' && userPermissions.includes('tables.manage') && (
               <FloorView
                 tables={tables}
                 onSelectTableForOrder={handleSelectTableForOrder}
