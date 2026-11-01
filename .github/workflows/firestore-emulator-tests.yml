@@ -45,7 +45,7 @@ jobs:
 
       - name: 4. Exécution des tests sur le véritable Firestore Emulator (test:emulator en mode strict)
         run: |
-          npx --yes firebase-tools@15.34.2 emulators:exec --only firestore --project demo-restaumax "FIRESTORE_EMULATOR_STRICT=true npm run test:emulator"
+          npx --yes firebase-tools@15.34.2 emulators:exec --only firestore --project demo-restaumax "npm run seed:local && FIRESTORE_EMULATOR_STRICT=true npm run test:emulator"
 
       - name: 5. Validation de la compilation de production (build)
         run: npm run build

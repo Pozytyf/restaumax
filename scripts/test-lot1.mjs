@@ -28,7 +28,8 @@ import {
   DEFAULT_ADMIN_APP_NAME
 } from './firebase-admin-config.mjs';
 import { 
-  parseSeedArgs, 
+  parseSeedArgs,
+  resolveSeedServiceAccount,
   seedCatalog,
   CHEZ_AWA_RESTAURANT,
   CHEZ_AWA_MENU_ITEMS 
@@ -196,6 +197,10 @@ async function runTests() {
   // Test 2.1: Identifiants valides sous forme d'objet
   const resValidObj = validateServiceAccountCredentials(validCreds, EXPECTED_PROJECT);
   assert(resValidObj.project_id === EXPECTED_PROJECT, 'Accepte des identifiants valides avec le bon projectId');
+  assert(
+    resolveSeedServiceAccount({ projectId: EXPECTED_PROJECT }, { FIRESTORE_EMULATOR_HOST: '127.0.0.1:8080' }) === null,
+    'Le seed local utilise Firebase Admin sans compte de service réel lorsque Firestore Emulator est actif'
+  );
 
   // Test 2.2: Normalisation (.trim())
   const resTrim = validateServiceAccountCredentials(
