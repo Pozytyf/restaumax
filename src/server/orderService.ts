@@ -23,6 +23,13 @@ export interface OrderSubmissionPayload {
       optionName?: string;
       extraPrice?: number;
     };
+    selectedOptions?: Array<{
+      groupId: string;
+      groupName?: string;
+      optionId: string;
+      optionName?: string;
+      extraPrice?: number;
+    }>;
     selectedExtras?: Array<{
       extraId: string;
       name?: string;
@@ -133,9 +140,13 @@ export function computeOrderSignature(payload: {
 
   const canonicalItems = (payload.cart || [])
     .map(c => {
-      const opt = c.selectedOption 
-        ? `${(c.selectedOption.groupId || '').trim()}:${(c.selectedOption.optionId || '').trim()}`
-        : '';
+      const optionSelections = Array.isArray(c.selectedOptions) && c.selectedOptions.length > 0
+        ? c.selectedOptions
+        : c.selectedOption ? [c.selectedOption] : [];
+      const opt = optionSelections
+        .map(option => `${(option.groupId || '').trim()}:${(option.optionId || '').trim()}`)
+        .sort()
+        .join(',');
       const extras = (c.selectedExtras || [])
         .map(e => (e.extraId || '').trim())
         .filter(Boolean)
@@ -464,49 +475,65 @@ export async function processOrderSubmission(
     }
     const qty = rawQty;
 
-    // Validation des options obligatoires et facultatives
+    // Validation serveur de chaque groupe d'options, obligatoire ou facultatif.
+    // Compatibilité : les anciennes intentions à choix composite (groupId/optionId séparés par '+')
+    // sont normalisées sans faire confiance aux noms ni aux prix envoyés par le client.
     const requiredGroups = (catalogItem.optionGroups || []).filter(g => g.required);
-    let verifiedSelectedOption: RestauOrderItem['selectedOption'] = undefined;
-
-    if (requiredGroups.length > 0 && !line.selectedOption) {
-      return { 
-        success: false, 
-        error: `Une option obligatoire (${requiredGroups.map(g => g.name).join(', ')}) est requise pour "${catalogItem.name}".` 
-      };
+    if (line.selectedOptions !== undefined && !Array.isArray(line.selectedOptions)) {
+      return { success: false, error: `Les options sélectionnées pour "${catalogItem.name}" sont invalides.` };
+    }
+    let requestedOptions = Array.isArray(line.selectedOptions) && line.selectedOptions.length > 0
+      ? line.selectedOptions
+      : line.selectedOption ? [line.selectedOption] : [];
+    if ((!line.selectedOptions || line.selectedOptions.length === 0) && line.selectedOption?.groupId?.includes('+') && line.selectedOption?.optionId?.includes('+')) {
+      const legacyGroups = line.selectedOption.groupId.split('+');
+      const legacyOptions = line.selectedOption.optionId.split('+');
+      if (legacyGroups.length === legacyOptions.length && legacyGroups.length > 1) {
+        requestedOptions = legacyGroups.map((groupId, index) => ({ groupId, optionId: legacyOptions[index] }));
+      }
     }
 
-    if (line.selectedOption) {
-      const targetGroup = (catalogItem.optionGroups || []).find(g => g.id === line.selectedOption!.groupId);
+    const verifiedSelectedOptions: NonNullable<RestauOrderItem['selectedOptions']> = [];
+    const selectedGroupIds = new Set<string>();
+    for (const requestedOption of requestedOptions) {
+      if (!requestedOption || typeof requestedOption.groupId !== 'string' || typeof requestedOption.optionId !== 'string') {
+        return { success: false, error: `Une option sélectionnée pour "${catalogItem.name}" est malformée.` };
+      }
+      if (selectedGroupIds.has(requestedOption.groupId)) {
+        return { success: false, error: `Plusieurs options ont été envoyées pour le même groupe de "${catalogItem.name}".` };
+      }
+      const targetGroup = (catalogItem.optionGroups || []).find(g => g.id === requestedOption.groupId);
       if (!targetGroup) {
-        return { 
-          success: false, 
-          error: `Le groupe d'options spécifié pour "${catalogItem.name}" n'existe pas.` 
-        };
+        return { success: false, error: `Le groupe d'options "${requestedOption.groupId}" n'existe pas pour "${catalogItem.name}".` };
       }
-
-      const targetOption = targetGroup.options.find(o => o.id === line.selectedOption!.optionId);
+      const targetOption = targetGroup.options.find(o => o.id === requestedOption.optionId);
       if (!targetOption) {
-        return { 
-          success: false, 
-          error: `L'option "${line.selectedOption.optionId}" est introuvable dans le groupe "${targetGroup.name}".` 
-        };
+        return { success: false, error: `L'option "${requestedOption.optionId}" est introuvable dans le groupe "${targetGroup.name}".` };
       }
-
       if (typeof targetOption.extraPrice !== 'number' || !Number.isFinite(targetOption.extraPrice) || targetOption.extraPrice < 0) {
         return {
           success: false,
           error: `Donnée de catalogue corrompue : L'option "${targetOption.name}" possède un surcoût invalide (${targetOption.extraPrice}).`
         };
       }
-
-      verifiedSelectedOption = {
+      selectedGroupIds.add(targetGroup.id);
+      verifiedSelectedOptions.push({
         groupId: targetGroup.id,
         groupName: targetGroup.name,
         optionId: targetOption.id,
         optionName: targetOption.name,
         extraPrice: targetOption.extraPrice
+      });
+    }
+
+    const missingRequiredGroups = requiredGroups.filter(group => !selectedGroupIds.has(group.id));
+    if (missingRequiredGroups.length > 0) {
+      return {
+        success: false,
+        error: `Une option obligatoire (${missingRequiredGroups.map(group => group.name).join(', ')}) est requise pour "${catalogItem.name}".`
       };
     }
+    const verifiedSelectedOption = verifiedSelectedOptions.length === 1 ? verifiedSelectedOptions[0] : undefined;
 
     // Validation des suppléments (extras)
     const verifiedExtrasList: Array<{ extraId: string; name: string; price: number }> = [];
@@ -538,7 +565,7 @@ export async function processOrderSubmission(
     }
 
     const trustedBasePrice = catalogItem.price;
-    const optionExtraPrice = verifiedSelectedOption ? verifiedSelectedOption.extraPrice : 0;
+    const optionExtraPrice = verifiedSelectedOptions.reduce((sum, option) => sum + option.extraPrice, 0);
     const extrasCost = verifiedExtrasList.reduce((sum, e) => sum + e.price, 0);
     const trustedUnitPrice = trustedBasePrice + optionExtraPrice + extrasCost;
     const lineTotal = trustedUnitPrice * qty;
@@ -552,6 +579,7 @@ export async function processOrderSubmission(
       quantity: qty,
       totalPrice: lineTotal,
       selectedOption: verifiedSelectedOption,
+      selectedOptions: verifiedSelectedOptions.length > 1 ? verifiedSelectedOptions : undefined,
       selectedExtras: verifiedExtrasList.length > 0 ? verifiedExtrasList : undefined,
       prepNotes: sanitizeNote(line.prepNotes, 150)
     });
