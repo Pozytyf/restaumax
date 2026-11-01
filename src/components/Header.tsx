@@ -124,7 +124,7 @@ export const Header: React.FC<HeaderProps> = ({
             <Plus size={16} strokeWidth={2.5} />
             <span className="hidden sm:inline">Nouvelle Commande</span>
             <span className="sm:hidden">Nouveau</span>
-          </button>
+          </button>}
         </div>
       </div>
     </header>
