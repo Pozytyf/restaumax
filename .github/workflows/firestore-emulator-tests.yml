@@ -17,10 +17,10 @@ jobs:
       - name: Récupération du code source
         uses: actions/checkout@v4
 
-      - name: Configuration de Node.js 20
+      - name: Configuration de Node.js 22 (LTS)
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Configuration de Java 17 (Requis pour Firestore Emulator)
