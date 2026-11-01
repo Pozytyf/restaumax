@@ -251,7 +251,11 @@ export async function main() {
 
   // 2. Validation des identifiants
   const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  const serviceAccount = validateServiceAccountCredentials(credPath, firebaseConfig.projectId);
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const serviceAccountInput = serviceAccountJson
+    ? JSON.parse(serviceAccountJson)
+    : credPath;
+  const serviceAccount = validateServiceAccountCredentials(serviceAccountInput, firebaseConfig.projectId);
 
   // 3. Initialisation de Firebase Admin SDK et de la base Firestore dédiée
   const app = initAdminApp(serviceAccount, firebaseConfig.projectId);
