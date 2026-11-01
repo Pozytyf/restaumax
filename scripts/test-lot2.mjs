@@ -2024,6 +2024,25 @@ async function runTests() {
     '7.4.d : Route /api/health présente pour diagnostiquer l\'état de Firebase Admin SDK'
   );
 
+  // Vérification de l'isolation du navigateur local vis-à-vis du projet Firebase de production.
+  const firebaseClientContent = fs.readFileSync(path.resolve('src/lib/firebase.ts'), 'utf-8');
+  assert(
+    firebaseClientContent.includes('import.meta.env.DEV') &&
+    firebaseClientContent.includes("import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true'") &&
+    firebaseClientContent.includes('connectFirestoreEmulator(db, emulatorHost, firestorePort)'),
+    '7.4.e : Le SDK Firestore navigateur bascule vers l’émulateur uniquement en développement local explicite'
+  );
+  assert(
+    firebaseClientContent.includes('connectAuthEmulator(auth, authEmulatorUrl'),
+    '7.4.f : Le SDK Auth navigateur bascule également vers l’émulateur local'
+  );
+  const firebaseCliConfig = JSON.parse(fs.readFileSync(path.resolve('firebase.json'), 'utf-8'));
+  assert(
+    firebaseCliConfig.emulators?.firestore?.port === 8080 &&
+    firebaseCliConfig.emulators?.auth?.port === 9099,
+    '7.4.g : Firestore et Auth disposent de ports d’émulateur locaux déclarés'
+  );
+
   // ==========================================================================
   // BILAN GÉNÉRAL LOT 2
   // ==========================================================================
