@@ -17,17 +17,17 @@ jobs:
       - name: Récupération du code source
         uses: actions/checkout@v4
 
-      - name: Configuration de Node.js 22 (LTS)
+      - name: Configuration de Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: 'npm'
 
-      - name: Configuration de Java 17 (Requis pour Firestore Emulator)
+      - name: Configuration de Java 21 (Requis pour Firebase CLI)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Installation propre des dépendances npm
         run: npm ci --legacy-peer-deps
@@ -45,7 +45,7 @@ jobs:
 
       - name: 4. Exécution des tests sur le véritable Firestore Emulator (test:emulator en mode strict)
         run: |
-          npx firebase-tools emulators:exec --only firestore --project demo-restaumax "FIRESTORE_EMULATOR_STRICT=true npm run test:emulator"
+          npx --yes firebase-tools@15.34.2 emulators:exec --only firestore --project demo-restaumax "FIRESTORE_EMULATOR_STRICT=true npm run test:emulator"
 
       - name: 5. Validation de la compilation de production (build)
         run: npm run build
