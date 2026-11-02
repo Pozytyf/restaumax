@@ -272,7 +272,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const name = String(body.name || '').trim();
         const email = String(body.email || '').trim().toLowerCase();
         const password = String(body.password || '');
-        const role = body.role === 'manager' ? 'manager' : 'staff';
+        const allowedJobTitles = ['server', 'cashier', 'cook', 'manager', 'other'];
+        const jobTitle = String(body.jobTitle || 'other');
+        if (!allowedJobTitles.includes(jobTitle)) return json(res, 400, { success: false, error: 'Fonction professionnelle invalide.' });
+        const role = jobTitle === 'manager' && body.role === 'manager' ? 'manager' : 'staff';
         const permissions = Array.isArray(body.permissions)
           ? [...new Set(body.permissions.filter((p: unknown): p is Permission => typeof p === 'string' && (PERMISSIONS as readonly string[]).includes(p)))]
           : [];
@@ -289,7 +292,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           newUser = await auth.createUser({ email, password, displayName: name, disabled: false });
           await auth.setCustomUserClaims(newUser.uid, { role, restaurantSlug: slug, permissions });
           const record = {
-            uid: newUser.uid, email, displayName: name, role, restaurantSlug: slug,
+            uid: newUser.uid, email, displayName: name, role, jobTitle, restaurantSlug: slug,
             permissions, active: true, createdAt: Date.now(), createdBy: user.uid
           };
           const batch = db.batch();
