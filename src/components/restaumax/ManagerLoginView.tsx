@@ -11,6 +11,8 @@ import {
   Loader2 
 } from 'lucide-react';
 import { sounds } from '../../utils/audio';
+import { auth } from '../../lib/firebase';
+import { createUserWithEmailAndPassword, sendEmailVerification, reload } from 'firebase/auth';
 
 interface ManagerLoginViewProps {
   onLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
@@ -28,6 +30,10 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [registration, setRegistration] = useState({ ownerName: '', restaurantName: '', city: '', phone: '', email: '', password: '', confirmPassword: '' });
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [registrationNotice, setRegistrationNotice] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,6 +61,59 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
     } catch {
       sounds.playAlert();
       setErrorMessage('Une erreur est survenue lors de la tentative de connexion.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRegistration = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setErrorMessage(null);
+    setRegistrationNotice(null);
+    if (!registration.ownerName.trim() || !registration.restaurantName.trim() || !registration.city.trim() ||
+        !registration.phone.trim() || !registration.email.trim()) {
+      setErrorMessage('Veuillez renseigner toutes les informations demandées.');
+      return;
+    }
+    if (registration.password.length < 10 || registration.password !== registration.confirmPassword) {
+      setErrorMessage('Le mot de passe doit contenir au moins 10 caractères et les deux saisies doivent correspondre.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      if (!verificationPending) {
+        const credential = await createUserWithEmailAndPassword(auth, registration.email.trim(), registration.password);
+        await sendEmailVerification(credential.user);
+        setVerificationPending(true);
+        setRegistrationNotice('Compte créé. Consultez votre boîte e-mail et confirmez votre adresse. Revenez ensuite ici pour envoyer votre demande.');
+        return;
+      }
+      const user = auth.currentUser;
+      if (!user) throw new Error('Session d’inscription introuvable. Reconnectez-vous avec le compte créé.');
+      await reload(user);
+      if (!user.emailVerified) {
+        setRegistrationNotice('Votre adresse e-mail n’est pas encore confirmée. Ouvrez le lien reçu par e-mail puis réessayez.');
+        return;
+      }
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/platform-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          action: 'register_restaurant_request',
+          ownerName: registration.ownerName.trim(),
+          restaurantName: registration.restaurantName.trim(),
+          city: registration.city.trim(),
+          phone: registration.phone.trim()
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Impossible d’envoyer la demande.');
+      setRegistrationNotice('Votre demande a bien été transmise. Elle est en attente de validation par l’équipe RestauMax. Vous recevrez une confirmation après examen.');
+      setVerificationPending(false);
+      setRegistration({ ownerName: '', restaurantName: '', city: '', phone: '', email: '', password: '', confirmPassword: '' });
+    } catch (error: any) {
+      setErrorMessage(error?.message || 'Une erreur est survenue pendant l’inscription.');
     } finally {
       setIsSubmitting(false);
     }
@@ -106,6 +165,24 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
             </div>
           )}
 
+          {registrationNotice && <div role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-relaxed text-emerald-800">{registrationNotice}</div>}
+          {isRegistering ? (
+          <form onSubmit={handleRegistration} className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="text-xs font-bold text-slate-700">Nom complet<input required maxLength={160} value={registration.ownerName} onChange={e=>setRegistration({...registration,ownerName:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-medium" placeholder="Votre nom"/></label>
+              <label className="text-xs font-bold text-slate-700">E-mail professionnel<input required type="email" autoComplete="email" value={registration.email} onChange={e=>setRegistration({...registration,email:e.target.value})} disabled={verificationPending} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-medium"/></label>
+              <label className="text-xs font-bold text-slate-700 sm:col-span-2">Nom du restaurant<input required maxLength={200} value={registration.restaurantName} onChange={e=>setRegistration({...registration,restaurantName:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-medium" placeholder="Ex. Maquis Chez Awa"/></label>
+              <label className="text-xs font-bold text-slate-700">Ville / Commune<input required maxLength={120} value={registration.city} onChange={e=>setRegistration({...registration,city:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-medium" placeholder="Abidjan, Cocody"/></label>
+              <label className="text-xs font-bold text-slate-700">Téléphone<input required maxLength={40} value={registration.phone} onChange={e=>setRegistration({...registration,phone:e.target.value})} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-medium" placeholder="+225…"/></label>
+              <label className="text-xs font-bold text-slate-700">Mot de passe<input required minLength={10} type="password" autoComplete="new-password" value={registration.password} onChange={e=>setRegistration({...registration,password:e.target.value})} disabled={verificationPending} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-medium"/></label>
+              <label className="text-xs font-bold text-slate-700">Confirmer le mot de passe<input required minLength={10} type="password" autoComplete="new-password" value={registration.confirmPassword} onChange={e=>setRegistration({...registration,confirmPassword:e.target.value})} disabled={verificationPending} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-medium"/></label>
+            </div>
+            <p className="text-[11px] leading-relaxed text-slate-500">Une confirmation de votre adresse e-mail est obligatoire. Votre restaurant restera en attente jusqu’à validation par RestauMax. Aucun accès de gestion n’est accordé avant approbation.</p>
+            <button type="submit" disabled={isSubmitting} className="w-full rounded-xl bg-[#ff6500] py-3 text-xs font-black text-white disabled:opacity-60">{isSubmitting ? 'Traitement…' : verificationPending ? 'J’ai confirmé mon e-mail — envoyer ma demande' : 'Créer mon compte et recevoir le lien de confirmation'}</button>
+            <button type="button" onClick={()=>{setIsRegistering(false);setErrorMessage(null);setRegistrationNotice(null);}} className="w-full py-2 text-xs font-bold text-slate-500">Retour à la connexion</button>
+          </form>
+          ) : (
+          <>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -171,11 +248,13 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
               )}
             </button>
           </form>
+          <button type="button" onClick={()=>{setIsRegistering(true);setErrorMessage(null);setRegistrationNotice(null);}} className="w-full rounded-xl border border-orange-200 bg-orange-50 py-3 text-xs font-extrabold text-[#d94f00] hover:bg-orange-100">Créer un compte restaurateur</button>
+          </>
 
           {/* Security & Provisioning Note */}
           <div className="pt-4 border-t border-slate-100 text-center">
             <p className="text-[11px] text-slate-400 leading-relaxed">
-              Pour des raisons de sécurité, les comptes de gestion sont administrés de manière centralisée via Firebase Authentication. Aucun formulaire d’inscription publique n’est exposé.
+              Les inscriptions sont ouvertes aux restaurateurs. Chaque demande est vérifiée par l’équipe RestauMax avant l’activation de l’accès de gestion.
             </p>
           </div>
         </div>
