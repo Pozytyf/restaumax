@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { sounds } from '../../utils/audio';
 import { auth } from '../../lib/firebase';
-import { createUserWithEmailAndPassword, sendEmailVerification, reload } from 'firebase/auth';
+import { createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail, reload } from 'firebase/auth';
 
 interface ManagerLoginViewProps {
   onLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
@@ -66,6 +66,15 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
     }
   };
 
+
+  const handlePasswordReset = async () => {
+    const targetEmail = email.trim();
+    if (!targetEmail) { setErrorMessage('Saisissez votre adresse e-mail pour recevoir le lien de réinitialisation.'); return; }
+    setIsSubmitting(true); setErrorMessage(null); setRegistrationNotice(null);
+    try { await sendPasswordResetEmail(auth, targetEmail); setRegistrationNotice('Si cette adresse correspond à un compte, un e-mail de réinitialisation vient d’être envoyé. Vérifiez aussi vos courriers indésirables.'); }
+    catch (error: any) { setErrorMessage(error?.code === 'auth/invalid-email' ? 'L’adresse e-mail saisie est invalide.' : 'Impossible d’envoyer le lien pour le moment. Vérifiez l’adresse et réessayez.'); }
+    finally { setIsSubmitting(false); }
+  };
   const handleRegistration = async (event: React.FormEvent) => {
     event.preventDefault();
     setErrorMessage(null);
@@ -248,6 +257,7 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
               )}
             </button>
           </form>
+          <button type="button" onClick={handlePasswordReset} disabled={isSubmitting} className="w-full py-2 text-xs font-semibold text-[#c64b00] hover:underline disabled:opacity-50">Mot de passe oublié ? Réinitialiser par e-mail</button>
           <button type="button" onClick={()=>{setIsRegistering(true);setErrorMessage(null);setRegistrationNotice(null);}} className="w-full rounded-xl border border-orange-200 bg-orange-50 py-3 text-xs font-extrabold text-[#d94f00] hover:bg-orange-100">Créer un compte restaurateur</button>
           </>
           )}
