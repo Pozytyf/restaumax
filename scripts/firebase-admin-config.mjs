@@ -1,9 +1,9 @@
 /**
  * RESTAUMAX — Configuration centralisée pour les scripts d'administration
  *
- * Charge et valide la configuration Firebase depuis firebase-applet-config.json
- * pour garantir que tous les scripts ciblent strictement la même base Firestore
- * et le même projet que l'application cliente.
+ * Charge et valide la configuration Firebase depuis firebase-applet-config.json.
+ * FIREBASE_PROJECT_ID et FIRESTORE_DATABASE_ID permettent de surcharger cette base
+ * par environnement. Vercel Preview est strictement verrouillé sur restaumax-preview.
  */
 
 import * as fs from 'fs';
