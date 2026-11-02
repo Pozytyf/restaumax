@@ -93,16 +93,16 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   return <div className="min-h-screen bg-slate-950 text-slate-100">
     <header className="border-b border-slate-800 bg-slate-900 px-5 py-4">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-        <div className="flex items-center gap-3"><div className="rounded-xl bg-orange-500 p-2"><ShieldCheck size={22}/></div><div><h1 className="text-xl font-black">RestauMax · Administration centrale</h1><p className="text-xs text-slate-400">Supervision de la plateforme multi-restaurants</p></div></div>
+        <div className="flex items-center gap-3"><div className="rounded-xl bg-orange-500 p-2"><ShieldCheck size={22}/></div><div><h1 className="text-2xl md:text-4xl font-black">RestauMax · Administration centrale</h1><p className="text-sm md:text-base text-slate-300">Supervision de la plateforme multi-restaurants</p></div></div>
         <div className="flex gap-2"><button onClick={onBack} className="rounded-lg border border-slate-700 px-3 py-2 text-sm">Accueil</button>{user && <button onClick={() => signOut(auth)} className="flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm"><LogOut size={15}/> Déconnexion</button>}</div>
       </div>
     </header>
     <main className="mx-auto max-w-7xl space-y-6 p-5 md:p-8">
       {error && <div role="alert" className="rounded-xl border border-rose-800 bg-rose-950/50 p-3 text-sm text-rose-200">{error}</div>}
       {notice && <div className="rounded-xl border border-emerald-800 bg-emerald-950/50 p-3 text-sm text-emerald-200">{notice}</div>}
-      {user && <section className="rounded-2xl bg-[#172b40] p-4 md:p-5 shadow-lg">
-        <div className="mb-3 flex items-center justify-between gap-3"><h2 className="font-extrabold text-white">Administration centrale</h2><span className="rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-bold text-emerald-300">Superadmin</span></div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {user && <section className="rounded-2xl bg-[#172b40] p-5 md:p-7 shadow-lg">
+        <div className="mb-5 flex items-center justify-between gap-3"><h2 className="text-xl md:text-2xl font-extrabold text-white">Administration centrale</h2><span className="rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-bold text-emerald-300">Superadmin</span></div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {[
             {label:'Vue globale',icon:LayoutDashboard,target:'admin-overview',active:true},
             {label:'Restaurants',icon:Building2,target:'admin-restaurants',active:true},
@@ -113,7 +113,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
             {label:'Sécurité',icon:Shield,active:false},
             {label:'Rapports',icon:ChartNoAxesCombined,active:false},
             {label:'Paramètres',icon:Settings,active:false}
-          ].map(tile=>{const Icon=tile.icon;return <button key={tile.label} type="button" disabled={!tile.active} onClick={()=>tile.target&&document.getElementById(tile.target)?.scrollIntoView({behavior:'smooth',block:'start'})} className={`flex min-h-[68px] flex-col items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-center transition-colors ${tile.active?'border-white/5 bg-[#263e56] text-white hover:bg-[#34516e]':'cursor-not-allowed border-white/5 bg-[#20364c]/60 text-slate-500'}`}><Icon size={18}/><span className="text-xs font-semibold">{tile.label}</span>{!tile.active&&<span className="text-[9px] uppercase tracking-wide">À activer</span>}</button>})}
+          ].map(tile=>{const Icon=tile.icon;return <button key={tile.label} type="button" disabled={!tile.active} onClick={()=>tile.target&&document.getElementById(tile.target)?.scrollIntoView({behavior:'smooth',block:'start'})} className={`flex min-h-[104px] md:min-h-[120px] flex-col items-center justify-center gap-2 rounded-xl border px-3 py-4 text-center transition-colors ${tile.active?'border-white/5 bg-[#263e56] text-white hover:bg-[#34516e]':'cursor-not-allowed border-white/5 bg-[#20364c]/60 text-slate-500'}`}><Icon size={26}/><span className="text-sm md:text-base font-bold">{tile.label}</span>{!tile.active&&<span className="text-[11px] uppercase tracking-wide">À activer</span>}</button>})}
         </div>
       </section>}
       {!user ? <form onSubmit={login} className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
@@ -122,11 +122,11 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <label className="block text-sm">Mot de passe<div className="relative mt-1"><input required type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
         <button disabled={loading} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white disabled:opacity-50">{loading ? 'Connexion…' : 'Se connecter'}</button>
       </form> : <><section id="admin-overview" className="scroll-mt-5 grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Restaurants enregistrés</p><p className="mt-2 text-3xl font-black">{restaurants.length}</p></div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements actifs</p><p className="mt-2 text-3xl font-black">{restaurants.filter(r=>r.status !== 'suspended').length}</p></div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Compte connecté</p><p className="mt-2 truncate text-sm font-bold">{user.email}</p></div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Demandes à examiner</p><p className="mt-2 text-3xl font-black">{registrationRequests.length}</p></div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Restaurants suspendus</p><p className="mt-2 text-3xl font-black">{restaurants.filter(r=>r.status === 'suspended').length}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6"><p className="text-base text-slate-300">Restaurants enregistrés</p><p className="mt-2 text-3xl font-black">{restaurants.length}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6"><p className="text-base text-slate-300">Établissements actifs</p><p className="mt-2 text-3xl font-black">{restaurants.filter(r=>r.status !== 'suspended').length}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6"><p className="text-base text-slate-300">Compte connecté</p><p className="mt-2 truncate text-sm font-bold">{user.email}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6"><p className="text-base text-slate-300">Demandes à examiner</p><p className="mt-2 text-3xl font-black">{registrationRequests.length}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6"><p className="text-base text-slate-300">Restaurants suspendus</p><p className="mt-2 text-3xl font-black">{restaurants.filter(r=>r.status === 'suspended').length}</p></div>
       </section>
       <div id="admin-restaurants" className="scroll-mt-5 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-black">Gestion des restaurants</h2><p className="text-sm text-slate-400">Création, attribution du propriétaire et activation des établissements.</p></div><div className="flex gap-2"><button onClick={refresh} disabled={loading} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm"><RefreshCw size={15}/> Actualiser</button><button onClick={()=>setShowCreate(v=>!v)} className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-bold"><Plus size={16}/> Nouveau restaurant</button></div></div>
       {showCreate && <form onSubmit={createRestaurant} className="grid gap-3 rounded-2xl border border-slate-700 bg-slate-900 p-5 md:grid-cols-2">
