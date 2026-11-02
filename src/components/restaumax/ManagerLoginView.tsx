@@ -250,6 +250,7 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
           </form>
           <button type="button" onClick={()=>{setIsRegistering(true);setErrorMessage(null);setRegistrationNotice(null);}} className="w-full rounded-xl border border-orange-200 bg-orange-50 py-3 text-xs font-extrabold text-[#d94f00] hover:bg-orange-100">Créer un compte restaurateur</button>
           </>
+          )}
 
           {/* Security & Provisioning Note */}
           <div className="pt-4 border-t border-slate-100 text-center">
