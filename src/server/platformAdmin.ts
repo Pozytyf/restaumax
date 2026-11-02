@@ -256,13 +256,20 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }
 
     // Owner-only personnel management, scoped to the authenticated owner's restaurant.
-    if (action === 'staff_list' || action === 'create_staff' || action === 'update_staff' || action === 'disable_staff') {
+    if (action === 'staff_list' || action === 'staff_audit' || action === 'create_staff' || action === 'update_staff' || action === 'disable_staff') {
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '');
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
       const owner = await requireOwner(db, user, slug);
       if (!owner || (owner.role !== 'owner' && owner.role !== 'super_admin')) return json(res, 403, { success: false, error: 'Accès propriétaire ou super-administrateur requis.' });
 
       const staffRef = db.collection('restaurants').doc(slug).collection('staff');
+      const auditRef = db.collection('restaurants').doc(slug).collection('auditLogs');
+      const writeStaffAudit = (event: string, targetUid: string, details: Record<string, unknown> = {}) => auditRef.add({ event, targetUid, actorUid: user.uid, actorEmail: user.email || null, details, createdAt: Date.now() });
+      if (action === 'staff_audit') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await auditRef.orderBy('createdAt', 'desc').limit(100).get();
+        return json(res, 200, { success: true, events: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) });
+      }
       if (action === 'staff_list') {
         const snap = await staffRef.get();
         return json(res, 200, { success: true, staff: snap.docs.map((d: any) => d.data()) });
@@ -299,6 +306,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           batch.set(db.collection('managers').doc(newUser.uid), record);
           batch.set(staffRef.doc(newUser.uid), record);
           await batch.commit();
+          await writeStaffAudit('staff.created', newUser.uid, { email, jobTitle, role, permissions });
           return json(res, 201, { success: true, staff: record });
         } catch (error: any) {
           if (newUser?.uid) await auth.deleteUser(newUser.uid).catch(() => undefined);
@@ -316,6 +324,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         await getAuth().revokeRefreshTokens(staffUid);
         await memberRef.set({ active: false, updatedAt: Date.now() }, { merge: true });
         await db.collection('managers').doc(staffUid).set({ active: false }, { merge: true });
+        await writeStaffAudit('staff.disabled', staffUid);
         return json(res, 200, { success: true });
       }
       if (action === 'update_staff') {
@@ -330,6 +339,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         await getAuth().setCustomUserClaims(staffUid, { role, restaurantSlug: slug, permissions });
         await memberRef.set({ role, permissions, updatedAt: Date.now() }, { merge: true });
         await db.collection('managers').doc(staffUid).set({ role, permissions }, { merge: true });
+        await writeStaffAudit('staff.permissions_updated', staffUid, { role, permissions });
         return json(res, 200, { success: true });
       }
     }
