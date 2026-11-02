@@ -119,8 +119,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
       if (action === 'registration_requests') {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
-        const snap = await db.collection('registrationRequests').where('status', '==', 'pending').orderBy('createdAt', 'asc').limit(100).get();
-        return json(res, 200, { success: true, requests: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) });
+        const snap = await db.collection('registrationRequests').where('status', '==', 'pending').limit(100).get();
+        const requests = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+          .sort((a: any, b: any) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
+        return json(res, 200, { success: true, requests });
       }
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
       const requestUid = String(body.uid || '');
@@ -161,7 +163,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       try {
         const now = Date.now();
         const permissions = [...PERMISSIONS];
-        await getAuth().setCustomUserClaims(requestUid, { role: 'owner', restaurantSlug: slug, permissions });
+        await getAuth().setCustomUserClaims(requestUid, { role: 'owner', restaurantSlug: slug });
         const batch = db.batch();
         batch.set(db.collection('managers').doc(requestUid), {
           uid: requestUid, email: registration.email, displayName: registration.ownerName,
