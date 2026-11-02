@@ -363,6 +363,13 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
           </div>
 
           <div className="flex items-center gap-3 text-xs text-slate-300">
+            {canManageStaff && (
+              <button type="button" onClick={() => { sounds.playTap(); setActiveTab('staff'); }}
+                className="px-3 py-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 transition-all flex items-center gap-1.5 text-xs font-bold">
+                <Users size={13}/><span>Personnel</span>
+              </button>
+            )}
+
             {canManageTables && (
               <button
                 onClick={() => {
