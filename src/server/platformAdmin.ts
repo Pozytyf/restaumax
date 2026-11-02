@@ -172,6 +172,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const permissions = Array.isArray(body.permissions)
           ? [...new Set(body.permissions.filter((p: unknown): p is Permission => typeof p === 'string' && (PERMISSIONS as readonly string[]).includes(p)))]
           : [];
+        // Every restaurant manager must be able to manage tables and generate QR codes.
+        if (role === 'manager' && !permissions.includes('tables.manage')) {
+          permissions.push('tables.manage');
+        }
         if (!name || !validEmail(email) || password.length < 10 || permissions.length > PERMISSIONS.length) {
           return json(res, 400, { success: false, error: 'Nom, e-mail, mot de passe (10 caractères minimum) ou autorisations invalides.' });
         }
@@ -212,6 +216,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const permissions = Array.isArray(body.permissions)
           ? [...new Set(body.permissions.filter((p: unknown): p is Permission => typeof p === 'string' && (PERMISSIONS as readonly string[]).includes(p)))]
           : [];
+        // Every restaurant manager must be able to manage tables and generate QR codes.
+        if (role === 'manager' && !permissions.includes('tables.manage')) {
+          permissions.push('tables.manage');
+        }
         await getAuth().setCustomUserClaims(staffUid, { role, restaurantSlug: slug, permissions });
         await memberRef.set({ role, permissions, updatedAt: Date.now() }, { merge: true });
         await db.collection('managers').doc(staffUid).set({ role, permissions }, { merge: true });
