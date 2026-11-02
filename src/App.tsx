@@ -62,6 +62,20 @@ import { QrScannerModal } from './components/restaumax/QrScannerModal';
 import { PlatformAdminView } from './components/restaumax/PlatformAdminView';
 
 /**
+ * Permissions effectives issues des Custom Claims.
+ * Tout compte ayant le rôle gérant reçoit tables.manage, sans hériter des droits propriétaire.
+ */
+function getEffectivePermissions(claims: Record<string, unknown>): string[] {
+  const permissions = Array.isArray(claims.permissions)
+    ? claims.permissions.filter((permission): permission is string => typeof permission === 'string')
+    : [];
+  if (claims.role === 'manager' && !permissions.includes('tables.manage')) {
+    permissions.push('tables.manage');
+  }
+  return [...new Set(permissions)];
+}
+
+/**
  * Mappe de façon déterministe et stable une commande Firestore RestauOrder vers un ticket KDS KitchenTicket
  */
 export function mapRestauOrderToKitchenTicket(
@@ -296,7 +310,7 @@ export default function App() {
       const owner = token.claims.role === 'owner';
       const superAdmin = token.claims.role === 'super_admin' || token.claims.role === 'admin';
       setIsRestaurantOwner(owner);
-      setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : getEffectivePermissions(token.claims as Record<string, unknown>));
     }).catch(() => { if (active) { setIsRestaurantOwner(false); setUserPermissions([]); } });
     return () => { active = false; };
   }, [authUser]);
@@ -313,7 +327,7 @@ export default function App() {
         setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
         setAuthIsSuperAdmin(superAdmin);
         setIsRestaurantOwner(owner);
-        setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+        setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : getEffectivePermissions(token.claims as Record<string, unknown>));
       }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setUserPermissions([]); });
       else { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); }
     });
@@ -379,7 +393,7 @@ export default function App() {
       setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
       setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
       setIsRestaurantOwner(token.claims.role === 'owner');
-      setUserPermissions(token.claims.role === 'owner' || token.claims.role === 'super_admin' || token.claims.role === 'admin' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setUserPermissions(token.claims.role === 'owner' || token.claims.role === 'super_admin' || token.claims.role === 'admin' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : getEffectivePermissions(token.claims as Record<string, unknown>));
       return { success: true };
     }
     return { success: false, error: res.error };
