@@ -2,6 +2,7 @@
  * RESTAUMAX — Script d'attribution sécurisée du rôle Gestionnaire (Admin SDK)
  *
  * Utilisation :
+ * node scripts/grant-manager.mjs <EMAIL_OU_UID_GESTIONNAIRE> <RESTAURANT_SLUG>
  * 1. Télécharger une clé de compte de service depuis la console Firebase :
  *    Paramètres du projet > Comptes de service > Générer une nouvelle clé privée.
  * 2. Enregistrer cette clé HORS du dépôt (ex: ~/serviceAccountKey.json).
@@ -21,8 +22,13 @@ async function main() {
   const targetUserIdentifier = process.argv[2];
 
   if (!targetUserIdentifier) {
-    console.error('Usage: node scripts/grant-manager.mjs <EMAIL_OU_UID_GESTIONNAIRE>');
+    console.error('Usage: node scripts/grant-manager.mjs <EMAIL_OU_UID_GESTIONNAIRE> <RESTAURANT_SLUG>');
     process.exit(1);
+  }
+
+  const restaurantSlug = process.argv[3]?.trim();
+  if (!restaurantSlug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(restaurantSlug)) {
+    throw new Error('Un slug de restaurant valide est obligatoire pour limiter les droits du gestionnaire à son établissement.');
   }
 
   // 1. Chargement et validation de la configuration centralisée de l'application
@@ -58,9 +64,15 @@ async function main() {
 
   // 4. Fusion des Custom Claims pour préserver d'éventuelles claims existantes
   const existingClaims = userRecord.customClaims || {};
+  const existingPermissions = Array.isArray(existingClaims.permissions)
+    ? existingClaims.permissions.filter((permission) => typeof permission === 'string')
+    : [];
+  const permissions = [...new Set([...existingPermissions, 'tables.manage'])];
   await adminAuth.setCustomUserClaims(userRecord.uid, {
     ...existingClaims,
-    role: 'manager'
+    role: 'manager',
+    restaurantSlug,
+    permissions
   });
   console.log('✓ Custom Claim { role: "manager" } fusionné avec succès.');
 
@@ -69,6 +81,9 @@ async function main() {
     uid: userRecord.uid,
     email: userRecord.email,
     role: 'manager',
+    restaurantSlug,
+    permissions,
+    active: true,
     grantedAt: new Date().toISOString()
   }, { merge: true });
 
