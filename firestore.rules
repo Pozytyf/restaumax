@@ -186,7 +186,7 @@ service cloud.firestore {
       // Delete: STRICTLY FORBIDDEN (audit trail preserved)
       match /orders/{orderId} {
         allow create: if false;
-        allow get: if isValidId(orderId);
+        // Customer confirmation is returned by the trusted POST /api/orders response.\n        // Never expose full order documents (customer notes, items and totals) by guessable ID.\n        allow get: if false;
         allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view'));
         allow update: if (hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access')) 
           && isValidId(orderId) 
