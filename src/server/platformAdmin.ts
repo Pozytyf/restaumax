@@ -40,7 +40,7 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
 
 function isSuperAdmin(user: DecodedIdToken) {
   return user.role === 'super_admin' ||
-    (typeof user.email === 'string' && configuredSuperAdmins().includes(user.email.toLowerCase()));
+    (user.email_verified === true && typeof user.email === 'string' && configuredSuperAdmins().includes(user.email.toLowerCase()));
 }
 
 async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
@@ -68,6 +68,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   // Promote only explicitly allowlisted identities to a durable global custom claim.
   if (
+    user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase()) &&
     user.role !== 'super_admin'
