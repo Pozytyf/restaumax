@@ -94,6 +94,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   permissions = []
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog' | 'qr_tables' | 'staff' | 'customers' | 'inventory' | 'reports' | 'settings'>('overview');
+  const canManageTables = permissions.includes('tables.manage');
   // Format current date in French standard
   const todayFormatted = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
@@ -294,6 +295,18 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   }
 
   if (activeTab === 'qr_tables') {
+    if (!canManageTables) {
+      return (
+        <div className="min-h-[60vh] flex items-center justify-center bg-[#f4f7fb] p-6">
+          <div className="max-w-md rounded-2xl border border-amber-200 bg-white p-6 text-center shadow-sm">
+            <ShieldAlert className="mx-auto mb-3 text-amber-600" size={28} />
+            <h2 className="text-lg font-black text-slate-900">Accès non autorisé</h2>
+            <p className="mt-2 text-sm text-slate-600">La gestion des tables et des QR codes nécessite l’autorisation « Gérer les tables ».</p>
+            <button onClick={() => setActiveTab('overview')} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white">Retour au centre de gestion</button>
+          </div>
+        </div>
+      );
+    }
     return (
       <TableQrGeneratorView
         restaurant={restaurant}
@@ -350,17 +363,19 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
           </div>
 
           <div className="flex items-center gap-3 text-xs text-slate-300">
-            <button
-              onClick={() => {
-                sounds.playTap();
-                setActiveTab('qr_tables');
-              }}
-              className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition-all flex items-center gap-1.5 text-xs font-bold active:scale-95"
-              title="Accéder au générateur de QR codes des tables et chevalets"
-            >
-              <QrCode size={13} className="text-emerald-400" />
-              <span>QR Tables</span>
-            </button>
+            {canManageTables && (
+              <button
+                onClick={() => {
+                  sounds.playTap();
+                  setActiveTab('qr_tables');
+                }}
+                className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition-all flex items-center gap-1.5 text-xs font-bold active:scale-95"
+                title="Accéder au générateur de QR codes des tables et chevalets"
+              >
+                <QrCode size={13} className="text-emerald-400" />
+                <span>QR Tables</span>
+              </button>
+            )}
 
             <div className="hidden lg:flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-700/60">
               <Calendar size={14} className="text-[#ff6500]" />
@@ -457,12 +472,12 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             </div>
 
             <div 
-              onClick={() => {
+              onClick={canManageTables ? () => {
                 sounds.playTap();
                 setActiveTab('qr_tables');
-              }}
-              className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 hover:border-slate-300 hover:bg-slate-100/70 transition-all cursor-pointer group"
-              title="Cliquez pour gérer les tables et imprimer les QR codes"
+              } : undefined}
+              className={`p-4 rounded-2xl bg-slate-50 border border-slate-200/80 hover:border-slate-300 hover:bg-slate-100/70 transition-all group ${canManageTables ? 'cursor-pointer' : ''}`}
+              title={canManageTables ? "Cliquez pour gérer les tables et imprimer les QR codes" : "Consultation des tables"}
             >
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1 group-hover:text-emerald-700 transition-colors">
