@@ -25,9 +25,11 @@ const JOBS = [
 ] as const;
 
 type StaffMember = { uid: string; email: string; displayName: string; role: 'owner'|'manager'|'staff'; jobTitle?: string; permissions: string[]; active: boolean; createdAt?: number };
+type StaffAuditEvent = { id: string; event: string; targetUid: string; actorEmail?: string | null; createdAt: number; details?: Record<string, unknown> };
 
 export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () => void }> = ({ restaurantSlug, onBack }) => {
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [auditEvents, setAuditEvents] = useState<StaffAuditEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -52,7 +54,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
-    try { const result = await request(); setStaff(result.staff || []); }
+    try { const [result, audit] = await Promise.all([request(), request(undefined, 'staff_audit')]); setStaff(result.staff || []); setAuditEvents(audit.events || []); }
     catch (e: any) { setError(e.message || 'Impossible de charger le personnel.'); }
     finally { setLoading(false); }
   }, [request]);
@@ -133,6 +135,10 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
           {member.role!=='owner'&&member.active&&<div className="flex flex-wrap gap-2"><button onClick={()=>resetPassword(member)} className="flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold"><Mail size={14}/> Réinitialiser le mot de passe</button><button onClick={()=>disable(member)} className="flex items-center gap-1 rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700"><UserX size={14}/> Désactiver</button></div>}
         </div>)}
         {visibleStaff.length===0&&<p className="p-8 text-center text-sm text-slate-500">Aucun membre ne correspond aux filtres.</p>}
+      </section>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 p-4"><h2 className="font-bold">Journal de sécurité du personnel</h2><p className="text-xs text-slate-500">100 dernières opérations d’administration, accessibles au propriétaire.</p></div>
+        {auditEvents.length === 0 ? <p className="p-5 text-sm text-slate-500">Aucun événement enregistré pour le moment.</p> : auditEvents.map(event => <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-4 last:border-0"><div><p className="text-sm font-bold">{event.event === 'staff.created' ? 'Compte créé' : event.event === 'staff.disabled' ? 'Compte désactivé' : event.event === 'staff.permissions_updated' ? 'Autorisations modifiées' : event.event}</p><p className="text-xs text-slate-500">Cible : {event.targetUid} · Par : {event.actorEmail || 'Administrateur'}</p></div><time className="text-xs text-slate-500">{new Date(event.createdAt).toLocaleString('fr-FR')}</time></div>)}
       </section>
     </div>
   </div>;
