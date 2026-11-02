@@ -70,7 +70,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
   const beginEdit = (member: StaffMember) => {
     setEditingUid(member.uid);
     setEditRole(member.role === 'manager' ? 'manager' : 'staff');
-    setEditPermissions(member.permissions || []);
+    setEditPermissions(member.role === 'manager' ? [...new Set([...(member.permissions || []), 'tables.manage'])] : (member.permissions || []));
   };
 
   const saveEdit = async (uid: string) => {
