@@ -35,7 +35,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
   const [statusFilter, setStatusFilter] = useState('all');
   const [jobFilter, setJobFilter] = useState('all');
   const [showPassword, setShowPassword] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', jobTitle: 'server', role: 'staff' as 'manager'|'staff', permissions: [...JOBS[0].permissions] });
+  const [form, setForm] = useState<{ name: string; email: string; password: string; jobTitle: string; role: 'manager'|'staff'; permissions: string[] }>({ name: '', email: '', password: '', jobTitle: 'server', role: 'staff', permissions: [...JOBS[0].permissions] });
 
   const request = useCallback(async (body?: Record<string, unknown>, action = 'staff_list') => {
     if (!auth.currentUser) throw new Error('Session expirée. Reconnectez-vous.');
