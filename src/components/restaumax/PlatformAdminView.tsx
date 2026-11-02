@@ -4,10 +4,12 @@ import { auth } from '../../lib/firebase';
 import { Building2, ShieldCheck, LogOut, Plus, RefreshCw, Ban, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 
 type RestaurantRow = { slug: string; name: string; ownerName?: string; ownerEmail?: string; status?: string; isOpen?: boolean };
+type RegistrationRequest = { id: string; uid: string; email: string; ownerName: string; restaurantName: string; city: string; phone: string; createdAt: number };
 
 export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant: (slug: string) => void }> = ({ onBack, onOpenRestaurant }) => {
   const [user, setUser] = useState<User | null>(auth.currentUser);
   const [restaurants, setRestaurants] = useState<RestaurantRow[]>([]);
+  const [registrationRequests, setRegistrationRequests] = useState<RegistrationRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -20,10 +22,10 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
-  const request = useCallback(async (body?: Record<string, unknown>) => {
+  const request = useCallback(async (body?: Record<string, unknown>, action?: string) => {
     if (!auth.currentUser) throw new Error('Session non authentifiée.');
     const token = await auth.currentUser.getIdToken(true);
-    const response = await fetch('/api/platform-admin', {
+    const response = await fetch(action ? `/api/platform-admin?action=${encodeURIComponent(action)}` : '/api/platform-admin', {
       method: body ? 'POST' : 'GET',
       headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined
@@ -37,8 +39,11 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
-    try { const data = await request(); setRestaurants(data.restaurants || []); }
-    catch (e: any) { setError(e.message || 'Accès super-administrateur refusé.'); }
+    try {
+      const [data, pending] = await Promise.all([request(), request(undefined, 'registration_requests')]);
+      setRestaurants(data.restaurants || []);
+      setRegistrationRequests(pending.requests || []);
+    } catch (e: any) { setError(e.message || 'Accès super-administrateur refusé.'); }
     finally { setLoading(false); }
   }, [request]);
 
@@ -59,6 +64,20 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       setForm({ name: '', ownerName: '', ownerEmail: '', ownerPassword: '' });
       setShowCreate(false); await refresh();
     } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const reviewRegistration = async (item: RegistrationRequest, decision: 'approve_registration' | 'reject_registration') => {
+    const verb = decision === 'approve_registration' ? 'approuver' : 'refuser';
+    if (!window.confirm(`Confirmer : ${verb} la demande de ${item.restaurantName} ?`)) return;
+    setLoading(true); setError(''); setNotice('');
+    try {
+      const result = await request({ action: decision, uid: item.uid });
+      setNotice(decision === 'approve_registration'
+        ? `Demande approuvée. Le restaurant ${result.restaurant?.name || item.restaurantName} est activé et son propriétaire peut maintenant se connecter.`
+        : 'Demande refusée. Aucun accès de gestion n’a été accordé.');
+      await refresh();
+    } catch (e: any) { setError(e.message || 'Impossible de traiter cette demande.'); }
     finally { setLoading(false); }
   };
 
@@ -99,6 +118,13 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <p className="text-xs text-amber-300 md:col-span-2">Transmets le mot de passe initial au propriétaire par un canal privé. Il devra le modifier dès sa première connexion.</p>
         <div className="flex gap-2 md:col-span-2"><button disabled={loading} className="rounded-lg bg-orange-500 px-5 py-2 font-bold">Créer le restaurant</button><button type="button" onClick={()=>setShowCreate(false)} className="rounded-lg border border-slate-700 px-4 py-2">Annuler</button></div>
       </form>}
+      <section className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-900">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 p-4"><div><h2 className="font-bold">Demandes d’inscription</h2><p className="text-xs text-slate-400">Chaque demande doit être examinée avant l’attribution des droits propriétaire.</p></div><span className="rounded-full bg-amber-500/15 px-3 py-1 text-xs font-bold text-amber-300">{registrationRequests.length} en attente</span></div>
+        {registrationRequests.length === 0 ? <p className="p-6 text-center text-sm text-slate-400">Aucune demande en attente.</p> : registrationRequests.map(item=><div key={item.uid} className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 p-4 last:border-0">
+          <div className="min-w-0"><p className="font-bold">{item.restaurantName}</p><p className="text-sm text-slate-300">{item.ownerName} · {item.email}</p><p className="text-xs text-slate-500">{item.city} · {item.phone} · {new Date(item.createdAt).toLocaleDateString('fr-FR')}</p></div>
+          <div className="flex gap-2"><button disabled={loading} onClick={()=>reviewRegistration(item,'reject_registration')} className="rounded-lg border border-rose-800 px-3 py-2 text-xs font-bold text-rose-300 disabled:opacity-50">Refuser</button><button disabled={loading} onClick={()=>reviewRegistration(item,'approve_registration')} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Approuver</button></div>
+        </div>)}
+      </section>
       <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-4 font-bold">Établissements ({restaurants.length})</div>{restaurants.length === 0 ? <p className="p-8 text-center text-sm text-slate-400">Aucun restaurant enregistré.</p> : restaurants.map(r=><div key={r.slug} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4 last:border-0"><div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3"><Building2 size={20}/></div><div><p className="font-bold">{r.name}</p><p className="text-xs text-slate-400">{r.slug} · {r.ownerName || r.ownerEmail || 'Propriétaire non renseigné'}</p></div></div><div className="flex items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${r.status === 'suspended' ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'}`}>{r.status === 'suspended' ? 'Suspendu' : 'Actif'}</span><button onClick={()=>onOpenRestaurant(r.slug)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">Gérer</button><button onClick={()=>setStatus(r,r.status === 'suspended' ? 'active' : 'suspended')} className="flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-xs">{r.status === 'suspended' ? <CheckCircle2 size={14}/> : <Ban size={14}/>} {r.status === 'suspended' ? 'Réactiver' : 'Suspendre'}</button></div></div>)}</div>
       </>}
     </main>
