@@ -546,6 +546,33 @@ async function runTests() {
   assert(rulesContent.includes("allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage')"), 'Écritures restaurants restreintes au gérant autorisé');
   assert(rulesContent.includes("allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view')"), 'Liste des commandes privée et réservée au gérant du restaurant');
 
+  // Test 4.3: Les gérants disposent toujours de la permission tables.manage, y compris les comptes existants.
+  const platformAdminContent = fs.readFileSync(path.resolve('src/server/platformAdmin.ts'), 'utf-8');
+  const appPermissionsContent = fs.readFileSync(path.resolve('src/App.tsx'), 'utf-8');
+  const staffManagementContent = fs.readFileSync(path.resolve('src/components/restaumax/StaffManagementView.tsx'), 'utf-8');
+  const restaurantHubContent = fs.readFileSync(path.resolve('src/components/restaumax/RestaurantHubView.tsx'), 'utf-8');
+  assert(
+    (platformAdminContent.match(/if \(role === 'manager' && !permissions\.includes\('tables\.manage'\)\)/g) || []).length === 2,
+    'Le serveur attribue tables.manage à la création et à la modification de chaque compte gérant'
+  );
+  assert(
+    rulesContent.includes("permission == 'tables.manage'") && rulesContent.includes("data.role == 'manager'"),
+    'Les règles Firestore autorisent le rôle gérant à gérer les tables sans lui donner les autres droits'
+  );
+  assert(
+    appPermissionsContent.includes("claims.role === 'manager' && !permissions.includes('tables.manage')"),
+    'Les gérants déjà existants reçoivent la permission effective après reconnexion/renouvellement du jeton'
+  );
+  assert(
+    staffManagementContent.includes("role==='manager'?[...new Set([...prev.permissions,'tables.manage'])]"),
+    'Le formulaire de création préselectionne la gestion des tables lorsqu’on choisit le rôle Gérant'
+  );
+  assert(
+    restaurantHubContent.includes("const canManageTables = permissions.includes('tables.manage')") &&
+    restaurantHubContent.includes('if (!canManageTables)'),
+    'Le générateur QR est protégé dans le centre de gestion et inaccessible sans la permission tables.manage'
+  );
+
   // Test 4.3: Restriction stricte des modifications d'ordres KDS
   assert(rulesContent.includes('affectedKeys().hasOnly([\'status\', \'statusUpdatedAt\', \'kitchenNotes\'])'), 'Mise à jour de commande limitée strictement aux statuts opérationnels');
   assert(rulesContent.includes('incoming().totalAmount == existing().totalAmount'), 'Empêche toute altération du montant après commande');
