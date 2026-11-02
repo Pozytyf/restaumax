@@ -9,12 +9,11 @@
  * ==============================================================================
  * 
  * 1. Configuration Firebase Admin SDK :
- *    - Le serveur requiert obligatoirement un compte de service Firebase Admin valide
- *      pour traiter et écrire les commandes dans Firestore.
- *    - Variable requise : GOOGLE_APPLICATION_CREDENTIALS=<chemin_absolu_vers_cle_service_account.json>
- *    - Fichier de configuration applet : firebase-applet-config.json
- *      - projectId attendu : gen-lang-client-0138815290
- *      - firestoreDatabaseId attendu : ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf
+ *    - Le serveur requiert un compte de service Firebase Admin valide pour traiter les commandes.
+ *    - Vercel : FIREBASE_SERVICE_ACCOUNT_JSON (secret, séparé par environnement).
+ *    - Serveur/local : GOOGLE_APPLICATION_CREDENTIALS (chemin vers un fichier privé).
+ *    - FIREBASE_PROJECT_ID et FIRESTORE_DATABASE_ID peuvent surcharger la configuration locale.
+ *    - Sur Vercel Preview, le code refuse tout projet différent de restaumax-preview.
  *
  * 2. Comportement de sécurité (Règles Firestore & Admin SDK) :
  *    - Les règles Firestore (firestore.rules) interdisent formellement aux clients
