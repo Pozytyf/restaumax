@@ -1,6 +1,6 @@
 import React from 'react';
 import { Role } from '../types/pos';
-import { Volume2, VolumeX, Plus, Building2 } from 'lucide-react';
+import { Volume2, VolumeX, Plus, Building2, LogOut } from 'lucide-react';
 import { sounds } from '../utils/audio';
 
 interface HeaderProps {
@@ -12,6 +12,7 @@ interface HeaderProps {
   kitchenTicketsCount: number;
   onNavigateToHub?: () => void;
   permissions?: string[];
+  onSignOut: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,6 +23,7 @@ export const Header: React.FC<HeaderProps> = ({
   onQuickNewOrder,
   kitchenTicketsCount,
   onNavigateToHub,
+  onSignOut,
   permissions = []
 }) => {
   return (
@@ -30,10 +32,10 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Zone 1: Brand wordmark (single line, no descriptor) */}
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-8 h-8 rounded-lg bg-[#ff6500] flex items-center justify-center font-black text-white text-base tracking-tighter shadow-sm">
-            CV
+            R
           </div>
           <span className="text-lg lg:text-xl font-extrabold tracking-tight text-white whitespace-nowrap">
-            Culinary Velocity
+            RestauMax
           </span>
         </div>
 
@@ -125,6 +127,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">Nouvelle Commande</span>
             <span className="sm:hidden">Nouveau</span>
           </button>}
+          <button type="button" onClick={onSignOut} title="Déconnexion" className="px-3 py-2 text-xs font-bold border border-white/20 rounded-lg text-white hover:bg-white/10 flex items-center gap-1.5 whitespace-nowrap"><LogOut size={15}/><span className="hidden sm:inline">Déconnexion</span></button>
         </div>
       </div>
     </header>
