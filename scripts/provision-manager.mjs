@@ -11,11 +11,15 @@ const role = process.argv[3] || 'admin';
 const restaurantSlug = process.argv[4] || 'chez-awa';
 
 if (!email || !email.includes('@')) {
-  console.error('Usage: node scripts/provision-manager.mjs <email> [admin|manager] [restaurantSlug]');
+  console.error('Usage: node scripts/provision-manager.mjs <email> [admin|owner|manager] [restaurantSlug]');
   process.exit(1);
 }
-if (!['admin', 'manager'].includes(role)) {
-  console.error('Role invalide. Valeurs autorisées : admin, manager.');
+if (!['admin', 'owner', 'manager'].includes(role)) {
+  console.error('Role invalide. Valeurs autorisées : admin, owner, manager.');
+  process.exit(1);
+}
+if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(restaurantSlug)) {
+  console.error('Slug restaurant invalide. Utilisez uniquement des minuscules, chiffres et tirets simples.');
   process.exit(1);
 }
 
@@ -60,7 +64,7 @@ try {
     updatedAt: Date.now()
   }, { merge: true });
 
-  console.log(`Compte ${role} provisionné pour ${user.email || email} sur le restaurant ${restaurantSlug}.`);
+  console.log(`Compte ${role} provisionné pour ${user.email || email} sur le restaurant ${restaurantSlug} (projet ${config.projectId}, base ${config.firestoreDatabaseId}).`);
 } catch (error) {
   console.error('Échec du provisionnement du gestionnaire :', error?.message || String(error));
   process.exit(1);
