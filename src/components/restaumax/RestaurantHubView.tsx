@@ -552,7 +552,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {modules.filter((mod) => {
               if (mod.id === 'staff') return canManageStaff;
               const required: Record<string, string[]> = {
@@ -566,80 +566,22 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             }).map((mod) => {
               const Icon = mod.icon;
               const isActive = mod.status === 'active';
-
+              const Tile = mod.onAction ? 'button' : 'div';
               return (
-                <div
+                <Tile
                   key={mod.id}
-                  className={`rounded-2xl p-5 border transition-all flex flex-col justify-between ${
-                    isActive
-                      ? 'bg-white border-slate-200/90 shadow-2xs hover:shadow-md hover:border-slate-300'
-                      : 'bg-slate-50/70 border-slate-200/60 opacity-90'
-                  }`}
+                  {...(mod.onAction ? { type: 'button' as const, onClick: mod.onAction } : {})}
+                  aria-label={mod.title}
+                  aria-disabled={!isActive || !mod.onAction}
+                  title={mod.onAction ? mod.actionLabel : mod.statusLabel}
+                  className={`group flex min-h-[112px] flex-col items-center justify-center gap-2 rounded-2xl border px-3 py-4 text-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6500] focus-visible:ring-offset-2 ${isActive && mod.onAction ? 'cursor-pointer border-slate-200 bg-white text-[#172b40] shadow-sm hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md' : 'cursor-default border-slate-200 bg-slate-100/80 text-slate-500'}`}
                 >
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                          isActive
-                            ? 'bg-orange-50 text-[#ff6500]'
-                            : 'bg-slate-200/80 text-slate-500'
-                        }`}
-                      >
-                        <Icon size={20} />
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-bold text-slate-400 font-mono">
-                          #{mod.order.toString().padStart(2, '0')}
-                        </span>
-                        {isActive ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
-                            Actif
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700 border border-slate-300 flex items-center gap-1">
-                            <Clock size={10} />
-                            À activer
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <h4 className="text-sm font-extrabold text-[#101d2d] leading-snug">
-                        {mod.title}
-                      </h4>
-                      <p className="text-[11px] font-bold text-slate-400 mt-0.5">
-                        {mod.subtitle}
-                      </p>
-                      <p className="text-xs text-slate-600 leading-relaxed mt-2">
-                        {mod.description}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="pt-4 mt-2 border-t border-slate-100">
-                    {isActive && mod.onAction ? (
-                      <button
-                        onClick={mod.onAction}
-                        className="w-full py-2.5 px-3 bg-[#101d2d] hover:bg-[#1a2c42] text-white text-xs font-bold rounded-xl flex items-center justify-between transition-colors shadow-2xs group"
-                      >
-                        <span>{mod.actionLabel}</span>
-                        <ArrowRight size={14} className="text-[#ff6500] group-hover:translate-x-0.5 transition-transform" />
-                      </button>
-                    ) : isActive ? (
-                      <div className="py-2 px-3 bg-emerald-50 text-emerald-800 text-[11px] font-bold rounded-xl text-center border border-emerald-200/60">
-                        {mod.statusLabel}
-                      </div>
-                    ) : (
-                      <div className="py-2 px-3 bg-slate-100 text-slate-500 text-[11px] font-medium rounded-xl text-center border border-slate-200/60 flex items-center justify-center gap-1.5">
-                        <Clock size={12} className="text-slate-400" />
-                        <span>Prévu dans les étapes ultérieures</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  <span className={`flex h-11 w-11 items-center justify-center rounded-xl ${isActive ? 'bg-orange-50 text-[#ff6500] group-hover:bg-orange-100' : 'bg-slate-200 text-slate-500'}`}>
+                    <Icon size={21} />
+                  </span>
+                  <span className="text-xs font-extrabold leading-snug">{mod.id === 'floor' ? 'Tables & QR' : mod.id === 'cash-register' ? 'Caisse' : mod.id === 'options-prices' ? 'Options & prix' : mod.id === 'kitchen' ? 'Cuisine' : mod.id === 'customers' ? 'Clients' : mod.id === 'inventory' ? 'Stocks' : mod.id === 'reports' ? 'Rapports' : mod.id === 'staff' ? 'Personnel' : mod.id === 'settings' ? 'Paramètres' : mod.id === 'menu' ? 'Menu & plats' : mod.id === 'orders' ? 'Commandes' : 'Accueil gestion'}</span>
+                  <span className={`text-[10px] font-semibold ${isActive ? 'text-emerald-700' : 'text-slate-500'}`}>{isActive ? (mod.onAction ? 'Ouvrir le module' : mod.statusLabel) : 'À activer'}</span>
+                </Tile>
               );
             })}
           </div>
