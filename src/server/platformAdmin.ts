@@ -79,6 +79,107 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const action = req.method === 'GET' ? String(req.query?.action || 'overview') : String(body.action || '');
 
   try {
+    // Public registration is authenticated with Firebase Auth, but grants no privileges.
+    if (action === 'register_restaurant_request') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const ownerName = String(body.ownerName || '').trim();
+      const restaurantName = String(body.restaurantName || '').trim();
+      const city = String(body.city || '').trim();
+      const phone = String(body.phone || '').trim();
+      const email = String(user.email || '').trim().toLowerCase();
+      if (!user.email_verified || !validEmail(email)) {
+        return json(res, 403, { success: false, error: 'Veuillez confirmer votre adresse e-mail avant de soumettre votre demande.' });
+      }
+      if (!ownerName || ownerName.length > 160 || !restaurantName || restaurantName.length > 200 ||
+          !city || city.length > 120 || !phone || phone.length > 40) {
+        return json(res, 400, { success: false, error: 'Veuillez renseigner tous les champs avec des valeurs valides.' });
+      }
+      const existingMembership = await db.collection('managers').doc(user.uid).get();
+      if (existingMembership.exists) {
+        return json(res, 409, { success: false, error: 'Ce compte possède déjà un accès de gestion.' });
+      }
+      const requestRef = db.collection('registrationRequests').doc(user.uid);
+      const existingRequest = await requestRef.get();
+      if (existingRequest.exists) {
+        const status = existingRequest.data()?.status;
+        return json(res, 409, { success: false, error: status === 'rejected'
+          ? 'Cette demande a été refusée. Contactez RestauMax pour obtenir de l’aide.'
+          : 'Une demande existe déjà pour ce compte.' });
+      }
+      const now = Date.now();
+      await requestRef.create({
+        uid: user.uid, email, ownerName, restaurantName, city, phone,
+        status: 'pending', createdAt: now, updatedAt: now
+      });
+      return json(res, 201, { success: true, status: 'pending' });
+    }
+
+    // Registration requests are visible and actionable only to a super-administrator.
+    if (action === 'registration_requests' || action === 'approve_registration' || action === 'reject_registration') {
+      if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
+      if (action === 'registration_requests') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('registrationRequests').where('status', '==', 'pending').orderBy('createdAt', 'asc').limit(100).get();
+        return json(res, 200, { success: true, requests: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) });
+      }
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const requestUid = String(body.uid || '');
+      if (!requestUid || requestUid.length > 128) return json(res, 400, { success: false, error: 'Demande invalide.' });
+      const requestRef = db.collection('registrationRequests').doc(requestUid);
+      const requestSnap = await requestRef.get();
+      if (!requestSnap.exists || requestSnap.data()?.status !== 'pending') {
+        return json(res, 404, { success: false, error: 'Demande en attente introuvable.' });
+      }
+      const registration = requestSnap.data();
+      if (action === 'reject_registration') {
+        await requestRef.set({ status: 'rejected', reviewedAt: Date.now(), reviewedBy: user.uid }, { merge: true });
+        return json(res, 200, { success: true });
+      }
+      const applicant = await getAuth().getUser(requestUid);
+      if (!applicant.emailVerified || applicant.disabled || applicant.email?.toLowerCase() !== String(registration.email).toLowerCase()) {
+        return json(res, 409, { success: false, error: 'Le compte doit être actif et son adresse e-mail vérifiée avant approbation.' });
+      }
+      const existingMembership = await db.collection('managers').doc(requestUid).get();
+      if (existingMembership.exists) return json(res, 409, { success: false, error: 'Ce compte possède déjà un rôle de gestion.' });
+      const slug = slugify(registration.restaurantName);
+      if (!slug) return json(res, 400, { success: false, error: 'Nom de restaurant invalide.' });
+      const restaurantRef = db.collection('restaurants').doc(slug);
+      try {
+        await restaurantRef.create({
+          slug, name: registration.restaurantName, isOpen: false, status: 'active',
+          ownerUid: requestUid, ownerName: registration.ownerName, ownerEmail: registration.email,
+          city: registration.city, phone: registration.phone, createdAt: Date.now(), createdBy: user.uid,
+          tagline: '', address: '', bannerUrl: '', logoUrl: '', openingHours: '',
+          currency: 'FCFA', country: "Côte d'Ivoire"
+        });
+      } catch (error: any) {
+        if (error?.code === 6 || error?.code === 'already-exists') {
+          return json(res, 409, { success: false, error: 'Un restaurant utilise déjà ce nom. Demandez au restaurateur de choisir un autre nom.' });
+        }
+        throw error;
+      }
+      try {
+        const now = Date.now();
+        const permissions = [...PERMISSIONS];
+        await getAuth().setCustomUserClaims(requestUid, { role: 'owner', restaurantSlug: slug, permissions });
+        const batch = db.batch();
+        batch.set(db.collection('managers').doc(requestUid), {
+          uid: requestUid, email: registration.email, displayName: registration.ownerName,
+          role: 'owner', restaurantSlug: slug, permissions, active: true, createdAt: now, createdBy: user.uid
+        });
+        batch.set(restaurantRef.collection('staff').doc(requestUid), {
+          uid: requestUid, email: registration.email, displayName: registration.ownerName,
+          role: 'owner', permissions, active: true, createdAt: now
+        });
+        batch.set(requestRef, { status: 'approved', restaurantSlug: slug, reviewedAt: now, reviewedBy: user.uid }, { merge: true });
+        await batch.commit();
+      } catch (error) {
+        await restaurantRef.delete().catch(() => undefined);
+        await getAuth().setCustomUserClaims(requestUid, {}).catch(() => undefined);
+        throw error;
+      }
+      return json(res, 200, { success: true, restaurant: { slug, name: registration.restaurantName } });
+    }
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
     if (action === 'overview' || action === 'create_restaurant' || action === 'set_restaurant_status') {
       if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
