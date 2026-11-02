@@ -35,18 +35,41 @@ import {
   OrderMode 
 } from '../types/restaumax';
 
-// Initialize Firebase
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+// Resolve Firebase configuration from environment variables when supplied.
+// The committed JSON remains the local-development fallback; Preview must fail closed
+// unless it explicitly targets the isolated test project.
+const viteEnv = import.meta.env;
+const isPreviewEnvironment = viteEnv?.VITE_APP_ENV === 'preview';
 
-// CRITICAL: The app will break without passing the configured firestoreDatabaseId
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+if (isPreviewEnvironment && viteEnv?.VITE_FIREBASE_PROJECT_ID !== 'restaumax-preview') {
+  throw new Error(
+    '[RestauMax] Configuration Preview invalide : VITE_FIREBASE_PROJECT_ID doit cibler exclusivement restaumax-preview.'
+  );
+}
+
+const resolvedFirebaseConfig = {
+  ...firebaseConfig,
+  apiKey: viteEnv?.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
+  authDomain: viteEnv?.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+  projectId: viteEnv?.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
+  storageBucket: viteEnv?.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
+  messagingSenderId: viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
+  appId: viteEnv?.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
+  measurementId: viteEnv?.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfig.measurementId,
+  firestoreDatabaseId: viteEnv?.VITE_FIRESTORE_DATABASE_ID || firebaseConfig.firestoreDatabaseId,
+};
+
+// Initialize Firebase only after environment validation.
+const app = getApps().length > 0 ? getApp() : initializeApp(resolvedFirebaseConfig);
+
+// CRITICAL: The app must use the explicitly configured Firestore database.
+export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
 // Isolate local development from production Firebase when explicitly requested.
 // The server uses FIRESTORE_EMULATOR_HOST; the browser SDK needs its own connections.
 // import.meta.env is injected by Vite in the browser but absent when this module
 // is imported directly by Node-based unit tests.
-const viteEnv = import.meta.env;
 const useFirebaseEmulators =
   viteEnv?.DEV === true &&
   viteEnv?.VITE_USE_FIREBASE_EMULATOR === 'true';
