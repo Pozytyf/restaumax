@@ -463,7 +463,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
               title="Cliquez pour gérer le catalogue et les disponibilités"
             >
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1 group-hover:text-[#ff6500] transition-colors">
+                <span className="text-sm font-bold text-slate-500 uppercase tracking-wider block mb-1 group-hover:text-[#ff6500] transition-colors">
                   Plats à la Carte
                 </span>
                 <span className="text-[10px] font-bold text-[#ff6500] opacity-0 group-hover:opacity-100 transition-opacity">
@@ -473,7 +473,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
               <div className="text-2xl font-black text-[#101d2d] tnum">
                 {menuItemsCount}
               </div>
-              <span className="text-[11px] text-slate-500 font-medium mt-0.5 block">
+              <span className="text-sm text-slate-600 font-medium mt-0.5 block">
                 Catalogue actif Chez Awa
               </span>
             </div>
@@ -552,7 +552,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {modules.filter((mod) => {
               if (mod.id === 'staff') return canManageStaff;
               const required: Record<string, string[]> = {
@@ -574,13 +574,13 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                   aria-label={mod.title}
                   aria-disabled={!isActive || !mod.onAction}
                   title={mod.onAction ? mod.actionLabel : mod.statusLabel}
-                  className={`group flex min-h-[112px] flex-col items-center justify-center gap-2 rounded-2xl border px-3 py-4 text-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6500] focus-visible:ring-offset-2 ${isActive && mod.onAction ? 'cursor-pointer border-slate-200 bg-white text-[#172b40] shadow-sm hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md' : 'cursor-default border-slate-200 bg-slate-100/80 text-slate-500'}`}
+                  className={`group flex min-h-[136px] md:min-h-[152px] flex-col items-center justify-center gap-3 rounded-2xl border px-4 py-5 text-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6500] focus-visible:ring-offset-2 ${isActive && mod.onAction ? 'cursor-pointer border-slate-200 bg-white text-[#172b40] shadow-sm hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md' : 'cursor-default border-slate-200 bg-slate-100/80 text-slate-500'}`}
                 >
-                  <span className={`flex h-11 w-11 items-center justify-center rounded-xl ${isActive ? 'bg-orange-50 text-[#ff6500] group-hover:bg-orange-100' : 'bg-slate-200 text-slate-500'}`}>
+                  <span className={`flex h-14 w-14 items-center justify-center rounded-xl ${isActive ? 'bg-orange-50 text-[#ff6500] group-hover:bg-orange-100' : 'bg-slate-200 text-slate-500'}`}>
                     <Icon size={21} />
                   </span>
-                  <span className="text-xs font-extrabold leading-snug">{mod.id === 'floor' ? 'Tables & QR' : mod.id === 'cash-register' ? 'Caisse' : mod.id === 'options-prices' ? 'Options & prix' : mod.id === 'kitchen' ? 'Cuisine' : mod.id === 'customers' ? 'Clients' : mod.id === 'inventory' ? 'Stocks' : mod.id === 'reports' ? 'Rapports' : mod.id === 'staff' ? 'Personnel' : mod.id === 'settings' ? 'Paramètres' : mod.id === 'menu' ? 'Menu & plats' : mod.id === 'orders' ? 'Commandes' : 'Accueil gestion'}</span>
-                  <span className={`text-[10px] font-semibold ${isActive ? 'text-emerald-700' : 'text-slate-500'}`}>{isActive ? (mod.onAction ? 'Ouvrir le module' : mod.statusLabel) : 'À activer'}</span>
+                  <span className="text-sm md:text-base font-extrabold leading-snug">{mod.id === 'floor' ? 'Tables & QR' : mod.id === 'cash-register' ? 'Caisse' : mod.id === 'options-prices' ? 'Options & prix' : mod.id === 'kitchen' ? 'Cuisine' : mod.id === 'customers' ? 'Clients' : mod.id === 'inventory' ? 'Stocks' : mod.id === 'reports' ? 'Rapports' : mod.id === 'staff' ? 'Personnel' : mod.id === 'settings' ? 'Paramètres' : mod.id === 'menu' ? 'Menu & plats' : mod.id === 'orders' ? 'Commandes' : 'Accueil gestion'}</span>
+                  <span className={`text-xs md:text-sm font-semibold ${isActive ? 'text-emerald-700' : 'text-slate-500'}`}>{isActive ? (mod.onAction ? 'Ouvrir le module' : mod.statusLabel) : 'À activer'}</span>
                 </Tile>
               );
             })}
