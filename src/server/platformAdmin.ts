@@ -264,7 +264,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       const staffRef = db.collection('restaurants').doc(slug).collection('staff');
       const auditRef = db.collection('restaurants').doc(slug).collection('auditLogs');
-      const writeStaffAudit = async (event: string, targetUid: string, details: Record<string, unknown> = {}) => {\n        try { await auditRef.add({ event, targetUid, actorUid: user.uid, actorEmail: user.email || null, details, createdAt: Date.now() }); }\n        catch (auditError: any) { console.error('[RestauMax staff audit]', auditError?.code || 'write_failed'); }\n      };
+      const writeStaffAudit = async (event: string, targetUid: string, details: Record<string, unknown> = {}) => {
+        try { await auditRef.add({ event, targetUid, actorUid: user.uid, actorEmail: user.email || null, details, createdAt: Date.now() }); }\n        catch (auditError: any) { console.error('[RestauMax staff audit]', auditError?.code || 'write_failed'); }\n      };
       if (action === 'staff_audit') {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
         const snap = await auditRef.orderBy('createdAt', 'desc').limit(100).get();
