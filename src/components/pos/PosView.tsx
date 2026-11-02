@@ -181,9 +181,9 @@ export const PosView: React.FC<PosViewProps> = ({
         <div className="flex-1 overflow-y-auto p-4 lg:p-5">
           {filteredItems.length === 0 ? (
             <div className="h-64 flex flex-col items-center justify-center text-center">
-              <p className="text-sm font-bold text-slate-700 mb-1">Aucun plat trouvé</p>
+              <p className="text-sm font-bold text-slate-700 mb-1">{menuItems.length === 0 ? "Catalogue vide" : "Aucun plat dans cette sélection"}</p>
               <p className="text-xs text-slate-500 mb-3">
-                Aucun résultat pour "{searchQuery}". Essayez une autre recherche.
+                Aucun résultat dans cette sélection. Affichez tout le menu ou choisissez une autre catégorie.
               </p>
               <button
                 onClick={() => {
