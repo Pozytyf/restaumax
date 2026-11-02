@@ -1,6 +1,7 @@
 import React from 'react';
 import { RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
+import { getOrderStatusPresentation } from '../../utils/orderStatus';
 import { sounds } from '../../utils/audio';
 import { 
   CheckCircle2, 
@@ -26,6 +27,20 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   onNewOrder
 }) => {
   if (!order) return null;
+
+  const statusPresentation = getOrderStatusPresentation(order.status);
+  const StatusIcon = order.status === 'pending'
+    ? Clock
+    : order.status === 'ready' || order.status === 'completed'
+      ? CheckCircle2
+      : order.status === 'cancelled'
+        ? X
+        : ChefHat;
+  const statusTone = order.status === 'cancelled'
+    ? { text: 'text-red-700', icon: 'text-red-600' }
+    : order.status === 'ready' || order.status === 'completed'
+      ? { text: 'text-emerald-700', icon: 'text-emerald-600' }
+      : { text: 'text-amber-700', icon: 'text-amber-600' };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-in fade-in duration-150">
@@ -57,7 +72,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
           </span>
 
           <h2 id="order-confirmed-title" className="text-xl sm:text-2xl font-black tracking-tight text-white mt-1">
-            Votre commande est en cuisine !
+            {statusPresentation.headline}
           </h2>
 
           <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 border border-white/10 text-white font-mono text-sm sm:text-base font-black">
@@ -93,9 +108,9 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
                 Statut actuel
               </span>
-              <div className="font-extrabold text-xs sm:text-sm text-amber-700 flex items-center gap-1.5">
-                <ChefHat size={15} className="text-amber-600" />
-                <span>En préparation</span>
+              <div className={`font-extrabold text-xs sm:text-sm ${statusTone.text} flex items-center gap-1.5`}>
+                <StatusIcon size={15} className={statusTone.icon} />
+                <span>{statusPresentation.label}</span>
               </div>
             </div>
           </div>
@@ -176,7 +191,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
           <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 flex items-start gap-2.5">
             <Sparkles size={16} className="text-emerald-600 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
-              <span className="font-bold text-emerald-900">Préparation en cours :</span> Le chef et l'équipe de Chez Awa ont reçu votre ticket. Installez-vous confortablement, le service sera assuré dès que vos plats seront prêts.
+              <span className="font-bold text-emerald-900">{statusPresentation.helperTitle} :</span> {statusPresentation.helperMessage}
             </div>
           </div>
         </div>
