@@ -551,6 +551,7 @@ async function runTests() {
   const appPermissionsContent = fs.readFileSync(path.resolve('src/App.tsx'), 'utf-8');
   const staffManagementContent = fs.readFileSync(path.resolve('src/components/restaumax/StaffManagementView.tsx'), 'utf-8');
   const restaurantHubContent = fs.readFileSync(path.resolve('src/components/restaumax/RestaurantHubView.tsx'), 'utf-8');
+  const grantManagerScriptContent = fs.readFileSync(path.resolve('scripts/grant-manager.mjs'), 'utf-8');
   assert(
     (platformAdminContent.match(/if \(role === 'manager' && !permissions\.includes\('tables\.manage'\)\)/g) || []).length === 2,
     'Le serveur attribue tables.manage à la création et à la modification de chaque compte gérant'
@@ -566,6 +567,12 @@ async function runTests() {
   assert(
     staffManagementContent.includes("role==='manager'?[...new Set([...prev.permissions,'tables.manage'])]"),
     'Le formulaire de création préselectionne la gestion des tables lorsqu’on choisit le rôle Gérant'
+  );
+  assert(
+    grantManagerScriptContent.includes("restaurantSlug,") &&
+    grantManagerScriptContent.includes("'tables.manage'") &&
+    grantManagerScriptContent.includes("active: true"),
+    'Le script de provisionnement limite le gérant à un restaurant et lui attribue tables.manage'
   );
   assert(
     restaurantHubContent.includes("const canManageTables = permissions.includes('tables.manage')") &&
