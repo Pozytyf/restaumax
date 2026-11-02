@@ -115,6 +115,52 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       return json(res, 201, { success: true, status: 'pending' });
     }
 
+    // Safely restore an existing owner account only when the restaurant record proves ownership.
+    if (action === 'activate_existing_owner') {
+      if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const email = String(body.email || '').trim().toLowerCase();
+      const slug = String(body.slug || '').trim();
+      if (!validEmail(email) || !slug) return json(res, 400, { success: false, error: 'Adresse e-mail ou restaurant invalide.' });
+      const auth = getAuth();
+      const target = await auth.getUserByEmail(email);
+      if (target.disabled || !target.emailVerified || target.email?.toLowerCase() !== email) {
+        return json(res, 409, { success: false, error: 'Le compte doit être actif et son adresse e-mail vérifiée.' });
+      }
+      const restaurantRef = db.collection('restaurants').doc(slug);
+      const restaurantSnap = await restaurantRef.get();
+      if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
+      const restaurant = restaurantSnap.data();
+      if (restaurant.status === 'suspended') return json(res, 409, { success: false, error: 'Le restaurant est suspendu. Réactivez-le avant de restaurer son accès.' });
+      if (String(restaurant.ownerEmail || '').toLowerCase() !== email ||
+          (restaurant.ownerUid && restaurant.ownerUid !== target.uid)) {
+        return json(res, 403, { success: false, error: 'Le compte ne correspond pas au propriétaire enregistré de ce restaurant.' });
+      }
+      const existingMembership = await db.collection('managers').doc(target.uid).get();
+      if (existingMembership.exists) {
+        const membership = existingMembership.data();
+        if (membership.role !== 'owner' || membership.restaurantSlug !== slug) {
+          return json(res, 409, { success: false, error: 'Ce compte possède déjà une adhésion incompatible. Aucune modification effectuée.' });
+        }
+      }
+      const permissions = [...PERMISSIONS];
+      const now = Date.now();
+      await auth.setCustomUserClaims(target.uid, { role: 'owner', restaurantSlug: slug });
+      const batch = db.batch();
+      batch.set(restaurantRef, { ownerUid: target.uid, updatedAt: now, updatedBy: user.uid }, { merge: true });
+      batch.set(db.collection('managers').doc(target.uid), {
+        uid: target.uid, email, displayName: target.displayName || restaurant.ownerName || email,
+        role: 'owner', restaurantSlug: slug, permissions, active: true,
+        updatedAt: now, updatedBy: user.uid
+      }, { merge: true });
+      batch.set(restaurantRef.collection('staff').doc(target.uid), {
+        uid: target.uid, email, displayName: target.displayName || restaurant.ownerName || email,
+        role: 'owner', permissions, active: true, updatedAt: now
+      }, { merge: true });
+      await batch.commit();
+      return json(res, 200, { success: true, owner: { email, uid: target.uid }, restaurant: { slug, name: restaurant.name } });
+    }
+
     // Registration requests are visible and actionable only to a super-administrator.
     if (action === 'registration_requests' || action === 'approve_registration' || action === 'reject_registration') {
       if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
