@@ -987,6 +987,7 @@ export default function App() {
             }}
             kitchenTicketsCount={activeTicketsCount}
             onNavigateToHub={() => navigateTo('/gestion')}
+            onSignOut={handleManagerSignOut}
           />
 
           <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
