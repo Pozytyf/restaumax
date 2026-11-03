@@ -63,7 +63,8 @@ service cloud.firestore {
     }
 
     function isValidRestaurant(data) {
-      return data.keys().hasAll(['slug', 'name', 'isOpen'])
+      return data.keys().hasOnly(['slug', 'name', 'isOpen', 'tagline', 'address', 'city', 'phone', 'currency', 'bannerUrl', 'logoUrl', 'openingHours', 'taxRatePercent', 'receiptFooter', 'receiptPaperWidth', 'status', 'createdAt', 'updatedAt', 'country'])
+        && data.keys().hasAll(['slug', 'name', 'isOpen'])
         && data.slug is string && data.slug.size() > 0 && data.slug.size() <= 100
         && data.name is string && data.name.size() > 0 && data.name.size() <= 200
         && data.isOpen is bool;
