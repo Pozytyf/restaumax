@@ -884,7 +884,7 @@ export default function App() {
         ) : (!authUser || !isAuthorizedManager) ? (
           <ManagerLoginView
             onLogin={handleManagerLogin}
-            onBackToMenu={() => navigateTo(`/r/${activeRestaurantSlug}`)}
+            onBackToMenu={() => navigateTo('/')}
             restaurantName={restaurant.name}
           />
         ) : (
@@ -944,7 +944,7 @@ export default function App() {
         ) : (!authUser || !isAuthorizedManager) ? (
           <ManagerLoginView
             onLogin={handleManagerLogin}
-            onBackToMenu={() => navigateTo(`/r/${activeRestaurantSlug}`)}
+            onBackToMenu={() => navigateTo('/')}
             restaurantName={restaurant.name}
           />
         ) : (
