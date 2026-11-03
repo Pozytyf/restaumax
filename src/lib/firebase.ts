@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getAuth, 
   signInWithEmailAndPassword, 
+  sendPasswordResetEmail,
   signOut, 
   onIdTokenChanged, 
   getIdTokenResult,
@@ -323,6 +324,27 @@ export async function signInManager(
     }
 
     return { success: false, error: message };
+  }
+}
+
+/**
+ * Envoie un lien de réinitialisation du mot de passe via Firebase Authentication.
+ * Le message côté interface reste générique pour ne pas révéler si un compte existe.
+ */
+export async function requestManagerPasswordReset(email: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    await sendPasswordResetEmail(auth, email.trim());
+    return { success: true };
+  } catch (err: any) {
+    const code = err?.code;
+    if (code === 'auth/invalid-email') {
+      return { success: false, error: "L'adresse e-mail saisie n'est pas valide." };
+    }
+    if (code === 'auth/too-many-requests') {
+      return { success: false, error: "Trop de demandes. Veuillez patienter avant de réessayer." };
+    }
+    console.error('Erreur de demande de réinitialisation du mot de passe:', code || err);
+    return { success: false, error: "Impossible d'envoyer le lien pour le moment. Réessayez plus tard." };
   }
 }
 
