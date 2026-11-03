@@ -132,10 +132,10 @@ service cloud.firestore {
       }
 
       // Tables subcollection
-      // Public get and list so customers can see table information
-      // Create/update/delete restricted strictly to verified managers of this restaurant
+      // Tables contain operational data (occupancy, active order, waiter, covers).
+      // Never expose them to anonymous QR visitors. Access is limited to authorized staff.
       match /tables/{tableId} {
-        allow get, list: if true;
+        allow get, list: if hasRestaurantPermission(restaurantSlug, 'tables.manage');
         allow create, update: if hasRestaurantPermission(restaurantSlug, 'tables.manage') && isValidId(tableId) && isValidTable(incoming());
         allow delete: if hasRestaurantPermission(restaurantSlug, 'tables.manage') && isValidId(tableId);
       }
@@ -176,13 +176,13 @@ service cloud.firestore {
 
       // Orders subcollection
       // Create: STRICTLY FORBIDDEN from client SDK (must go through trusted server backend /api/orders)
-      // Get: customer can view confirmed order by exact ID
-      // List: restricted strictly to authorized managers of this restaurant (protects customer privacy and restaurant order stream)
+      // Get and list: restricted to authorized restaurant staff; customers receive the
+      // confirmed order from the trusted submission API, never by guessing an ID.
       // Update: restricted strictly to authorized managers of this restaurant, and limited to operational status fields
       // Delete: STRICTLY FORBIDDEN (audit trail preserved)
       match /orders/{orderId} {
         allow create: if false;
-        allow get: if isValidId(orderId);
+        allow get: if isValidId(orderId) && (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view'));
         allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view'));
         allow update: if (hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access')) 
           && isValidId(orderId) 
