@@ -72,7 +72,6 @@ const toneClasses = {
 };
 
 export const HomePage: React.FC<HomePageProps> = ({
-  onGoToMenuWithTable: _onGoToMenuWithTable,
   onGoToStaffTools,
   onGoToManagementHub,
   onOpenScanner,
