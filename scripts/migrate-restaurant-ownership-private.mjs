@@ -5,7 +5,7 @@
  * an exact Preview project/database match. Never point this script at Production.
  */
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 const EXPECTED_PROJECT = 'restaumax-preview';
 const EXPECTED_DATABASE = '(default)';
@@ -82,7 +82,7 @@ if (apply) {
       ), migratedAt: Date.now() };
       batch.set(item.privateRef, merged, { merge: true });
       batch.update(item.ref, {
-        ownerUid: require('firebase-admin/firestore').FieldValue.delete(),
+        ownerUid: FieldValue.delete(),
         ownerName: require('firebase-admin/firestore').FieldValue.delete(),
         ownerEmail: require('firebase-admin/firestore').FieldValue.delete(),
       });
