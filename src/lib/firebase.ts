@@ -25,7 +25,34 @@ import {
   writeBatch,
   connectFirestoreEmulator
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import appletFirebaseConfig from '../../firebase-applet-config.json';
+
+const viteEnv = import.meta.env;
+const isPreviewEnvironment = viteEnv?.VITE_APP_ENV === 'preview';
+const firebaseConfig = {
+  ...appletFirebaseConfig,
+  apiKey: viteEnv?.VITE_FIREBASE_API_KEY || appletFirebaseConfig.apiKey,
+  authDomain: viteEnv?.VITE_FIREBASE_AUTH_DOMAIN || appletFirebaseConfig.authDomain,
+  projectId: viteEnv?.VITE_FIREBASE_PROJECT_ID || (isPreviewEnvironment ? '' : appletFirebaseConfig.projectId),
+  storageBucket: viteEnv?.VITE_FIREBASE_STORAGE_BUCKET || appletFirebaseConfig.storageBucket,
+  messagingSenderId: viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || appletFirebaseConfig.messagingSenderId,
+  appId: viteEnv?.VITE_FIREBASE_APP_ID || appletFirebaseConfig.appId,
+  firestoreDatabaseId: viteEnv?.VITE_FIRESTORE_DATABASE_ID || (isPreviewEnvironment ? '(default)' : appletFirebaseConfig.firestoreDatabaseId),
+};
+
+if (isPreviewEnvironment) {
+  const requiredPreviewValues = [
+    firebaseConfig.apiKey,
+    firebaseConfig.authDomain,
+    firebaseConfig.projectId,
+    firebaseConfig.appId,
+    firebaseConfig.messagingSenderId,
+    firebaseConfig.firestoreDatabaseId,
+  ];
+  if (requiredPreviewValues.some((value) => typeof value !== 'string' || !value.trim())) {
+    throw new Error('[RestauMax] Configuration Firebase Preview incomplète. Vérifiez les variables VITE_FIREBASE_* et VITE_FIRESTORE_DATABASE_ID.');
+  }
+}
 import { 
   RestaurantInfo, 
   RestauMenuItem, 
@@ -46,7 +73,6 @@ export const auth = getAuth(app);
 // The server uses FIRESTORE_EMULATOR_HOST; the browser SDK needs its own connections.
 // import.meta.env is injected by Vite in the browser but absent when this module
 // is imported directly by Node-based unit tests.
-const viteEnv = import.meta.env;
 const useFirebaseEmulators =
   viteEnv?.DEV === true &&
   viteEnv?.VITE_USE_FIREBASE_EMULATOR === 'true';
