@@ -49,9 +49,13 @@ async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
   if (!snap.exists) return null;
   const restaurant = snap.data();
   if (restaurant.status === 'suspended') return null;
-  const membership = await db.collection('managers').doc(user.uid).get();
+  const [ownershipSnap, membership] = await Promise.all([
+    db.collection('restaurants').doc(slug).collection('private').doc('ownership').get(),
+    db.collection('managers').doc(user.uid).get()
+  ]);
+  const ownership = ownershipSnap.exists ? ownershipSnap.data() : null;
   const member = membership.exists ? membership.data() : null;
-  if (restaurant.ownerUid !== user.uid || member?.role !== 'owner' || member?.restaurantSlug !== slug) return null;
+  if (ownership?.ownerUid !== user.uid || member?.role !== 'owner' || member?.restaurantSlug !== slug) return null;
   return { role: 'owner', restaurant };
 }
 
@@ -85,7 +89,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       if (action === 'overview') {
         const snap = await db.collection('restaurants').get();
-        const restaurants = snap.docs.map((d: any) => ({ slug: d.id, ...d.data() }));
+        const restaurants = await Promise.all(snap.docs.map(async (d: any) => {
+          const ownershipSnap = await d.ref.collection('private').doc('ownership').get();
+          const ownership = ownershipSnap.exists ? ownershipSnap.data() : {};
+          return { slug: d.id, ...d.data(), ownerName: ownership.ownerName, ownerEmail: ownership.ownerEmail };
+        }));
         return json(res, 200, { success: true, restaurants, total: restaurants.length });
       }
 
@@ -120,10 +128,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           const now = Date.now();
           const batch = db.batch();
           batch.set(restaurantRef, {
-            slug, name, isOpen: false, ownerUid: ownerUser.uid, ownerName, ownerEmail,
+            slug, name, isOpen: false,
             status: 'active', createdAt: now, createdBy: user.uid,
             tagline: '', address: '', city: '', phone: '', bannerUrl: '', logoUrl: '',
             openingHours: '', currency: 'FCFA', country: "Côte d'Ivoire"
+          });
+          batch.set(restaurantRef.collection('private').doc('ownership'), {
+            ownerUid: ownerUser.uid, ownerName, ownerEmail, createdAt: now, createdBy: user.uid
           });
           batch.set(db.collection('managers').doc(ownerUser.uid), {
             uid: ownerUser.uid, email: ownerEmail, displayName: ownerName,
