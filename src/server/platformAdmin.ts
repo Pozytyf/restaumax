@@ -109,7 +109,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const restaurantRef = db.collection('restaurants').doc(slug);
         let reservationCreated = false;
         try {
-          await restaurantRef.create({ slug, name, status: 'provisioning', createdAt: Date.now(), createdBy: user.uid });
+          await restaurantRef.create({ slug, name, status: 'provisioning', createdAt: Date.now() });
           reservationCreated = true;
         } catch (reservationError: any) {
           if (reservationError?.code === 6 || reservationError?.code === 'already-exists') {
