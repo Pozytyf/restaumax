@@ -83,8 +83,8 @@ if (apply) {
       batch.set(item.privateRef, merged, { merge: true });
       batch.update(item.ref, {
         ownerUid: FieldValue.delete(),
-        ownerName: require('firebase-admin/firestore').FieldValue.delete(),
-        ownerEmail: require('firebase-admin/firestore').FieldValue.delete(),
+        ownerName: FieldValue.delete(),
+        ownerEmail: FieldValue.delete(),
       });
     }
     await batch.commit();
