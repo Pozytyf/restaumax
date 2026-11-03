@@ -26,7 +26,7 @@ const getAuthErrorMessage = (error: unknown): string => {
     'auth/email-already-in-use': 'Cette adresse e-mail est déjà associée à un compte.',
   };
 
-  if (messages[code]) return `${messages[code]} (\${code})`;
+  if (messages[code]) return `${messages[code]} (${code})`;
   return code
     ? `Échec de l’authentification Firebase. Code : ${code}. Communique ce code au support.`
     : 'Échec de l’authentification. Vérifie les informations saisies et réessaie.';
