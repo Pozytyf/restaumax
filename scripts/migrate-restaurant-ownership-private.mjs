@@ -1,5 +1,5 @@
 /**
- * One-time migration: move ownership fields out of public restaurant documents.
+ * One-time migration: move ownership and audit identity fields out of public restaurant documents.
  *
  * Safe by default: dry-run only. Apply requires an explicit --apply flag and
  * an exact Preview project/database match. Never point this script at Production.
@@ -45,19 +45,19 @@ for (const restaurantDoc of snapshot.docs) {
     ownerUid: data.ownerUid,
     ownerName: data.ownerName,
     ownerEmail: data.ownerEmail,
+    createdBy: data.createdBy,
+    updatedBy: data.updatedBy,
   };
-  const hasOwnership = Object.values(ownership).some((value) => value !== undefined);
-  if (!hasOwnership) continue;
+  const hasPrivateMetadata = Object.values(ownership).some((value) => value !== undefined);
+  if (!hasPrivateMetadata) continue;
 
   const privateRef = restaurantDoc.ref.collection('private').doc('ownership');
   const privateSnap = await privateRef.get();
-  if (privateSnap.exists) {
-    const current = privateSnap.data();
-    if (current.ownerUid && ownership.ownerUid && current.ownerUid !== ownership.ownerUid) {
-      throw new Error(`Conflit d’identité propriétaire pour le restaurant ${restaurantDoc.id}. Aucun lot n’a été appliqué.`);
-    }
+  const existingOwnership = privateSnap.exists ? privateSnap.data() : {};
+  if (existingOwnership.ownerUid && ownership.ownerUid && existingOwnership.ownerUid !== ownership.ownerUid) {
+    throw new Error(`Conflit d’identité propriétaire pour le restaurant ${restaurantDoc.id}. Aucun lot n’a été appliqué.`);
   }
-  changes.push({ ref: restaurantDoc.ref, privateRef, ownership, id: restaurantDoc.id });
+  changes.push({ ref: restaurantDoc.ref, privateRef, ownership, existingOwnership, id: restaurantDoc.id });
 }
 
 console.log(JSON.stringify({
@@ -68,6 +68,8 @@ console.log(JSON.stringify({
     hasOwnerUid: Boolean(ownership.ownerUid),
     hasOwnerName: Boolean(ownership.ownerName),
     hasOwnerEmail: Boolean(ownership.ownerEmail),
+    hasCreatedBy: Boolean(ownership.createdBy),
+    hasUpdatedBy: Boolean(ownership.updatedBy),
   })),
   count: changes.length,
 }, null, 2));
@@ -76,15 +78,20 @@ if (apply) {
   for (let offset = 0; offset < changes.length; offset += 200) {
     const batch = db.batch();
     for (const item of changes.slice(offset, offset + 200)) {
-      const existing = await item.privateRef.get();
-      const merged = { ...(existing.exists ? existing.data() : {}), ...Object.fromEntries(
-        Object.entries(item.ownership).filter(([, value]) => value !== undefined)
-      ), migratedAt: Date.now() };
+      // An existing private ownership document is canonical. Fill only missing
+      // values from the legacy public document; never overwrite newer private data.
+      const merged = { ...(item.existingOwnership || {}) };
+      for (const [key, value] of Object.entries(item.ownership)) {
+        if (merged[key] === undefined && value !== undefined) merged[key] = value;
+      }
+      merged.migratedAt = Date.now();
       batch.set(item.privateRef, merged, { merge: true });
       batch.update(item.ref, {
         ownerUid: FieldValue.delete(),
         ownerName: FieldValue.delete(),
         ownerEmail: FieldValue.delete(),
+        createdBy: FieldValue.delete(),
+        updatedBy: FieldValue.delete(),
       });
     }
     await batch.commit();
