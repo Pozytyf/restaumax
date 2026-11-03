@@ -73,9 +73,9 @@ console.log(JSON.stringify({
 }, null, 2));
 
 if (apply) {
-  for (let offset = 0; offset < changes.length; offset += 400) {
+  for (let offset = 0; offset < changes.length; offset += 200) {
     const batch = db.batch();
-    for (const item of changes.slice(offset, offset + 400)) {
+    for (const item of changes.slice(offset, offset + 200)) {
       const existing = await item.privateRef.get();
       const merged = { ...(existing.exists ? existing.data() : {}), ...Object.fromEntries(
         Object.entries(item.ownership).filter(([, value]) => value !== undefined)
