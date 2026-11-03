@@ -63,7 +63,8 @@ service cloud.firestore {
     }
 
     function isValidRestaurant(data) {
-      return data.keys().hasAll(['slug', 'name', 'isOpen'])
+      return data.keys().hasOnly(['slug', 'name', 'isOpen', 'tagline', 'address', 'city', 'phone', 'currency', 'bannerUrl', 'logoUrl', 'openingHours', 'taxRatePercent', 'receiptFooter', 'receiptPaperWidth', 'status', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'country'])
+        && data.keys().hasAll(['slug', 'name', 'isOpen'])
         && data.slug is string && data.slug.size() > 0 && data.slug.size() <= 100
         && data.name is string && data.name.size() > 0 && data.name.size() <= 200
         && data.isOpen is bool;
@@ -119,6 +120,12 @@ service cloud.firestore {
       allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming());
       allow update: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming());
       allow delete: if false;
+
+      // Private ownership metadata is accessible only through the trusted Admin SDK.
+      // No client SDK read/write is permitted on this path.
+      match /private/{privateDoc} {
+        allow read, write: if false;
+      }
 
       // Menu catalog subcollection
       // Public get and list for QR menu viewing
