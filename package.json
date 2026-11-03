@@ -14,7 +14,7 @@
     "test:lot2": "tsx scripts/test-lot2.mjs",
     "test:emulator": "tsx scripts/test-firestore-emulator-ambiguous.mjs",
     "test:intent": "tsx scripts/test-client-intent.mjs",
-    "test": "npm run test:lot1 && npm run test:lot2 && npm run test:emulator && npm run test:intent",
+    "test": "npm run test:lot1 && npm run test:lot2 && npm run test:emulator && npm run test:intent && node scripts/test-restaurant-ownership-migration.mjs",
     "seed:local": "node scripts/seed-catalog.mjs"
   },
   "dependencies": {
