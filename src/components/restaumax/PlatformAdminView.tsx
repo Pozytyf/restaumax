@@ -5,6 +5,33 @@ import { Building2, ShieldCheck, LogOut, Plus, RefreshCw, Ban, CheckCircle2, Eye
 
 type RestaurantRow = { slug: string; name: string; ownerName?: string; ownerEmail?: string; status?: string; isOpen?: boolean };
 
+const getAuthErrorMessage = (error: unknown): string => {
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    && typeof (error as { code?: unknown }).code === 'string'
+    ? (error as { code: string }).code
+    : '';
+
+  const messages: Record<string, string> = {
+    'auth/invalid-credential': 'Adresse e-mail ou mot de passe incorrect. Vérifie les identifiants saisis.',
+    'auth/wrong-password': 'Mot de passe incorrect.',
+    'auth/user-not-found': 'Aucun compte ne correspond à cette adresse e-mail.',
+    'auth/user-disabled': 'Ce compte Firebase est désactivé. Vérifie son état dans Firebase Authentication.',
+    'auth/too-many-requests': 'Trop de tentatives de connexion. Patiente avant de réessayer.',
+    'auth/network-request-failed': 'Connexion au service Firebase impossible. Vérifie ta connexion Internet.',
+    'auth/operation-not-allowed': 'La connexion par e-mail et mot de passe n’est pas autorisée pour ce projet Firebase.',
+    'auth/invalid-api-key': 'La clé API Firebase utilisée par cette version est invalide.',
+    'auth/app-not-authorized': 'Cette application n’est pas autorisée à utiliser le projet Firebase configuré.',
+    'auth/unauthorized-domain': 'Ce domaine n’est pas autorisé dans les domaines Firebase Authentication.',
+    'auth/invalid-email': 'Le format de l’adresse e-mail est invalide.',
+    'auth/email-already-in-use': 'Cette adresse e-mail est déjà associée à un compte.',
+  };
+
+  if (messages[code]) return `${messages[code]} (\${code})`;
+  return code
+    ? `Échec de l’authentification Firebase. Code : ${code}. Communique ce code au support.`
+    : 'Échec de l’authentification. Vérifie les informations saisies et réessaie.';
+};
+
 export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant: (slug: string) => void }> = ({ onBack, onOpenRestaurant }) => {
   const [user, setUser] = useState<User | null>(auth.currentUser);
   const [restaurants, setRestaurants] = useState<RestaurantRow[]>([]);
@@ -47,7 +74,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   const login = async (event: React.FormEvent) => {
     event.preventDefault(); setError(''); setLoading(true);
     try { await signInWithEmailAndPassword(auth, email.trim(), password); setPassword(''); }
-    catch { setError('Identifiants invalides ou compte désactivé.'); }
+    catch (error: unknown) { setError(getAuthErrorMessage(error)); }
     finally { setLoading(false); }
   };
 
