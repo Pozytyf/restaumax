@@ -132,8 +132,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
       const restaurant = restaurantSnap.data();
       if (restaurant.status === 'suspended') return json(res, 409, { success: false, error: 'Le restaurant est suspendu. Réactivez-le avant de restaurer son accès.' });
-      if (String(restaurant.ownerEmail || '').toLowerCase() !== email ||
-          (restaurant.ownerUid && restaurant.ownerUid !== target.uid)) {
+      const emailMatches = String(restaurant.ownerEmail || '').trim().toLowerCase() === email;
+      const uidMatches = Boolean(restaurant.ownerUid && restaurant.ownerUid === target.uid);
+      if ((!emailMatches && !uidMatches) || (restaurant.ownerUid && restaurant.ownerUid !== target.uid)) {
         return json(res, 403, { success: false, error: 'Le compte ne correspond pas au propriétaire enregistré de ce restaurant.' });
       }
       const existingMembership = await db.collection('managers').doc(target.uid).get();
