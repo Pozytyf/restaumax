@@ -31,12 +31,14 @@ const viteEnv = import.meta.env;
 const isPreviewEnvironment = viteEnv?.VITE_APP_ENV === 'preview';
 const firebaseConfig = {
   ...appletFirebaseConfig,
-  apiKey: viteEnv?.VITE_FIREBASE_API_KEY || appletFirebaseConfig.apiKey,
-  authDomain: viteEnv?.VITE_FIREBASE_AUTH_DOMAIN || appletFirebaseConfig.authDomain,
-  projectId: viteEnv?.VITE_FIREBASE_PROJECT_ID || (isPreviewEnvironment ? '' : appletFirebaseConfig.projectId),
-  storageBucket: viteEnv?.VITE_FIREBASE_STORAGE_BUCKET || appletFirebaseConfig.storageBucket,
-  messagingSenderId: viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || appletFirebaseConfig.messagingSenderId,
-  appId: viteEnv?.VITE_FIREBASE_APP_ID || appletFirebaseConfig.appId,
+  // In Preview, never mix credentials from the historical AI Studio applet.
+  // Every Firebase identity field must come from the dedicated Vercel environment.
+  apiKey: isPreviewEnvironment ? (viteEnv?.VITE_FIREBASE_API_KEY || '') : (viteEnv?.VITE_FIREBASE_API_KEY || appletFirebaseConfig.apiKey),
+  authDomain: isPreviewEnvironment ? (viteEnv?.VITE_FIREBASE_AUTH_DOMAIN || '') : (viteEnv?.VITE_FIREBASE_AUTH_DOMAIN || appletFirebaseConfig.authDomain),
+  projectId: isPreviewEnvironment ? (viteEnv?.VITE_FIREBASE_PROJECT_ID || '') : (viteEnv?.VITE_FIREBASE_PROJECT_ID || appletFirebaseConfig.projectId),
+  storageBucket: isPreviewEnvironment ? (viteEnv?.VITE_FIREBASE_STORAGE_BUCKET || '') : (viteEnv?.VITE_FIREBASE_STORAGE_BUCKET || appletFirebaseConfig.storageBucket),
+  messagingSenderId: isPreviewEnvironment ? (viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || '') : (viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || appletFirebaseConfig.messagingSenderId),
+  appId: isPreviewEnvironment ? (viteEnv?.VITE_FIREBASE_APP_ID || '') : (viteEnv?.VITE_FIREBASE_APP_ID || appletFirebaseConfig.appId),
   firestoreDatabaseId: viteEnv?.VITE_FIRESTORE_DATABASE_ID || (isPreviewEnvironment ? '(default)' : appletFirebaseConfig.firestoreDatabaseId),
 };
 
