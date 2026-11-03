@@ -129,7 +129,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           const batch = db.batch();
           batch.set(restaurantRef, {
             slug, name, isOpen: false,
-            status: 'active', createdAt: now, createdBy: user.uid,
+            status: 'active', createdAt: now,
             tagline: '', address: '', city: '', phone: '', bannerUrl: '', logoUrl: '',
             openingHours: '', currency: 'FCFA', country: "Côte d'Ivoire"
           });
@@ -157,7 +157,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (action === 'set_restaurant_status') {
         const slug = String(body.slug || '');
         if (!slug || !['active', 'suspended'].includes(body.status)) return json(res, 400, { success: false, error: 'Paramètres de statut invalides.' });
-        await db.collection('restaurants').doc(slug).set({ status: body.status, ...(body.status === 'suspended' ? { isOpen: false } : {}), updatedAt: Date.now(), updatedBy: user.uid }, { merge: true });
+        await db.collection('restaurants').doc(slug).set({ status: body.status, ...(body.status === 'suspended' ? { isOpen: false } : {}), updatedAt: Date.now() }, { merge: true });
         return json(res, 200, { success: true });
       }
     }
