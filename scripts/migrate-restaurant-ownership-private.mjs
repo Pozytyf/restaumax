@@ -6,6 +6,7 @@
  */
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { collectLegacyPrivateMetadata, mergePrivateOwnership } from './restaurant-ownership-migration-utils.mjs';
 
 const EXPECTED_PROJECT = 'restaumax-preview';
 const EXPECTED_DATABASE = '(default)';
@@ -41,20 +42,16 @@ const changes = [];
 
 for (const restaurantDoc of snapshot.docs) {
   const data = restaurantDoc.data();
-  const ownership = {
-    ownerUid: data.ownerUid,
-    ownerName: data.ownerName,
-    ownerEmail: data.ownerEmail,
-    createdBy: data.createdBy,
-    updatedBy: data.updatedBy,
-  };
+  const ownership = collectLegacyPrivateMetadata(data);
   const hasPrivateMetadata = Object.values(ownership).some((value) => value !== undefined);
   if (!hasPrivateMetadata) continue;
 
   const privateRef = restaurantDoc.ref.collection('private').doc('ownership');
   const privateSnap = await privateRef.get();
   const existingOwnership = privateSnap.exists ? privateSnap.data() : {};
-  if (existingOwnership.ownerUid && ownership.ownerUid && existingOwnership.ownerUid !== ownership.ownerUid) {
+  try {
+    mergePrivateOwnership(existingOwnership, ownership);
+  } catch {
     throw new Error(`Conflit d’identité propriétaire pour le restaurant ${restaurantDoc.id}. Aucun lot n’a été appliqué.`);
   }
   changes.push({ ref: restaurantDoc.ref, privateRef, ownership, existingOwnership, id: restaurantDoc.id });
@@ -80,10 +77,7 @@ if (apply) {
     for (const item of changes.slice(offset, offset + 200)) {
       // An existing private ownership document is canonical. Fill only missing
       // values from the legacy public document; never overwrite newer private data.
-      const merged = { ...(item.existingOwnership || {}) };
-      for (const [key, value] of Object.entries(item.ownership)) {
-        if (merged[key] === undefined && value !== undefined) merged[key] = value;
-      }
+      const merged = mergePrivateOwnership(item.existingOwnership, item.ownership);
       merged.migratedAt = Date.now();
       batch.set(item.privateRef, merged, { merge: true });
       batch.update(item.ref, {
