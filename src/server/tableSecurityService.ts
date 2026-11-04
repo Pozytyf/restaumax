@@ -13,6 +13,7 @@ const safeEqual = (a: string, b: string) => {
 };
 
 export const tableSessionCookieName = SESSION_COOKIE;
+export const tableCsrfCookieName = '__Host-rm_table_csrf';
 
 export function readCookie(header: string | undefined, name = SESSION_COOKIE): string | null {
   if (!header) return null;
@@ -28,6 +29,14 @@ export function readCookie(header: string | undefined, name = SESSION_COOKIE): s
 
 export function buildSessionCookie(secret: string): string {
   return `${SESSION_COOKIE}=${encodeURIComponent(secret)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`;
+}
+
+export function buildCsrfCookie(token: string): string {
+  return `${tableCsrfCookieName}=${encodeURIComponent(token)}; Secure; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`;
+}
+
+export function clearCsrfCookie(): string {
+  return `${tableCsrfCookieName}=; Secure; SameSite=Strict; Path=/; Max-Age=0`;
 }
 
 export function clearSessionCookie(): string {
