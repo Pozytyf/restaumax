@@ -268,8 +268,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const isGlobalAdmin = isSuperAdmin(user);
       if (member?.role === 'owner' && !isGlobalAdmin) return json(res, 403, { success: false, error: 'Seul le super-administrateur peut gérer un propriétaire.' });
       const restaurantSnap = await db.collection('restaurants').doc(slug).get();
-      if (!restaurantSnap.exists || restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt) {
-        return json(res, 409, { success: false, error: 'Les comptes ne peuvent pas être modifiés lorsque le restaurant est suspendu ou supprimé.' });
+      if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) {
+        return json(res, 409, { success: false, error: 'Les comptes associés à un restaurant supprimé ne peuvent plus être modifiés.' });
+      }
+      if (restaurantSnap.data()?.status !== 'active' && !isGlobalAdmin) {
+        return json(res, 409, { success: false, error: 'Le restaurant est suspendu : gestion réservée au super-administrateur.' });
       }
       const managerRef = db.collection('managers').doc(staffUid);
       const auth = getAuth();
@@ -278,6 +281,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const nextActive = action === 'disable_staff' ? false : body.status === 'active';
         if (action === 'set_staff_status' && !['active', 'suspended'].includes(body.status)) {
           return json(res, 400, { success: false, error: 'Statut de compte invalide.' });
+        }
+        if (nextActive && restaurantSnap.data()?.status !== 'active') {
+          return json(res, 409, { success: false, error: 'Réactive d’abord le restaurant avant de réactiver ses comptes.' });
         }
         if (nextActive) {
           await auth.updateUser(staffUid, { disabled: false });
