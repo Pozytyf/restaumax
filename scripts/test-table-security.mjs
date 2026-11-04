@@ -107,6 +107,37 @@ async function run() {
   } catch {}
   assert(scopedOwnerAllowed, 'Le propriétaire actif du restaurant conserve la gestion QR');
 
+  db.store.set('managers/manager-1', {
+    uid: 'manager-1', role: 'manager', restaurantSlug: 'chez-awa',
+    active: true, sessionVersion: 0, permissions: ['tables.manage']
+  });
+  let scopedManagerAllowed = false;
+  try {
+    await authorizeTableManager(
+      db,
+      { verifyIdToken: async () => ({ uid: 'manager-1', role: 'manager', sessionVersion: 0 }) },
+      { headers: { authorization: 'Bearer manager-token' } },
+      'chez-awa'
+    );
+    scopedManagerAllowed = true;
+  } catch {}
+  assert(scopedManagerAllowed, 'Le manager actif du restaurant avec tables.manage peut gérer les QR');
+
+  db.store.set('managers/manager-no-qr', {
+    uid: 'manager-no-qr', role: 'manager', restaurantSlug: 'chez-awa',
+    active: true, sessionVersion: 0, permissions: []
+  });
+  let managerWithoutPermissionRejected = false;
+  try {
+    await authorizeTableManager(
+      db,
+      { verifyIdToken: async () => ({ uid: 'manager-no-qr', role: 'manager', sessionVersion: 0 }) },
+      { headers: { authorization: 'Bearer manager-no-qr-token' } },
+      'chez-awa'
+    );
+  } catch { managerWithoutPermissionRejected = true; }
+  assert(managerWithoutPermissionRejected, 'Un manager sans tables.manage ne peut pas administrer les QR');
+
   const issued = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   const token = issued.url.split('/q/')[1];
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
