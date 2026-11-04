@@ -1057,8 +1057,8 @@ export default function App() {
         isOpen={isQrScannerOpen}
         onClose={() => setIsQrScannerOpen(false)}
         onScanResult={(detectedPath: string) => {
-          navigateTo(detectedPath);
           setIsQrScannerOpen(false);
+          window.location.assign(detectedPath);
         }}
       />
     </div>
