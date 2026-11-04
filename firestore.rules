@@ -46,22 +46,23 @@ service cloud.firestore {
       );
     }
 
+    // Restaurant access is ALWAYS membership-scoped. Platform custom claims
+    // must never grant operational access to every restaurant.
     function hasRestaurantPermission(targetSlug, permission) {
-      return isSignedIn() && isAccountActive() && isRestaurantActive(targetSlug) && (
-        request.auth.token.role in ['admin', 'super_admin'] ||
+      return isSignedIn() &&
+        isAccountActive() &&
+        isRestaurantActive(targetSlug) &&
+        exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurantSlug == targetSlug &&
+        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active != false &&
+        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['owner', 'manager', 'staff'] &&
         (
-          exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
-          get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurantSlug == targetSlug &&
+          get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'owner' ||
           (
-            get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'admin' ||
-            get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'owner' ||
-            (
-              get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['manager', 'staff'] &&
-              permission in get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.permissions
-            )
+            get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.permissions is list &&
+            permission in get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.permissions
           )
-        )
-      );
+        );
     }
 
     function isManagerOfRestaurant(targetSlug) {

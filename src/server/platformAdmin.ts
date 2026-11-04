@@ -44,8 +44,7 @@ function isSuperAdmin(user: DecodedIdToken) {
 }
 
 async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
-  if (isSuperAdmin(user)) return { role: 'super_admin', restaurant: null };
-  const snap = await db.collection('restaurants').doc(slug).get();
+   const snap = await db.collection('restaurants').doc(slug).get();
   if (!snap.exists) return null;
   const restaurant = snap.data();
   if (restaurant.status !== 'active' || restaurant.deletedAt) return null;
@@ -239,7 +238,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '');
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
       const owner = await requireOwner(db, user, slug);
-      if (!owner || (owner.role !== 'owner' && owner.role !== 'super_admin')) return json(res, 403, { success: false, error: 'Accès propriétaire ou super-administrateur requis.' });
+      if (!owner || owner.role !== 'owner') return json(res, 403, { success: false, error: 'Accès propriétaire du restaurant requis.' });
 
       const staffRef = db.collection('restaurants').doc(slug).collection('staff');
       if (action === 'staff_list') {
@@ -284,14 +283,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const memberSnap = await memberRef.get();
       if (!memberSnap.exists) return json(res, 404, { success: false, error: 'Membre introuvable.' });
       const member = memberSnap.data();
-      const isGlobalAdmin = isSuperAdmin(user);
-      if (member?.role === 'owner' && !isGlobalAdmin) return json(res, 403, { success: false, error: 'Seul le super-administrateur peut gérer un propriétaire.' });
+      if (member?.role === 'owner') return json(res, 403, { success: false, error: 'Le compte propriétaire ne peut pas être géré depuis le personnel du restaurant.' });
       const restaurantSnap = await db.collection('restaurants').doc(slug).get();
       if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) {
         return json(res, 409, { success: false, error: 'Les comptes associés à un restaurant supprimé ne peuvent plus être modifiés.' });
       }
-      if (restaurantSnap.data()?.status !== 'active' && !isGlobalAdmin) {
-        return json(res, 409, { success: false, error: 'Le restaurant est suspendu : gestion réservée au super-administrateur.' });
+      if (restaurantSnap.data()?.status !== 'active') {
+        return json(res, 409, { success: false, error: 'Le restaurant est suspendu : gestion du personnel indisponible.' });
       }
       const managerRef = db.collection('managers').doc(staffUid);
       const managerSnap = await managerRef.get();
