@@ -272,13 +272,35 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
     // server-provisioned membership document. This allows immediate account revocation.
     const managerDocRef = doc(db, 'managers', user.uid);
     const managerDoc = await getDoc(managerDocRef);
-    if (!managerDoc.exists()) return false;
-    const data = managerDoc.data();
-    return Boolean(
+    const data = managerDoc.exists() ? managerDoc.data() : null;
+    if (
       data &&
       data.active !== false &&
       ['owner', 'manager', 'staff'].includes(data.role)
-    );
+    ) {
+      return true;
+    }
+
+    // A newly recreated super-admin account may be allowlisted server-side but
+    // not yet carry its Firebase custom claim. Ask the trusted server to perform
+    // the allowlist check and claim promotion; never grant the role in the client.
+    if (!user.email) return false;
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch('/api/platform-admin', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${idToken}` },
+        cache: 'no-store',
+      });
+      if (!response.ok) return false;
+
+      const refreshedToken = await getIdTokenResult(user, true);
+      return refreshedToken.claims?.role === 'admin' ||
+        refreshedToken.claims?.role === 'super_admin';
+    } catch (bootstrapError) {
+      console.warn('Initialisation du rôle super-administrateur impossible:', bootstrapError);
+      return false;
+    }
   } catch (err) {
     console.warn('Erreur lors de la vérification des privilèges gestionnaire:', err);
     return false;
