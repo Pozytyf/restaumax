@@ -121,6 +121,12 @@ service cloud.firestore {
         && data.isActive is bool;
     }
 
+    function isValidOrderTransition(fromStatus, toStatus) {
+      return (fromStatus == 'pending' && toStatus in ['in_prep', 'cancelled']) ||
+        (fromStatus == 'in_prep' && toStatus in ['ready', 'cancelled']) ||
+        (fromStatus == 'ready' && toStatus in ['completed', 'cancelled']);
+    }
+
     function isValidOrder(data) {
       return data.keys().hasAll(['id', 'orderNumber', 'restaurantSlug', 'orderMode', 'items', 'totalAmount', 'status'])
         && data.id is string && data.id.size() > 0 && data.id.size() <= 128
@@ -257,7 +263,9 @@ service cloud.firestore {
           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'statusUpdatedAt', 'kitchenNotes']) &&
           (
             (hasRestaurantPermission(restaurantSlug, 'orders.manage') &&
-              incoming().status in ['pending', 'in_prep', 'ready', 'completed', 'cancelled']) ||
+              isValidOrderTransition(existing().status, incoming().status)) ||
+            (hasRestaurantPermission(restaurantSlug, 'orders.cancel') &&
+              existing().status in ['pending', 'in_prep', 'ready'] && incoming().status == 'cancelled') ||
             (hasRestaurantPermission(restaurantSlug, 'kitchen.access') &&
               ((existing().status == 'pending' && incoming().status == 'in_prep') ||
                (existing().status == 'in_prep' && incoming().status == 'ready'))) ||
