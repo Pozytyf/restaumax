@@ -193,13 +193,16 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
     restaurantSlug,
     tableId,
     tableNumber: String(tableSnap.data()?.tableNumber || ''),
+    sessionHash,
+    qrTokenHash: String(session.qrTokenHash || ''),
+    qrVersion: Number(session.qrVersion || 0),
     csrfHash: String(session.csrfHash || ''),
     expiresAt: session.expiresAt
   };
 }
 
 export function validateCsrf(session: any, suppliedToken: unknown): boolean {
-  if (!session || typeof suppliedToken !== 'string' || suppliedToken.length < 30 || suppliedToken.length > 100) return false;
+  if (!session || typeof session.csrfHash !== 'string' || !/^[a-f0-9]{64}$/.test(session.csrfHash) || typeof suppliedToken !== 'string' || suppliedToken.length < 30 || suppliedToken.length > 100) return false;
   return safeEqual(session.csrfHash, sha256(suppliedToken));
 }
 
@@ -214,7 +217,8 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   if (!managerSnap.exists) throw new Error('Accès gestionnaire refusé.');
   const manager = managerSnap.data();
   if (manager.active === false || manager.restaurantSlug !== restaurantSlug) throw new Error('Accès à ce restaurant refusé.');
-  if (!['owner', 'manager', 'admin'].includes(String(manager.role || role))) {
+  const managerRole = String(manager.role || role);
+  if (!['owner', 'admin', 'super_admin'].includes(managerRole)) {
     const permissions = Array.isArray(manager.permissions) ? manager.permissions : [];
     if (!permissions.includes('tables.manage')) throw new Error('Permission de gestion des tables requise.');
   }
