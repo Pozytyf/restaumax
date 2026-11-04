@@ -1,0 +1,39 @@
+name: RestauMax security hardening
+
+on:
+  push:
+    branches:
+      - fix/security-full-hardening
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security-and-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout isolated security branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install ephemeral Firebase test tooling
+        run: npm install --no-save firebase-tools @firebase/rules-unit-testing
+
+      - name: Run project test suite and Firestore security rules tests against real emulators
+        run: npx firebase emulators:exec --project demo-restaumax --only firestore,auth "FIRESTORE_EMULATOR_STRICT=true npm test && node scripts/test-security-rules.mjs"
+
+      - name: TypeScript validation
+        run: npm run lint
+
+      - name: Production build validation
+        run: npm run build
