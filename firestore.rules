@@ -120,7 +120,7 @@ service cloud.firestore {
     // List of all restaurants: FORBIDDEN (not needed by QR menu or single-restaurant hub)
     // Create/update restricted strictly to verified managers of this restaurant
     match /restaurants/{restaurantSlug} {
-      allow get: if isValidId(restaurantSlug);
+      allow get: if isValidId(restaurantSlug) && isRestaurantActive(restaurantSlug);
       allow list: if false;
       allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming());
       allow update: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming());
