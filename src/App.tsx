@@ -857,12 +857,20 @@ export default function App() {
     );
   };
 
-  const handleUpdateTicketStatus = (ticketId: string, status: TicketStatus) => {
-    setKitchenTickets((prev) =>
-      prev.map((t) => (t.id === ticketId ? { ...t, status } : t))
-    );
+  const handleUpdateTicketStatus = async (ticketId: string, status: TicketStatus) => {
+    const canManageOrders = isRestaurantOwner || userPermissions.includes('orders.manage');
+    const canCancelOrders = canManageOrders || userPermissions.includes('orders.cancel');
+    const canMarkServed = canManageOrders || userPermissions.includes('orders.serve');
+    if (status === 'cancelled' && !canCancelOrders) {
+      window.alert("Votre rôle ne permet pas d'annuler une commande.");
+      return;
+    }
+    if (status === 'served' && !canMarkServed) {
+      window.alert("La remise au client doit être confirmée par un serveur ou un responsable autorisé.");
+      return;
+    }
 
-    // Synchronisation bidirectionnelle Firestore KDS
+    // Persist Firestore order transitions before changing the visible KDS state.
     if (ticketId.startsWith('ord-')) {
       const rawOrderId = ticketId.replace(/^ord-/, '');
       let firestoreStatus: RestauOrderStatus = 'in_prep';
@@ -871,10 +879,18 @@ export default function App() {
       else if (status === 'cancelled') firestoreStatus = 'cancelled';
       else firestoreStatus = 'in_prep';
 
-      updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus).catch((err) => {
+      try {
+        await updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus);
+      } catch (err) {
         console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
-      });
+        window.alert("La mise à jour a été refusée. Vérifiez les droits du compte et réessayez.");
+        return;
+      }
     }
+
+    setKitchenTickets((prev) =>
+      prev.map((t) => (t.id === ticketId ? { ...t, status } : t))
+    );
   };
 
   const handleSelectTableForOrder = (table: Table) => {
@@ -1076,6 +1092,7 @@ export default function App() {
             {currentRole === 'kds' && userPermissions.includes('kitchen.access') && (
               <KdsView
                 tickets={kitchenTickets}
+                canMarkServed={isRestaurantOwner || userPermissions.includes('orders.manage') || userPermissions.includes('orders.serve')}
                 onToggleItemComplete={handleToggleKdsItem}
                 onUpdateTicketStatus={handleUpdateTicketStatus}
               />
