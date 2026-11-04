@@ -413,6 +413,9 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
         restaurantData &&
         restaurantData.status !== 'suspended' &&
+        restaurantData.status !== 'deleted' &&
+        !restaurantData.deletedAt &&
+        Number(sessionData.restaurantSessionVersion || 0) === Number(restaurantData.tableSessionVersion || 0) &&
         restaurantData.isActive !== false &&
         restaurantData.isOpen !== false
       );
@@ -527,7 +530,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     const restaurantRef = adminDb.collection('restaurants').doc(restaurantSlug);
     const restaurantSnap = await restaurantRef.get();
     if (!restaurantSnap.exists) throw new Error("Restaurant introuvable.");
-    if (restaurantSnap.data()?.status === 'suspended') throw new Error("Restaurant suspendu : les commandes sont temporairement désactivées.");
+    if (restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) throw new Error("Restaurant suspendu ou supprimé : les commandes sont désactivées.");
     const snap = await restaurantRef.collection('menuItems').get();
     return snap.docs.map((d: any) => d.data());
   },

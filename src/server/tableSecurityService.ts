@@ -96,7 +96,7 @@ export async function issueTableQr(db: any, restaurantSlug: string, tableId: str
       tx.get(tableRef),
       tx.get(restaurantRef.collection('table_qr_tokens').where('tableId', '==', id))
     ]);
-    if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.isActive === false) {
+    if (!restaurantSnap.exists || (restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) || restaurantSnap.data()?.isActive === false) {
       throw new Error('Restaurant introuvable, inactif ou suspendu.');
     }
     if (!tableSnap.exists || tableSnap.data()?.isActive !== true) {
@@ -177,7 +177,7 @@ export async function resolveTableQr(db: any, token: string) {
         currentTokenData.restaurantSlug !== slug || currentTokenData.tableId !== tableId) {
       throw new Error('Ce QR code a été révoqué ou remplacé.');
     }
-    if (!restaurantData || restaurantData.status === 'suspended' || restaurantData.isActive === false || restaurantData.isOpen === false) {
+    if (!restaurantData || (restaurantData.status === 'suspended' || restaurantData.status === 'deleted' || restaurantData.deletedAt) || restaurantData.isActive === false || restaurantData.isOpen === false) {
       throw new Error('Ce restaurant est temporairement indisponible.');
     }
     if (!tableData || tableData.isActive !== true ||
@@ -193,6 +193,7 @@ export async function resolveTableQr(db: any, token: string) {
       qrTokenHash: tokenHash,
       qrVersion: Number(currentTokenData.version || 1),
       csrfHash: sha256(csrfToken),
+      restaurantSessionVersion: Number(restaurantData.tableSessionVersion || 0),
       status: 'active',
       createdAt: now,
       lastSeenAt: now,
@@ -219,7 +220,8 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
   const tableRef = restaurantRef.collection('tables').doc(tableId);
   const qrRef = restaurantRef.collection('table_qr_tokens').doc(String(session.qrTokenHash || ''));
   const [restaurantSnap, tableSnap, qrSnap] = await Promise.all([restaurantRef.get(), tableRef.get(), qrRef.get()]);
-  if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.isActive === false || restaurantSnap.data()?.isOpen === false) return null;
+  if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.isActive === false || restaurantSnap.data()?.isOpen === false) return null;
+  if (Number(session.restaurantSessionVersion || 0) !== Number(restaurantSnap.data()?.tableSessionVersion || 0)) return null;
   if (!tableSnap.exists || tableSnap.data()?.isActive !== true || Number(tableSnap.data()?.qrVersion || 0) !== Number(session.qrVersion || 0)) return null;
   if (!qrSnap.exists || qrSnap.data()?.status !== 'active') return null;
   if (qrSnap.data()?.tokenHash !== session.qrTokenHash || qrSnap.data()?.restaurantSlug !== restaurantSlug || qrSnap.data()?.tableId !== tableId) return null;
@@ -234,6 +236,7 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
     sessionHash,
     qrTokenHash: String(session.qrTokenHash || ''),
     qrVersion: Number(session.qrVersion || 0),
+    restaurantSessionVersion: Number(session.restaurantSessionVersion || 0),
     csrfHash: String(session.csrfHash || ''),
     expiresAt: session.expiresAt
   };
@@ -255,6 +258,7 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   if (!managerSnap.exists) throw new Error('Accès gestionnaire refusé.');
   const manager = managerSnap.data();
   if (manager.active === false || manager.restaurantSlug !== restaurantSlug) throw new Error('Accès à ce restaurant refusé.');
+  if (Number(decoded.sessionVersion || 0) !== Number(manager.sessionVersion || 0)) throw new Error('Session utilisateur révoquée. Reconnectez-vous.');
   const managerRole = String(manager.role || role);
   if (!['owner', 'admin', 'super_admin'].includes(managerRole)) {
     const permissions = manager.permissions;

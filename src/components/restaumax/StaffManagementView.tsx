@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { auth } from '../../lib/firebase';
-import { ArrowLeft, UserPlus, Shield, UserX, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, UserPlus, Shield, UserX, UserCheck, Trash2, RefreshCw, Eye, EyeOff } from 'lucide-react';
 
 const PERMISSIONS = [
   ['menu.view', 'Consulter le menu'], ['menu.manage', 'Modifier le menu'],
@@ -59,11 +59,26 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
     finally { setLoading(false); }
   };
 
-  const disable = async (member: StaffMember) => {
-    if (!window.confirm(`Désactiver le compte de ${member.displayName} ?`)) return;
-    setLoading(true);
-    try { await request({ action: 'disable_staff', slug: restaurantSlug, uid: member.uid }); await refresh(); }
-    catch (e: any) { setError(e.message); }
+  const setMemberStatus = async (member: StaffMember, status: 'active' | 'suspended') => {
+    const verb = status === 'active' ? 'réactiver' : 'suspendre';
+    if (!window.confirm(`Confirmer : ${verb} le compte de ${member.displayName} ?`)) return;
+    setLoading(true); setError(''); setNotice('');
+    try {
+      await request({ action: 'set_staff_status', slug: restaurantSlug, uid: member.uid, status });
+      setNotice(status === 'active' ? 'Compte réactivé. Une nouvelle connexion est nécessaire.' : 'Compte suspendu et sessions révoquées.');
+      await refresh();
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const deleteMember = async (member: StaffMember) => {
+    if (!window.confirm(`Supprimer définitivement le compte d'accès de ${member.displayName} ? Les historiques métier seront conservés.`)) return;
+    setLoading(true); setError(''); setNotice('');
+    try {
+      await request({ action: 'delete_staff', slug: restaurantSlug, uid: member.uid });
+      setNotice('Compte supprimé. Les données métier et historiques sont conservés.');
+      await refresh();
+    } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   };
 
@@ -113,7 +128,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="flex items-center justify-between border-b border-slate-200 p-4"><h2 className="font-bold">Comptes du restaurant</h2><button onClick={refresh} disabled={loading} className="flex items-center gap-2 text-sm"><RefreshCw size={14}/> Actualiser</button></div>
         {staff.map(member=><div key={member.uid} className="border-b border-slate-100 p-4 last:border-0">
-          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold">{member.displayName} {member.role === 'owner' && <span className="text-xs text-orange-600">· Propriétaire</span>}</p><p className="text-xs text-slate-500">{member.email} · {member.role === 'manager' ? 'Gérant' : member.role === 'owner' ? 'Propriétaire' : 'Personnel'}</p><p className="mt-1 text-xs text-slate-500">{member.permissions?.length || 0} autorisation(s) · {member.active ? 'Actif' : 'Désactivé'}</p></div>{member.role !== 'owner' && <div className="flex gap-2">{member.active && <button onClick={()=>beginEdit(member)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">Modifier les droits</button>}{member.active && <button onClick={()=>disable(member)} className="flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700"><UserX size={14}/> Désactiver</button>}</div>}</div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold">{member.displayName} {member.role === 'owner' && <span className="text-xs text-orange-600">· Propriétaire</span>}</p><p className="text-xs text-slate-500">{member.email} · {member.role === 'manager' ? 'Gérant' : member.role === 'owner' ? 'Propriétaire' : 'Personnel'}</p><p className="mt-1 text-xs text-slate-500">{member.permissions?.length || 0} autorisation(s) · {member.active ? 'Actif' : 'Suspendu'}</p></div>{member.role !== 'owner' && <div className="flex flex-wrap gap-2">{member.active && <button onClick={()=>beginEdit(member)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">Modifier les droits</button>}{member.active ? <button disabled={loading} onClick={()=>setMemberStatus(member,'suspended')} className="flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700"><UserX size={14}/> Suspendre</button> : <button disabled={loading} onClick={()=>setMemberStatus(member,'active')} className="flex items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700"><UserCheck size={14}/> Réactiver</button>}<button disabled={loading} onClick={()=>deleteMember(member)} className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-600"><Trash2 size={14}/> Supprimer</button></div>}</div>
           {editingUid === member.uid && <div className="mt-4 space-y-3 rounded-xl bg-slate-50 p-4"><select value={editRole} onChange={e=>setEditRole(e.target.value as 'manager'|'staff')} className="rounded-lg border border-slate-300 bg-white p-2 text-sm"><option value="staff">Personnel</option><option value="manager">Gérant</option></select><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{PERMISSIONS.map(([id,label])=><label key={id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editPermissions.includes(id)} onChange={()=>toggleEditPermission(id)}/>{label}</label>)}</div><div className="flex gap-2"><button disabled={loading} onClick={()=>saveEdit(member.uid)} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white">Enregistrer les droits</button><button onClick={()=>setEditingUid(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-xs">Annuler</button></div></div>}
         </div>)}
         {staff.length === 0 && <p className="p-6 text-center text-sm text-slate-500">Aucun membre enregistré.</p>}

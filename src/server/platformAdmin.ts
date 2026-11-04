@@ -48,10 +48,11 @@ async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
   const snap = await db.collection('restaurants').doc(slug).get();
   if (!snap.exists) return null;
   const restaurant = snap.data();
-  if (restaurant.status === 'suspended') return null;
+  if (restaurant.status !== 'active' || restaurant.deletedAt) return null;
   const membership = await db.collection('managers').doc(user.uid).get();
   const member = membership.exists ? membership.data() : null;
-  if (restaurant.ownerUid !== user.uid || member?.role !== 'owner' || member?.restaurantSlug !== slug) return null;
+  if (restaurant.ownerUid !== user.uid || member?.role !== 'owner' || member?.restaurantSlug !== slug || member?.active === false) return null;
+  if (Number(user.sessionVersion || 0) !== Number(member?.sessionVersion || 0)) return null;
   return { role: 'owner', restaurant };
 }
 
@@ -80,7 +81,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (action === 'overview' || action === 'create_restaurant' || action === 'set_restaurant_status') {
+    if (action === 'overview' || action === 'create_restaurant' || action === 'set_restaurant_status' || action === 'delete_restaurant') {
       if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
 
       if (action === 'overview') {
@@ -144,15 +145,97 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       }
 
       if (action === 'set_restaurant_status') {
-        const slug = String(body.slug || '');
+        const slug = String(body.slug || '').trim();
         if (!slug || !['active', 'suspended'].includes(body.status)) return json(res, 400, { success: false, error: 'Paramètres de statut invalides.' });
-        await db.collection('restaurants').doc(slug).set({ status: body.status, ...(body.status === 'suspended' ? { isOpen: false } : {}), updatedAt: Date.now(), updatedBy: user.uid }, { merge: true });
-        return json(res, 200, { success: true });
+        const restaurantRef = db.collection('restaurants').doc(slug);
+        const restaurantSnap = await restaurantRef.get();
+        if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) {
+          return json(res, 404, { success: false, error: 'Restaurant introuvable ou déjà supprimé.' });
+        }
+        const now = Date.now();
+        await restaurantRef.set({
+          status: body.status,
+          ...(body.status === 'suspended' ? {
+            isOpen: false,
+            isOpenBeforeSuspension: restaurantSnap.data()?.status === 'suspended'
+              ? restaurantSnap.data()?.isOpenBeforeSuspension === true
+              : restaurantSnap.data()?.isOpen === true,
+            suspendedAt: now,
+            suspendedBy: user.uid,
+            // Session epoch invalidates every previously issued table session,
+            // including sessions missed by a partial cleanup batch.
+            tableSessionVersion: Number(restaurantSnap.data()?.tableSessionVersion || 0) + 1
+          } : {
+            // Restore the operational open/closed state that existed before suspension.
+            isOpen: restaurantSnap.data()?.status === 'suspended'
+              ? restaurantSnap.data()?.isOpenBeforeSuspension === true
+              : restaurantSnap.data()?.isOpen === true,
+            isOpenBeforeSuspension: null,
+            suspendedAt: null,
+            suspendedBy: null
+          }),
+          updatedAt: now, updatedBy: user.uid
+        }, { merge: true });
+        if (body.status === 'suspended') {
+          const sessions = await restaurantRef.collection('table_sessions').where('status', '==', 'active').get();
+          for (let offset = 0; offset < sessions.docs.length; offset += 400) {
+            const batch = db.batch();
+            sessions.docs.slice(offset, offset + 400).forEach((doc: any) => batch.update(doc.ref, { status: 'revoked', revokedAt: now, revokedReason: 'restaurant_suspended' }));
+            await batch.commit();
+          }
+        }
+        await db.collection('admin_audit_logs').add({ action: body.status === 'suspended' ? 'suspend_restaurant' : 'reactivate_restaurant', restaurantSlug: slug, actorUid: user.uid, createdAt: now });
+        return json(res, 200, { success: true, status: body.status });
+      }
+
+      if (action === 'delete_restaurant') {
+        const slug = String(body.slug || '').trim();
+        const confirmation = String(body.confirmation || '');
+        if (!slug || confirmation !== slug) return json(res, 400, { success: false, error: 'Confirmation du nom technique du restaurant requise.' });
+        const restaurantRef = db.collection('restaurants').doc(slug);
+        const restaurantSnap = await restaurantRef.get();
+        if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
+        const now = Date.now();
+        // Tombstone first: all authorization paths must fail before cleanup begins.
+        await restaurantRef.set({ status: 'deleted', isOpen: false, tableSessionVersion: Number(restaurantSnap.data()?.tableSessionVersion || 0) + 1, deletedAt: restaurantSnap.data()?.deletedAt || now, deletedBy: user.uid, updatedAt: now, updatedBy: user.uid }, { merge: true });
+
+        const [staffSnap, sessionsSnap, qrSnap, tablesSnap] = await Promise.all([
+          restaurantRef.collection('staff').get(),
+          restaurantRef.collection('table_sessions').get(),
+          restaurantRef.collection('table_qr_tokens').get(),
+          restaurantRef.collection('tables').get()
+        ]);
+        const auth = getAuth();
+        const cleanupErrors: string[] = [];
+        for (const memberDoc of staffSnap.docs) {
+          const uid = memberDoc.id;
+          try {
+            await auth.updateUser(uid, { disabled: true });
+            await auth.revokeRefreshTokens(uid);
+          } catch (error: any) {
+            if (error?.code !== 'auth/user-not-found') cleanupErrors.push(uid);
+          }
+        }
+        const docsToUpdate = [
+          ...staffSnap.docs.map((doc: any) => ({ ref: doc.ref, data: { active: false, restaurantDeletedAt: now, updatedAt: now } })),
+          ...staffSnap.docs.map((doc: any) => ({ ref: db.collection('managers').doc(doc.id), data: { active: false, restaurantDeletedAt: now, updatedAt: now } })),
+          ...sessionsSnap.docs.map((doc: any) => ({ ref: doc.ref, data: { status: 'revoked', revokedAt: now, revokedReason: 'restaurant_deleted' } })),
+          ...qrSnap.docs.map((doc: any) => ({ ref: doc.ref, data: { status: 'revoked', revokedAt: now, updatedAt: now } })),
+          ...tablesSnap.docs.map((doc: any) => ({ ref: doc.ref, data: { isActive: false, qrVersion: Number(doc.data()?.qrVersion || 0) + 1, qrRevokedAt: now } }))
+        ];
+        for (let offset = 0; offset < docsToUpdate.length; offset += 400) {
+          const batch = db.batch();
+          docsToUpdate.slice(offset, offset + 400).forEach((item: any) => batch.set(item.ref, item.data, { merge: true }));
+          await batch.commit();
+        }
+        await db.collection('admin_audit_logs').add({ action: 'delete_restaurant_logical', restaurantSlug: slug, actorUid: user.uid, createdAt: now, preservedBusinessData: true });
+        if (cleanupErrors.length) return json(res, 503, { success: false, error: 'Restaurant neutralisé et données conservées, mais certains comptes nécessitent une vérification administrative.', pendingAccountUids: cleanupErrors });
+        return json(res, 200, { success: true, status: 'deleted', preservedBusinessData: true });
       }
     }
 
     // Owner-only personnel management, scoped to the authenticated owner's restaurant.
-    if (action === 'staff_list' || action === 'create_staff' || action === 'update_staff' || action === 'disable_staff') {
+    if (action === 'staff_list' || action === 'create_staff' || action === 'update_staff' || action === 'disable_staff' || action === 'set_staff_status' || action === 'delete_staff') {
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '');
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
       const owner = await requireOwner(db, user, slug);
@@ -195,26 +278,103 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
       }
 
-      const staffUid = String(body.uid || '');
+      const staffUid = String(body.uid || '').trim();
       if (!staffUid || staffUid === user.uid) return json(res, 400, { success: false, error: 'Compte personnel invalide.' });
       const memberRef = staffRef.doc(staffUid);
       const memberSnap = await memberRef.get();
-      if (!memberSnap.exists || memberSnap.data()?.role === 'owner') return json(res, 404, { success: false, error: 'Membre introuvable.' });
-      if (action === 'disable_staff') {
-        await getAuth().updateUser(staffUid, { disabled: true });
-        await getAuth().revokeRefreshTokens(staffUid);
-        await memberRef.set({ active: false, updatedAt: Date.now() }, { merge: true });
-        await db.collection('managers').doc(staffUid).set({ active: false }, { merge: true });
-        return json(res, 200, { success: true });
+      if (!memberSnap.exists) return json(res, 404, { success: false, error: 'Membre introuvable.' });
+      const member = memberSnap.data();
+      const isGlobalAdmin = isSuperAdmin(user);
+      if (member?.role === 'owner' && !isGlobalAdmin) return json(res, 403, { success: false, error: 'Seul le super-administrateur peut gérer un propriétaire.' });
+      const restaurantSnap = await db.collection('restaurants').doc(slug).get();
+      if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) {
+        return json(res, 409, { success: false, error: 'Les comptes associés à un restaurant supprimé ne peuvent plus être modifiés.' });
+      }
+      if (restaurantSnap.data()?.status !== 'active' && !isGlobalAdmin) {
+        return json(res, 409, { success: false, error: 'Le restaurant est suspendu : gestion réservée au super-administrateur.' });
+      }
+      const managerRef = db.collection('managers').doc(staffUid);
+      const managerSnap = await managerRef.get();
+      const currentSessionVersion = Math.max(
+        Number(member.sessionVersion || 0),
+        Number(managerSnap.data()?.sessionVersion || 0)
+      );
+      const auth = getAuth();
+
+      if (action === 'disable_staff' || action === 'set_staff_status') {
+        const nextActive = action === 'disable_staff' ? false : body.status === 'active';
+        if (action === 'set_staff_status' && !['active', 'suspended'].includes(body.status)) {
+          return json(res, 400, { success: false, error: 'Statut de compte invalide.' });
+        }
+        if (nextActive && restaurantSnap.data()?.status !== 'active') {
+          return json(res, 409, { success: false, error: 'Réactive d’abord le restaurant avant de réactiver ses comptes.' });
+        }
+        const now = Date.now();
+        const sessionVersion = currentSessionVersion + 1;
+        const authUser = await auth.getUser(staffUid);
+        const nextClaims = { ...(authUser.customClaims || {}), sessionVersion };
+        if (nextActive) {
+          // Publish a new token version before reopening Firestore membership.
+          await auth.setCustomUserClaims(staffUid, nextClaims);
+          await auth.updateUser(staffUid, { disabled: false });
+          await auth.revokeRefreshTokens(staffUid);
+          const batch = db.batch();
+          batch.set(memberRef, { active: true, status: 'active', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
+          batch.set(managerRef, { active: true, status: 'active', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
+          await batch.commit();
+        } else {
+          // Close Firestore authorization first; the incremented version invalidates existing ID tokens after reactivation too.
+          const batch = db.batch();
+          batch.set(memberRef, { active: false, status: 'suspended', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
+          batch.set(managerRef, { active: false, status: 'suspended', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
+          await batch.commit();
+          await auth.setCustomUserClaims(staffUid, nextClaims);
+          await auth.updateUser(staffUid, { disabled: true });
+          await auth.revokeRefreshTokens(staffUid);
+        }
+        await db.collection('admin_audit_logs').add({ action: nextActive ? 'reactivate_user' : 'suspend_user', restaurantSlug: slug, targetUid: staffUid, targetRole: member.role, actorUid: user.uid, createdAt: now });
+        return json(res, 200, { success: true, status: nextActive ? 'active' : 'suspended' });
+      }
+
+      if (action === 'delete_staff') {
+        const now = Date.now();
+        // Revoke Firestore authorization before touching Auth; never remove business history.
+        const revokeBatch = db.batch();
+        const sessionVersion = Number(member.sessionVersion || 0) + 1;
+        revokeBatch.set(memberRef, { active: false, status: 'deleting', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
+        revokeBatch.set(managerRef, { active: false, status: 'deleting', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
+        await revokeBatch.commit();
+        try {
+          const authUser = await auth.getUser(staffUid);
+          await auth.setCustomUserClaims(staffUid, { ...(authUser.customClaims || {}), sessionVersion });
+          await auth.updateUser(staffUid, { disabled: true });
+          await auth.revokeRefreshTokens(staffUid);
+        } catch (error: any) {
+          if (error?.code !== 'auth/user-not-found') throw error;
+        }
+        try { await auth.deleteUser(staffUid); } catch (error: any) {
+          if (error?.code !== 'auth/user-not-found') throw error;
+        }
+        const batch = db.batch();
+        batch.delete(memberRef);
+        batch.delete(managerRef);
+        if (member.role === 'owner' && restaurantSnap.data()?.ownerUid === staffUid) {
+          batch.set(db.collection('restaurants').doc(slug), { ownerUid: null, ownerName: null, ownerEmail: null, ownerRemovedAt: now, ownerRemovedBy: user.uid }, { merge: true });
+        }
+        await batch.commit();
+        await db.collection('admin_audit_logs').add({ action: 'delete_user_account', restaurantSlug: slug, targetUid: staffUid, targetRole: member.role, actorUid: user.uid, createdAt: now, businessHistoryPreserved: true });
+        return json(res, 200, { success: true, deleted: true });
       }
       if (action === 'update_staff') {
         const role = body.role === 'manager' ? 'manager' : 'staff';
         const permissions = Array.isArray(body.permissions)
           ? [...new Set(body.permissions.filter((p: unknown): p is Permission => typeof p === 'string' && (PERMISSIONS as readonly string[]).includes(p)))]
           : [];
-        await getAuth().setCustomUserClaims(staffUid, { role, restaurantSlug: slug, permissions });
-        await memberRef.set({ role, permissions, updatedAt: Date.now() }, { merge: true });
-        await db.collection('managers').doc(staffUid).set({ role, permissions }, { merge: true });
+        const currentAuthUser = await getAuth().getUser(staffUid);
+        const sessionVersion = currentSessionVersion;
+        await getAuth().setCustomUserClaims(staffUid, { ...(currentAuthUser.customClaims || {}), role, restaurantSlug: slug, permissions, sessionVersion });
+        await memberRef.set({ role, permissions, sessionVersion, updatedAt: Date.now() }, { merge: true });
+        await db.collection('managers').doc(staffUid).set({ role, permissions, sessionVersion }, { merge: true });
         return json(res, 200, { success: true });
       }
     }

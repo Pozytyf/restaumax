@@ -84,6 +84,12 @@ async function run() {
   assert(session?.tableNumber === '4', 'Résolution QR et création de session liée à la table');
   assert(validateCsrf(session, resolved.csrfToken), 'Jeton CSRF valide accepté');
   assert(!validateCsrf(session, 'csrf-invalide'), 'Jeton CSRF invalide rejeté');
+  assert(session.restaurantSessionVersion === 0, 'La session mémorise la version de sécurité du restaurant');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), tableSessionVersion: 1, status: 'suspended' });
+  assert(await getActiveTableSession(db, resolved.sessionSecret) === null, 'Une suspension invalide immédiatement les sessions antérieures');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), tableSessionVersion: 1, status: 'active' });
+  assert(await getActiveTableSession(db, resolved.sessionSecret) === null, 'Une ancienne session reste invalide après réactivation du restaurant');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), tableSessionVersion: 0 });
   assert(buildSessionCookie(resolved.sessionSecret).includes('HttpOnly; Secure; SameSite=Lax; Path=/'), 'Cookie de session HttpOnly, Secure, SameSite=Lax et Path=/');
   assert(buildCsrfCookie(resolved.csrfToken).includes('Secure; SameSite=Strict; Path=/'), 'Cookie CSRF Secure, SameSite=Strict et Path=/');
   assert(readCookie('__Host-rm_table_session=' + encodeURIComponent(resolved.sessionSecret), '__Host-rm_table_session') === resolved.sessionSecret, 'Lecture sûre du cookie de session');
@@ -105,6 +111,11 @@ async function run() {
 
   const rotated = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   assert(rotated.token !== token, 'Rotation émet un nouveau jeton distinct');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'deleted', deletedAt: Date.now() });
+  let deletedRestaurantRejected = false;
+  try { await resolveTableQr(db, rotated.token); } catch { deletedRestaurantRejected = true; }
+  assert(deletedRestaurantRejected, 'Un QR ne peut pas ouvrir de session pour un restaurant supprimé logiquement');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'active', deletedAt: undefined });
   assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 2, 'Rotation incrémente la version de table');
   let inactiveRejected = false;
   db.store.set('restaurants/chez-awa/tables/table-4', { ...db.store.get('restaurants/chez-awa/tables/table-4'), isActive: false });

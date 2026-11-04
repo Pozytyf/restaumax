@@ -30,14 +30,20 @@ service cloud.firestore {
     // 2. Custom Claims role == 'manager' and restaurantSlug == targetSlug
     // 3. Presence of a trusted document in /managers/{uid} with role == 'admin' or role == 'manager' matching targetSlug
     function isRestaurantActive(targetSlug) {
-      return !exists(/databases/$(database)/documents/restaurants/$(targetSlug)) ||
-        get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.status != 'suspended';
+      return exists(/databases/$(database)/documents/restaurants/$(targetSlug)) &&
+        get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.status != 'suspended' &&
+        get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.status != 'deleted' &&
+        !get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.keys().hasAny(['deletedAt']);
     }
 
     function isAccountActive() {
-      return !isSignedIn() ||
+      return isSignedIn() && (
         !exists(/databases/$(database)/documents/managers/$(request.auth.uid)) ||
-        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active != false;
+        (
+          get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active != false &&
+          request.auth.token.get('sessionVersion', 0) == get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('sessionVersion', 0)
+        )
+      );
     }
 
     function hasRestaurantPermission(targetSlug, permission) {
@@ -114,7 +120,7 @@ service cloud.firestore {
     // List of all restaurants: FORBIDDEN (not needed by QR menu or single-restaurant hub)
     // Create/update restricted strictly to verified managers of this restaurant
     match /restaurants/{restaurantSlug} {
-      allow get: if isValidId(restaurantSlug);
+      allow get: if isValidId(restaurantSlug) && isRestaurantActive(restaurantSlug);
       allow list: if false;
       allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming());
       allow update: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming());
@@ -124,8 +130,8 @@ service cloud.firestore {
       // Public get and list for QR menu viewing
       // Create/update/delete restricted strictly to verified managers of this restaurant
       match /menuItems/{dishId} {
-        allow get: if isValidId(dishId);
-        allow list: if true;
+        allow get: if isValidId(dishId) && isRestaurantActive(restaurantSlug);
+        allow list: if isRestaurantActive(restaurantSlug);
         allow create: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
         allow update: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
         allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId);
@@ -191,7 +197,7 @@ service cloud.firestore {
       // Delete: STRICTLY FORBIDDEN (audit trail preserved)
       match /orders/{orderId} {
         allow create: if false;
-        allow get: if isValidId(orderId);
+        allow get: if isValidId(orderId) && isRestaurantActive(restaurantSlug);
         allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view'));
         allow update: if (hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access')) 
           && isValidId(orderId) 
