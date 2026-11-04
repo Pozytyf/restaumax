@@ -313,7 +313,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
               </button>
             )}
             {currentTable && (
-              <button onClick={handleRevokeQr className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5">
+              <button onClick={handleRevokeQr} className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5">
                 <Trash2 size={15} /><span>Révoquer les QR actifs</span>
               </button>
             )}
