@@ -36,11 +36,43 @@ import {
   OrderMode 
 } from '../types/restaumax';
 
-// Initialize Firebase
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+// Resolve Preview Firebase settings from Vercel environment variables.
+// Production keeps using the committed Production config; Preview fails closed
+// unless every required public setting explicitly targets restaumax-demo.
+const viteEnv = import.meta.env;
+const isDemoPreview = viteEnv?.VITE_APP_ENV === 'preview';
+const resolvedFirebaseConfig = {
+  ...firebaseConfig,
+  apiKey: viteEnv?.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
+  authDomain: viteEnv?.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
+  projectId: viteEnv?.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
+  storageBucket: viteEnv?.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
+  messagingSenderId: viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
+  appId: viteEnv?.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
+  measurementId: viteEnv?.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfig.measurementId,
+  firestoreDatabaseId: viteEnv?.VITE_FIRESTORE_DATABASE_ID || firebaseConfig.firestoreDatabaseId,
+};
 
-// CRITICAL: The app will break without passing the configured firestoreDatabaseId
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+if (isDemoPreview) {
+  const requiredPreviewValues = [
+    viteEnv?.VITE_FIREBASE_API_KEY,
+    viteEnv?.VITE_FIREBASE_AUTH_DOMAIN,
+    viteEnv?.VITE_FIREBASE_PROJECT_ID,
+    viteEnv?.VITE_FIREBASE_STORAGE_BUCKET,
+    viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    viteEnv?.VITE_FIREBASE_APP_ID,
+    viteEnv?.VITE_FIRESTORE_DATABASE_ID,
+  ];
+  if (resolvedFirebaseConfig.projectId !== 'restaumax-demo' || requiredPreviewValues.some((value) => !value)) {
+    throw new Error('[RestauMax] Configuration Demo invalide : toutes les variables Firebase Preview doivent être définies et cibler restaumax-demo.');
+  }
+}
+
+// Initialize Firebase only after validating the selected environment.
+const app = getApps().length > 0 ? getApp() : initializeApp(resolvedFirebaseConfig);
+
+// CRITICAL: Always use the explicitly selected Firestore database.
+export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
 // Isolate local development from production Firebase when explicitly requested.
