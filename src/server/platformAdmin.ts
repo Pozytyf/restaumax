@@ -154,7 +154,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const now = Date.now();
         await restaurantRef.set({
           status: body.status,
-          ...(body.status === 'suspended' ? { isOpen: false, suspendedAt: now, suspendedBy: user.uid } : { suspendedAt: null, suspendedBy: null }),
+          ...(body.status === 'suspended' ? {
+            isOpen: false,
+            suspendedAt: now,
+            suspendedBy: user.uid,
+            // Session epoch invalidates every previously issued table session,
+            // including sessions missed by a partial cleanup batch.
+            tableSessionVersion: Number(restaurantSnap.data()?.tableSessionVersion || 0) + 1
+          } : { suspendedAt: null, suspendedBy: null }),
           updatedAt: now, updatedBy: user.uid
         }, { merge: true });
         if (body.status === 'suspended') {
@@ -178,7 +185,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
         const now = Date.now();
         // Tombstone first: all authorization paths must fail before cleanup begins.
-        await restaurantRef.set({ status: 'deleted', isOpen: false, deletedAt: restaurantSnap.data()?.deletedAt || now, deletedBy: user.uid, updatedAt: now, updatedBy: user.uid }, { merge: true });
+        await restaurantRef.set({ status: 'deleted', isOpen: false, tableSessionVersion: Number(restaurantSnap.data()?.tableSessionVersion || 0) + 1, deletedAt: restaurantSnap.data()?.deletedAt || now, deletedBy: user.uid, updatedAt: now, updatedBy: user.uid }, { merge: true });
 
         const [staffSnap, sessionsSnap, qrSnap, tablesSnap] = await Promise.all([
           restaurantRef.collection('staff').get(),
