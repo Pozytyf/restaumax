@@ -25,6 +25,7 @@ class CollectionRef {
 }
 class QueryRef {
   constructor(db, path, field, operator, value, collectionGroup) { Object.assign(this, { db, path, field, operator, value, collectionGroup, max: Infinity }); }
+  where(field, operator, value) { return new QueryRef(this.db, this.path, field, operator, value, this.collectionGroup); }
   limit(max) { this.max = max; return this; }
   async get() {
     const docs = [];
