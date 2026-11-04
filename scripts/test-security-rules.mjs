@@ -47,6 +47,8 @@ try {
       ['cashier-a','rest-a','cashier',['pos.access','cash.view','cash.manage','orders.view']],
       ['server-a','rest-a','server',['pos.access','orders.view','tables.view','orders.serve']],
       ['kitchen-a','rest-a','kitchen',['orders.view','kitchen.access']],
+      ['cashier-escalated','rest-a','cashier',['menu.manage','orders.view','pos.access']],
+      ['cashier-cancel','rest-a','cashier',['orders.view','pos.access','cash.view','cash.manage','orders.cancel']],
       ['old-token','rest-a','server',['orders.view','tables.view','pos.access','orders.serve']]
     ];
     for (const [uid, restaurantSlug, role, permissions] of members) {
@@ -88,7 +90,9 @@ try {
 
   // 3. A cashier cannot change menu prices or staff permissions.
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un caissier ne peut pas modifier le prix du menu');
+  await denies(updateDoc(doc(a('cashier-escalated'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un droit menu.manage falsifié ne dépasse pas le plafond du caissier');
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/staff/manager-b'),{permissions:['settings.manage']}), 'Un caissier ne peut pas modifier les permissions du personnel');
+  await allows(updateDoc(order(a('cashier-cancel'),'rest-a'),{status:'cancelled'}), 'Un caissier peut annuler uniquement si le droit explicite orders.cancel lui est accordé');
 
   // 4. Kitchen cannot cancel orders or collect payments.
   await denies(updateDoc(order(a('kitchen-a'),'rest-a'),{status:'cancelled'}), 'Cuisine/Bar ne peut pas annuler une commande');
