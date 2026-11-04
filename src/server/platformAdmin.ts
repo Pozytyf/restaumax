@@ -1,13 +1,57 @@
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 
 const PERMISSIONS = [
-  'menu.view', 'menu.manage', 'orders.view', 'orders.manage',
-  'tables.view', 'tables.manage', 'pos.access', 'kitchen.access',
-  'cash.view', 'cash.manage', 'reports.view', 'customers.view', 'customers.manage', 'inventory.view', 'inventory.manage', 'staff.view', 'staff.manage',
-  'settings.view', 'settings.manage'
+  'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
+  'orders.cancel', 'payments.refund', 'tables.view', 'tables.manage', 'pos.access',
+  'kitchen.access', 'cash.view', 'cash.manage', 'reports.view', 'reports.cash.view',
+  'customers.view', 'customers.manage', 'inventory.view', 'inventory.manage',
+  'staff.view', 'staff.manage', 'settings.view', 'settings.manage'
 ] as const;
 
 type Permission = typeof PERMISSIONS[number];
+type RestaurantRole = 'owner' | 'manager' | 'cashier' | 'server' | 'kitchen';
+
+const ROLE_PERMISSION_CEILINGS: Record<RestaurantRole, readonly Permission[]> = {
+  owner: PERMISSIONS,
+  manager: [
+    'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
+    'tables.view', 'tables.manage', 'pos.access', 'kitchen.access', 'cash.view',
+    'cash.manage', 'reports.view', 'customers.view', 'customers.manage',
+    'inventory.view', 'inventory.manage', 'staff.view', 'staff.manage', 'settings.view'
+  ],
+  cashier: [
+    'orders.view', 'tables.view', 'pos.access', 'cash.view', 'cash.manage',
+    'orders.cancel', 'payments.refund', 'reports.cash.view'
+  ],
+  server: ['orders.view', 'tables.view', 'pos.access', 'orders.serve'],
+  kitchen: ['orders.view', 'kitchen.access']
+};
+
+const ROLE_BASE_PERMISSIONS: Record<RestaurantRole, readonly Permission[]> = {
+  owner: PERMISSIONS,
+  manager: ROLE_PERMISSION_CEILINGS.manager,
+  cashier: ['orders.view', 'tables.view', 'pos.access', 'cash.view', 'cash.manage', 'reports.cash.view'],
+  server: ROLE_PERMISSION_CEILINGS.server,
+  kitchen: ROLE_PERMISSION_CEILINGS.kitchen
+};
+
+function parseRestaurantRole(value: unknown): RestaurantRole | null {
+  return ['manager', 'cashier', 'server', 'kitchen'].includes(String(value))
+    ? value as RestaurantRole
+    : null;
+}
+
+export function resolveRolePermissions(role: RestaurantRole, requested: unknown, allowExtras = true): Permission[] | null {
+  const ceiling = ROLE_PERMISSION_CEILINGS[role];
+  if (requested !== undefined && !Array.isArray(requested)) return null;
+  const extras = Array.isArray(requested)
+    ? [...new Set(requested.filter((p): p is Permission => typeof p === 'string' && (PERMISSIONS as readonly string[]).includes(p)))]
+    : [];
+  if (Array.isArray(requested) && extras.length !== new Set(requested).size) return null;
+  if (extras.some(permission => !ceiling.includes(permission))) return null;
+  if (!allowExtras && extras.some(permission => !ROLE_BASE_PERMISSIONS[role].includes(permission))) return null;
+  return [...new Set([...ROLE_BASE_PERMISSIONS[role], ...extras])];
+}
 
 function json(res: any, status: number, body: unknown) {
   return res.status(status).json(body);
@@ -43,17 +87,42 @@ function isSuperAdmin(user: DecodedIdToken) {
     (typeof user.email === 'string' && configuredSuperAdmins().includes(user.email.toLowerCase()));
 }
 
+export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole: string): boolean {
+  if (targetRole === 'owner') return false;
+  if (actorRole === 'owner') return ['manager', 'cashier', 'server', 'kitchen', 'staff'].includes(targetRole);
+  return ['cashier', 'server', 'kitchen', 'staff'].includes(targetRole);
+}
+
 async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
-  if (isSuperAdmin(user)) return { role: 'super_admin', restaurant: null };
-  const snap = await db.collection('restaurants').doc(slug).get();
+   const snap = await db.collection('restaurants').doc(slug).get();
   if (!snap.exists) return null;
   const restaurant = snap.data();
   if (restaurant.status !== 'active' || restaurant.deletedAt) return null;
   const membership = await db.collection('managers').doc(user.uid).get();
   const member = membership.exists ? membership.data() : null;
-  if (restaurant.ownerUid !== user.uid || member?.role !== 'owner' || member?.restaurantSlug !== slug || member?.active === false) return null;
+  if (restaurant.ownerUid !== user.uid || member?.role !== 'owner' || member?.restaurantSlug !== slug || member?.active !== true) return null;
   if (Number(user.sessionVersion || 0) !== Number(member?.sessionVersion || 0)) return null;
   return { role: 'owner', restaurant };
+}
+
+async function requireStaffAdministrator(db: any, user: DecodedIdToken, slug: string) {
+  const [restaurantSnap, membershipSnap] = await Promise.all([
+    db.collection('restaurants').doc(slug).get(),
+    db.collection('managers').doc(user.uid).get()
+  ]);
+  if (!restaurantSnap.exists || restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt) return null;
+  if (!membershipSnap.exists) return null;
+  const member = membershipSnap.data();
+  if (member?.active !== true || member?.restaurantSlug !== slug ||
+      Number(user.sessionVersion || 0) !== Number(member?.sessionVersion || 0)) return null;
+  if (member.role === 'owner' && restaurantSnap.data()?.ownerUid === user.uid) {
+    return { role: 'owner' as const, restaurant: restaurantSnap.data() };
+  }
+  if (member.role === 'manager' && Array.isArray(member.permissions) &&
+      member.permissions.includes('staff.manage')) {
+    return { role: 'manager' as const, restaurant: restaurantSnap.data() };
+  }
+  return null;
 }
 
 export async function handlePlatformAdmin(req: any, res: any, db: any) {
@@ -234,29 +303,29 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       }
     }
 
-    // Owner-only personnel management, scoped to the authenticated owner's restaurant.
+    // Owner and authorized manager staff administration, strictly scoped to one active restaurant.
     if (action === 'staff_list' || action === 'create_staff' || action === 'update_staff' || action === 'disable_staff' || action === 'set_staff_status' || action === 'delete_staff') {
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '');
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
-      const owner = await requireOwner(db, user, slug);
-      if (!owner || (owner.role !== 'owner' && owner.role !== 'super_admin')) return json(res, 403, { success: false, error: 'Accès propriétaire ou super-administrateur requis.' });
+      const actor = await requireStaffAdministrator(db, user, slug);
+      if (!actor) return json(res, 403, { success: false, error: 'Gestion du personnel non autorisée pour ce restaurant.' });
 
       const staffRef = db.collection('restaurants').doc(slug).collection('staff');
       if (action === 'staff_list') {
         const snap = await staffRef.get();
-        return json(res, 200, { success: true, staff: snap.docs.map((d: any) => d.data()) });
+        return json(res, 200, { success: true, actorRole: actor.role, staff: snap.docs.map((d: any) => d.data()) });
       }
 
       if (action === 'create_staff') {
         const name = String(body.name || '').trim();
         const email = String(body.email || '').trim().toLowerCase();
         const password = String(body.password || '');
-        const role = body.role === 'manager' ? 'manager' : 'staff';
-        const permissions = Array.isArray(body.permissions)
-          ? [...new Set(body.permissions.filter((p: unknown): p is Permission => typeof p === 'string' && (PERMISSIONS as readonly string[]).includes(p)))]
-          : [];
-        if (!name || !validEmail(email) || password.length < 10 || permissions.length > PERMISSIONS.length) {
-          return json(res, 400, { success: false, error: 'Nom, e-mail, mot de passe (10 caractères minimum) ou autorisations invalides.' });
+        const role = parseRestaurantRole(body.role);
+        if (!role) return json(res, 400, { success: false, error: 'Rôle invalide. Choisissez manager, cashier, server ou kitchen.' });
+        if (actor.role === 'manager' && role === 'manager') return json(res, 403, { success: false, error: 'Un manager ne peut pas créer un autre manager.' });
+        const permissions = resolveRolePermissions(role, body.permissions, actor.role === 'owner');
+        if (!name || !validEmail(email) || password.length < 10 || !permissions) {
+          return json(res, 400, { success: false, error: 'Nom, e-mail, mot de passe (10 caractères minimum) ou permissions hors plafond du rôle.' });
         }
         const auth = getAuth();
         let newUser: any = null;
@@ -284,14 +353,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const memberSnap = await memberRef.get();
       if (!memberSnap.exists) return json(res, 404, { success: false, error: 'Membre introuvable.' });
       const member = memberSnap.data();
-      const isGlobalAdmin = isSuperAdmin(user);
-      if (member?.role === 'owner' && !isGlobalAdmin) return json(res, 403, { success: false, error: 'Seul le super-administrateur peut gérer un propriétaire.' });
+      if (!canManageStaffMember(actor.role, String(member?.role || ''))) {
+        return json(res, 403, { success: false, error: actor.role === 'manager'
+          ? 'Un manager ne peut gérer que les caissiers, serveurs et équipes Cuisine/Bar.'
+          : 'Le compte propriétaire ne peut pas être géré depuis le personnel du restaurant.' });
+      }
       const restaurantSnap = await db.collection('restaurants').doc(slug).get();
       if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) {
         return json(res, 409, { success: false, error: 'Les comptes associés à un restaurant supprimé ne peuvent plus être modifiés.' });
       }
-      if (restaurantSnap.data()?.status !== 'active' && !isGlobalAdmin) {
-        return json(res, 409, { success: false, error: 'Le restaurant est suspendu : gestion réservée au super-administrateur.' });
+      if (restaurantSnap.data()?.status !== 'active') {
+        return json(res, 409, { success: false, error: 'Le restaurant est suspendu : gestion du personnel indisponible.' });
       }
       const managerRef = db.collection('managers').doc(staffUid);
       const managerSnap = await managerRef.get();
@@ -366,10 +438,31 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         return json(res, 200, { success: true, deleted: true });
       }
       if (action === 'update_staff') {
-        const role = body.role === 'manager' ? 'manager' : 'staff';
-        const permissions = Array.isArray(body.permissions)
-          ? [...new Set(body.permissions.filter((p: unknown): p is Permission => typeof p === 'string' && (PERMISSIONS as readonly string[]).includes(p)))]
-          : [];
+        const role = parseRestaurantRole(body.role);
+        if (!role) return json(res, 400, { success: false, error: 'Rôle invalide.' });
+        if (actor.role === 'manager' && role === 'manager') return json(res, 403, { success: false, error: 'Un manager ne peut pas promouvoir ou administrer un autre manager.' });
+        let permissions: Permission[] | null;
+        if (actor.role === 'owner') {
+          permissions = resolveRolePermissions(role, body.permissions, true);
+        } else {
+          // Managers may maintain a member's base role permissions, but cannot
+          // add or revoke owner-granted extras on an unchanged role.
+          const base = ROLE_BASE_PERMISSIONS[role];
+          const ceiling = ROLE_PERMISSION_CEILINGS[role];
+          const currentExtras = member.role === role && Array.isArray(member.permissions)
+            ? member.permissions.filter((p: unknown): p is Permission =>
+                typeof p === 'string' && ceiling.includes(p as Permission) && !base.includes(p as Permission))
+            : [];
+          const requestedExtras = Array.isArray(body.permissions)
+            ? [...new Set(body.permissions.filter((p: unknown): p is Permission =>
+                typeof p === 'string' && ceiling.includes(p as Permission) && !base.includes(p as Permission)))]
+            : [];
+          if (currentExtras.slice().sort().join('|') !== requestedExtras.slice().sort().join('|')) {
+            return json(res, 403, { success: false, error: 'Seul le propriétaire peut modifier les autorisations supplémentaires.' });
+          }
+          permissions = resolveRolePermissions(role, [...base, ...currentExtras], true);
+        }
+        if (!permissions) return json(res, 400, { success: false, error: 'Permissions incompatibles avec le plafond du rôle.' });
         const currentAuthUser = await getAuth().getUser(staffUid);
         const sessionVersion = currentSessionVersion;
         await getAuth().setCustomUserClaims(staffUid, { ...(currentAuthUser.customClaims || {}), role, restaurantSlug: slug, permissions, sessionVersion });

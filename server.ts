@@ -369,28 +369,36 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
   return await db.runTransaction(async (t: any) => {
     // Toutes les lectures de sécurité et d'idempotence sont effectuées dans la transaction
     // qui écrit la commande : une révocation concurrente provoque un conflit/retry Firestore.
-    const reads: Promise<any>[] = [t.get(docRefKey), t.get(docRefOrder)];
+    // Always read the restaurant inside the same transaction, including takeaway orders.
+    // This closes the race where a restaurant is suspended after the catalogue pre-check.
+    const reads: Promise<any>[] = [
+      t.get(docRefKey),
+      t.get(docRefOrder),
+      t.get(restaurantRef)
+    ];
     if (tableSession) {
       reads.push(
         t.get(restaurantRef.collection('table_sessions').doc(tableSession.sessionHash)),
         t.get(restaurantRef.collection('table_qr_tokens').doc(tableSession.qrTokenHash)),
-        t.get(restaurantRef.collection('tables').doc(tableSession.tableId)),
-        t.get(restaurantRef)
+        t.get(restaurantRef.collection('tables').doc(tableSession.tableId))
       );
     }
     const snapshots = await Promise.all(reads);
     const snapKey = snapshots[0];
     const snapOrder = snapshots[1];
+    const snapRestaurant = snapshots[2];
+    const restaurantData = snapRestaurant.exists ? snapRestaurant.data() : null;
+    if (!restaurantData || restaurantData.status !== 'active' || restaurantData.deletedAt || restaurantData.isActive === false) {
+      return { success: false, error: 'Commande refusée : restaurant inactif ou indisponible.' };
+    }
 
     if (tableSession) {
-      const snapSession = snapshots[2];
-      const snapQr = snapshots[3];
-      const snapTable = snapshots[4];
-      const snapRestaurant = snapshots[5];
+      const snapSession = snapshots[3];
+      const snapQr = snapshots[4];
+      const snapTable = snapshots[5];
       const sessionData = snapSession.exists ? snapSession.data() : null;
       const qrData = snapQr.exists ? snapQr.data() : null;
       const tableData = snapTable.exists ? snapTable.data() : null;
-      const restaurantData = snapRestaurant.exists ? snapRestaurant.data() : null;
       const now = Date.now();
       const valid = Boolean(
         sessionData &&
@@ -411,12 +419,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         tableData.isActive === true &&
         Number(tableData.qrVersion || 0) === Number(sessionData.qrVersion || 0) &&
         String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
-        restaurantData &&
-        restaurantData.status !== 'suspended' &&
-        restaurantData.status !== 'deleted' &&
-        !restaurantData.deletedAt &&
         Number(sessionData.restaurantSessionVersion || 0) === Number(restaurantData.tableSessionVersion || 0) &&
-        restaurantData.isActive !== false &&
         restaurantData.isOpen !== false
       );
       if (!valid) {
@@ -530,7 +533,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     const restaurantRef = adminDb.collection('restaurants').doc(restaurantSlug);
     const restaurantSnap = await restaurantRef.get();
     if (!restaurantSnap.exists) throw new Error("Restaurant introuvable.");
-    if (restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) throw new Error("Restaurant suspendu ou supprimé : les commandes sont désactivées.");
+    if (restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.isActive === false) throw new Error("Restaurant inactif ou indisponible : les commandes sont désactivées.");
     const snap = await restaurantRef.collection('menuItems').get();
     return snap.docs.map((d: any) => d.data());
   },
