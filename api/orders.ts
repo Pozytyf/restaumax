@@ -1,7 +1,9 @@
 import { handleOrderSubmission } from '../server.ts';
 
 export default async function handler(req: any, res: any) {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');\n  res.setHeader('Referrer-Policy', 'no-referrer');\n  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
 
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
