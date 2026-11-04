@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import {
   issueTableQr, resolveTableQr, getActiveTableSession, revokeTableQr,
-  buildSessionCookie, buildCsrfCookie, readCookie, validateCsrf, requestHasValidOrigin
+  buildSessionCookie, buildCsrfCookie, readCookie, validateCsrf, requestHasValidOrigin, isTrustedQrNavigation
 } from '../src/server/tableSecurityService.ts';
 
 let passed = 0;
@@ -89,6 +89,12 @@ async function run() {
   assert(readCookie('__Host-rm_table_session=' + encodeURIComponent(resolved.sessionSecret), '__Host-rm_table_session') === resolved.sessionSecret, 'Lecture sûre du cookie de session');
   assert(requestHasValidOrigin({ headers: { origin: 'https://restaumax.example', host: 'restaumax.example', 'x-forwarded-proto': 'https' } }), 'Origine strictement identique acceptée');
   assert(!requestHasValidOrigin({ headers: { origin: 'https://attacker.example', host: 'restaumax.example', 'x-forwarded-proto': 'https' } }), 'Origine tierce rejetée');
+  assert(isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'none', 'sec-fetch-dest': 'document' } }), 'Ouverture directe par scan QR acceptée');
+  assert(isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'document', host: 'restaumax.example', 'x-forwarded-proto': 'https', referer: 'https://restaumax.example/menu' } }), 'Navigation QR depuis l’application acceptée');
+  assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' } }), 'Navigation de bootstrap QR cross-site rejetée');
+  assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-site', 'sec-fetch-dest': 'document' } }), 'Navigation depuis un sous-domaine tiers rejetée');
+  assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'iframe', host: 'restaumax.example', 'x-forwarded-proto': 'https' } }), 'Résolution QR intégrée dans une iframe rejetée');
+  assert(!isTrustedQrNavigation({ headers: { host: 'restaumax.example', 'x-forwarded-proto': 'https', referer: 'https://attacker.example/redirect' } }), 'Referer externe rejeté pour le bootstrap QR');
 
   const revoked = await revokeTableQr(db, 'chez-awa', 'table-4');
   assert(revoked.revoked === 1, 'Révocation immédiate du QR actif');
