@@ -788,9 +788,16 @@ export async function handleTableQrManagement(req: any) {
   try {
     await authorizeTableManager(adminDb, adminAuth, req, restaurantSlug);
     if (req.method === 'POST') {
-      const origin = String(process.env.APP_ORIGIN || req.headers.origin || '').replace(/\/+$/, '');
-      if (!origin || !/^https?:\/\//.test(origin)) return { statusCode: 400, body: { success: false, error: 'Origine applicative non configurée.' } };
-      const issued = await issueTableQr(adminDb, restaurantSlug, tableId, origin);
+      const rawOrigin = String(process.env.APP_ORIGIN || req.headers.origin || '');
+      let parsedOrigin: URL;
+      try { parsedOrigin = new URL(rawOrigin); } catch {
+        return { statusCode: 400, body: { success: false, error: 'Origine applicative non configurée.' } };
+      }
+      const localHttp = parsedOrigin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsedOrigin.hostname);
+      if ((parsedOrigin.protocol !== 'https:' && !localHttp) || parsedOrigin.pathname !== '/' || parsedOrigin.search || parsedOrigin.hash) {
+        return { statusCode: 400, body: { success: false, error: 'APP_ORIGIN doit être une origine HTTPS canonique, sans chemin.' } };
+      }
+      const issued = await issueTableQr(adminDb, restaurantSlug, tableId, parsedOrigin.origin);
       return { statusCode: 201, body: { success: true, url: issued.url } };
     }
     if (req.method === 'DELETE') {
