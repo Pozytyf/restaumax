@@ -43,6 +43,26 @@ export function clearSessionCookie(): string {
   return `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
 }
 
+export function isTrustedQrNavigation(req: any): boolean {
+  const fetchSite = String(req?.headers?.['sec-fetch-site'] || '').toLowerCase();
+  if (fetchSite && !['same-origin', 'none'].includes(fetchSite)) return false;
+  const fetchDest = String(req?.headers?.['sec-fetch-dest'] || '').toLowerCase();
+  if (fetchDest && fetchDest !== 'document') return false;
+
+  const referer = req?.headers?.referer;
+  if (typeof referer === 'string' && referer) {
+    try {
+      const refererUrl = new URL(referer);
+      const forwardedProto = String(req?.headers?.['x-forwarded-proto'] || req?.protocol || 'https').split(',')[0].trim();
+      const host = String(req?.headers?.['x-forwarded-host'] || req?.headers?.host || '').split(',')[0].trim();
+      if (!host) return false;
+      const expectedProtocol = forwardedProto === 'http' && (host.startsWith('localhost') || host.startsWith('127.0.0.1')) ? 'http:' : 'https:';
+      if (refererUrl.origin !== `${expectedProtocol}//${host}`) return false;
+    } catch { return false; }
+  }
+  return true;
+}
+
 export function requestHasValidOrigin(req: any): boolean {
   const origin = req?.headers?.origin;
   if (typeof origin !== 'string' || !origin) return false;
