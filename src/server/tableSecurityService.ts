@@ -96,7 +96,7 @@ export async function issueTableQr(db: any, restaurantSlug: string, tableId: str
       tx.get(tableRef),
       tx.get(restaurantRef.collection('table_qr_tokens').where('tableId', '==', id))
     ]);
-    if (!restaurantSnap.exists || (restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) || restaurantSnap.data()?.isActive === false) {
+    if (!restaurantSnap.exists || restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.isActive === false) {
       throw new Error('Restaurant introuvable, inactif ou suspendu.');
     }
     if (!tableSnap.exists || tableSnap.data()?.isActive !== true) {
@@ -177,7 +177,7 @@ export async function resolveTableQr(db: any, token: string) {
         currentTokenData.restaurantSlug !== slug || currentTokenData.tableId !== tableId) {
       throw new Error('Ce QR code a été révoqué ou remplacé.');
     }
-    if (!restaurantData || (restaurantData.status === 'suspended' || restaurantData.status === 'deleted' || restaurantData.deletedAt) || restaurantData.isActive === false || restaurantData.isOpen === false) {
+    if (!restaurantData || restaurantData.status !== 'active' || restaurantData.deletedAt || restaurantData.isActive === false || restaurantData.isOpen === false) {
       throw new Error('Ce restaurant est temporairement indisponible.');
     }
     if (!tableData || tableData.isActive !== true ||
@@ -220,7 +220,7 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
   const tableRef = restaurantRef.collection('tables').doc(tableId);
   const qrRef = restaurantRef.collection('table_qr_tokens').doc(String(session.qrTokenHash || ''));
   const [restaurantSnap, tableSnap, qrSnap] = await Promise.all([restaurantRef.get(), tableRef.get(), qrRef.get()]);
-  if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.isActive === false || restaurantSnap.data()?.isOpen === false) return null;
+  if (!restaurantSnap.exists || restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.isActive === false || restaurantSnap.data()?.isOpen === false) return null;
   if (Number(session.restaurantSessionVersion || 0) !== Number(restaurantSnap.data()?.tableSessionVersion || 0)) return null;
   if (!tableSnap.exists || tableSnap.data()?.isActive !== true || Number(tableSnap.data()?.qrVersion || 0) !== Number(session.qrVersion || 0)) return null;
   if (!qrSnap.exists || qrSnap.data()?.status !== 'active') return null;
@@ -252,20 +252,33 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   const match = header.match(/^Bearer\s+(.+)$/i);
   if (!match || !auth) throw new Error('Authentification gestionnaire requise.');
   const decoded = await auth.verifyIdToken(match[1], true);
-  const role = String(decoded.role || '');
-  if (role === 'super_admin' || role === 'admin') return decoded;
-  const managerSnap = await db.collection('managers').doc(decoded.uid).get();
+  if (!decoded?.uid) throw new Error('Identité gestionnaire invalide.');
+
+  // A platform claim is never a substitute for membership in the target restaurant.
+  const [managerSnap, restaurantSnap] = await Promise.all([
+    db.collection('managers').doc(decoded.uid).get(),
+    db.collection('restaurants').doc(restaurantSlug).get()
+  ]);
   if (!managerSnap.exists) throw new Error('Accès gestionnaire refusé.');
+  if (!restaurantSnap.exists || restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt) {
+    throw new Error('Restaurant inactif ou indisponible.');
+  }
+
   const manager = managerSnap.data();
-  if (manager.active === false || manager.restaurantSlug !== restaurantSlug) throw new Error('Accès à ce restaurant refusé.');
-  if (Number(decoded.sessionVersion || 0) !== Number(manager.sessionVersion || 0)) throw new Error('Session utilisateur révoquée. Reconnectez-vous.');
-  const managerRole = String(manager.role || role);
-  if (!['owner', 'admin', 'super_admin'].includes(managerRole)) {
-    const permissions = manager.permissions;
-    const canManageTables = Array.isArray(permissions)
-      ? permissions.includes('tables.manage')
-      : Boolean(permissions && permissions['tables.manage'] === true);
-    if (!canManageTables) throw new Error('Permission de gestion des tables requise.');
+  if (manager.active !== true || manager.restaurantSlug !== restaurantSlug) {
+    throw new Error('Accès à ce restaurant refusé.');
+  }
+  if (Number(decoded.sessionVersion || 0) !== Number(manager.sessionVersion || 0)) {
+    throw new Error('Session utilisateur révoquée. Reconnectez-vous.');
+  }
+
+  const managerRole = String(manager.role || '');
+  if (!['owner', 'manager'].includes(managerRole)) {
+    throw new Error('Seul le propriétaire ou un manager du restaurant peut administrer les QR de table.');
+  }
+  if (managerRole === 'manager' &&
+      (!Array.isArray(manager.permissions) || !manager.permissions.includes('tables.manage'))) {
+    throw new Error('Permission de gestion des tables requise.');
   }
   return decoded;
 }

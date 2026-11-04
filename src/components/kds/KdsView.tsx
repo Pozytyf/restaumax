@@ -16,12 +16,14 @@ import {
 
 interface KdsViewProps {
   tickets: KitchenTicket[];
+  canMarkServed?: boolean;
   onToggleItemComplete: (ticketId: string, itemId: string) => void;
   onUpdateTicketStatus: (ticketId: string, status: TicketStatus) => void;
 }
 
 export const KdsView: React.FC<KdsViewProps> = ({
   tickets,
+  canMarkServed = true,
   onToggleItemComplete,
   onUpdateTicketStatus
 }) => {
@@ -61,6 +63,10 @@ export const KdsView: React.FC<KdsViewProps> = ({
 
   const handleBumpTicket = (ticket: KitchenTicket, slotNumber?: number) => {
     if (ticket.status === 'ready') {
+      if (!canMarkServed) {
+        setLastBumpedMsg('Remise au client réservée au serveur ou au responsable autorisé.');
+        return;
+      }
       sounds.playTap();
       onUpdateTicketStatus(ticket.id, 'served');
       setLastBumpedMsg(`Ticket ${ticket.ticketNumber} archivé / servi ${slotNumber ? `[Touche ${slotNumber}]` : ''}`);

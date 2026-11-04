@@ -45,6 +45,7 @@ function assert(condition, message) {
 function createSdkContractDb() {
   const store = {
     idempotency_keys: new Map(),
+    restaurants: new Map(),
     orders: new Map() // key: `${restaurantSlug}/${orderId}`
   };
 
@@ -62,6 +63,22 @@ function createSdkContractDb() {
         doc(docId) {
           if (colName === 'restaurants') {
             return {
+              _type: 'restaurant',
+              _path: docId,
+              async get() {
+                const data = store.restaurants.get(docId);
+                return {
+                  exists: data !== undefined,
+                  data: () => data ? JSON.parse(JSON.stringify(data)) : null
+                };
+              },
+              async set(data, options) {
+                if (options?.merge && store.restaurants.has(docId)) {
+                  store.restaurants.set(docId, { ...store.restaurants.get(docId), ...JSON.parse(JSON.stringify(data)) });
+                } else {
+                  store.restaurants.set(docId, JSON.parse(JSON.stringify(data)));
+                }
+              },
               collection(subColName) {
                 return {
                   doc(subDocId) {
@@ -329,6 +346,10 @@ async function runTestSuite() {
 
   const client = await initializeFirestoreClient();
   const db = client.db;
+  await db.collection('restaurants').doc('chez-awa').set({
+    slug: 'chez-awa', status: 'active', isActive: true, isOpen: true,
+    tableSessionVersion: 0
+  });
 
   // -------------------------------------------------------------------------
   // 1. PREMIÈRE CRÉATION ATOMIQUE (Cas E)

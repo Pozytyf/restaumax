@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import {
   issueTableQr, resolveTableQr, getActiveTableSession, revokeTableQr,
-  buildSessionCookie, buildCsrfCookie, readCookie, validateCsrf, requestHasValidOrigin, isTrustedQrNavigation
+  buildSessionCookie, buildCsrfCookie, readCookie, validateCsrf, requestHasValidOrigin, isTrustedQrNavigation,
+  authorizeTableManager
 } from '../src/server/tableSecurityService.ts';
 
 let passed = 0;
@@ -70,9 +71,82 @@ async function run() {
   db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true });
   db.store.set('restaurants/chez-awa/tables/table-4', { id: 'table-4', tableNumber: '4', isActive: true, qrVersion: 0 });
 
+  for (const status of ['provisioning', 'suspended', 'deleted']) {
+    db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status });
+    let qrRejected = false;
+    try { await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example'); }
+    catch { qrRejected = true; }
+    assert(qrRejected, 'Un restaurant ' + status + ' ne peut pas émettre de QR');
+  }
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'active' });
+
+  let globalClaimRejected = false;
+  try {
+    await authorizeTableManager(
+      db,
+      { verifyIdToken: async () => ({ uid: 'platform-admin', role: 'super_admin', sessionVersion: 0 }) },
+      { headers: { authorization: 'Bearer platform-token' } },
+      'chez-awa'
+    );
+  } catch { globalClaimRejected = true; }
+  assert(globalClaimRejected, 'Un claim super_admin sans appartenance ne donne aucun droit QR');
+
+  db.store.set('managers/owner-1', {
+    uid: 'owner-1', role: 'owner', restaurantSlug: 'chez-awa',
+    active: true, sessionVersion: 0
+  });
+  let scopedOwnerAllowed = false;
+  try {
+    await authorizeTableManager(
+      db,
+      { verifyIdToken: async () => ({ uid: 'owner-1', role: 'owner', sessionVersion: 0 }) },
+      { headers: { authorization: 'Bearer owner-token' } },
+      'chez-awa'
+    );
+    scopedOwnerAllowed = true;
+  } catch {}
+  assert(scopedOwnerAllowed, 'Le propriétaire actif du restaurant conserve la gestion QR');
+
+  db.store.set('managers/manager-1', {
+    uid: 'manager-1', role: 'manager', restaurantSlug: 'chez-awa',
+    active: true, sessionVersion: 0, permissions: ['tables.manage']
+  });
+  let scopedManagerAllowed = false;
+  try {
+    await authorizeTableManager(
+      db,
+      { verifyIdToken: async () => ({ uid: 'manager-1', role: 'manager', sessionVersion: 0 }) },
+      { headers: { authorization: 'Bearer manager-token' } },
+      'chez-awa'
+    );
+    scopedManagerAllowed = true;
+  } catch {}
+  assert(scopedManagerAllowed, 'Le manager actif du restaurant avec tables.manage peut gérer les QR');
+
+  db.store.set('managers/manager-no-qr', {
+    uid: 'manager-no-qr', role: 'manager', restaurantSlug: 'chez-awa',
+    active: true, sessionVersion: 0, permissions: []
+  });
+  let managerWithoutPermissionRejected = false;
+  try {
+    await authorizeTableManager(
+      db,
+      { verifyIdToken: async () => ({ uid: 'manager-no-qr', role: 'manager', sessionVersion: 0 }) },
+      { headers: { authorization: 'Bearer manager-no-qr-token' } },
+      'chez-awa'
+    );
+  } catch { managerWithoutPermissionRejected = true; }
+  assert(managerWithoutPermissionRejected, 'Un manager sans tables.manage ne peut pas administrer les QR');
+
   const issued = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   const token = issued.url.split('/q/')[1];
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'provisioning' });
+  let provisioningSessionRejected = false;
+  try { await resolveTableQr(db, token); } catch { provisioningSessionRejected = true; }
+  assert(provisioningSessionRejected, 'Un QR ne peut pas créer de session pour un restaurant provisioning');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'active' });
   const storedToken = db.store.get('restaurants/chez-awa/table_qr_tokens/' + tokenHash);
   assert(/^[A-Za-z0-9_-]{43}$/.test(token), 'Jeton QR aléatoire de 256 bits au format Base64URL');
   assert(issued.url.startsWith('https://restaumax.example/q/'), 'URL QR opaque /q/<token>');
@@ -82,6 +156,9 @@ async function run() {
   const resolved = await resolveTableQr(db, token);
   const session = await getActiveTableSession(db, resolved.sessionSecret);
   assert(session?.tableNumber === '4', 'Résolution QR et création de session liée à la table');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'provisioning' });
+  assert(await getActiveTableSession(db, resolved.sessionSecret) === null, 'Une session existante est refusée si le restaurant repasse en provisioning');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'active' });
   assert(validateCsrf(session, resolved.csrfToken), 'Jeton CSRF valide accepté');
   assert(!validateCsrf(session, 'csrf-invalide'), 'Jeton CSRF invalide rejeté');
   assert(session.restaurantSessionVersion === 0, 'La session mémorise la version de sécurité du restaurant');
