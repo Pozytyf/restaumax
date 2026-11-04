@@ -41,9 +41,9 @@ import {
 const viteEnv = import.meta.env;
 const isPreviewEnvironment = viteEnv?.VITE_APP_ENV === 'preview';
 
-if (isPreviewEnvironment && viteEnv?.VITE_FIREBASE_PROJECT_ID !== 'restaumax-preview') {
+if (isPreviewEnvironment && viteEnv?.VITE_FIREBASE_PROJECT_ID !== 'restaumax-demo') {
   throw new Error(
-    '[RestauMax] Configuration Preview invalide : VITE_FIREBASE_PROJECT_ID doit cibler exclusivement restaumax-preview.'
+    '[RestauMax] Configuration Demo invalide : VITE_FIREBASE_PROJECT_ID doit cibler exclusivement restaumax-demo.'
   );
 }
 
