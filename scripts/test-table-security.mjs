@@ -71,11 +71,13 @@ async function run() {
   db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true });
   db.store.set('restaurants/chez-awa/tables/table-4', { id: 'table-4', tableNumber: '4', isActive: true, qrVersion: 0 });
 
-  let provisioningQrRejected = false;
-  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'provisioning' });
-  try { await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example'); }
-  catch { provisioningQrRejected = true; }
-  assert(provisioningQrRejected, 'Un restaurant provisioning ne peut pas émettre de QR');
+  for (const status of ['provisioning', 'suspended', 'deleted']) {
+    db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status });
+    let qrRejected = false;
+    try { await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example'); }
+    catch { qrRejected = true; }
+    assert(qrRejected, 'Un restaurant ' + status + ' ne peut pas émettre de QR');
+  }
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'active' });
 
   let globalClaimRejected = false;
@@ -108,6 +110,12 @@ async function run() {
   const issued = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   const token = issued.url.split('/q/')[1];
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'provisioning' });
+  let provisioningSessionRejected = false;
+  try { await resolveTableQr(db, token); } catch { provisioningSessionRejected = true; }
+  assert(provisioningSessionRejected, 'Un QR ne peut pas créer de session pour un restaurant provisioning');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'active' });
   const storedToken = db.store.get('restaurants/chez-awa/table_qr_tokens/' + tokenHash);
   assert(/^[A-Za-z0-9_-]{43}$/.test(token), 'Jeton QR aléatoire de 256 bits au format Base64URL');
   assert(issued.url.startsWith('https://restaumax.example/q/'), 'URL QR opaque /q/<token>');
