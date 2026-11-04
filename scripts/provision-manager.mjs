@@ -35,11 +35,27 @@ try {
   const user = await auth.getUserByEmail(email);
   const db = initAdminFirestore(adminApp, config.firestoreDatabaseId);
 
+  const existingClaims = user.customClaims || {};
+  const existingPermissions = Array.isArray(existingClaims.permissions)
+    ? existingClaims.permissions.filter((permission) => typeof permission === 'string')
+    : [];
+  const permissions = role === 'manager'
+    ? [...new Set([...existingPermissions, 'tables.manage'])]
+    : existingPermissions;
+
+  await auth.setCustomUserClaims(user.uid, {
+    ...existingClaims,
+    role,
+    restaurantSlug,
+    permissions
+  });
+
   await db.collection('managers').doc(user.uid).set({
     uid: user.uid,
     email: user.email || email,
     role,
     restaurantSlug,
+    permissions,
     active: true,
     updatedAt: Date.now()
   }, { merge: true });

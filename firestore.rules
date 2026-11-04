@@ -50,6 +50,10 @@ service cloud.firestore {
             get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'admin' ||
             get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'owner' ||
             (
+              get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'manager' &&
+              permission == 'tables.manage'
+            ) ||
+            (
               get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['manager', 'staff'] &&
               permission in get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.permissions
             )
