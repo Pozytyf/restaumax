@@ -219,7 +219,7 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
   const tableRef = restaurantRef.collection('tables').doc(tableId);
   const qrRef = restaurantRef.collection('table_qr_tokens').doc(String(session.qrTokenHash || ''));
   const [restaurantSnap, tableSnap, qrSnap] = await Promise.all([restaurantRef.get(), tableRef.get(), qrRef.get()]);
-  if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.isActive === false || restaurantSnap.data()?.isOpen === false) return null;
+  if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.isActive === false || restaurantSnap.data()?.isOpen === false) return null;
   if (!tableSnap.exists || tableSnap.data()?.isActive !== true || Number(tableSnap.data()?.qrVersion || 0) !== Number(session.qrVersion || 0)) return null;
   if (!qrSnap.exists || qrSnap.data()?.status !== 'active') return null;
   if (qrSnap.data()?.tokenHash !== session.qrTokenHash || qrSnap.data()?.restaurantSlug !== restaurantSlug || qrSnap.data()?.tableId !== tableId) return null;
