@@ -1,0 +1,102 @@
+name: Deploy Firestore Rules — Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_production:
+        description: "Confirmer explicitement la publication des règles sur Firebase Production"
+        required: true
+        type: choice
+        options:
+          - "NO"
+          - "DEPLOY_FIRESTORE_RULES_TO_PRODUCTION"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-firestore-rules-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-firestore-rules:
+    name: Publish Firestore rules to the approved Production project
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      inputs.confirm_production == 'DEPLOY_FIRESTORE_RULES_TO_PRODUCTION'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: firebase-production
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      FIREBASE_PROJECT_ID: gen-lang-client-0138815290
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Validate deployment configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_FIREBASE_DEPLOYER_SA }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || {
+            echo "::error::Deployment is allowed only from main."
+            exit 1
+          }
+          test "$FIREBASE_PROJECT_ID" = "gen-lang-client-0138815290" || {
+            echo "::error::Unexpected Firebase project."
+            exit 1
+          }
+          test -n "$WIF_PROVIDER" || {
+            echo "::error::Missing environment variable GCP_WIF_PROVIDER."
+            exit 1
+          }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || {
+            echo "::error::Missing environment variable GCP_FIREBASE_DEPLOYER_SA."
+            exit 1
+          }
+          test -f firebase.json && test -f firestore.rules || {
+            echo "::error::firebase.json or firestore.rules is missing."
+            exit 1
+          }
+          echo "Target project: $FIREBASE_PROJECT_ID"
+          echo "Rules source: firestore.rules"
+
+      - name: Authenticate to Google Cloud using short-lived OIDC credentials
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          project_id: gen-lang-client-0138815290
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_FIREBASE_DEPLOYER_SA }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Deploy Firestore Security Rules only
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@15.34.2 deploy \
+            --only firestore:rules \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          {
+            echo "### Firestore rules published"
+            echo "- Firebase project: `$FIREBASE_PROJECT_ID`"
+            echo "- Source: `firestore.rules` from `main`"
+            echo "- Scope: Firestore Security Rules only"
+            echo "- Commit: `$GITHUB_SHA`"
+          } >> "$GITHUB_STEP_SUMMARY"
