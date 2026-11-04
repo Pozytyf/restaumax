@@ -294,6 +294,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         return json(res, 409, { success: false, error: 'Le restaurant est suspendu : gestion réservée au super-administrateur.' });
       }
       const managerRef = db.collection('managers').doc(staffUid);
+      const managerSnap = await managerRef.get();
+      const currentSessionVersion = Math.max(
+        Number(member.sessionVersion || 0),
+        Number(managerSnap.data()?.sessionVersion || 0)
+      );
       const auth = getAuth();
 
       if (action === 'disable_staff' || action === 'set_staff_status') {
@@ -305,7 +310,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 409, { success: false, error: 'Réactive d’abord le restaurant avant de réactiver ses comptes.' });
         }
         const now = Date.now();
-        const sessionVersion = Number(member.sessionVersion || 0) + 1;
+        const sessionVersion = currentSessionVersion + 1;
         const authUser = await auth.getUser(staffUid);
         const nextClaims = { ...(authUser.customClaims || {}), sessionVersion };
         if (nextActive) {
@@ -366,7 +371,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           ? [...new Set(body.permissions.filter((p: unknown): p is Permission => typeof p === 'string' && (PERMISSIONS as readonly string[]).includes(p)))]
           : [];
         const currentAuthUser = await getAuth().getUser(staffUid);
-        const sessionVersion = Number(member.sessionVersion || 0);
+        const sessionVersion = currentSessionVersion;
         await getAuth().setCustomUserClaims(staffUid, { ...(currentAuthUser.customClaims || {}), role, restaurantSlug: slug, permissions, sessionVersion });
         await memberRef.set({ role, permissions, sessionVersion, updatedAt: Date.now() }, { merge: true });
         await db.collection('managers').doc(staffUid).set({ role, permissions, sessionVersion }, { merge: true });
