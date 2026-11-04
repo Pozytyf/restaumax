@@ -43,11 +43,22 @@ export function getAppletFirebaseConfig(targetConfigPath = configPath) {
     throw new Error(`Configuration invalide : Le fichier ${targetConfigPath} ne contient pas un objet JSON valide.`);
   }
 
-  if (!config.projectId || typeof config.projectId !== 'string' || !config.projectId.trim()) {
+  // Vercel Preview must use its own explicit Firebase project/database settings.
+  // Never silently fall back to the AI Studio applet configuration in Preview.
+  const isVercelPreview = process.env.VERCEL_ENV === 'preview';
+  const envProjectId = process.env.FIREBASE_PROJECT_ID?.trim();
+  const envDatabaseId = process.env.FIRESTORE_DATABASE_ID?.trim();
+  if (isVercelPreview && (!envProjectId || !envDatabaseId)) {
+    throw new Error('Configuration Firebase Preview incomplète : FIREBASE_PROJECT_ID et FIRESTORE_DATABASE_ID sont obligatoires.');
+  }
+  const resolvedProjectId = envProjectId || config.projectId;
+  const resolvedDatabaseId = envDatabaseId || config.firestoreDatabaseId;
+
+  if (!resolvedProjectId || typeof resolvedProjectId !== 'string' || !resolvedProjectId.trim()) {
     throw new Error(`Configuration invalide : 'projectId' est manquant ou vide dans ${targetConfigPath}`);
   }
 
-  if (!config.firestoreDatabaseId || typeof config.firestoreDatabaseId !== 'string' || !config.firestoreDatabaseId.trim()) {
+  if (!resolvedDatabaseId || typeof resolvedDatabaseId !== 'string' || !resolvedDatabaseId.trim()) {
     throw new Error(
       `Configuration invalide : 'firestoreDatabaseId' explicite est manquant ou vide dans ${targetConfigPath}. ` +
       `L'application RestauMax utilise une base nommée spécifique qui doit être explicitement définie.`
@@ -55,8 +66,8 @@ export function getAppletFirebaseConfig(targetConfigPath = configPath) {
   }
 
   return {
-    projectId: config.projectId.trim(),
-    firestoreDatabaseId: config.firestoreDatabaseId.trim(),
+    projectId: resolvedProjectId.trim(),
+    firestoreDatabaseId: resolvedDatabaseId.trim(),
     appId: config.appId,
     authDomain: config.authDomain,
   };
