@@ -45,6 +45,30 @@ service cloud.firestore {
       );
     }
 
+    // Maximum permission ceilings for the six restaurant roles.
+    // Explicit grants can only select permissions inside the role's ceiling.
+    function roleCanHavePermission(role, permission) {
+      return role == 'owner' ||
+        (role == 'manager' && permission in [
+          'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
+          'tables.view', 'tables.manage', 'pos.access', 'kitchen.access',
+          'cash.view', 'cash.manage', 'reports.view', 'customers.view',
+          'customers.manage', 'inventory.view', 'inventory.manage',
+          'staff.view', 'staff.manage', 'settings.view'
+        ]) ||
+        (role == 'cashier' && permission in [
+          'orders.view', 'tables.view', 'pos.access', 'cash.view', 'cash.manage',
+          'orders.cancel', 'payments.refund', 'reports.cash.view'
+        ]) ||
+        (role == 'server' && permission in [
+          'orders.view', 'tables.view', 'pos.access', 'orders.serve'
+        ]) ||
+        (role == 'kitchen' && permission in [
+          'orders.view', 'kitchen.access'
+        ]) ||
+        (role == 'staff' && permission in ['orders.view', 'tables.view']);
+    }
+
     // Restaurant access is ALWAYS membership-scoped. Platform custom claims
     // must never grant operational access to every restaurant.
     function hasRestaurantPermission(targetSlug, permission) {
@@ -58,6 +82,10 @@ service cloud.firestore {
         (
           get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'owner' ||
           (
+            roleCanHavePermission(
+              get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role,
+              permission
+            ) &&
             get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.permissions is list &&
             permission in get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.permissions
           )
