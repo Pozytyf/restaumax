@@ -27,6 +27,8 @@ export interface ClientMenuViewProps {
   menuItems: RestauMenuItem[];
   tableNumber: string | null;
   tableSessionUnavailable?: boolean;
+  catalogLoading?: boolean;
+  catalogError?: string | null;
   onNavigateHome: () => void;
   cart: ClientCartItem[];
   onAddToCart: (newItem: ClientCartItem) => boolean;
@@ -99,6 +101,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   menuItems,
   tableNumber,
   tableSessionUnavailable = false,
+  catalogLoading = false,
+  catalogError = null,
   onNavigateHome,
   cart,
   onAddToCart,
@@ -288,7 +292,17 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
             </span>
           </div>
 
-          {filteredItems.length === 0 ? (
+          {catalogLoading ? (
+            <div role="status" className="bg-white rounded-2xl p-8 border border-slate-200 text-center">
+              <p className="text-sm font-bold text-slate-800">Chargement de la carte…</p>
+              <p className="text-xs text-slate-500 mt-1">Récupération du catalogue de cet établissement.</p>
+            </div>
+          ) : catalogError ? (
+            <div role="alert" className="bg-rose-50 rounded-2xl p-8 border border-rose-200 text-center">
+              <p className="text-sm font-bold text-rose-900">Carte temporairement indisponible</p>
+              <p className="text-xs text-rose-800 mt-1">{catalogError}</p>
+            </div>
+          ) : filteredItems.length === 0 ? (
             <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center">
               <p className="text-sm font-bold text-slate-800">Aucun plat ne correspond à votre recherche</p>
               <p className="text-xs text-slate-500 mt-1">Essayez un autre mot-clé ou réinitialisez les filtres.</p>
