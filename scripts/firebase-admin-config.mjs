@@ -3,7 +3,7 @@
  *
  * Charge et valide la configuration Firebase depuis firebase-applet-config.json.
  * FIREBASE_PROJECT_ID et FIRESTORE_DATABASE_ID permettent de surcharger cette base
- * par environnement. Vercel Preview est strictement verrouillé sur restaumax-preview.
+ * par environnement. Vercel Preview est strictement verrouillé sur restaumax-demo.
  */
 
 import * as fs from 'fs';
@@ -60,9 +60,9 @@ export function getAppletFirebaseConfig(targetConfigPath = configPath) {
     process.env.FIRESTORE_DATABASE_ID?.trim() || config.firestoreDatabaseId.trim();
 
   // Preview must never silently fall back to the committed production project config.
-  if (isVercelPreview && projectId !== 'restaumax-preview') {
+  if (isVercelPreview && projectId !== 'restaumax-demo') {
     throw new Error(
-      "Configuration Firebase Preview invalide : FIREBASE_PROJECT_ID doit cibler exclusivement 'restaumax-preview'."
+      "Configuration Firebase Preview invalide : FIREBASE_PROJECT_ID doit cibler exclusivement 'restaumax-demo'."
     );
   }
   if (isVercelPreview && !process.env.FIRESTORE_DATABASE_ID?.trim()) {
