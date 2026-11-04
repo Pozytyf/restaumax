@@ -67,6 +67,9 @@ try {
       totalAmount:1000, status:'pending'
     };
     await setDoc(doc(db,'restaurants/rest-a/orders/order-1'),orderData);
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-kitchen'),{...orderData,id:'order-kitchen',orderNumber:'#CMD-002'});
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-server'),{...orderData,id:'order-server',orderNumber:'#CMD-003',status:'ready'});
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-cashier'),{...orderData,id:'order-cashier',orderNumber:'#CMD-004'});
     await setDoc(doc(db,'restaurants/rest-b/orders/order-1'),{...orderData,restaurantSlug:'rest-b'});
     await setDoc(doc(db,'restaurants/rest-a/menuItems/dish-1'),{
       id:'dish-1',restaurantSlug:'rest-a',name:'Plat',category:'plats',price:1000,available:true
@@ -92,10 +95,14 @@ try {
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un caissier ne peut pas modifier le prix du menu');
   await denies(updateDoc(doc(a('cashier-escalated'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un droit menu.manage falsifié ne dépasse pas le plafond du caissier');
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/staff/manager-b'),{permissions:['settings.manage']}), 'Un caissier ne peut pas modifier les permissions du personnel');
-  await allows(updateDoc(order(a('cashier-cancel'),'rest-a'),{status:'cancelled'}), 'Un caissier peut annuler uniquement si le droit explicite orders.cancel lui est accordé');
+  await allows(updateDoc(order(a('cashier-cancel'),'rest-a','order-cashier'),{status:'cancelled'}), 'Un caissier peut annuler uniquement si le droit explicite orders.cancel lui est accordé');
 
   // 4. Kitchen cannot cancel orders or collect payments.
   await denies(updateDoc(order(a('kitchen-a'),'rest-a'),{status:'cancelled'}), 'Cuisine/Bar ne peut pas annuler une commande');
+  await allows(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'in_prep'}), 'Cuisine/Bar peut démarrer la préparation');
+  await allows(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'ready'}), 'Cuisine/Bar peut marquer une commande prête');
+  await denies(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'completed'}), 'Cuisine/Bar ne peut pas déclarer une commande servie');
+  await allows(updateDoc(order(a('server-a'),'rest-a','order-server'),{status:'completed'}), 'Le serveur peut confirmer la remise d’une commande prête');
   await denies(setDoc(doc(a('kitchen-a'),'restaurants/rest-a/payments/payment-2'),{amount:1000}), 'Cuisine/Bar ne peut pas encaisser');
 
   // 5. A manager cannot change ownership or another manager's account.
