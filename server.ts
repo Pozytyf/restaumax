@@ -738,7 +738,7 @@ export function getServerHealth() {
   };
 }
 
-export async function handleResolveTableQr(token: string) {
+export async function handleResolveTableQr(token: string): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
   if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service QR indisponible.' } };
   try {
     const result = await resolveTableQr(adminDb, token);
