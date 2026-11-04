@@ -46,6 +46,20 @@ import {
   OrderProbeResult,
   IdempotencyReservationResult
 } from './src/server/orderService.js';
+import {
+  authorizeTableManager,
+  buildCsrfCookie,
+  buildSessionCookie,
+  getActiveTableSession,
+  issueTableQr,
+  readCookie,
+  requestHasValidOrigin,
+  resolveTableQr,
+  revokeTableQr,
+  tableCsrfCookieName,
+  tableSessionCookieName,
+  validateCsrf
+} from './src/server/tableSecurityService.js';
 import { 
   getAppletFirebaseConfig, 
   initAdminApp, 
@@ -62,7 +76,8 @@ const app = express();
 app.use(express.json());
 
 // 1. Initialisation stricte de Firebase Admin SDK
-export let adminDb: any = null;\nexport let adminAuth: any = null;
+export let adminDb: any = null;
+export let adminAuth: any = null;
 let adminInitError: string | null = null;
 let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = null;
 
@@ -76,17 +91,20 @@ try {
     const parsedCredentials = JSON.parse(serviceAccountJson);
     const serviceAccount = validateServiceAccountCredentials(parsedCredentials, appletConfig.projectId);
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
-    adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);\n    adminAuth = getAuth(adminApp);
+    adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
+    adminAuth = getAuth(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé via variable sécurisée pour la base '${appletConfig.firestoreDatabaseId}'.`);
   } else if (credPath && fs.existsSync(credPath)) {
     // Local/server deployments may continue to use a credentials file.
     const serviceAccount = validateServiceAccountCredentials(credPath, appletConfig.projectId);
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
+    adminAuth = getAuth(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
   } else if (process.env.FIRESTORE_EMULATOR_HOST) {
     const adminApp = initAdminApp(null as any, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
+    adminAuth = getAuth(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé sur l'émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`);
   } else {
     adminInitError = credPath
