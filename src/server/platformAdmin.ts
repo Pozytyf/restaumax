@@ -41,7 +41,7 @@ function parseRestaurantRole(value: unknown): RestaurantRole | null {
     : null;
 }
 
-function resolveRolePermissions(role: RestaurantRole, requested: unknown): Permission[] | null {
+function resolveRolePermissions(role: RestaurantRole, requested: unknown, allowExtras = true): Permission[] | null {
   const ceiling = ROLE_PERMISSION_CEILINGS[role];
   if (requested !== undefined && !Array.isArray(requested)) return null;
   const extras = Array.isArray(requested)
@@ -49,6 +49,7 @@ function resolveRolePermissions(role: RestaurantRole, requested: unknown): Permi
     : [];
   if (Array.isArray(requested) && extras.length !== new Set(requested).size) return null;
   if (extras.some(permission => !ceiling.includes(permission))) return null;
+  if (!allowExtras && extras.some(permission => !ROLE_BASE_PERMISSIONS[role].includes(permission))) return null;
   return [...new Set([...ROLE_BASE_PERMISSIONS[role], ...extras])];
 }
 
@@ -316,7 +317,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const role = parseRestaurantRole(body.role);
         if (!role) return json(res, 400, { success: false, error: 'Rôle invalide. Choisissez manager, cashier, server ou kitchen.' });
         if (actor.role === 'manager' && role === 'manager') return json(res, 403, { success: false, error: 'Un manager ne peut pas créer un autre manager.' });
-        const permissions = resolveRolePermissions(role, body.permissions);
+        const permissions = resolveRolePermissions(role, body.permissions, actor.role === 'owner');
         if (!name || !validEmail(email) || password.length < 10 || !permissions) {
           return json(res, 400, { success: false, error: 'Nom, e-mail, mot de passe (10 caractères minimum) ou permissions hors plafond du rôle.' });
         }
@@ -432,7 +433,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const role = parseRestaurantRole(body.role);
         if (!role) return json(res, 400, { success: false, error: 'Rôle invalide.' });
         if (actor.role === 'manager' && role === 'manager') return json(res, 403, { success: false, error: 'Un manager ne peut pas promouvoir ou administrer un autre manager.' });
-        const permissions = resolveRolePermissions(role, body.permissions);
+        const permissions = resolveRolePermissions(role, body.permissions, actor.role === 'owner');
         if (!permissions) return json(res, 400, { success: false, error: 'Permissions incompatibles avec le plafond du rôle.' });
         const currentAuthUser = await getAuth().getUser(staffUid);
         const sessionVersion = currentSessionVersion;
