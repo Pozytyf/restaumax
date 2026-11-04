@@ -4,6 +4,7 @@ export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'");
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
     return res.status(405).json({ success: false, error: 'Méthode non autorisée.' });
