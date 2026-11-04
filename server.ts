@@ -406,6 +406,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         qrData.tableId === tableSession.tableId &&
         tableData &&
         tableData.isActive === true &&
+        Number(tableData.qrVersion || 0) === Number(sessionData.qrVersion || 0) &&
         String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
         restaurantData &&
         restaurantData.status !== 'suspended' &&
