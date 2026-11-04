@@ -26,6 +26,7 @@ export interface ClientMenuViewProps {
   restaurant: RestaurantInfo;
   menuItems: RestauMenuItem[];
   tableNumber: string | null;
+  tableSessionUnavailable?: boolean;
   onNavigateHome: () => void;
   cart: ClientCartItem[];
   onAddToCart: (newItem: ClientCartItem) => boolean;
@@ -97,6 +98,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   restaurant,
   menuItems,
   tableNumber,
+  tableSessionUnavailable = false,
   onNavigateHome,
   cart,
   onAddToCart,
@@ -221,6 +223,15 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
 
       {/* Main Content Area */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-5 space-y-5">
+        {tableSessionUnavailable && (
+          <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-900 flex items-start gap-2">
+            <Info size={18} className="shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-black">Session de table indisponible</p>
+              <p className="text-xs mt-1 leading-relaxed">Ce QR a peut-être été révoqué, la table désactivée ou le service momentanément indisponible. Scannez à nouveau le QR physique ou demandez de l’aide au personnel. Aucune commande sur place ne sera acceptée sans session valide.</p>
+            </div>
+          </div>
+        )}
         {/* Search Bar */}
         <div className="relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
