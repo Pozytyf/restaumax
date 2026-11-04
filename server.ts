@@ -749,7 +749,7 @@ export async function handleResolveTableQr(token: string) {
       body: { success: true }
     };
   } catch (err: any) {
-    return { statusCode: 400, body: { success: false, error: err?.message || 'QR code invalide.' } };
+    return { statusCode: 400, body: { success: false, error: err?.message || 'QR code invalide.' }, cookies: undefined, location: undefined };
   }
 }
 
@@ -789,7 +789,7 @@ export async function handleTableQrManagement(req: any) {
       const origin = String(process.env.APP_ORIGIN || req.headers.origin || '').replace(/\/+$/, '');
       if (!origin || !/^https?:\/\//.test(origin)) return { statusCode: 400, body: { success: false, error: 'Origine applicative non configurée.' } };
       const issued = await issueTableQr(adminDb, restaurantSlug, tableId, origin);
-      return { statusCode: 201, body: { success: true, url: issued.url, token: issued.token } };
+      return { statusCode: 201, body: { success: true, url: issued.url } };
     }
     if (req.method === 'DELETE') {
       const result = await revokeTableQr(adminDb, restaurantSlug, tableId);
@@ -862,6 +862,7 @@ app.post('/api/orders', async (req, res) => {
 app.get('/q/:token', async (req, res) => {
   const result = await handleResolveTableQr(String(req.params.token || ''));
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   if (result.cookies) res.setHeader('Set-Cookie', result.cookies);
   if (result.location) return res.redirect(result.statusCode, result.location);
   return res.status(result.statusCode).json(result.body);
