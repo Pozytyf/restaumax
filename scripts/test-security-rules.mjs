@@ -8,7 +8,7 @@ import {
   collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc
 } from 'firebase/firestore';
 
-const projectId = 'demo-restaumax-security';
+const projectId = 'demo-restaumax';
 const env = await initializeTestEnvironment({
   projectId,
   firestore: { rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8') }
