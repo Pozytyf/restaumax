@@ -236,6 +236,7 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
     sessionHash,
     qrTokenHash: String(session.qrTokenHash || ''),
     qrVersion: Number(session.qrVersion || 0),
+    restaurantSessionVersion: Number(session.restaurantSessionVersion || 0),
     csrfHash: String(session.csrfHash || ''),
     expiresAt: session.expiresAt
   };
