@@ -37,9 +37,13 @@ service cloud.firestore {
     }
 
     function isAccountActive() {
-      return !isSignedIn() ||
+      return isSignedIn() && (
         !exists(/databases/$(database)/documents/managers/$(request.auth.uid)) ||
-        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active != false;
+        (
+          get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active != false &&
+          request.auth.token.get('sessionVersion', 0) == get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('sessionVersion', 0)
+        )
+      );
     }
 
     function hasRestaurantPermission(targetSlug, permission) {
