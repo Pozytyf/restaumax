@@ -34,7 +34,7 @@ async function run() {
     const { keyDocId, orderId, orderNumber } = deriveIdempotencyIdentifiers(slug, key);
     const cart = [{ menuItemId: 'dish-poulet', quantity: 1 }];
     const tableNumber = mode === 'sur_place' ? '4' : null;
-    const signature = computeOrderSignature({ restaurantSlug: slug, orderMode: mode, tableNumber, cart });
+    const signature = computeOrderSignature({ restaurantSlug: slug, orderMode: mode, tableNumber, idempotencyKey: key, cart });
     const orderToCreate = {
       id: orderId, orderNumber, restaurantSlug: slug, orderMode: mode, tableNumber,
       items: [{ menuItemId: 'dish-poulet', name: 'Poulet test', quantity: 1, unitPrice: 9500, totalLinePrice: 9500 }],
