@@ -157,7 +157,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           status: body.status,
           ...(body.status === 'suspended' ? {
             isOpen: false,
-            isOpenBeforeSuspension: restaurantSnap.data()?.isOpen === true,
+            isOpenBeforeSuspension: restaurantSnap.data()?.status === 'suspended'
+              ? restaurantSnap.data()?.isOpenBeforeSuspension === true
+              : restaurantSnap.data()?.isOpen === true,
             suspendedAt: now,
             suspendedBy: user.uid,
             // Session epoch invalidates every previously issued table session,
