@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: security-hardening-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   security-and-quality:
     runs-on: ubuntu-latest
