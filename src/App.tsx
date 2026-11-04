@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Role, 
   MenuItem, 
@@ -16,7 +16,7 @@ import {
   INITIAL_KITCHEN_TICKETS, 
   INITIAL_DRAWER_STATE 
 } from './data/mockData';
-import { CHEZ_AWA_RESTAURANT, CHEZ_AWA_MENU_ITEMS } from './data/restaumaxData';
+import { CHEZ_AWA_RESTAURANT } from './data/restaumaxData';
 import { RestauMenuItem, ClientCartItem, RestaurantInfo, RestauOrder, RestaurantTable, RestauOrderStatus } from './types/restaumax';
 import { 
   subscribeToRestaurant, 
@@ -229,13 +229,22 @@ export default function App() {
 
   // RestauMax Firestore Persisted State (Restaurant Info & Catalog)
   const [restaurant, setRestaurant] = useState<RestaurantInfo>(CHEZ_AWA_RESTAURANT);
-  const [restauMenuItems, setRestauMenuItems] = useState<RestauMenuItem[]>(CHEZ_AWA_MENU_ITEMS);
+  const [restauMenuItems, setRestauMenuItems] = useState<RestauMenuItem[]>([]);
+  const [menuCatalogRestaurantSlug, setMenuCatalogRestaurantSlug] = useState('');
+  const [menuCatalogLoading, setMenuCatalogLoading] = useState(true);
+  const [menuCatalogError, setMenuCatalogError] = useState<string | null>(null);
+  const activeMenuItems = useMemo(
+    () => menuCatalogRestaurantSlug === activeRestaurantSlug ? restauMenuItems : [],
+    [menuCatalogRestaurantSlug, activeRestaurantSlug, restauMenuItems]
+  );
+  const activeMenuLoading = menuCatalogRestaurantSlug !== activeRestaurantSlug || menuCatalogLoading;
+  const activeMenuError = menuCatalogRestaurantSlug === activeRestaurantSlug ? menuCatalogError : null;
   const [restauTables, setRestauTables] = useState<RestaurantTable[]>([]);
 
   // The staff POS must use the same live catalogue as the customer QR menu.
   // This prevents different prices, names or availability between the two sales channels.
   useEffect(() => {
-    setMenuItems(restauMenuItems.map((dish) => ({
+    setMenuItems(activeMenuItems.map((dish) => ({
       id: dish.id,
       name: dish.name,
       category: dish.category,
@@ -253,7 +262,7 @@ export default function App() {
             : 'plat',
       tags: dish.tags
     })));
-  }, [restauMenuItems]);
+  }, [activeMenuItems]);
 
   // Use only tables configured in Firestore; do not show invented POS fallback tables.
   useEffect(() => {
@@ -290,12 +299,30 @@ export default function App() {
       }
     });
 
-    // 3. Subscribe to Menu Items subcollection (reflects real state including empty catalog)
-    const unsubMenuItems = subscribeToMenuItems(activeRestaurantSlug, (items) => {
-      if (isMounted) {
+    // 3. Subscribe to the selected restaurant catalogue. Never show demo or
+    // previous-restaurant items while this tenant's first snapshot is loading.
+    setRestauMenuItems([]);
+    setMenuCatalogRestaurantSlug('');
+    setMenuCatalogLoading(true);
+    setMenuCatalogError(null);
+    const unsubMenuItems = subscribeToMenuItems(
+      activeRestaurantSlug,
+      (items) => {
+        if (!isMounted) return;
         setRestauMenuItems(items);
+        setMenuCatalogRestaurantSlug(activeRestaurantSlug);
+        setMenuCatalogLoading(false);
+        setMenuCatalogError(null);
+      },
+      (error) => {
+        if (!isMounted) return;
+        console.error('Erreur de chargement du catalogue Firestore:', error);
+        setRestauMenuItems([]);
+        setMenuCatalogRestaurantSlug(activeRestaurantSlug);
+        setMenuCatalogLoading(false);
+        setMenuCatalogError("Impossible de charger la carte de cet établissement. Vérifiez la connexion ou les autorisations.");
       }
-    });
+    );
 
     return () => {
       isMounted = false;
@@ -450,7 +477,7 @@ export default function App() {
   }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber]);
 
   const handleToggleDishAvailability = async (dishId: string) => {
-    const currentDish = restauMenuItems.find((item) => item.id === dishId);
+    const currentDish = activeMenuItems.find((item) => item.id === dishId);
     if (!currentDish) return;
     const nextAvailable = currentDish.available === false;
     try {
@@ -503,7 +530,7 @@ export default function App() {
     }
 
     // 1. Double vérification fondée sur la disponibilité actuelle du catalogue partagé
-    const liveDish = restauMenuItems.find((item) => item.id === newItem.menuItemId);
+    const liveDish = activeMenuItems.find((item) => item.id === newItem.menuItemId);
     if (!liveDish || liveDish.available === false) {
       // Rejet strict de l'ajout si le plat est indisponible
       return false;
@@ -592,7 +619,7 @@ export default function App() {
       idempotencyKey: clientOrderIdempotencyKey,
       allowedTables: restauTables.length > 0 ? restauTables : undefined,
       declaredTotal: clientDeclaredTotal,
-      fallbackCatalog: restauMenuItems
+      fallbackCatalog: activeMenuItems
     });
 
     if (!submitRes.success) {
@@ -878,7 +905,7 @@ export default function App() {
       {isClientMenuRoute && (
         <ClientMenuView
           restaurant={restaurant}
-          menuItems={restauMenuItems}
+          menuItems={activeMenuItems}
           tableNumber={activeTableNumber}
           cart={clientCart}
           onAddToCart={handleClientAddToCart}
@@ -888,6 +915,8 @@ export default function App() {
           onConfirmOrder={handleClientOrderConfirm}
           isUncertain={isOrderUncertain}
           tableSessionUnavailable={tableSessionExpected && !tableSessionChecking && !tableSession}
+          catalogLoading={activeMenuLoading}
+          catalogError={activeMenuError}
           onResetUncertainty={handleResetUncertainty}
           onNavigateHome={() => navigateTo('/')}
 />
@@ -912,8 +941,10 @@ export default function App() {
         ) : (
           <RestaurantHubView
             restaurant={restaurant}
-            menuItems={restauMenuItems}
-            menuItemsCount={restauMenuItems.length}
+            menuItems={activeMenuItems}
+            menuItemsCount={activeMenuItems.length}
+            menuCatalogLoading={activeMenuLoading}
+            menuCatalogError={activeMenuError}
             tablesCount={restauTables.length}
             tables={restauTables}
             onSaveTable={handleSaveTable}

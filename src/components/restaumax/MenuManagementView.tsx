@@ -30,6 +30,8 @@ import {
 export interface MenuManagementViewProps {
   restaurant: RestaurantInfo;
   menuItems: RestauMenuItem[];
+  catalogLoading?: boolean;
+  catalogError?: string | null;
   onToggleAvailability: (dishId: string) => void;
   onCreateDish: (dish: RestauMenuItem) => void;
   onUpdateDish: (dish: RestauMenuItem) => void;
@@ -54,6 +56,8 @@ const CATEGORIES: { id: CategoryFilter; label: string; icon: React.ComponentType
 export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
   restaurant,
   menuItems,
+  catalogLoading = false,
+  catalogError = null,
   onToggleAvailability,
   onCreateDish,
   onUpdateDish,
@@ -357,7 +361,17 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
         </div>
 
         {/* Dishes List */}
-        {filteredDishes.length === 0 ? (
+        {catalogLoading ? (
+          <div role="status" className="bg-white rounded-2xl p-12 text-center border border-slate-200/80">
+            <p className="text-sm font-bold text-slate-800">Chargement du catalogue…</p>
+            <p className="text-xs text-slate-500 mt-1">Synchronisation avec les données du restaurant.</p>
+          </div>
+        ) : catalogError ? (
+          <div role="alert" className="bg-rose-50 rounded-2xl p-8 text-center border border-rose-200">
+            <p className="text-sm font-bold text-rose-900">Catalogue non disponible</p>
+            <p className="text-xs text-rose-800 mt-1">{catalogError}</p>
+          </div>
+        ) : filteredDishes.length === 0 ? (
           <div className="bg-white rounded-2xl p-12 text-center border border-slate-200/80">
             <UtensilsCrossed size={36} className="mx-auto text-slate-300 mb-3" />
             <h3 className="text-base font-bold text-slate-800">
