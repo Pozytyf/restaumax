@@ -402,6 +402,8 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         Number(sessionData.qrVersion) === Number(tableSession.qrVersion) &&
         qrData &&
         qrData.status === 'active' &&
+        qrData.tokenHash === tableSession.qrTokenHash &&
+        qrData.restaurantSlug === restaurantSlug &&
         Number(qrData.version) === Number(sessionData.qrVersion) &&
         qrData.tableId === tableSession.tableId &&
         tableData &&
