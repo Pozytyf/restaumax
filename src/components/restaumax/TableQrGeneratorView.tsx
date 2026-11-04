@@ -90,10 +90,20 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
       QRCode.toDataURL(canonicalUrl, { width: 600, margin: 1, color: { dark: '#0c2e22', light: '#ffffff' }, errorCorrectionLevel: 'H' }),
       QRCode.toString(canonicalUrl, { type: 'svg', margin: 1, color: { dark: '#0c2e22', light: '#ffffff' }, errorCorrectionLevel: 'H' })
     ]).then(([png, svg]) => {
-      if (active) { setQrDataUrl(png); setQrSvgString(svg); setIsGenerating(false); }
+      if (active) {
+        setQrDataUrl(png);
+        setQrSvgString(svg);
+        setQrGenerationError(null);
+        setIsGenerating(false);
+      }
     }).catch((err) => {
       console.error('Erreur génération QR Code:', err);
-      if (active) setIsGenerating(false);
+      if (active) {
+        setQrDataUrl('');
+        setQrSvgString('');
+        setQrGenerationError(err?.message || "Impossible de préparer l'image du QR code.");
+        setIsGenerating(false);
+      }
     });
     return () => { active = false; };
   }, [canonicalUrl]);
