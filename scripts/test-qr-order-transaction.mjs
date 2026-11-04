@@ -98,6 +98,17 @@ async function run() {
     await restaurantRef.update({ isOpen: true, status: 'deleted', deletedAt: Date.now() });
     const deletedRestaurant = await executeOrderTransactionWithDb(db, buildParams('deleted-restaurant-' + Date.now()));
     assert(deletedRestaurant.success === false, 'Un restaurant supprimé logiquement ne peut plus recevoir de commande');
+
+    // Les commandes à emporter doivent également échouer pour tout statut non actif,
+    // même lorsqu'aucune session QR n'est impliquée.
+    for (const status of ['provisioning', 'suspended', 'deleted', 'pending_review']) {
+      await restaurantRef.update({ status, isOpen: true, deletedAt: status === 'deleted' ? Date.now() : null });
+      const nonActiveTakeaway = await executeOrderTransactionWithDb(
+        db,
+        buildParams('takeaway-' + status + '-' + Date.now(), 'a_emporter')
+      );
+      assert(nonActiveTakeaway.success === false, 'Une commande à emporter est refusée avec le statut restaurant ' + status);
+    }
   } finally {
     for (const ref of createdRefs) { try { await ref.delete(); } catch {} }
     try { await sessionRef.delete(); } catch {}
