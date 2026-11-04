@@ -161,7 +161,8 @@ service cloud.firestore {
         isValidId(restaurantSlug) && isValidRestaurant(incoming()) &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'tagline', 'address', 'city', 'phone', 'bannerUrl', 'logoUrl',
-          'openingHours', 'currency', 'country', 'isOpen'
+          'openingHours', 'currency', 'country', 'isOpen', 'taxRatePercent',
+          'receiptFooter', 'receiptPaperWidth'
         ]);
       allow delete: if false;
 
@@ -179,7 +180,7 @@ service cloud.firestore {
           incoming().restaurantSlug == restaurantSlug && incoming().id == dishId &&
           incoming().diff(existing()).affectedKeys().hasOnly([
             'name', 'category', 'price', 'available', 'description', 'imageUrl',
-            'prepTimeMinutes', 'optionGroups', 'availableExtras'
+            'prepTimeMinutes', 'optionGroups', 'availableExtras', 'tags'
           ]);
         allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId);
       }
