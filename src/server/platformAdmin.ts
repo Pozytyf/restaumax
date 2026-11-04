@@ -441,7 +441,27 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const role = parseRestaurantRole(body.role);
         if (!role) return json(res, 400, { success: false, error: 'Rôle invalide.' });
         if (actor.role === 'manager' && role === 'manager') return json(res, 403, { success: false, error: 'Un manager ne peut pas promouvoir ou administrer un autre manager.' });
-        const permissions = resolveRolePermissions(role, body.permissions, actor.role === 'owner');
+        let permissions: Permission[] | null;
+        if (actor.role === 'owner') {
+          permissions = resolveRolePermissions(role, body.permissions, true);
+        } else {
+          // Managers may maintain a member's base role permissions, but cannot
+          // add or revoke owner-granted extras on an unchanged role.
+          const base = ROLE_BASE_PERMISSIONS[role];
+          const ceiling = ROLE_PERMISSION_CEILINGS[role];
+          const currentExtras = member.role === role && Array.isArray(member.permissions)
+            ? member.permissions.filter((p: unknown): p is Permission =>
+                typeof p === 'string' && ceiling.includes(p as Permission) && !base.includes(p as Permission))
+            : [];
+          const requestedExtras = Array.isArray(body.permissions)
+            ? [...new Set(body.permissions.filter((p: unknown): p is Permission =>
+                typeof p === 'string' && ceiling.includes(p as Permission) && !base.includes(p as Permission)))]
+            : [];
+          if (currentExtras.slice().sort().join('|') !== requestedExtras.slice().sort().join('|')) {
+            return json(res, 403, { success: false, error: 'Seul le propriétaire peut modifier les autorisations supplémentaires.' });
+          }
+          permissions = resolveRolePermissions(role, [...base, ...currentExtras], true);
+        }
         if (!permissions) return json(res, 400, { success: false, error: 'Permissions incompatibles avec le plafond du rôle.' });
         const currentAuthUser = await getAuth().getUser(staffUid);
         const sessionVersion = currentSessionVersion;
