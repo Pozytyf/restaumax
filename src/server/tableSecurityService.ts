@@ -257,6 +257,7 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   if (!managerSnap.exists) throw new Error('Accès gestionnaire refusé.');
   const manager = managerSnap.data();
   if (manager.active === false || manager.restaurantSlug !== restaurantSlug) throw new Error('Accès à ce restaurant refusé.');
+  if (Number(decoded.sessionVersion || 0) !== Number(manager.sessionVersion || 0)) throw new Error('Session utilisateur révoquée. Reconnectez-vous.');
   const managerRole = String(manager.role || role);
   if (!['owner', 'admin', 'super_admin'].includes(managerRole)) {
     const permissions = manager.permissions;
