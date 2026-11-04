@@ -27,7 +27,6 @@ export interface ClientMenuViewProps {
   menuItems: RestauMenuItem[];
   tableNumber: string | null;
   onNavigateHome: () => void;
-  onSelectTableDemo: (table: string | null) => void;
   cart: ClientCartItem[];
   onAddToCart: (newItem: ClientCartItem) => boolean;
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
@@ -99,7 +98,6 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   menuItems,
   tableNumber,
   onNavigateHome,
-  onSelectTableDemo,
   cart,
   onAddToCart,
   onUpdateQuantity,
@@ -157,35 +155,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
             </button>
           </div>
 
-          {/* Table / Order Mode Switcher quick pills */}
-          <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-            <button
-              onClick={() => {
-                sounds.playTap();
-                onSelectTableDemo('4');
-              }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                tableNumber === '4'
-                  ? 'bg-amber-400 text-slate-950 shadow-md ring-2 ring-white/50'
-                  : 'bg-black/60 text-white/90 hover:bg-black/80 backdrop-blur-sm'
-              }`}
-            >
-              Table 4
-            </button>
-            <button
-              onClick={() => {
-                sounds.playTap();
-                onSelectTableDemo(null);
-              }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                tableNumber === null
-                  ? 'bg-amber-400 text-slate-950 shadow-md ring-2 ring-white/50'
-                  : 'bg-black/60 text-white/90 hover:bg-black/80 backdrop-blur-sm'
-              }`}
-            >
-              À emporter
-            </button>
-          </div>
+
         </div>
 
         {/* Restaurant Header Information */}
