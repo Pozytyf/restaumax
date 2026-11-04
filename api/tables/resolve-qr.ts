@@ -10,7 +10,7 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ success: false, error: 'Méthode non autorisée.' });
   }
   const token = String(req.query?.token || '');
-  const result = await handleResolveTableQr(token);
+  const result = await handleResolveTableQr(token, req);
   if (result.cookies) res.setHeader('Set-Cookie', result.cookies);
   if (result.location) return res.redirect(result.statusCode, result.location);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
