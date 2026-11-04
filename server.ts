@@ -34,6 +34,7 @@
 
 import 'dotenv/config';
 import express from 'express';
+import { getAuth } from 'firebase-admin/auth';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -61,7 +62,7 @@ const app = express();
 app.use(express.json());
 
 // 1. Initialisation stricte de Firebase Admin SDK
-export let adminDb: any = null;
+export let adminDb: any = null;\nexport let adminAuth: any = null;
 let adminInitError: string | null = null;
 let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = null;
 
@@ -75,7 +76,7 @@ try {
     const parsedCredentials = JSON.parse(serviceAccountJson);
     const serviceAccount = validateServiceAccountCredentials(parsedCredentials, appletConfig.projectId);
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
-    adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
+    adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);\n    adminAuth = getAuth(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé via variable sécurisée pour la base '${appletConfig.firestoreDatabaseId}'.`);
   } else if (credPath && fs.existsSync(credPath)) {
     // Local/server deployments may continue to use a credentials file.
@@ -668,29 +669,103 @@ export function getServerHealth() {
   };
 }
 
-export async function handleOrderSubmission(payload: unknown): Promise<{ statusCode: number; body: any }> {
-  // Fail closed: never accept orders without trusted Firebase Admin credentials.
-  if (!adminDb) {
+export async function handleResolveTableQr(token: string) {
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service QR indisponible.' } };
+  try {
+    const result = await resolveTableQr(adminDb, token);
     return {
-      statusCode: 503,
+      statusCode: 302,
+      location: `/r/${encodeURIComponent(result.restaurantSlug)}`,
+      cookies: [buildSessionCookie(result.sessionSecret), buildCsrfCookie(result.csrfToken)],
+      body: { success: true }
+    };
+  } catch (err: any) {
+    return { statusCode: 400, body: { success: false, error: err?.message || 'QR code invalide.' } };
+  }
+}
+
+export async function handleGetTableSession(req: any) {
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service de session indisponible.' } };
+  try {
+    const secret = readCookie(req?.headers?.cookie, tableSessionCookieName);
+    const csrfCookie = readCookie(req?.headers?.cookie, tableCsrfCookieName);
+    const session = await getActiveTableSession(adminDb, secret);
+    if (!session || !csrfCookie || !validateCsrf(session, csrfCookie)) {
+      return { statusCode: 401, body: { success: false, error: 'Session de table absente, expirée ou révoquée.' } };
+    }
+    return {
+      statusCode: 200,
       body: {
-        success: false,
-        error: "Service de commande indisponible : les identifiants sécurisés Firebase Admin ne sont pas configurés sur le serveur."
+        success: true,
+        restaurantSlug: session.restaurantSlug,
+        tableId: session.tableId,
+        tableNumber: session.tableNumber,
+        csrfToken: csrfCookie,
+        expiresAt: session.expiresAt
       }
     };
+  } catch {
+    return { statusCode: 401, body: { success: false, error: 'Session de table invalide.' } };
   }
+}
 
+export async function handleTableQrManagement(req: any) {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de gestion QR indisponible.' } };
+  const restaurantSlug = String(req?.body?.restaurantSlug || req?.query?.restaurantSlug || '').trim();
+  const tableId = String(req?.body?.tableId || req?.query?.tableId || '').trim();
+  if (!restaurantSlug || !tableId) return { statusCode: 400, body: { success: false, error: 'Restaurant et table obligatoires.' } };
   try {
-    const result = await processOrderSubmission(payload as any, serverFirestoreProvider);
+    await authorizeTableManager(adminDb, adminAuth, req, restaurantSlug);
+    if (req.method === 'POST') {
+      const origin = String(process.env.APP_ORIGIN || req.headers.origin || '').replace(/\/+$/, '');
+      if (!origin || !/^https?:\/\//.test(origin)) return { statusCode: 400, body: { success: false, error: 'Origine applicative non configurée.' } };
+      const issued = await issueTableQr(adminDb, restaurantSlug, tableId, origin);
+      return { statusCode: 201, body: { success: true, url: issued.url, token: issued.token } };
+    }
+    if (req.method === 'DELETE') {
+      const result = await revokeTableQr(adminDb, restaurantSlug, tableId);
+      return { statusCode: 200, body: { success: true, ...result } };
+    }
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  } catch (err: any) {
+    const message = String(err?.message || 'Accès refusé.');
+    const statusCode = /Authentification|Accès|Permission/.test(message) ? 403 : 400;
+    return { statusCode, body: { success: false, error: message } };
+  }
+}
+
+export async function handleOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb) {
+    return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible : Firebase Admin non configuré.' } };
+  }
+  if (!req || !requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+  try {
+    const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
+    if (input.orderMode === 'sur_place') {
+      const sessionSecret = readCookie(req.headers?.cookie, tableSessionCookieName);
+      const csrfCookie = readCookie(req.headers?.cookie, tableCsrfCookieName);
+      const csrfHeader = req.headers?.['x-rm-csrf-token'];
+      const session = await getActiveTableSession(adminDb, sessionSecret);
+      if (!session || !csrfCookie || csrfHeader !== csrfCookie || !validateCsrf(session, csrfHeader)) {
+        return { statusCode: 401, body: { success: false, error: 'Session de table invalide, expirée ou révoquée. Scannez à nouveau le QR de votre table.' } };
+      }
+      if (String(input.restaurantSlug || '') !== session.restaurantSlug) {
+        return { statusCode: 403, body: { success: false, error: 'La session de table ne correspond pas à ce restaurant.' } };
+      }
+      // La table est exclusivement dérivée de la session serveur. La valeur client est ignorée.
+      input.tableNumber = session.tableNumber;
+    } else if (input.orderMode === 'a_emporter') {
+      input.tableNumber = null;
+    }
+    const result = await processOrderSubmission(input, serverFirestoreProvider);
     if (result.success) return { statusCode: 200, body: result };
     if (result.conflict) return { statusCode: 409, body: result };
     return { statusCode: 400, body: result };
   } catch (err: any) {
     console.error('Erreur inattendue API /api/orders:', err?.message || String(err));
-    return {
-      statusCode: 500,
-      body: { success: false, error: "Erreur interne du serveur lors du traitement de la commande." }
-    };
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne du serveur lors du traitement de la commande.' } };
   }
 }
 
@@ -706,6 +781,26 @@ app.all('/api/platform-admin', async (req, res) => {
 
 app.post('/api/orders', async (req, res) => {
   const result = await handleOrderSubmission(req.body);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.get('/q/:token', async (req, res) => {
+  const result = await handleResolveTableQr(String(req.params.token || ''));
+  res.setHeader('Cache-Control', 'no-store');
+  if (result.cookies) res.setHeader('Set-Cookie', result.cookies);
+  if (result.location) return res.redirect(result.statusCode, result.location);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.get('/api/table-session', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const result = await handleGetTableSession(req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.all('/api/tables/qr', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const result = await handleTableQrManagement(req);
   return res.status(result.statusCode).json(result.body);
 });
 
