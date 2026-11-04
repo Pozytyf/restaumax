@@ -39,7 +39,7 @@ service cloud.firestore {
       return isSignedIn() && (
         !exists(/databases/$(database)/documents/managers/$(request.auth.uid)) ||
         (
-          get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active != false &&
+          get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active == true &&
           request.auth.token.get('sessionVersion', 0) == get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('sessionVersion', 0)
         )
       );
@@ -77,7 +77,7 @@ service cloud.firestore {
         isRestaurantActive(targetSlug) &&
         exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurantSlug == targetSlug &&
-        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active != false &&
+        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active == true &&
         get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['owner', 'manager', 'staff', 'cashier', 'server', 'kitchen'] &&
         (
           get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'owner' ||
