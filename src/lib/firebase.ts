@@ -308,7 +308,7 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
     return Boolean(
       data &&
       data.active !== false &&
-      ['owner', 'manager', 'staff'].includes(data.role)
+      ['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(data.role)
     );
   } catch (err) {
     console.warn('Erreur lors de la vérification des privilèges gestionnaire:', err);
