@@ -835,6 +835,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       };
     } else if (input.orderMode === 'a_emporter') {
       input.tableNumber = null;
+      delete input.tableSession;
     }
     const result = await processOrderSubmission(input, serverFirestoreProvider);
     if (result.success) return { statusCode: 200, body: result };
