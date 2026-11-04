@@ -412,8 +412,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         Number(tableData.qrVersion || 0) === Number(sessionData.qrVersion || 0) &&
         String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
         restaurantData &&
-        restaurantData.status !== 'suspended' &&
-        restaurantData.status !== 'deleted' &&
+        restaurantData.status === 'active' &&
         !restaurantData.deletedAt &&
         Number(sessionData.restaurantSessionVersion || 0) === Number(restaurantData.tableSessionVersion || 0) &&
         restaurantData.isActive !== false &&
