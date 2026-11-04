@@ -858,6 +858,9 @@ app.all('/api/platform-admin', async (req, res) => {
 });
 
 app.post('/api/orders', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handleOrderSubmission(req.body, req);
   return res.status(result.statusCode).json(result.body);
 });
@@ -866,6 +869,8 @@ app.get('/q/:token', async (req, res) => {
   const result = await handleResolveTableQr(String(req.params.token || ''));
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'");
   if (result.cookies) res.setHeader('Set-Cookie', result.cookies);
   if (result.location) return res.redirect(result.statusCode, result.location);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -877,12 +882,14 @@ app.get('/q/:token', async (req, res) => {
 
 app.get('/api/table-session', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handleGetTableSession(req);
   return res.status(result.statusCode).json(result.body);
 });
 
 app.all('/api/tables/qr', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handleTableQrManagement(req);
   return res.status(result.statusCode).json(result.body);
 });
