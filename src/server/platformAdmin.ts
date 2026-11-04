@@ -30,7 +30,7 @@ const ROLE_PERMISSION_CEILINGS: Record<RestaurantRole, readonly Permission[]> = 
 const ROLE_BASE_PERMISSIONS: Record<RestaurantRole, readonly Permission[]> = {
   owner: PERMISSIONS,
   manager: ROLE_PERMISSION_CEILINGS.manager,
-  cashier: ['orders.view', 'tables.view', 'pos.access', 'cash.view', 'cash.manage'],
+  cashier: ['orders.view', 'tables.view', 'pos.access', 'cash.view', 'cash.manage', 'reports.cash.view'],
   server: ROLE_PERMISSION_CEILINGS.server,
   kitchen: ROLE_PERMISSION_CEILINGS.kitchen
 };
