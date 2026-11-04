@@ -354,9 +354,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const permissions = Array.isArray(body.permissions)
           ? [...new Set(body.permissions.filter((p: unknown): p is Permission => typeof p === 'string' && (PERMISSIONS as readonly string[]).includes(p)))]
           : [];
-        await getAuth().setCustomUserClaims(staffUid, { role, restaurantSlug: slug, permissions });
-        await memberRef.set({ role, permissions, updatedAt: Date.now() }, { merge: true });
-        await db.collection('managers').doc(staffUid).set({ role, permissions }, { merge: true });
+        const currentAuthUser = await getAuth().getUser(staffUid);
+        const sessionVersion = Number(member.sessionVersion || 0);
+        await getAuth().setCustomUserClaims(staffUid, { ...(currentAuthUser.customClaims || {}), role, restaurantSlug: slug, permissions, sessionVersion });
+        await memberRef.set({ role, permissions, sessionVersion, updatedAt: Date.now() }, { merge: true });
+        await db.collection('managers').doc(staffUid).set({ role, permissions, sessionVersion }, { merge: true });
         return json(res, 200, { success: true });
       }
     }
