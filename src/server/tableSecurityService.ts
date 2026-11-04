@@ -273,15 +273,8 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   }
 
   const managerRole = String(manager.role || '');
-  if (!['owner', 'manager', 'cashier', 'server', 'kitchen'].includes(managerRole)) {
-    throw new Error('Rôle opérationnel non autorisé.');
-  }
-  if (managerRole !== 'owner' && managerRole !== 'manager') {
-    const permissions = manager.permissions;
-    const canManageTables = Array.isArray(permissions)
-      ? permissions.includes('tables.manage')
-      : Boolean(permissions && permissions['tables.manage'] === true);
-    if (!canManageTables) throw new Error('Permission de gestion des tables requise.');
+  if (!['owner', 'manager'].includes(managerRole)) {
+    throw new Error('Seul le propriétaire ou un manager du restaurant peut administrer les QR de table.');
   }
   return decoded;
 }
