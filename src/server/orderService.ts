@@ -192,6 +192,7 @@ export async function processOrderSubmission(
     cart, 
     orderMode, 
     tableNumber, 
+    tableSession,
     customerNote, 
     declaredTotal, 
     idempotencyKey 
@@ -503,7 +504,8 @@ export async function processOrderSubmission(
         keyDocId,
         orderId,
         signature: currentSignature,
-        orderToCreate: confirmedOrder
+        orderToCreate: confirmedOrder,
+        tableSession
       });
       return txResult;
     } catch (err: any) {
