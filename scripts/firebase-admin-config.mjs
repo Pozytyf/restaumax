@@ -54,9 +54,21 @@ export function getAppletFirebaseConfig(targetConfigPath = configPath) {
     );
   }
 
+  const isVercelPreview = process.env.VERCEL_ENV === 'preview';
+  const projectId = process.env.FIREBASE_PROJECT_ID?.trim() || config.projectId.trim();
+  const firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID?.trim() || config.firestoreDatabaseId.trim();
+
+  // Preview must never fall back silently to the committed Production project.
+  if (isVercelPreview && projectId !== 'restaumax-demo') {
+    throw new Error("Configuration Firebase Preview invalide : FIREBASE_PROJECT_ID doit cibler exclusivement 'restaumax-demo'.");
+  }
+  if (isVercelPreview && process.env.FIRESTORE_DATABASE_ID?.trim() !== '(default)') {
+    throw new Error("Configuration Firebase Preview invalide : FIRESTORE_DATABASE_ID doit être explicitement défini à '(default)'.");
+  }
+
   return {
-    projectId: config.projectId.trim(),
-    firestoreDatabaseId: config.firestoreDatabaseId.trim(),
+    projectId,
+    firestoreDatabaseId,
     appId: config.appId,
     authDomain: config.authDomain,
   };
