@@ -96,7 +96,7 @@ export async function issueTableQr(db: any, restaurantSlug: string, tableId: str
       tx.get(tableRef),
       tx.get(restaurantRef.collection('table_qr_tokens').where('tableId', '==', id))
     ]);
-    if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.isActive === false) {
+    if (!restaurantSnap.exists || (restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) || restaurantSnap.data()?.isActive === false) {
       throw new Error('Restaurant introuvable, inactif ou suspendu.');
     }
     if (!tableSnap.exists || tableSnap.data()?.isActive !== true) {
@@ -177,7 +177,7 @@ export async function resolveTableQr(db: any, token: string) {
         currentTokenData.restaurantSlug !== slug || currentTokenData.tableId !== tableId) {
       throw new Error('Ce QR code a été révoqué ou remplacé.');
     }
-    if (!restaurantData || restaurantData.status === 'suspended' || restaurantData.isActive === false || restaurantData.isOpen === false) {
+    if (!restaurantData || (restaurantData.status === 'suspended' || restaurantData.status === 'deleted' || restaurantData.deletedAt) || restaurantData.isActive === false || restaurantData.isOpen === false) {
       throw new Error('Ce restaurant est temporairement indisponible.');
     }
     if (!tableData || tableData.isActive !== true ||
