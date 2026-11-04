@@ -165,7 +165,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             tableSessionVersion: Number(restaurantSnap.data()?.tableSessionVersion || 0) + 1
           } : {
             // Restore the operational open/closed state that existed before suspension.
-            isOpen: restaurantSnap.data()?.isOpenBeforeSuspension === true,
+            isOpen: restaurantSnap.data()?.status === 'suspended'
+              ? restaurantSnap.data()?.isOpenBeforeSuspension === true
+              : restaurantSnap.data()?.isOpen === true,
             isOpenBeforeSuspension: null,
             suspendedAt: null,
             suspendedBy: null
