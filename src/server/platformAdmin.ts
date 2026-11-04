@@ -52,6 +52,7 @@ async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
   const membership = await db.collection('managers').doc(user.uid).get();
   const member = membership.exists ? membership.data() : null;
   if (restaurant.ownerUid !== user.uid || member?.role !== 'owner' || member?.restaurantSlug !== slug || member?.active === false) return null;
+  if (Number(user.sessionVersion || 0) !== Number(member?.sessionVersion || 0)) return null;
   return { role: 'owner', restaurant };
 }
 
@@ -293,20 +294,25 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 409, { success: false, error: 'Réactive d’abord le restaurant avant de réactiver ses comptes.' });
         }
         const now = Date.now();
+        const sessionVersion = Number(member.sessionVersion || 0) + 1;
+        const authUser = await auth.getUser(staffUid);
+        const nextClaims = { ...(authUser.customClaims || {}), sessionVersion };
         if (nextActive) {
-          // Enable Auth first; Firestore remains the final authorization gate until both records are restored.
+          // Publish a new token version before reopening Firestore membership.
+          await auth.setCustomUserClaims(staffUid, nextClaims);
           await auth.updateUser(staffUid, { disabled: false });
           await auth.revokeRefreshTokens(staffUid);
           const batch = db.batch();
-          batch.set(memberRef, { active: true, status: 'active', updatedAt: now, updatedBy: user.uid }, { merge: true });
-          batch.set(managerRef, { active: true, status: 'active', updatedAt: now, updatedBy: user.uid }, { merge: true });
+          batch.set(memberRef, { active: true, status: 'active', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
+          batch.set(managerRef, { active: true, status: 'active', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
           await batch.commit();
         } else {
-          // Close Firestore authorization first so existing ID tokens stop working even if Auth cleanup fails.
+          // Close Firestore authorization first; the incremented version invalidates existing ID tokens after reactivation too.
           const batch = db.batch();
-          batch.set(memberRef, { active: false, status: 'suspended', updatedAt: now, updatedBy: user.uid }, { merge: true });
-          batch.set(managerRef, { active: false, status: 'suspended', updatedAt: now, updatedBy: user.uid }, { merge: true });
+          batch.set(memberRef, { active: false, status: 'suspended', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
+          batch.set(managerRef, { active: false, status: 'suspended', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
           await batch.commit();
+          await auth.setCustomUserClaims(staffUid, nextClaims);
           await auth.updateUser(staffUid, { disabled: true });
           await auth.revokeRefreshTokens(staffUid);
         }
@@ -318,10 +324,16 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const now = Date.now();
         // Revoke Firestore authorization before touching Auth; never remove business history.
         const revokeBatch = db.batch();
-        revokeBatch.set(memberRef, { active: false, status: 'deleting', updatedAt: now, updatedBy: user.uid }, { merge: true });
-        revokeBatch.set(managerRef, { active: false, status: 'deleting', updatedAt: now, updatedBy: user.uid }, { merge: true });
+        const sessionVersion = Number(member.sessionVersion || 0) + 1;
+        revokeBatch.set(memberRef, { active: false, status: 'deleting', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
+        revokeBatch.set(managerRef, { active: false, status: 'deleting', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
         await revokeBatch.commit();
-        try { await auth.updateUser(staffUid, { disabled: true }); await auth.revokeRefreshTokens(staffUid); } catch (error: any) {
+        try {
+          const authUser = await auth.getUser(staffUid);
+          await auth.setCustomUserClaims(staffUid, { ...(authUser.customClaims || {}), sessionVersion });
+          await auth.updateUser(staffUid, { disabled: true });
+          await auth.revokeRefreshTokens(staffUid);
+        } catch (error: any) {
           if (error?.code !== 'auth/user-not-found') throw error;
         }
         try { await auth.deleteUser(staffUid); } catch (error: any) {
