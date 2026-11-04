@@ -41,7 +41,7 @@ function parseRestaurantRole(value: unknown): RestaurantRole | null {
     : null;
 }
 
-function resolveRolePermissions(role: RestaurantRole, requested: unknown, allowExtras = true): Permission[] | null {
+export function resolveRolePermissions(role: RestaurantRole, requested: unknown, allowExtras = true): Permission[] | null {
   const ceiling = ROLE_PERMISSION_CEILINGS[role];
   if (requested !== undefined && !Array.isArray(requested)) return null;
   const extras = Array.isArray(requested)
@@ -85,6 +85,12 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
 function isSuperAdmin(user: DecodedIdToken) {
   return user.role === 'super_admin' ||
     (typeof user.email === 'string' && configuredSuperAdmins().includes(user.email.toLowerCase()));
+}
+
+export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole: string): boolean {
+  if (targetRole === 'owner') return false;
+  if (actorRole === 'owner') return ['manager', 'cashier', 'server', 'kitchen', 'staff'].includes(targetRole);
+  return ['cashier', 'server', 'kitchen', 'staff'].includes(targetRole);
 }
 
 async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
@@ -347,9 +353,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const memberSnap = await memberRef.get();
       if (!memberSnap.exists) return json(res, 404, { success: false, error: 'Membre introuvable.' });
       const member = memberSnap.data();
-      if (member?.role === 'owner') return json(res, 403, { success: false, error: 'Le compte propriétaire ne peut pas être géré depuis le personnel du restaurant.' });
-      if (actor.role === 'manager' && member?.role === 'manager') return json(res, 403, { success: false, error: 'Un manager ne peut pas gérer un autre manager.' });
-      if (!['manager', 'cashier', 'server', 'kitchen', 'staff'].includes(String(member?.role || ''))) return json(res, 403, { success: false, error: 'Rôle cible non administrable.' });
+      if (!canManageStaffMember(actor.role, String(member?.role || ''))) {
+        return json(res, 403, { success: false, error: actor.role === 'manager'
+          ? 'Un manager ne peut gérer que les caissiers, serveurs et équipes Cuisine/Bar.'
+          : 'Le compte propriétaire ne peut pas être géré depuis le personnel du restaurant.' });
+      }
       const restaurantSnap = await db.collection('restaurants').doc(slug).get();
       if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) {
         return json(res, 409, { success: false, error: 'Les comptes associés à un restaurant supprimé ne peuvent plus être modifiés.' });
