@@ -53,17 +53,22 @@ async function run() {
   }
 
   try {
-    await restaurantRef.set({ slug, status: 'active', isActive: true, isOpen: true });
+    await restaurantRef.set({ slug, status: 'active', isActive: true, isOpen: true, tableSessionVersion: 0 });
     await tableRef.set({ tableNumber: '4', isActive: true, qrVersion: 1 });
     await qrRef.set({ tokenHash: qrTokenHash, restaurantSlug: slug, tableId, version: 1, status: 'active' });
     await sessionRef.set({
       sessionHash, restaurantSlug: slug, tableId, tableNumber: '4', qrTokenHash,
-      qrVersion: 1, csrfHash: 'a'.repeat(64), status: 'active',
+      qrVersion: 1, csrfHash: 'a'.repeat(64), restaurantSessionVersion: 0, status: 'active',
       createdAt: Date.now(), lastSeenAt: Date.now(), expiresAt: Date.now() + 60 * 60 * 1000
     });
 
     const valid = await executeOrderTransactionWithDb(db, buildParams('valid-session-' + Date.now()));
     assert(valid.success === true, 'Une session QR valide autorise la commande sur place dans la transaction');
+
+    await restaurantRef.update({ tableSessionVersion: 1 });
+    const staleRestaurantSession = await executeOrderTransactionWithDb(db, buildParams('stale-restaurant-session-' + Date.now()));
+    assert(staleRestaurantSession.success === false, 'Une session antérieure à la suspension du restaurant est refusée dans la transaction');
+    await restaurantRef.update({ tableSessionVersion: 0 });
 
     await qrRef.update({ status: 'revoked' });
     const revoked = await executeOrderTransactionWithDb(db, buildParams('revoked-qr-' + Date.now()));
@@ -89,6 +94,10 @@ async function run() {
       tableSession: undefined
     });
     assert(missingSession.success === false, 'Une commande sur place sans contexte de session est refusée');
+
+    await restaurantRef.update({ isOpen: true, status: 'deleted', deletedAt: Date.now() });
+    const deletedRestaurant = await executeOrderTransactionWithDb(db, buildParams('deleted-restaurant-' + Date.now()));
+    assert(deletedRestaurant.success === false, 'Un restaurant supprimé logiquement ne peut plus recevoir de commande');
   } finally {
     for (const ref of createdRefs) { try { await ref.delete(); } catch {} }
     try { await sessionRef.delete(); } catch {}
