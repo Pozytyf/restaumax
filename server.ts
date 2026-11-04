@@ -34,6 +34,7 @@
 
 import 'dotenv/config';
 import express from 'express';
+import { getAuth } from 'firebase-admin/auth';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -45,6 +46,21 @@ import {
   OrderProbeResult,
   IdempotencyReservationResult
 } from './src/server/orderService.js';
+import {
+  authorizeTableManager,
+  buildCsrfCookie,
+  buildSessionCookie,
+  getActiveTableSession,
+  issueTableQr,
+  isTrustedQrNavigation,
+  readCookie,
+  requestHasValidOrigin,
+  resolveTableQr,
+  revokeTableQr,
+  tableCsrfCookieName,
+  tableSessionCookieName,
+  validateCsrf
+} from './src/server/tableSecurityService.js';
 import { 
   getAppletFirebaseConfig, 
   initAdminApp, 
@@ -62,6 +78,7 @@ app.use(express.json());
 
 // 1. Initialisation stricte de Firebase Admin SDK
 export let adminDb: any = null;
+export let adminAuth: any = null;
 let adminInitError: string | null = null;
 let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = null;
 
@@ -76,16 +93,19 @@ try {
     const serviceAccount = validateServiceAccountCredentials(parsedCredentials, appletConfig.projectId);
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
+    adminAuth = getAuth(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé via variable sécurisée pour la base '${appletConfig.firestoreDatabaseId}'.`);
   } else if (credPath && fs.existsSync(credPath)) {
     // Local/server deployments may continue to use a credentials file.
     const serviceAccount = validateServiceAccountCredentials(credPath, appletConfig.projectId);
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
+    adminAuth = getAuth(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
   } else if (process.env.FIRESTORE_EMULATOR_HOST) {
     const adminApp = initAdminApp(null as any, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
+    adminAuth = getAuth(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé sur l'émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`);
   } else {
     adminInitError = credPath
@@ -337,16 +357,69 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
   if (!db) {
     throw new Error("Opération refusée : Instance Firestore non disponible.");
   }
-  const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate } = params;
+  const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate, tableSession } = params;
+  const restaurantRef = db.collection('restaurants').doc(restaurantSlug);
   const docRefKey = db.collection('idempotency_keys').doc(keyDocId);
-  const docRefOrder = db.collection('restaurants').doc(restaurantSlug).collection('orders').doc(orderId);
+  const docRefOrder = restaurantRef.collection('orders').doc(orderId);
+
+  if (orderToCreate.orderMode === 'sur_place' && !tableSession) {
+    return { success: false, error: 'Commande sur place refusée : session QR sécurisée obligatoire.' };
+  }
 
   return await db.runTransaction(async (t: any) => {
-    // 1. Lectures préalables obligatoires
-    const [snapKey, snapOrder] = await Promise.all([
-      t.get(docRefKey),
-      t.get(docRefOrder)
-    ]);
+    // Toutes les lectures de sécurité et d'idempotence sont effectuées dans la transaction
+    // qui écrit la commande : une révocation concurrente provoque un conflit/retry Firestore.
+    const reads: Promise<any>[] = [t.get(docRefKey), t.get(docRefOrder)];
+    if (tableSession) {
+      reads.push(
+        t.get(restaurantRef.collection('table_sessions').doc(tableSession.sessionHash)),
+        t.get(restaurantRef.collection('table_qr_tokens').doc(tableSession.qrTokenHash)),
+        t.get(restaurantRef.collection('tables').doc(tableSession.tableId)),
+        t.get(restaurantRef)
+      );
+    }
+    const snapshots = await Promise.all(reads);
+    const snapKey = snapshots[0];
+    const snapOrder = snapshots[1];
+
+    if (tableSession) {
+      const snapSession = snapshots[2];
+      const snapQr = snapshots[3];
+      const snapTable = snapshots[4];
+      const snapRestaurant = snapshots[5];
+      const sessionData = snapSession.exists ? snapSession.data() : null;
+      const qrData = snapQr.exists ? snapQr.data() : null;
+      const tableData = snapTable.exists ? snapTable.data() : null;
+      const restaurantData = snapRestaurant.exists ? snapRestaurant.data() : null;
+      const now = Date.now();
+      const valid = Boolean(
+        sessionData &&
+        sessionData.status === 'active' &&
+        Number(sessionData.expiresAt) > now &&
+        sessionData.restaurantSlug === restaurantSlug &&
+        sessionData.sessionHash === tableSession.sessionHash &&
+        sessionData.tableId === tableSession.tableId &&
+        sessionData.qrTokenHash === tableSession.qrTokenHash &&
+        Number(sessionData.qrVersion) === Number(tableSession.qrVersion) &&
+        qrData &&
+        qrData.status === 'active' &&
+        qrData.tokenHash === tableSession.qrTokenHash &&
+        qrData.restaurantSlug === restaurantSlug &&
+        Number(qrData.version) === Number(sessionData.qrVersion) &&
+        qrData.tableId === tableSession.tableId &&
+        tableData &&
+        tableData.isActive === true &&
+        Number(tableData.qrVersion || 0) === Number(sessionData.qrVersion || 0) &&
+        String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
+        restaurantData &&
+        restaurantData.status !== 'suspended' &&
+        restaurantData.isActive !== false &&
+        restaurantData.isOpen !== false
+      );
+      if (!valid) {
+        return { success: false, error: 'Commande refusée : QR révoqué, session expirée, table inactive ou restaurant indisponible.' };
+      }
+    }
 
     const keyExists = snapKey.exists;
     const orderExists = snapOrder.exists;
@@ -668,29 +741,118 @@ export function getServerHealth() {
   };
 }
 
-export async function handleOrderSubmission(payload: unknown): Promise<{ statusCode: number; body: any }> {
-  // Fail closed: never accept orders without trusted Firebase Admin credentials.
-  if (!adminDb) {
+export async function handleResolveTableQr(token: string, req?: any): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
+  if (req && !isTrustedQrNavigation(req)) return { statusCode: 403, body: { success: false, error: 'Navigation QR non autorisée.' }, cookies: undefined, location: undefined };
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service QR indisponible.' } };
+  try {
+    const result = await resolveTableQr(adminDb, token);
     return {
-      statusCode: 503,
+      statusCode: 302,
+      location: `/r/${encodeURIComponent(result.restaurantSlug)}?table_session=1`,
+      cookies: [buildSessionCookie(result.sessionSecret), buildCsrfCookie(result.csrfToken)],
+      body: { success: true }
+    };
+  } catch (err: any) {
+    return { statusCode: 400, body: { success: false, error: err?.message || 'QR code invalide.' }, cookies: undefined, location: undefined };
+  }
+}
+
+export async function handleGetTableSession(req: any) {
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service de session indisponible.' } };
+  try {
+    const secret = readCookie(req?.headers?.cookie, tableSessionCookieName);
+    const csrfCookie = readCookie(req?.headers?.cookie, tableCsrfCookieName);
+    const session = await getActiveTableSession(adminDb, secret);
+    if (!session || !csrfCookie || !validateCsrf(session, csrfCookie)) {
+      return { statusCode: 401, body: { success: false, error: 'Session de table absente, expirée ou révoquée.' } };
+    }
+    return {
+      statusCode: 200,
       body: {
-        success: false,
-        error: "Service de commande indisponible : les identifiants sécurisés Firebase Admin ne sont pas configurés sur le serveur."
+        success: true,
+        restaurantSlug: session.restaurantSlug,
+        tableId: session.tableId,
+        tableNumber: session.tableNumber,
+        csrfToken: csrfCookie,
+        expiresAt: session.expiresAt
       }
     };
+  } catch {
+    return { statusCode: 401, body: { success: false, error: 'Session de table invalide.' } };
   }
+}
 
+export async function handleTableQrManagement(req: any) {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de gestion QR indisponible.' } };
+  const restaurantSlug = String(req?.body?.restaurantSlug || req?.query?.restaurantSlug || '').trim();
+  const tableId = String(req?.body?.tableId || req?.query?.tableId || '').trim();
+  if (!restaurantSlug || !tableId) return { statusCode: 400, body: { success: false, error: 'Restaurant et table obligatoires.' } };
   try {
-    const result = await processOrderSubmission(payload as any, serverFirestoreProvider);
+    await authorizeTableManager(adminDb, adminAuth, req, restaurantSlug);
+    if (req.method === 'POST') {
+      const rawOrigin = String(process.env.APP_ORIGIN || req.headers.origin || '');
+      let parsedOrigin: URL;
+      try { parsedOrigin = new URL(rawOrigin); } catch {
+        return { statusCode: 400, body: { success: false, error: 'Origine applicative non configurée.' } };
+      }
+      const localHttp = parsedOrigin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsedOrigin.hostname);
+      if ((parsedOrigin.protocol !== 'https:' && !localHttp) || parsedOrigin.pathname !== '/' || parsedOrigin.search || parsedOrigin.hash) {
+        return { statusCode: 400, body: { success: false, error: 'APP_ORIGIN doit être une origine HTTPS canonique, sans chemin.' } };
+      }
+      const issued = await issueTableQr(adminDb, restaurantSlug, tableId, parsedOrigin.origin);
+      return { statusCode: 201, body: { success: true, url: issued.url } };
+    }
+    if (req.method === 'DELETE') {
+      const result = await revokeTableQr(adminDb, restaurantSlug, tableId);
+      return { statusCode: 200, body: { success: true, ...result } };
+    }
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  } catch (err: any) {
+    const message = String(err?.message || 'Accès refusé.');
+    const statusCode = /Authentification|Accès|Permission/.test(message) ? 403 : 400;
+    return { statusCode, body: { success: false, error: message } };
+  }
+}
+
+export async function handleOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb) {
+    return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible : Firebase Admin non configuré.' } };
+  }
+  if (!req || !requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+  try {
+    const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
+    if (input.orderMode === 'sur_place') {
+      const sessionSecret = readCookie(req.headers?.cookie, tableSessionCookieName);
+      const csrfCookie = readCookie(req.headers?.cookie, tableCsrfCookieName);
+      const csrfHeader = req.headers?.['x-rm-csrf-token'];
+      const session = await getActiveTableSession(adminDb, sessionSecret);
+      if (!session || !csrfCookie || csrfHeader !== csrfCookie || !validateCsrf(session, csrfHeader)) {
+        return { statusCode: 401, body: { success: false, error: 'Session de table invalide, expirée ou révoquée. Scannez à nouveau le QR de votre table.' } };
+      }
+      if (String(input.restaurantSlug || '') !== session.restaurantSlug) {
+        return { statusCode: 403, body: { success: false, error: 'La session de table ne correspond pas à ce restaurant.' } };
+      }
+      // La table est exclusivement dérivée de la session serveur. La valeur client est ignorée.
+      input.tableNumber = session.tableNumber;
+      input.tableSession = {
+        sessionHash: session.sessionHash,
+        qrTokenHash: session.qrTokenHash,
+        qrVersion: session.qrVersion,
+        tableId: session.tableId
+      };
+    } else if (input.orderMode === 'a_emporter') {
+      input.tableNumber = null;
+      delete input.tableSession;
+    }
+    const result = await processOrderSubmission(input, serverFirestoreProvider);
     if (result.success) return { statusCode: 200, body: result };
     if (result.conflict) return { statusCode: 409, body: result };
     return { statusCode: 400, body: result };
   } catch (err: any) {
     console.error('Erreur inattendue API /api/orders:', err?.message || String(err));
-    return {
-      statusCode: 500,
-      body: { success: false, error: "Erreur interne du serveur lors du traitement de la commande." }
-    };
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne du serveur lors du traitement de la commande.' } };
   }
 }
 
@@ -705,7 +867,39 @@ app.all('/api/platform-admin', async (req, res) => {
 });
 
 app.post('/api/orders', async (req, res) => {
-  const result = await handleOrderSubmission(req.body);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleOrderSubmission(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.get('/q/:token', async (req, res) => {
+  const result = await handleResolveTableQr(String(req.params.token || ''), req);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'");
+  if (result.cookies) res.setHeader('Set-Cookie', result.cookies);
+  if (result.location) return res.redirect(result.statusCode, result.location);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  const message = result.statusCode === 503
+    ? 'Le service de vérification est momentanément indisponible. Réessayez dans quelques instants ou contactez le personnel.'
+    : 'Ce QR code est invalide, révoqué ou associé à une table indisponible. Demandez un nouveau QR au personnel.';
+  return res.status(result.statusCode).send('<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QR RestauMax indisponible</title><body style="font-family:system-ui,sans-serif;background:#f4f7fb;color:#172033;display:grid;min-height:100vh;place-items:center;margin:0;padding:24px"><main style="max-width:440px;background:white;border-radius:20px;padding:28px;box-shadow:0 12px 40px #10203018"><h1 style="font-size:22px">QR de table indisponible</h1><p style="line-height:1.6">' + message + '</p><p style="font-size:13px;color:#64748b">RestauMax — Sécurité des commandes</p></main></body></html>');
+});
+
+app.get('/api/table-session', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleGetTableSession(req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.all('/api/tables/qr', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleTableQrManagement(req);
   return res.status(result.statusCode).json(result.body);
 });
 

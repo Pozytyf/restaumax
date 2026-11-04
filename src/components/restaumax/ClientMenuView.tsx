@@ -26,8 +26,8 @@ export interface ClientMenuViewProps {
   restaurant: RestaurantInfo;
   menuItems: RestauMenuItem[];
   tableNumber: string | null;
+  tableSessionUnavailable?: boolean;
   onNavigateHome: () => void;
-  onSelectTableDemo: (table: string | null) => void;
   cart: ClientCartItem[];
   onAddToCart: (newItem: ClientCartItem) => boolean;
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
@@ -98,8 +98,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   restaurant,
   menuItems,
   tableNumber,
+  tableSessionUnavailable = false,
   onNavigateHome,
-  onSelectTableDemo,
   cart,
   onAddToCart,
   onUpdateQuantity,
@@ -157,35 +157,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
             </button>
           </div>
 
-          {/* Table / Order Mode Switcher quick pills */}
-          <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-            <button
-              onClick={() => {
-                sounds.playTap();
-                onSelectTableDemo('4');
-              }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                tableNumber === '4'
-                  ? 'bg-amber-400 text-slate-950 shadow-md ring-2 ring-white/50'
-                  : 'bg-black/60 text-white/90 hover:bg-black/80 backdrop-blur-sm'
-              }`}
-            >
-              Table 4
-            </button>
-            <button
-              onClick={() => {
-                sounds.playTap();
-                onSelectTableDemo(null);
-              }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                tableNumber === null
-                  ? 'bg-amber-400 text-slate-950 shadow-md ring-2 ring-white/50'
-                  : 'bg-black/60 text-white/90 hover:bg-black/80 backdrop-blur-sm'
-              }`}
-            >
-              À emporter
-            </button>
-          </div>
+
         </div>
 
         {/* Restaurant Header Information */}
@@ -251,6 +223,15 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
 
       {/* Main Content Area */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-5 space-y-5">
+        {tableSessionUnavailable && (
+          <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-900 flex items-start gap-2">
+            <Info size={18} className="shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-black">Session de table indisponible</p>
+              <p className="text-xs mt-1 leading-relaxed">Ce QR a peut-être été révoqué, la table désactivée ou le service momentanément indisponible. Scannez à nouveau le QR physique ou demandez de l’aide au personnel. Aucune commande sur place ne sera acceptée sans session valide.</p>
+            </div>
+          </div>
+        )}
         {/* Search Bar */}
         <div className="relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />

@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
   getAuth, 
   signInWithEmailAndPassword, 
+  sendPasswordResetEmail,
   signOut, 
   onIdTokenChanged, 
   getIdTokenResult,
@@ -327,6 +328,27 @@ export async function signInManager(
 }
 
 /**
+ * Envoie un lien de réinitialisation du mot de passe via Firebase Authentication.
+ * Le message côté interface reste générique pour ne pas révéler si un compte existe.
+ */
+export async function requestManagerPasswordReset(email: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    await sendPasswordResetEmail(auth, email.trim());
+    return { success: true };
+  } catch (err: any) {
+    const code = err?.code;
+    if (code === 'auth/invalid-email') {
+      return { success: false, error: "L'adresse e-mail saisie n'est pas valide." };
+    }
+    if (code === 'auth/too-many-requests') {
+      return { success: false, error: "Trop de demandes. Veuillez patienter avant de réessayer." };
+    }
+    console.error('Erreur de demande de réinitialisation du mot de passe:', code || err);
+    return { success: false, error: "Impossible d'envoyer le lien pour le moment. Réessayez plus tard." };
+  }
+}
+
+/**
  * Signs out the manager
  */
 export async function signOutManager(): Promise<void> {
@@ -365,6 +387,7 @@ export async function submitOrderWithServerValidation(
     allowedTables?: RestaurantTable[];
     declaredTotal?: number;
     fallbackCatalog?: RestauMenuItem[];
+    csrfToken?: string;
   }
 ): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
@@ -372,11 +395,13 @@ export async function submitOrderWithServerValidation(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(params.csrfToken ? { 'X-RM-CSRF-Token': params.csrfToken } : {}),
       },
+      credentials: 'same-origin',
+      cache: 'no-store',
       body: JSON.stringify({
         restaurantSlug,
         orderMode: params.orderMode,
-        tableNumber: params.tableNumber,
         customerNote: params.customerNote,
         declaredTotal: params.declaredTotal,
         idempotencyKey: params.idempotencyKey,

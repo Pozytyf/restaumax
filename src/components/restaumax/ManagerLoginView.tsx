@@ -8,9 +8,11 @@ import {
   AlertCircle, 
   ArrowLeft, 
   ShieldCheck, 
-  Loader2 
+  Loader2,
+  KeyRound
 } from 'lucide-react';
 import { sounds } from '../../utils/audio';
+import { requestManagerPasswordReset } from '../../lib/firebase';
 
 interface ManagerLoginViewProps {
   onLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
@@ -28,6 +30,8 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,6 +64,27 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
     }
   };
 
+  const handlePasswordReset = async () => {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
+      setResetMessage("Saisissez votre adresse e-mail pour recevoir un lien de réinitialisation.");
+      return;
+    }
+
+    setIsResettingPassword(true);
+    setResetMessage(null);
+    try {
+      const result = await requestManagerPasswordReset(normalizedEmail);
+      if (result.success) {
+        setResetMessage("Si un compte correspond à cette adresse, un e-mail de réinitialisation vient d'être envoyé. Vérifiez aussi vos courriers indésirables.");
+      } else {
+        setResetMessage(result.error || "La demande n'a pas pu être traitée. Réessayez plus tard.");
+      }
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
   return (
     <div className="min-h-[85vh] flex items-center justify-center p-4 bg-[#f4f7fb] text-[#181c1f]">
       <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/90 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -72,10 +97,10 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
               onBackToMenu();
             }}
             className="absolute top-5 left-5 p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors flex items-center gap-1.5 text-xs font-semibold"
-            title="Revenir au menu client"
+            title="Revenir à la page d’accueil"
           >
             <ArrowLeft size={14} />
-            <span className="hidden sm:inline">Menu client</span>
+            <span className="hidden sm:inline">Accueil</span>
           </button>
 
           <div className="w-14 h-14 mx-auto rounded-2xl bg-[#ff6500] text-white flex items-center justify-center font-black text-xl shadow-md mb-3">
@@ -171,6 +196,23 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
               )}
             </button>
           </form>
+
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={handlePasswordReset}
+              disabled={isSubmitting || isResettingPassword}
+              className="w-full text-center text-xs font-bold text-[#e05800] hover:text-[#b94700] disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-1.5"
+            >
+              {isResettingPassword ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+              <span>{isResettingPassword ? "Envoi du lien..." : "Mot de passe oublié ?"}</span>
+            </button>
+            {resetMessage && (
+              <p role="status" aria-live="polite" className="text-[11px] text-center text-slate-600 leading-relaxed">
+                {resetMessage}
+              </p>
+            )}
+          </div>
 
           {/* Security & Provisioning Note */}
           <div className="pt-4 border-t border-slate-100 text-center">

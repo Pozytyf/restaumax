@@ -30,6 +30,7 @@ export interface OrderSubmissionPayload {
   }>;
   orderMode: OrderMode;
   tableNumber: string | null;
+  tableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string };
   customerNote?: string;
   declaredTotal?: number;
   idempotencyKey?: string;
@@ -86,6 +87,7 @@ export interface ExecuteOrderTransactionParams {
   orderId: string;
   signature: string;
   orderToCreate: RestauOrder;
+  tableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string };
 }
 
 export interface ExecuteOrderTransactionResult {
@@ -190,6 +192,7 @@ export async function processOrderSubmission(
     cart, 
     orderMode, 
     tableNumber, 
+    tableSession,
     customerNote, 
     declaredTotal, 
     idempotencyKey 
@@ -501,7 +504,8 @@ export async function processOrderSubmission(
         keyDocId,
         orderId,
         signature: currentSignature,
-        orderToCreate: confirmedOrder
+        orderToCreate: confirmedOrder,
+        tableSession
       });
       return txResult;
     } catch (err: any) {

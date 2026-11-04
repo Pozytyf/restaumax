@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { RestaurantInfo, RestaurantTable } from '../../types/restaumax';
-import { generateTableQrUrl } from '../../utils/pricing';
+import { auth } from '../../lib/firebase';
 import { sounds } from '../../utils/audio';
 import { 
   ArrowLeft, 
@@ -45,6 +45,8 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   });
 
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [qrUrl, setQrUrl] = useState<string>('');
+  const [qrForTableId, setQrForTableId] = useState<string | null>(null);
   const [qrSvgString, setQrSvgString] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
@@ -71,65 +73,80 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
 
   const currentTable: RestaurantTable | null = tableList.find(t => t.id === selectedTableId) || tableList[0] || null;
 
-  const appOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://restaumax.app';
-  const canonicalUrl = currentTable 
-    ? generateTableQrUrl(appOrigin, restaurant.slug, currentTable.tableNumber)
-    : `${appOrigin}/r/${restaurant.slug}`;
+  const canonicalUrl = qrForTableId === currentTable?.id ? qrUrl : '';
 
-  // Generate QR Code as DataURL and SVG String
+  // QR assets are generated only from a one-time URL returned by the authenticated server.
   useEffect(() => {
-    if (!currentTable) {
+    let active = true;
+    if (!canonicalUrl) {
       setQrDataUrl('');
       setQrSvgString('');
+      setIsGenerating(false);
       return;
     }
-
-    let isMounted = true;
     setIsGenerating(true);
+    Promise.all([
+      QRCode.toDataURL(canonicalUrl, { width: 600, margin: 1, color: { dark: '#0c2e22', light: '#ffffff' }, errorCorrectionLevel: 'H' }),
+      QRCode.toString(canonicalUrl, { type: 'svg', margin: 1, color: { dark: '#0c2e22', light: '#ffffff' }, errorCorrectionLevel: 'H' })
+    ]).then(([png, svg]) => {
+      if (active) { setQrDataUrl(png); setQrSvgString(svg); setIsGenerating(false); }
+    }).catch((err) => {
+      console.error('Erreur génération QR Code:', err);
+      if (active) setIsGenerating(false);
+    });
+    return () => { active = false; };
+  }, [canonicalUrl]);
 
-    const generateQrs = async () => {
-      try {
-        const urlToEncode = generateTableQrUrl(appOrigin, restaurant.slug, currentTable.tableNumber);
+  const handleGenerateQr = async () => {
+    if (!currentTable || isGenerating) return;
+    setFormError(null);
+    setIsGenerating(true);
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Votre session gestionnaire a expiré. Reconnectez-vous.');
+      const idToken = await user.getIdToken();
+      const response = await fetch('/api/tables/qr', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+        body: JSON.stringify({ restaurantSlug: restaurant.slug, tableId: currentTable.id })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success || typeof data.url !== 'string') throw new Error(data.error || 'Impossible de générer le QR sécurisé.');
+      setQrForTableId(currentTable.id);
+      setQrUrl(data.url);
+      sounds.playSuccess();
+    } catch (err: any) {
+      setFormError(err?.message || 'Erreur lors de la génération du QR sécurisé.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-        // 1. High-resolution PNG Data URL for display & download
-        const dataUrl = await QRCode.toDataURL(urlToEncode, {
-          width: 600,
-          margin: 1,
-          color: {
-            dark: '#0c2e22', // Forest green dark tone
-            light: '#ffffff'
-          },
-          errorCorrectionLevel: 'H'
-        });
-
-        // 2. Crisp vector SVG
-        const svgStr = await QRCode.toString(urlToEncode, {
-          type: 'svg',
-          margin: 1,
-          color: {
-            dark: '#0c2e22',
-            light: '#ffffff'
-          },
-          errorCorrectionLevel: 'H'
-        });
-
-        if (isMounted) {
-          setQrDataUrl(dataUrl);
-          setQrSvgString(svgStr);
-          setIsGenerating(false);
-        }
-      } catch (err) {
-        console.error('Erreur génération QR Code:', err);
-        if (isMounted) setIsGenerating(false);
-      }
-    };
-
-    generateQrs();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [currentTable?.tableNumber, restaurant.slug, appOrigin]);
+  const handleRevokeQr = async () => {
+    if (!currentTable) return;
+    setFormError(null);
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Votre session gestionnaire a expiré. Reconnectez-vous.');
+      const idToken = await user.getIdToken();
+      const response = await fetch('/api/tables/qr', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+        body: JSON.stringify({ restaurantSlug: restaurant.slug, tableId: currentTable.id })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Révocation impossible.');
+      setQrUrl('');
+      setQrForTableId(null);
+      setQrDataUrl('');
+      setQrSvgString('');
+      sounds.playSuccess();
+    } catch (err: any) {
+      setFormError(err?.message || 'Erreur lors de la révocation du QR.');
+    }
+  };
 
   // Download QR Code as PNG
   const handleDownloadPng = () => {
@@ -191,7 +208,6 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
       section: newTableSection,
       capacity: Math.max(1, newTableCapacity),
       isActive: true,
-      qrUrl: generateTableQrUrl(appOrigin, restaurant.slug, cleanNumber)
     };
 
     setIsSavingTable(true);
@@ -200,6 +216,8 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
       await onSaveTable(newTable);
       setTableList(prev => prev.some(table => table.id === newId) ? prev : [...prev, newTable]);
       setSelectedTableId(newId);
+      setQrUrl('');
+      setQrForTableId(null);
       setIsNewTableModalOpen(false);
       setNewTableNumber('');
       sounds.playSuccess();
@@ -214,7 +232,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   return (
     <div className="flex-1 flex flex-col bg-[#f4f7fb] text-[#181c1f]">
       {/* Printable Tent Card View (Visible only during printing) */}
-      {currentTable && (
+      {currentTable && canonicalUrl && (
         <div className="hidden print:block fixed inset-0 bg-white p-8">
           <div className="max-w-md mx-auto border-4 border-[#0c2e22] rounded-3xl p-8 text-center space-y-4 bg-white">
             <div className="text-xs font-black uppercase tracking-widest text-[#d97706]">
@@ -286,6 +304,21 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
 
             {currentTable && (
               <button
+                onClick={handleGenerateQr}
+                disabled={isGenerating || currentTable.isActive !== true}
+                className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
+              >
+                <QrCode size={15} />
+                <span>{qrUrl && qrForTableId === currentTable.id ? 'Renouveler le QR' : 'Générer le QR sécurisé'}</span>
+              </button>
+            )}
+            {currentTable && (
+              <button onClick={handleRevokeQr} className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5">
+                <Trash2 size={15} /><span>Révoquer les QR actifs</span>
+              </button>
+            )}
+            {currentTable && canonicalUrl && (
+              <button
                 onClick={handlePrintTent}
                 className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
                 title="Imprimer le chevalet de table"
@@ -311,7 +344,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
               Chevalets de table connectés en direct au catalogue
             </h2>
             <p className="text-xs text-emerald-200/90 leading-relaxed">
-              Chaque QR code généré intègre de manière infalsifiable l'identifiant du restaurant (<code className="bg-emerald-900 px-1 py-0.5 rounded font-mono text-[11px]">{restaurant.slug}</code>) et le numéro de table exact. Lorsqu'un convive scanne son chevalet, son menu charge immédiatement en mode « Sur place ».
+              Chaque QR code contient un jeton aléatoire opaque généré par le serveur. Le numéro de table n'est jamais exposé dans l'URL : le serveur ouvre une session sécurisée et vérifie le QR à chaque commande.
             </p>
           </div>
 
@@ -399,6 +432,8 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
                         onClick={() => {
                           sounds.playTap();
                           setSelectedTableId(tbl.id);
+                          setQrUrl('');
+                          setQrForTableId(null);
                         }}
                         className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
                           isSelected

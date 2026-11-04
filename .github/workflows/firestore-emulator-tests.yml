@@ -42,6 +42,7 @@ jobs:
         run: |
           npm run test:lot1
           npm run test:lot2
+          npm run test:qr
 
       - name: 4. Exécution des tests sur le véritable Firestore Emulator (test:emulator en mode strict)
         run: |

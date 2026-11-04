@@ -5,7 +5,7 @@
       "includeFiles": "firebase-applet-config.json"
     }
   },
-  "rewrites": [
+  "rewrites": [\n    { "source": "/q/:token", "destination": "/api/tables/resolve-qr?token=:token" },
     { "source": "/r/:path*", "destination": "/index.html" },
     { "source": "/gestion", "destination": "/index.html" },
     { "source": "/gestion/:path*", "destination": "/index.html" },

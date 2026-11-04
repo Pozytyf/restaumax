@@ -1,6 +1,20 @@
 import React from 'react';
-import { QrCode, Utensils, Smartphone, ShoppingBag, ShieldCheck, ArrowRight, Sparkles, MapPin, CheckCircle, Building2, Camera } from 'lucide-react';
-import { sounds } from '../../utils/audio';
+import {
+  ArrowRight,
+  BarChart3,
+  ChefHat,
+  ClipboardList,
+  CreditCard,
+  QrCode,
+  ScanLine,
+  ShieldCheck,
+  Smartphone,
+  Store,
+  Table2,
+  Users,
+  Utensils,
+  Wallet,
+} from 'lucide-react';
 
 interface HomePageProps {
   onGoToMenuWithTable: (table: string | null) => void;
@@ -9,294 +23,251 @@ interface HomePageProps {
   onOpenScanner?: () => void;
 }
 
+const modules = [
+  {
+    icon: Utensils,
+    title: 'Menu & catalogue',
+    description: 'Présentez vos plats, boissons, options et disponibilités.',
+    tone: 'orange',
+  },
+  {
+    icon: ClipboardList,
+    title: 'Commandes',
+    description: 'Retrouvez les commandes et suivez leur avancement.',
+    tone: 'blue',
+  },
+  {
+    icon: Wallet,
+    title: 'Caisse & paiements',
+    description: 'Organisez les encaissements et le suivi des ventes.',
+    tone: 'green',
+  },
+  {
+    icon: ChefHat,
+    title: 'Espace cuisine',
+    description: 'Visualisez les commandes à préparer et leur statut.',
+    tone: 'violet',
+  },
+  {
+    icon: Table2,
+    title: 'Tables & QR codes',
+    description: 'Associez un QR code à chaque table de votre établissement.',
+    tone: 'cyan',
+  },
+  {
+    icon: BarChart3,
+    title: 'Pilotage',
+    description: 'Accédez aux indicateurs disponibles pour votre activité.',
+    tone: 'amber',
+  },
+] as const;
+
+const toneClasses = {
+  orange: 'bg-orange-50 text-orange-600 ring-orange-100',
+  blue: 'bg-blue-50 text-blue-600 ring-blue-100',
+  green: 'bg-emerald-50 text-emerald-600 ring-emerald-100',
+  violet: 'bg-violet-50 text-violet-600 ring-violet-100',
+  cyan: 'bg-cyan-50 text-cyan-700 ring-cyan-100',
+  amber: 'bg-amber-50 text-amber-700 ring-amber-100',
+};
+
 export const HomePage: React.FC<HomePageProps> = ({
-  onGoToMenuWithTable,
   onGoToStaffTools,
   onGoToManagementHub,
-  onOpenScanner
+  onOpenScanner,
 }) => {
   return (
-    <div className="min-h-screen bg-[#f4f7fb] text-[#181c1f]">
-      {/* Top Bar for RestauMax */}
-      <header className="bg-[#101d2d] text-white border-b border-slate-800 px-4 lg:px-8 py-3.5 sticky top-0 z-30">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#ff6500] flex items-center justify-center font-black text-white text-base shadow-sm">
+    <div className="min-h-screen overflow-hidden bg-[#f7f8fa] text-slate-900">
+      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+          <a href="/" aria-label="RestauMax, accueil" className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#ff6b35] text-sm font-black tracking-tight text-white shadow-lg shadow-orange-500/20">
               RM
-            </div>
-            <div>
-              <span className="text-lg font-extrabold tracking-tight text-white block leading-none">
-                RestauMax
-              </span>
-              <span className="text-[10px] text-amber-400 font-semibold tracking-wider uppercase">
-                Parcours QR Client & Générateur Gérant
-              </span>
-            </div>
-          </div>
+            </span>
+            <span>
+              <span className="block text-lg font-black leading-tight tracking-tight text-[#14263d]">RestauMax</span>
+              <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">La gestion restaurant simplifiée</span>
+            </span>
+          </a>
+
+          <nav aria-label="Navigation principale" className="hidden items-center gap-8 text-sm font-semibold text-slate-600 md:flex">
+            <a href="#solution" className="transition hover:text-[#f26535]">La solution</a>
+            <a href="#fonctionnalites" className="transition hover:text-[#f26535]">Fonctionnalités</a>
+            <a href="#qr-code" className="transition hover:text-[#f26535]">Commande QR</a>
+          </nav>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                sounds.playTap();
-                onGoToManagementHub();
-              }}
-              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold rounded-xl border border-slate-700 transition-all flex items-center gap-1.5"
-              title="Ouvrir le centre de gestion du restaurant"
+              type="button"
+              onClick={onGoToStaffTools}
+              className="hidden rounded-xl px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-100 sm:inline-flex"
             >
-              <Building2 size={14} className="text-emerald-400" />
-              <span>Centre de Gestion</span>
+              Espace équipe
             </button>
-
             <button
-              onClick={() => {
-                sounds.playTap();
-                onGoToMenuWithTable('4');
-              }}
-              className="px-4 py-2 bg-[#ff6500] hover:bg-[#e05800] text-white text-xs font-extrabold rounded-xl shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
+              type="button"
+              onClick={onGoToManagementHub}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#14263d] px-4 py-2.5 text-sm font-extrabold text-white shadow-lg shadow-slate-900/10 transition hover:bg-[#203a59] focus:outline-none focus:ring-4 focus:ring-slate-300"
             >
-              <Utensils size={14} />
-              <span>Menu (Table 4)</span>
+              <span>Se connecter</span>
+              <ArrowRight size={16} />
             </button>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="py-12 sm:py-16 px-4 max-w-5xl mx-auto">
-        <div className="text-center space-y-4 max-w-3xl mx-auto">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-100 text-[#ff6500] text-xs font-extrabold border border-orange-200">
-            <Sparkles size={13} />
-            <span>Solution Digitale Restauration en Afrique & Zone FCFA</span>
-          </div>
-
-          <h1 className="text-3xl sm:text-5xl font-black text-[#101d2d] tracking-tight leading-tight">
-            Le Menu Client Accessible par <span className="text-[#ff6500]">QR Code</span> en Toute Simplicité
-          </h1>
-
-          <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-2xl mx-auto">
-            Vos clients scannent le QR code posé sur leur table, parcourent vos spécialités avec options et suppléments, et constituent leur panier en FCFA sans attendre.
-          </p>
-
-          {/* Primary Action Buttons */}
-          <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3 flex-wrap">
-            {onOpenScanner && (
-              <button
-                onClick={() => {
-                  sounds.playTap();
-                  onOpenScanner();
-                }}
-                className="w-full sm:w-auto px-6 py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-sm rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 transition-transform active:scale-95"
-              >
-                <Camera size={18} />
-                <span>Scanner un QR Code</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => {
-                sounds.playTap();
-                onGoToManagementHub();
-              }}
-              className="w-full sm:w-auto px-6 py-3.5 bg-[#101d2d] hover:bg-[#1a2c42] text-white font-extrabold text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition-transform active:scale-95 border border-slate-700"
-            >
-              <Building2 size={18} className="text-emerald-400" />
-              <span>Ouvrir le Centre de Gestion</span>
-              <ArrowRight size={16} />
-            </button>
-
-            <button
-              onClick={() => {
-                sounds.playTap();
-                onGoToMenuWithTable('4');
-              }}
-              className="w-full sm:w-auto px-6 py-3.5 bg-[#ff6500] hover:bg-[#e05800] text-white font-extrabold text-sm rounded-xl shadow-lg shadow-orange-600/20 flex items-center justify-center gap-2 transition-transform active:scale-95"
-            >
-              <QrCode size={18} />
-              <span>Tester le Menu Client (Table 4)</span>
-            </button>
-
-            <button
-              onClick={() => {
-                sounds.playTap();
-                onGoToMenuWithTable(null);
-              }}
-              className="w-full sm:w-auto px-6 py-3.5 bg-white hover:bg-slate-50 text-slate-900 border border-slate-300 font-extrabold text-sm rounded-xl shadow-sm flex items-center justify-center gap-2 transition-colors"
-            >
-              <ShoppingBag size={18} className="text-blue-600" />
-              <span>Mode « À emporter »</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Live Interactive Card: Chez Awa Demo Restaurant */}
-        <div className="mt-12 bg-white rounded-3xl border border-slate-200/90 shadow-xl overflow-hidden max-w-3xl mx-auto">
-          <div className="p-6 sm:p-8 bg-[#101d2d] text-white flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="space-y-2 text-center sm:text-left">
-              <span className="text-xs font-extrabold uppercase tracking-widest text-[#ff6500]">
-                Restaurant Pilote
-              </span>
-              <h2 className="text-2xl font-black">Chez Awa — Grillades & Saveurs</h2>
-              <p className="text-xs text-slate-300 max-w-md">
-                Spécialités de poissons capitaine braisé, dibi d’agneau, attiéke et alloco plantain à Abidjan, Zone 4C.
+      <main>
+        <section id="solution" className="relative isolate">
+          <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_right,_rgba(255,107,53,0.13),_transparent_42%),radial-gradient(ellipse_at_bottom_left,_rgba(20,119,94,0.09),_transparent_38%)]" />
+          <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 pb-20 pt-16 sm:px-6 sm:pt-20 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:pb-28 lg:pt-24">
+            <div>
+              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white/80 px-4 py-2 text-xs font-extrabold text-[#df5929] shadow-sm">
+                <span className="h-2 w-2 rounded-full bg-[#ff6b35]" />
+                Une expérience plus simple, côté salle et côté cuisine
+              </div>
+              <h1 className="max-w-2xl text-4xl font-black leading-[1.08] tracking-[-0.045em] text-[#14263d] sm:text-5xl lg:text-6xl">
+                Votre restaurant,
+                <span className="block text-[#f26535]">mieux organisé.</span>
+                <span className="block">Vos clients, mieux servis.</span>
+              </h1>
+              <p className="mt-7 max-w-xl text-base leading-8 text-slate-600 sm:text-lg">
+                RestauMax réunit les outils essentiels pour gérer votre établissement et proposer à vos clients une commande simple depuis leur téléphone, grâce au QR code.
               </p>
+
+              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={onGoToManagementHub}
+                  className="inline-flex items-center justify-center gap-3 rounded-2xl bg-[#ff6b35] px-6 py-4 text-sm font-extrabold text-white shadow-xl shadow-orange-500/20 transition hover:-translate-y-0.5 hover:bg-[#e85b2a] focus:outline-none focus:ring-4 focus:ring-orange-200"
+                >
+                  <Store size={19} />
+                  Accéder à mon restaurant
+                  <ArrowRight size={17} />
+                </button>
+                {onOpenScanner && (
+                  <button
+                    type="button"
+                    onClick={onOpenScanner}
+                    className="inline-flex items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm font-extrabold text-[#14263d] shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-200"
+                  >
+                    <ScanLine size={19} className="text-emerald-600" />
+                    Scanner un QR code
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3 text-xs font-semibold text-slate-500">
+                <span className="inline-flex items-center gap-2"><ShieldCheck size={15} className="text-emerald-600" /> Accès selon vos autorisations</span>
+                <span className="inline-flex items-center gap-2"><Smartphone size={15} className="text-emerald-600" /> Ordinateur, tablette et mobile</span>
+              </div>
             </div>
 
-            {/* Simulated QR Code Card */}
-            <div
-              onClick={() => {
-                sounds.playTap();
-                if (onOpenScanner) {
-                  onOpenScanner();
-                } else {
-                  onGoToMenuWithTable('4');
-                }
-              }}
-              className="bg-white p-4 rounded-2xl shadow-md text-slate-900 text-center shrink-0 w-44 cursor-pointer hover:shadow-xl hover:scale-105 transition-all group"
-              title="Scanner avec la caméra ou ouvrir le menu de la Table 4"
-            >
-              <div className="w-28 h-28 mx-auto bg-slate-900 rounded-xl p-2 flex items-center justify-center text-white mb-2 relative group-hover:bg-[#ff6500] transition-colors">
-                <QrCode size={80} className="text-white" />
-                <span className="absolute bottom-1 bg-black/70 backdrop-blur-xs text-[9px] font-bold text-amber-300 px-1.5 py-0.5 rounded flex items-center gap-1">
-                  <Camera size={10} /> Scanner
-                </span>
-              </div>
-              <div className="text-[11px] font-extrabold text-slate-800">
-                Table n° 4
-              </div>
-              <div className="text-[9px] text-slate-400">
-                /r/chez-awa?table=4
-              </div>
-            </div>
-          </div>
-
-          {/* Quick link tester grid */}
-          <div className="p-6 bg-slate-50 border-t border-slate-200">
-            <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider mb-3">
-              Tester les scénarios de l'Étape 1 :
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <button
-                onClick={() => {
-                  sounds.playTap();
-                  onGoToMenuWithTable('4');
-                }}
-                className="p-3.5 bg-white hover:bg-orange-50/60 border border-slate-200 hover:border-[#ff6500] rounded-xl text-left flex items-start justify-between transition-all"
-              >
-                <div>
-                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <MapPin size={14} className="text-amber-500" />
-                    Table 4 (Sur place)
+            <div className="relative mx-auto w-full max-w-xl">
+              <div className="absolute -right-8 -top-8 h-40 w-40 rounded-full bg-orange-200/50 blur-3xl" />
+              <div className="absolute -bottom-8 -left-8 h-40 w-40 rounded-full bg-emerald-200/60 blur-3xl" />
+              <div className="relative rounded-[2rem] border border-white bg-white p-4 shadow-[0_30px_90px_-35px_rgba(20,38,61,0.35)] sm:p-6">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Votre espace de travail</p>
+                    <p className="mt-1 text-lg font-black text-[#14263d]">Tout au même endroit</p>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-1">
-                    <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">/r/chez-awa?table=4</code>
+                  <div className="rounded-xl bg-emerald-50 p-3 text-emerald-600"><Store size={22} /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-5">
+                  <div className="rounded-2xl bg-[#14263d] p-4 text-white">
+                    <div className="flex items-center justify-between text-slate-300"><ClipboardList size={19} /><span className="text-[10px] font-bold uppercase tracking-wider">Suivi</span></div>
+                    <p className="mt-7 text-sm font-bold">Commandes</p>
+                    <p className="mt-1 text-xs text-slate-300">De la réception au service</p>
+                  </div>
+                  <div className="rounded-2xl bg-orange-50 p-4 text-[#14263d]">
+                    <div className="flex items-center justify-between text-[#ed693b]"><Utensils size={19} /><span className="text-[10px] font-bold uppercase tracking-wider">Menu</span></div>
+                    <p className="mt-7 text-sm font-bold">Catalogue</p>
+                    <p className="mt-1 text-xs text-slate-500">Plats et suppléments</p>
+                  </div>
+                  <div className="rounded-2xl bg-emerald-50 p-4 text-[#14263d]">
+                    <div className="flex items-center justify-between text-emerald-600"><CreditCard size={19} /><span className="text-[10px] font-bold uppercase tracking-wider">Caisse</span></div>
+                    <p className="mt-7 text-sm font-bold">Encaissements</p>
+                    <p className="mt-1 text-xs text-slate-500">Suivi des règlements</p>
+                  </div>
+                  <div className="rounded-2xl bg-blue-50 p-4 text-[#14263d]">
+                    <div className="flex items-center justify-between text-blue-600"><QrCode size={19} /><span className="text-[10px] font-bold uppercase tracking-wider">QR code</span></div>
+                    <p className="mt-7 text-sm font-bold">Commande client</p>
+                    <p className="mt-1 text-xs text-slate-500">Depuis la table</p>
                   </div>
                 </div>
-                <ArrowRight size={14} className="text-slate-400 shrink-0 mt-1" />
-              </button>
-
-              <button
-                onClick={() => {
-                  sounds.playTap();
-                  onGoToMenuWithTable(null);
-                }}
-                className="p-3.5 bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-500 rounded-xl text-left flex items-start justify-between transition-all"
-              >
-                <div>
-                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <ShoppingBag size={14} className="text-blue-500" />
-                    À emporter
+                <div className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                  <div className="rounded-xl bg-white p-2.5 text-slate-600 shadow-sm"><Users size={19} /></div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-extrabold text-[#14263d]">Une équipe, des accès adaptés</p>
+                    <p className="mt-1 text-[11px] text-slate-500">Gérant, responsable et personnel</p>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-1">
-                    <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">/r/chez-awa</code>
-                  </div>
+                  <ArrowRight size={16} className="text-slate-400" />
                 </div>
-                <ArrowRight size={14} className="text-slate-400 shrink-0 mt-1" />
-              </button>
-
-              <button
-                onClick={() => {
-                  sounds.playTap();
-                  onGoToManagementHub();
-                }}
-                className="p-3.5 bg-white hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-500 rounded-xl text-left flex items-start justify-between transition-all"
-              >
-                <div>
-                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <Building2 size={14} className="text-emerald-600" />
-                    Centre de Gestion
-                  </div>
-                  <div className="text-[11px] text-slate-500 mt-1">
-                    <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">/gestion</code>
-                  </div>
-                </div>
-                <ArrowRight size={14} className="text-slate-400 shrink-0 mt-1" />
-              </button>
-            </div>
-
-            <div className="mt-5 p-4 rounded-xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 space-y-1">
-              <div className="font-bold flex items-center gap-1.5 text-emerald-950">
-                <ShieldCheck size={16} className="text-emerald-600" />
-                Statut opérationnel : Parcours QR client complet & persistance des commandes connectée
+                <p className="px-1 pt-3 text-center text-[10px] font-medium text-slate-400">Illustration de l’interface · les données réelles apparaissent après connexion</p>
               </div>
-              <p className="text-[11px] leading-relaxed text-emerald-800">
-                Les convives peuvent scanner leur chevalet de table, composer leur panier avec options en FCFA, et transmettre directement leur commande validée à la cuisine via Firestore.
-              </p>
             </div>
           </div>
+        </section>
+
+        <section id="fonctionnalites" className="bg-white py-20 sm:py-24">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-2xl text-center">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-[#f26535]">Une gestion centralisée</p>
+              <h2 className="mt-4 text-3xl font-black tracking-tight text-[#14263d] sm:text-4xl">Les bons outils pour chaque moment du service</h2>
+              <p className="mt-4 text-sm leading-7 text-slate-500 sm:text-base">Une interface pensée pour faciliter le quotidien du gérant et de son équipe, sans multiplier les outils.</p>
+            </div>
+
+            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {modules.map(({ icon: Icon, title, description, tone }) => (
+                <article key={title} className="group rounded-3xl border border-slate-200/80 bg-white p-6 transition duration-200 hover:-translate-y-1 hover:border-orange-200 hover:shadow-xl hover:shadow-slate-900/5">
+                  <div className={`inline-flex rounded-2xl p-3 ring-1 ${toneClasses[tone]}`}>
+                    <Icon size={22} />
+                  </div>
+                  <h3 className="mt-5 text-base font-extrabold text-[#14263d]">{title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="qr-code" className="bg-[#14263d] py-16 text-white sm:py-20">
+          <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-8 px-4 sm:px-6 md:flex-row md:items-center lg:px-8">
+            <div className="max-w-2xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-orange-200">
+                <QrCode size={14} /> Expérience client par QR code
+              </div>
+              <h2 className="mt-5 text-3xl font-black tracking-tight sm:text-4xl">Un menu accessible en quelques secondes.</h2>
+              <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300 sm:text-base">Vos clients scannent le QR code de leur table, consultent le menu de votre établissement et préparent leur commande sur leur téléphone.</p>
+            </div>
+            <div className="flex w-full flex-col gap-3 sm:w-auto sm:min-w-[230px]">
+              {onOpenScanner && (
+                <button type="button" onClick={onOpenScanner} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#ff6b35] px-6 py-4 text-sm font-extrabold text-white transition hover:bg-[#e85b2a] focus:outline-none focus:ring-4 focus:ring-orange-300/30">
+                  <ScanLine size={18} /> Scanner un QR code
+                </button>
+              )}
+              <button type="button" onClick={onGoToManagementHub} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-6 py-4 text-sm font-bold text-white transition hover:bg-white/15">
+                Configurer mon restaurant <ArrowRight size={16} />
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 text-xs text-slate-500 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#ff6b35] text-[10px] font-black text-white">RM</span>
+            <span className="font-bold text-[#14263d]">RestauMax</span>
+            <span>· La gestion restaurant simplifiée</span>
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-2 font-semibold">
+            <button type="button" onClick={onGoToManagementHub} className="transition hover:text-[#f26535]">Connexion restaurateur</button>
+            <button type="button" onClick={onGoToStaffTools} className="transition hover:text-[#f26535]">Espace équipe</button>
+          </div>
+          <span>© {new Date().getFullYear()} RestauMax</span>
         </div>
-
-        {/* Feature Checkpoints for Step 1 */}
-        <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-2">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Building2 size={20} />
-            </div>
-            <h3 className="text-sm font-extrabold text-slate-900">Centre de Gestion Central</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Vue synthétique des 12 modules cibles, statut d'ouverture en temps réel et accès directs aux outils d'exploitation.
-            </p>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-2">
-            <div className="w-10 h-10 rounded-xl bg-orange-50 text-[#ff6500] flex items-center justify-center">
-              <Utensils size={20} />
-            </div>
-            <h3 className="text-sm font-extrabold text-slate-900">Options & Suppléments</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Choix d'accompagnement (ex. Alloco à +500 FCFA), suppléments personnalisés et notes de préparation directes pour la cuisine.
-            </p>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs space-y-2">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-              <ShoppingBag size={20} />
-            </div>
-            <h3 className="text-sm font-extrabold text-slate-900">Panier en FCFA Fiable</h3>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Calcul strict des totaux avec options, contrôles de quantité (min. 1, pas de négatif) et suppression d'articles.
-            </p>
-          </div>
-        </div>
-
-        {/* Internal Navigation Links */}
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-xs font-bold text-slate-500">
-          <button
-            onClick={onGoToManagementHub}
-            className="hover:text-slate-900 underline flex items-center gap-1 transition-colors"
-          >
-            <Building2 size={13} className="text-emerald-600" />
-            <span>Accéder au Centre de Gestion (/gestion)</span>
-          </button>
-          <span>•</span>
-          <button
-            onClick={onGoToStaffTools}
-            className="hover:text-slate-900 underline transition-colors"
-          >
-            Accéder à l'espace Terminal & Supervision Restaurant (Staff) →
-          </button>
-        </div>
-      </section>
+      </footer>
     </div>
   );
 };
