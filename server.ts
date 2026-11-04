@@ -675,7 +675,7 @@ export async function handleResolveTableQr(token: string) {
     const result = await resolveTableQr(adminDb, token);
     return {
       statusCode: 302,
-      location: `/r/${encodeURIComponent(result.restaurantSlug)}`,
+      location: `/r/${encodeURIComponent(result.restaurantSlug)}?table_session=1`,
       cookies: [buildSessionCookie(result.sessionSecret), buildCsrfCookie(result.csrfToken)],
       body: { success: true }
     };
