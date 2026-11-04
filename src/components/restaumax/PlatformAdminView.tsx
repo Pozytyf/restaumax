@@ -3,11 +3,14 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } fr
 import { auth } from '../../lib/firebase';
 import { Building2, ShieldCheck, LogOut, Plus, RefreshCw, Ban, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 
-type RestaurantRow = { slug: string; name: string; ownerName?: string; ownerEmail?: string; status?: string; isOpen?: boolean };
+type RestaurantRow = { slug: string; name: string; ownerName?: string; ownerEmail?: string; status?: string; isOpen?: boolean; deletedAt?: number };
+type StaffRow = { uid: string; email: string; displayName: string; role: 'owner' | 'manager' | 'staff'; active: boolean; permissions?: string[] };
 
 export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant: (slug: string) => void }> = ({ onBack, onOpenRestaurant }) => {
   const [user, setUser] = useState<User | null>(auth.currentUser);
   const [restaurants, setRestaurants] = useState<RestaurantRow[]>([]);
+  const [expandedRestaurant, setExpandedRestaurant] = useState<string | null>(null);
+  const [staffByRestaurant, setStaffByRestaurant] = useState<Record<string, StaffRow[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -69,6 +72,59 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
     finally { setLoading(false); }
   };
 
+  const toggleRestaurantStaff = async (restaurant: RestaurantRow) => {
+    if (expandedRestaurant === restaurant.slug) { setExpandedRestaurant(null); return; }
+    setExpandedRestaurant(restaurant.slug); setLoading(true); setError('');
+    try {
+      const token = await auth.currentUser?.getIdToken(true);
+      const response = await fetch(`/api/platform-admin?action=staff_list&slug=${encodeURIComponent(restaurant.slug)}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Impossible de charger les comptes.');
+      setStaffByRestaurant(previous => ({ ...previous, [restaurant.slug]: data.staff || [] }));
+    } catch (e: any) { setError(e.message || 'Lecture des comptes impossible.'); }
+    finally { setLoading(false); }
+  };
+
+  const setUserStatus = async (restaurant: RestaurantRow, member: StaffRow, status: 'active' | 'suspended') => {
+    if (!window.confirm(`Confirmer : ${status === 'active' ? 'réactiver' : 'suspendre'} ${member.displayName} ?`)) return;
+    setLoading(true); setError(''); setNotice('');
+    try {
+      await request({ action: 'set_staff_status', slug: restaurant.slug, uid: member.uid, status });
+      setNotice(status === 'active' ? 'Compte réactivé. Une nouvelle connexion est nécessaire.' : 'Compte suspendu et sessions révoquées.');
+      const token = await auth.currentUser?.getIdToken(true);
+      const response = await fetch(`/api/platform-admin?action=staff_list&slug=${encodeURIComponent(restaurant.slug)}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+      const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Actualisation impossible.');
+      setStaffByRestaurant(previous => ({ ...previous, [restaurant.slug]: data.staff || [] }));
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const deleteUser = async (restaurant: RestaurantRow, member: StaffRow) => {
+    if (!window.confirm(`Supprimer le compte d'accès de ${member.displayName} ? Les commandes, historiques et données financières seront conservés.`)) return;
+    setLoading(true); setError(''); setNotice('');
+    try {
+      await request({ action: 'delete_staff', slug: restaurant.slug, uid: member.uid });
+      setNotice('Compte supprimé. Les données métier sont conservées.');
+      const token = await auth.currentUser?.getIdToken(true);
+      const response = await fetch(`/api/platform-admin?action=staff_list&slug=${encodeURIComponent(restaurant.slug)}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+      const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.error || 'Actualisation impossible.');
+      setStaffByRestaurant(previous => ({ ...previous, [restaurant.slug]: data.staff || [] }));
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const deleteRestaurant = async (restaurant: RestaurantRow) => {
+    const confirmation = window.prompt(`Suppression logique du restaurant ${restaurant.name}. Les commandes et données financières seront conservées. Pour confirmer, saisis exactement : ${restaurant.slug}`);
+    if (confirmation !== restaurant.slug) return;
+    setLoading(true); setError(''); setNotice('');
+    try {
+      await request({ action: 'delete_restaurant', slug: restaurant.slug, confirmation });
+      setNotice('Restaurant supprimé logiquement. Les accès sont coupés et les données historiques sont conservées.');
+      setExpandedRestaurant(null); await refresh();
+    } catch (e: any) { setError(e.message); await refresh(); }
+    finally { setLoading(false); }
+  };
+
   return <div className="min-h-screen bg-slate-950 text-slate-100">
     <header className="border-b border-slate-800 bg-slate-900 px-5 py-4">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
@@ -86,7 +142,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <button disabled={loading} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white disabled:opacity-50">{loading ? 'Connexion…' : 'Se connecter'}</button>
       </form> : <><section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Restaurants enregistrés</p><p className="mt-2 text-3xl font-black">{restaurants.length}</p></div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements actifs</p><p className="mt-2 text-3xl font-black">{restaurants.filter(r=>r.status !== 'suspended').length}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements actifs</p><p className="mt-2 text-3xl font-black">{restaurants.filter(r=>r.status !== 'suspended' && r.status !== 'deleted' && !r.deletedAt).length}</p></div>
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Compte connecté</p><p className="mt-2 truncate text-sm font-bold">{user.email}</p></div>
       </section>
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-black">Gestion des restaurants</h2><p className="text-sm text-slate-400">Création, attribution du propriétaire et activation des établissements.</p></div><div className="flex gap-2"><button onClick={refresh} disabled={loading} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm"><RefreshCw size={15}/> Actualiser</button><button onClick={()=>setShowCreate(v=>!v)} className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-bold"><Plus size={16}/> Nouveau restaurant</button></div></div>
@@ -99,7 +155,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <p className="text-xs text-amber-300 md:col-span-2">Transmets le mot de passe initial au propriétaire par un canal privé. Il devra le modifier dès sa première connexion.</p>
         <div className="flex gap-2 md:col-span-2"><button disabled={loading} className="rounded-lg bg-orange-500 px-5 py-2 font-bold">Créer le restaurant</button><button type="button" onClick={()=>setShowCreate(false)} className="rounded-lg border border-slate-700 px-4 py-2">Annuler</button></div>
       </form>}
-      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-4 font-bold">Établissements ({restaurants.length})</div>{restaurants.length === 0 ? <p className="p-8 text-center text-sm text-slate-400">Aucun restaurant enregistré.</p> : restaurants.map(r=><div key={r.slug} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4 last:border-0"><div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3"><Building2 size={20}/></div><div><p className="font-bold">{r.name}</p><p className="text-xs text-slate-400">{r.slug} · {r.ownerName || r.ownerEmail || 'Propriétaire non renseigné'}</p></div></div><div className="flex items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${r.status === 'suspended' ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'}`}>{r.status === 'suspended' ? 'Suspendu' : 'Actif'}</span><button onClick={()=>onOpenRestaurant(r.slug)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">Gérer</button><button onClick={()=>setStatus(r,r.status === 'suspended' ? 'active' : 'suspended')} className="flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-xs">{r.status === 'suspended' ? <CheckCircle2 size={14}/> : <Ban size={14}/>} {r.status === 'suspended' ? 'Réactiver' : 'Suspendre'}</button></div></div>)}</div>
+      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-4 font-bold">Établissements ({restaurants.length})</div>{restaurants.length === 0 ? <p className="p-8 text-center text-sm text-slate-400">Aucun restaurant enregistré.</p> : restaurants.map(r=><React.Fragment key={r.slug}><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4"><div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3"><Building2 size={20}/></div><div><p className="font-bold">{r.name}</p><p className="text-xs text-slate-400">{r.slug} · {r.ownerName || r.ownerEmail || 'Propriétaire non renseigné'}</p></div></div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${r.status === 'deleted' || r.deletedAt ? 'bg-slate-700 text-slate-300' : r.status === 'suspended' ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'}`}>{r.status === 'deleted' || r.deletedAt ? 'Supprimé' : r.status === 'suspended' ? 'Suspendu' : 'Actif'}</span>{r.status !== 'deleted' && !r.deletedAt && <><button onClick={()=>onOpenRestaurant(r.slug)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">Gérer</button><button disabled={loading} onClick={()=>setStatus(r,r.status === 'suspended' ? 'active' : 'suspended')} className="flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-xs">{r.status === 'suspended' ? <CheckCircle2 size={14}/> : <Ban size={14}/>} {r.status === 'suspended' ? 'Réactiver' : 'Suspendre'}</button><button disabled={loading} onClick={()=>deleteRestaurant(r)} className="rounded-lg border border-rose-900 px-3 py-2 text-xs font-bold text-rose-300">Supprimer</button></>}<button disabled={loading} onClick={()=>toggleRestaurantStaff(r)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">{expandedRestaurant === r.slug ? 'Masquer les comptes' : 'Gérer les comptes'}</button></div></div>{expandedRestaurant === r.slug && <div className="space-y-3 border-b border-slate-800 bg-slate-950/60 p-4">{(staffByRestaurant[r.slug] || []).map(member=><div key={member.uid} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 p-3"><div><p className="font-bold text-sm">{member.displayName} <span className="text-xs text-slate-400">· {member.role === 'owner' ? 'Propriétaire' : member.role === 'manager' ? 'Gérant' : 'Serveur / Personnel'}</span></p><p className="text-xs text-slate-400">{member.email} · {member.active ? 'Actif' : 'Suspendu'}</p></div><div className="flex gap-2">{member.active ? <button disabled={loading} onClick={()=>setUserStatus(r,member,'suspended')} className="rounded-lg border border-rose-900 px-3 py-2 text-xs text-rose-300">Suspendre</button> : <button disabled={loading || r.status !== 'active'} onClick={()=>setUserStatus(r,member,'active')} className="rounded-lg border border-emerald-900 px-3 py-2 text-xs text-emerald-300">Réactiver</button>}<button disabled={loading} onClick={()=>deleteUser(r,member)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs">Supprimer</button></div></div>)}{(staffByRestaurant[r.slug] || []).length === 0 && <p className="text-sm text-slate-400">Aucun compte associé.</p>}<p className="text-xs text-slate-500">Les comptes propriétaires ne peuvent être supprimés que par le super-administrateur. Les historiques métier sont conservés.</p></div>}</React.Fragment>)}</div>
       </>}
     </main>
   </div>;
