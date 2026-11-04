@@ -24,11 +24,18 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Manager role verification scoped to a specific restaurant:
-    // Requires authentication AND either:
-    // 1. Custom Claims role == 'admin' (global manager)
-    // 2. Custom Claims role == 'manager' and restaurantSlug == targetSlug
-    // 3. Presence of a trusted document in /managers/{uid} with role == 'admin' or role == 'manager' matching targetSlug
+    function isAccountActive() {
+      return isSignedIn() && (
+        !exists(/databases/$(database)/documents/managers/$(request.auth.uid)) ||
+        (
+          get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active == true &&
+          request.auth.token.get('sessionVersion', 0) == get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('sessionVersion', 0)
+        )
+      );
+    }
+
+    // Restaurant data is public to anonymous QR customers, but authenticated
+    // users must belong to the restaurant before reading its profile or menu.
     function isRestaurantActive(targetSlug) {
       return exists(/databases/$(database)/documents/restaurants/$(targetSlug)) &&
         get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.status == 'active' &&
@@ -45,16 +52,6 @@ service cloud.firestore {
         member.get('restaurantSlug', '') == targetSlug &&
         member.get('active', false) == true &&
         member.get('role', '') in ['owner', 'manager', 'staff', 'cashier', 'server', 'kitchen'];
-    }
-
-    function isAccountActive() {
-      return isSignedIn() && (
-        !exists(/databases/$(database)/documents/managers/$(request.auth.uid)) ||
-        (
-          get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active == true &&
-          request.auth.token.get('sessionVersion', 0) == get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('sessionVersion', 0)
-        )
-      );
     }
 
     // Maximum permission ceilings for the six restaurant roles.
