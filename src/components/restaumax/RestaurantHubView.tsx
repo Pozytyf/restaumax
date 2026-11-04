@@ -38,6 +38,8 @@ export type ModuleStatus = 'active' | 'to_activate' | 'unavailable';
 export interface RestaurantHubViewProps {
   restaurant: RestaurantInfo;
   menuItems: RestauMenuItem[];
+  menuCatalogLoading?: boolean;
+  menuCatalogError?: string | null;
   menuItemsCount: number;
   tablesCount: number;
   activeKitchenTicketsCount: number;
@@ -74,6 +76,8 @@ interface ModuleDefinition {
 export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   restaurant,
   menuItems,
+  menuCatalogLoading = false,
+  menuCatalogError = null,
   menuItemsCount,
   tablesCount,
   activeKitchenTicketsCount,
@@ -275,6 +279,8 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       <MenuManagementView
         restaurant={restaurant}
         menuItems={menuItems}
+        catalogLoading={menuCatalogLoading}
+        catalogError={menuCatalogError}
         onToggleAvailability={onToggleDishAvailability}
         onCreateDish={onCreateDish}
         onUpdateDish={onUpdateDish}
