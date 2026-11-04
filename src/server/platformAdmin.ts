@@ -285,25 +285,35 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (nextActive && restaurantSnap.data()?.status !== 'active') {
           return json(res, 409, { success: false, error: 'Réactive d’abord le restaurant avant de réactiver ses comptes.' });
         }
+        const now = Date.now();
         if (nextActive) {
+          // Enable Auth first; Firestore remains the final authorization gate until both records are restored.
           await auth.updateUser(staffUid, { disabled: false });
           await auth.revokeRefreshTokens(staffUid);
+          const batch = db.batch();
+          batch.set(memberRef, { active: true, status: 'active', updatedAt: now, updatedBy: user.uid }, { merge: true });
+          batch.set(managerRef, { active: true, status: 'active', updatedAt: now, updatedBy: user.uid }, { merge: true });
+          await batch.commit();
         } else {
+          // Close Firestore authorization first so existing ID tokens stop working even if Auth cleanup fails.
+          const batch = db.batch();
+          batch.set(memberRef, { active: false, status: 'suspended', updatedAt: now, updatedBy: user.uid }, { merge: true });
+          batch.set(managerRef, { active: false, status: 'suspended', updatedAt: now, updatedBy: user.uid }, { merge: true });
+          await batch.commit();
           await auth.updateUser(staffUid, { disabled: true });
           await auth.revokeRefreshTokens(staffUid);
         }
-        const now = Date.now();
-        const batch = db.batch();
-        batch.set(memberRef, { active: nextActive, status: nextActive ? 'active' : 'suspended', updatedAt: now, updatedBy: user.uid }, { merge: true });
-        batch.set(managerRef, { active: nextActive, status: nextActive ? 'active' : 'suspended', updatedAt: now, updatedBy: user.uid }, { merge: true });
-        await batch.commit();
         await db.collection('admin_audit_logs').add({ action: nextActive ? 'reactivate_user' : 'suspend_user', restaurantSlug: slug, targetUid: staffUid, targetRole: member.role, actorUid: user.uid, createdAt: now });
         return json(res, 200, { success: true, status: nextActive ? 'active' : 'suspended' });
       }
 
       if (action === 'delete_staff') {
         const now = Date.now();
-        // Disable and revoke first; then remove only authorization records, never business history.
+        // Revoke Firestore authorization before touching Auth; never remove business history.
+        const revokeBatch = db.batch();
+        revokeBatch.set(memberRef, { active: false, status: 'deleting', updatedAt: now, updatedBy: user.uid }, { merge: true });
+        revokeBatch.set(managerRef, { active: false, status: 'deleting', updatedAt: now, updatedBy: user.uid }, { merge: true });
+        await revokeBatch.commit();
         try { await auth.updateUser(staffUid, { disabled: true }); await auth.revokeRefreshTokens(staffUid); } catch (error: any) {
           if (error?.code !== 'auth/user-not-found') throw error;
         }
