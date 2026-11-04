@@ -370,7 +370,7 @@ async function runTestSuite() {
   assert(res3.success === false, '3.1 : Rejet formel de la soumission avec signature divergente');
   assert(res3.conflict === true, '3.2 : Conflit d\'idempotence signalé (conflict: true)');
   const orderDoc1AfterDivergent = await client.getOrder('chez-awa', p1.orderId);
-  assert(orderDoc1AfterDivergent?.tableNumber === '4', '3.3 : La commande initiale demeure inchangée (aucun écrasement)');
+  assert(orderDoc1AfterDivergent?.tableNumber === null && orderDoc1AfterDivergent?.contentSignature === p1.signature, '3.3 : La commande initiale demeure inchangée (aucun écrasement)');
 
   // -------------------------------------------------------------------------
   // 4. REGISTRE INCOMPLET (Fail-Closed)
