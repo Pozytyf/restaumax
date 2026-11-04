@@ -292,14 +292,14 @@ async function initializeFirestoreClient() {
 function buildTestOrderPayload(restaurantSlug, idempotencyKey, tableNumber = '4', price = 9500) {
   const { keyDocId, orderId, orderNumber } = deriveIdempotencyIdentifiers(restaurantSlug, idempotencyKey);
   const cart = [{ menuItemId: 'dish-poulet', quantity: 1 }];
-  const signature = computeOrderSignature({ restaurantSlug, orderMode: 'sur_place', tableNumber, idempotencyKey, cart });
+  const signature = computeOrderSignature({ restaurantSlug, orderMode: 'a_emporter', tableNumber: null, idempotencyKey, cart });
 
   const orderToCreate = {
     id: orderId,
     orderNumber,
     restaurantSlug,
-    orderMode: 'sur_place',
-    tableNumber,
+    orderMode: 'a_emporter',
+    tableNumber: null,
     items: [{ menuItemId: 'dish-poulet', name: 'Poulet Braisé Entier', quantity: 1, unitPrice: price, totalLinePrice: price }],
     itemsCount: 1,
     totalAmount: price,
