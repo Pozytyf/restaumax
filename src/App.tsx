@@ -335,19 +335,24 @@ export default function App() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [isAuthorizedManager, setIsAuthorizedManager] = useState<boolean>(false);
   const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
+  const [authRestaurantRole, setAuthRestaurantRole] = useState<string>('');
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
+  const canCollectPayment = isRestaurantOwner ||
+    authRestaurantRole === 'manager' ||
+    (authRestaurantRole === 'cashier' && userPermissions.includes('cash.manage'));
   const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
 
   useEffect(() => {
     let active = true;
-    if (!authUser) { setIsRestaurantOwner(false); setUserPermissions([]); return; }
+    if (!authUser) { setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); return; }
     authUser.getIdTokenResult(true).then((token) => {
       if (!active) return;
       const owner = token.claims.role === 'owner';
       const superAdmin = token.claims.role === 'super_admin' || token.claims.role === 'admin';
       setIsRestaurantOwner(owner);
-      setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
-    }).catch(() => { if (active) { setIsRestaurantOwner(false); setUserPermissions([]); } });
+      setUserPermissions(owner ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setAuthRestaurantRole(typeof token.claims.role === 'string' ? token.claims.role : '');
+    }).catch(() => { if (active) { setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); } });
     return () => { active = false; };
   }, [authUser]);
 
@@ -363,9 +368,10 @@ export default function App() {
         setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
         setAuthIsSuperAdmin(superAdmin);
         setIsRestaurantOwner(owner);
-        setUserPermissions(owner || superAdmin ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+        setUserPermissions(owner ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setAuthRestaurantRole(typeof token.claims.role === 'string' ? token.claims.role : '');
       }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setUserPermissions([]); });
-      else { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); }
+      else { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); }
     });
 
     return () => unsubAuth();
@@ -789,6 +795,12 @@ export default function App() {
     changeAmount: number;
     splitGuests: number;
   }) => {
+    // Client-side safeguard only; Firestore also denies direct payment writes.
+    if (!canCollectPayment) {
+      setIsPaymentModalOpen(false);
+      window.alert("Votre rôle ne permet pas d'encaisser un paiement.");
+      return;
+    }
     const subtotal = cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
     const discountAmount = Math.round((subtotal * discountPercent) / 100);
     const total = Math.max(0, subtotal - discountAmount);
@@ -1037,7 +1049,13 @@ export default function App() {
                 onSetDiscountPercent={setDiscountPercent}
                 onSendToKitchen={handleSendToKitchen}
                 isSendingOrder={isSubmittingPosOrder}
-                onOpenPayment={() => setIsPaymentModalOpen(true)}
+                onOpenPayment={() => {
+                  if (!canCollectPayment) {
+                    window.alert("Votre rôle ne permet pas d'encaisser un paiement.");
+                    return;
+                  }
+                  setIsPaymentModalOpen(true);
+                }}
                 serverName={serverName}
               />
             )}
@@ -1069,7 +1087,7 @@ export default function App() {
           </main>
 
           <PaymentModal
-            isOpen={isPaymentModalOpen}
+            isOpen={isPaymentModalOpen && canCollectPayment}
             onClose={() => setIsPaymentModalOpen(false)}
             cart={cart}
             selectedTable={selectedTable}
