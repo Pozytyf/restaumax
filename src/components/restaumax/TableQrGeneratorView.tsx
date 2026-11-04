@@ -312,14 +312,14 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
                 <span>{qrUrl && qrForTableId === currentTable.id ? 'Renouveler le QR' : 'Générer le QR sécurisé'}</span>
               </button>
             )}
-            {currentTable && canonicalUrl && (
-              <button onClick={handleRevokeQr} className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5">
-                <Trash2 size={15} /><span>Révoquer</span>
+            {currentTable && (
+              <button onClick={handleRevokeQr className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5">
+                <Trash2 size={15} /><span>Révoquer les QR actifs</span>
               </button>
             )}
             {currentTable && canonicalUrl && (
               <button
-                onClick={handlePrintTent
+                onClick={handlePrintTent}
                 className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 active:scale-95"
                 title="Imprimer le chevalet de table"
               >
@@ -344,7 +344,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
               Chevalets de table connectés en direct au catalogue
             </h2>
             <p className="text-xs text-emerald-200/90 leading-relaxed">
-              Chaque QR code généré intègre de manière infalsifiable l'identifiant du restaurant (<code className="bg-emerald-900 px-1 py-0.5 rounded font-mono text-[11px]">{restaurant.slug}</code>) et le numéro de table exact. Lorsqu'un convive scanne son chevalet, son menu charge immédiatement en mode « Sur place ».
+              Chaque QR code contient un jeton aléatoire opaque généré par le serveur. Le numéro de table n'est jamais exposé dans l'URL : le serveur ouvre une session sécurisée et vérifie le QR à chaque commande.
             </p>
           </div>
 
