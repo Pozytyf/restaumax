@@ -237,8 +237,11 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   if (manager.active === false || manager.restaurantSlug !== restaurantSlug) throw new Error('Accès à ce restaurant refusé.');
   const managerRole = String(manager.role || role);
   if (!['owner', 'admin', 'super_admin'].includes(managerRole)) {
-    const permissions = Array.isArray(manager.permissions) ? manager.permissions : [];
-    if (!permissions.includes('tables.manage')) throw new Error('Permission de gestion des tables requise.');
+    const permissions = manager.permissions;
+    const canManageTables = Array.isArray(permissions)
+      ? permissions.includes('tables.manage')
+      : Boolean(permissions && permissions['tables.manage'] === true);
+    if (!canManageTables) throw new Error('Permission de gestion des tables requise.');
   }
   return decoded;
 }
