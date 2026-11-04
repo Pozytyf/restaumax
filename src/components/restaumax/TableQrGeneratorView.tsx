@@ -49,6 +49,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   const [qrForTableId, setQrForTableId] = useState<string | null>(null);
   const [qrSvgString, setQrSvgString] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [qrGenerationError, setQrGenerationError] = useState<string | null>(null);
 
   // New table modal form state
   const [isNewTableModalOpen, setIsNewTableModalOpen] = useState(false);
@@ -97,9 +98,10 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     return () => { active = false; };
   }, [canonicalUrl]);
 
-  const handleGenerateQr = async () => {
-    if (!currentTable || isGenerating) return;
-    setFormError(null);
+  // Generate a secure QR for a persisted table. The same routine is used by
+  // automatic creation and by the manual retry/renew action.
+  const generateQrForTable = async (table: RestaurantTable): Promise<boolean> => {
+    setQrGenerationError(null);
     setIsGenerating(true);
     try {
       const user = auth.currentUser;
@@ -109,18 +111,31 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
-        body: JSON.stringify({ restaurantSlug: restaurant.slug, tableId: currentTable.id })
+        body: JSON.stringify({ restaurantSlug: restaurant.slug, tableId: table.id })
       });
       const data = await response.json();
-      if (!response.ok || !data.success || typeof data.url !== 'string') throw new Error(data.error || 'Impossible de générer le QR sécurisé.');
-      setQrForTableId(currentTable.id);
+      if (!response.ok || !data.success || typeof data.url !== 'string') {
+        throw new Error(data.error || 'Impossible de générer le QR sécurisé.');
+      }
+      setQrForTableId(table.id);
       setQrUrl(data.url);
+      setQrGenerationError(null);
       sounds.playSuccess();
+      return true;
     } catch (err: any) {
-      setFormError(err?.message || 'Erreur lors de la génération du QR sécurisé.');
+      const message = err?.message || 'Erreur lors de la génération du QR sécurisé.';
+      setQrUrl('');
+      setQrForTableId(null);
+      setQrGenerationError(message);
+      return false;
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleGenerateQr = async () => {
+    if (!currentTable || isGenerating) return;
+    await generateQrForTable(currentTable);
   };
 
   const handleRevokeQr = async () => {
@@ -213,17 +228,22 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     setIsSavingTable(true);
     setFormError(null);
     try {
+      // Step 1: persist the table before requesting a QR token from the server.
       await onSaveTable(newTable);
       setTableList(prev => prev.some(table => table.id === newId) ? prev : [...prev, newTable]);
       setSelectedTableId(newId);
       setQrUrl('');
       setQrForTableId(null);
+      setQrGenerationError(null);
       setIsNewTableModalOpen(false);
       setNewTableNumber('');
-      sounds.playSuccess();
-    } catch (err) {
-      console.error('Échec de création de la table et de son QR code:', err);
-      setFormError("La table n'a pas été enregistrée. Vérifiez votre connexion et vos droits de gestion des tables, puis réessayez. Aucun QR code n'a été confirmé.");
+
+      // Step 2: generate the secure QR immediately after Firestore confirms
+      // the table exists. A QR failure does not roll back or duplicate the table.
+      await generateQrForTable(newTable);
+    } catch (err: any) {
+      console.error('Échec de création de la table dans Firestore:', err);
+      setFormError(err?.message || "La table n'a pas été enregistrée. Vérifiez votre connexion et vos droits, puis réessayez.");
     } finally {
       setIsSavingTable(false);
     }
@@ -361,6 +381,27 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
           </div>
         </div>
 
+        {qrGenerationError && currentTable && (
+          <div role="alert" className="bg-rose-50 rounded-2xl border border-rose-200 p-4 text-rose-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <AlertCircle size={20} className="shrink-0 text-rose-600 mt-0.5" />
+              <div className="text-xs font-semibold">
+                <p className="font-bold">Table enregistrée, mais QR code non généré.</p>
+                <p>{qrGenerationError}</p>
+                <p className="mt-1 text-rose-700">La table est conservée. Réessayez sans la recréer.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => { void generateQrForTable(currentTable); }}
+              disabled={isGenerating}
+              className="shrink-0 px-4 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold disabled:opacity-50"
+            >
+              {isGenerating ? 'Génération...' : 'Réessayer le QR'}
+            </button>
+          </div>
+        )}
+
         {/* Loading / Error States */}
         {isLoading && (
           <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center shadow-xs flex flex-col items-center justify-center space-y-3">
@@ -434,6 +475,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
                           setSelectedTableId(tbl.id);
                           setQrUrl('');
                           setQrForTableId(null);
+                          setQrGenerationError(null);
                         }}
                         className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
                           isSelected
