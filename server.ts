@@ -356,16 +356,66 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
   if (!db) {
     throw new Error("Opération refusée : Instance Firestore non disponible.");
   }
-  const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate } = params;
+  const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate, tableSession } = params;
+  const restaurantRef = db.collection('restaurants').doc(restaurantSlug);
   const docRefKey = db.collection('idempotency_keys').doc(keyDocId);
-  const docRefOrder = db.collection('restaurants').doc(restaurantSlug).collection('orders').doc(orderId);
+  const docRefOrder = restaurantRef.collection('orders').doc(orderId);
+
+  if (orderToCreate.orderMode === 'sur_place' && !tableSession) {
+    return { success: false, error: 'Commande sur place refusée : session QR sécurisée obligatoire.' };
+  }
 
   return await db.runTransaction(async (t: any) => {
-    // 1. Lectures préalables obligatoires
-    const [snapKey, snapOrder] = await Promise.all([
-      t.get(docRefKey),
-      t.get(docRefOrder)
-    ]);
+    // Toutes les lectures de sécurité et d'idempotence sont effectuées dans la transaction
+    // qui écrit la commande : une révocation concurrente provoque un conflit/retry Firestore.
+    const reads: Promise<any>[] = [t.get(docRefKey), t.get(docRefOrder)];
+    if (tableSession) {
+      reads.push(
+        t.get(restaurantRef.collection('table_sessions').doc(tableSession.sessionHash)),
+        t.get(restaurantRef.collection('table_qr_tokens').doc(tableSession.qrTokenHash)),
+        t.get(restaurantRef.collection('tables').doc(tableSession.tableId)),
+        t.get(restaurantRef)
+      );
+    }
+    const snapshots = await Promise.all(reads);
+    const snapKey = snapshots[0];
+    const snapOrder = snapshots[1];
+
+    if (tableSession) {
+      const snapSession = snapshots[2];
+      const snapQr = snapshots[3];
+      const snapTable = snapshots[4];
+      const snapRestaurant = snapshots[5];
+      const sessionData = snapSession.exists ? snapSession.data() : null;
+      const qrData = snapQr.exists ? snapQr.data() : null;
+      const tableData = snapTable.exists ? snapTable.data() : null;
+      const restaurantData = snapRestaurant.exists ? snapRestaurant.data() : null;
+      const now = Date.now();
+      const valid = Boolean(
+        sessionData &&
+        sessionData.status === 'active' &&
+        Number(sessionData.expiresAt) > now &&
+        sessionData.restaurantSlug === restaurantSlug &&
+        sessionData.sessionHash === tableSession.sessionHash &&
+        sessionData.tableId === tableSession.tableId &&
+        sessionData.qrTokenHash === tableSession.qrTokenHash &&
+        Number(sessionData.qrVersion) === Number(tableSession.qrVersion) &&
+        qrData &&
+        qrData.status === 'active' &&
+        Number(qrData.version) === Number(sessionData.qrVersion) &&
+        qrData.tableId === tableSession.tableId &&
+        tableData &&
+        tableData.isActive === true &&
+        String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
+        restaurantData &&
+        restaurantData.status !== 'suspended' &&
+        restaurantData.isActive !== false &&
+        restaurantData.isOpen !== false
+      );
+      if (!valid) {
+        return { success: false, error: 'Commande refusée : QR révoqué, session expirée, table inactive ou restaurant indisponible.' };
+      }
+    }
 
     const keyExists = snapKey.exists;
     const orderExists = snapOrder.exists;
@@ -774,6 +824,12 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       }
       // La table est exclusivement dérivée de la session serveur. La valeur client est ignorée.
       input.tableNumber = session.tableNumber;
+      input.tableSession = {
+        sessionHash: session.sessionHash,
+        qrTokenHash: session.qrTokenHash,
+        qrVersion: session.qrVersion,
+        tableId: session.tableId
+      };
     } else if (input.orderMode === 'a_emporter') {
       input.tableNumber = null;
     }
