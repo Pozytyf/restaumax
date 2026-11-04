@@ -79,7 +79,6 @@ export const auth = getAuth(app);
 // The server uses FIRESTORE_EMULATOR_HOST; the browser SDK needs its own connections.
 // import.meta.env is injected by Vite in the browser but absent when this module
 // is imported directly by Node-based unit tests.
-const viteEnv = import.meta.env;
 const useFirebaseEmulators =
   viteEnv?.DEV === true &&
   viteEnv?.VITE_USE_FIREBASE_EMULATOR === 'true';
