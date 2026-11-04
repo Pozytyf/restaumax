@@ -171,7 +171,9 @@ service cloud.firestore {
       match /menuItems/{dishId} {
         allow get: if isValidId(dishId) && isRestaurantActive(restaurantSlug);
         allow list: if isRestaurantActive(restaurantSlug);
-        allow create: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId) && isValidMenuItem(incoming()) && incoming().restaurantSlug == restaurantSlug;
+        allow create: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
+          isValidId(dishId) && isValidMenuItem(incoming()) &&
+          incoming().restaurantSlug == restaurantSlug && incoming().id == dishId;
         allow update: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
           isValidId(dishId) && isValidMenuItem(incoming()) &&
           incoming().restaurantSlug == restaurantSlug && incoming().id == dishId &&
@@ -247,6 +249,12 @@ service cloud.firestore {
       // List: restricted strictly to authorized restaurant personnel.
       // Update: restricted strictly to authorized managers of this restaurant, and limited to operational status fields
       // Delete: STRICTLY FORBIDDEN (audit trail preserved)
+      // Payment records are server-managed only. Client SDK writes cannot
+      // create, collect, alter, or refund a payment.
+      match /payments/{paymentId} {
+        allow read, write: if false;
+      }
+
       match /orders/{orderId} {
         allow create: if false;
         allow get: if false;
@@ -261,6 +269,11 @@ service cloud.firestore {
           incoming().totalAmount == existing().totalAmount &&
           incoming().items == existing().items &&
           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'statusUpdatedAt', 'kitchenNotes']) &&
+          (!incoming().diff(existing()).affectedKeys().hasAny(['kitchenNotes']) ||
+            hasRestaurantPermission(restaurantSlug, 'orders.manage') ||
+            hasRestaurantPermission(restaurantSlug, 'kitchen.access')) &&
+          (!incoming().diff(existing()).affectedKeys().hasAny(['statusUpdatedAt']) ||
+            incoming().status != existing().status) &&
           (
             (hasRestaurantPermission(restaurantSlug, 'orders.manage') &&
               isValidOrderTransition(existing().status, incoming().status)) ||
