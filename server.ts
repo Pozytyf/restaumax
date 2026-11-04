@@ -52,6 +52,7 @@ import {
   buildSessionCookie,
   getActiveTableSession,
   issueTableQr,
+  isTrustedQrNavigation,
   readCookie,
   requestHasValidOrigin,
   resolveTableQr,
@@ -740,7 +741,8 @@ export function getServerHealth() {
   };
 }
 
-export async function handleResolveTableQr(token: string): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
+export async function handleResolveTableQr(token: string, req?: any): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
+  if (req && !isTrustedQrNavigation(req)) return { statusCode: 403, body: { success: false, error: 'Navigation QR non autorisée.' }, cookies: undefined, location: undefined };
   if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service QR indisponible.' } };
   try {
     const result = await resolveTableQr(adminDb, token);
@@ -873,7 +875,7 @@ app.post('/api/orders', async (req, res) => {
 });
 
 app.get('/q/:token', async (req, res) => {
-  const result = await handleResolveTableQr(String(req.params.token || ''));
+  const result = await handleResolveTableQr(String(req.params.token || ''), req);
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
