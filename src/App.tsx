@@ -941,7 +941,7 @@ export default function App() {
         ) : (
           <RestaurantHubView
             restaurant={restaurant}
-            menuItems={restauMenuItems}
+            menuItems={activeMenuItems}
             menuItemsCount={activeMenuItems.length}
             menuCatalogLoading={activeMenuLoading}
             menuCatalogError={activeMenuError}
