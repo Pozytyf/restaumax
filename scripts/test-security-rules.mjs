@@ -49,12 +49,13 @@ try {
       ['kitchen-a','rest-a','kitchen',['orders.view','kitchen.access']],
       ['cashier-escalated','rest-a','cashier',['menu.manage','orders.view','pos.access']],
       ['cashier-cancel','rest-a','cashier',['orders.view','pos.access','cash.view','cash.manage','orders.cancel']],
-      ['old-token','rest-a','server',['orders.view','tables.view','pos.access','orders.serve']]
+      ['old-token','rest-a','server',['orders.view','tables.view','pos.access','orders.serve']],
+      ['stale-token','rest-a','server',['orders.view','tables.view','pos.access','orders.serve']]
     ];
     for (const [uid, restaurantSlug, role, permissions] of members) {
       await setDoc(doc(db, 'managers', uid), {
         uid, restaurantSlug, role, permissions, active: uid !== 'old-token',
-        sessionVersion: uid === 'old-token' ? 3 : 0
+        sessionVersion: uid === 'old-token' || uid === 'stale-token' ? 3 : 0
       });
     }
     const tableData = { id:'table-1', tableNumber:'1', capacity:4, isActive:true };
@@ -111,6 +112,10 @@ try {
 
   // 6. A suspended account is denied even with an old token.
   await denies(getDoc(table(a('old-token'),'rest-a')), 'Un compte suspendu est refusé malgré un ancien token');
+  await denies(
+    getDoc(table(env.authenticatedContext('stale-token',{sessionVersion:2}).firestore(),'rest-a')),
+    'Un ancien token reste refusé après réactivation avec une nouvelle version de session'
+  );
 
   // 7. A platform super-admin claim is not restaurant membership.
   await denies(getDoc(table(env.authenticatedContext('platform-admin',{role:'super_admin'}).firestore(),'rest-a')), 'Le super-admin plateforme ne reçoit pas de droits opérationnels implicites');
