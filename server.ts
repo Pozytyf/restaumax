@@ -413,6 +413,9 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
         restaurantData &&
         restaurantData.status !== 'suspended' &&
+        restaurantData.status !== 'deleted' &&
+        !restaurantData.deletedAt &&
+        Number(sessionData.restaurantSessionVersion || 0) === Number(restaurantData.tableSessionVersion || 0) &&
         restaurantData.isActive !== false &&
         restaurantData.isOpen !== false
       );
