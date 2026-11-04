@@ -128,7 +128,7 @@ export default function App() {
 
   const { path: activePathname } = parsePathInfo(currentPath);
   const [tableSession, setTableSession] = useState<{ restaurantSlug: string; tableId: string; tableNumber: string; csrfToken: string; expiresAt: number } | null>(null);
-  const [tableSessionExpected, setTableSessionExpected] = useState(false);
+  const [tableSessionExpected, setTableSessionExpected] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('table_session') === '1');
   const activeTableNumber = tableSession?.tableNumber || null;
   const [authRestaurantSlug, setAuthRestaurantSlug] = useState<string>('');
   const [authIsSuperAdmin, setAuthIsSuperAdmin] = useState<boolean>(false);
@@ -567,7 +567,7 @@ export default function App() {
     savePendingOrderIntent({
       restaurantSlug: activeRestaurantSlug,
       orderMode,
-      tableNumber: activeTableNumber,
+      tableNumber: tableSession?.tableNumber || null,
       cart: clientCart,
       idempotencyKey: clientOrderIdempotencyKey,
       customerNote,
@@ -583,7 +583,8 @@ export default function App() {
     const submitRes = await submitOrderWithServerValidation(activeRestaurantSlug, {
       cart: clientCart,
       orderMode,
-      tableNumber: activeTableNumber,
+      tableNumber: tableSession?.tableNumber || null,
+      csrfToken: tableSession?.csrfToken,
       customerNote,
       idempotencyKey: clientOrderIdempotencyKey,
       allowedTables: restauTables.length > 0 ? restauTables : undefined,
@@ -885,14 +886,7 @@ export default function App() {
           isUncertain={isOrderUncertain}
           onResetUncertainty={handleResetUncertainty}
           onNavigateHome={() => navigateTo('/')}
-          onSelectTableDemo={(tbl) => {
-            if (tbl) {
-              navigateTo(`/r/${activeRestaurantSlug}?table=${tbl}`);
-            } else {
-              navigateTo(`/r/${activeRestaurantSlug}`);
-            }
-          }}
-        />
+/>
       )}
 
       {/* 2. Protected Restaurant Management Hub: /gestion and all sub-routes */}
