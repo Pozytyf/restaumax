@@ -120,19 +120,16 @@ export default function App() {
 
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
 
-  // Parse path & table from currentPath
+  // The table identity is never read from a query string: it comes only from the server session.
   const parsePathInfo = (pathStr: string) => {
-    try {
-      const url = new URL(pathStr, 'http://localhost');
-      const path = url.pathname || '/';
-      const table = url.searchParams.get('table');
-      return { path, table };
-    } catch {
-      return { path: '/', table: null };
-    }
+    try { return { path: new URL(pathStr, 'http://localhost').pathname || '/' }; }
+    catch { return { path: '/' }; }
   };
 
-  const { path: activePathname, table: activeTableNumber } = parsePathInfo(currentPath);
+  const { path: activePathname } = parsePathInfo(currentPath);
+  const [tableSession, setTableSession] = useState<{ restaurantSlug: string; tableId: string; tableNumber: string; csrfToken: string; expiresAt: number } | null>(null);
+  const [tableSessionExpected, setTableSessionExpected] = useState(false);
+  const activeTableNumber = tableSession?.tableNumber || null;
   const [authRestaurantSlug, setAuthRestaurantSlug] = useState<string>('');
   const [authIsSuperAdmin, setAuthIsSuperAdmin] = useState<boolean>(false);
   const routeRestaurantSlug = activePathname.startsWith('/r/') ? activePathname.split('/')[2] : '';
@@ -144,6 +141,30 @@ export default function App() {
   const isPlatformAdminRoute = activePathname === '/admin';
   const isRestaurantHubRoute = activePathname.startsWith('/gestion');
   const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute && !isPlatformAdminRoute;
+
+  // Recover the HttpOnly table session after the opaque QR resolver redirects to the menu.
+  useEffect(() => {
+    if (!isClientMenuRoute) {
+      setTableSession(null);
+      setTableSessionExpected(false);
+      return;
+    }
+    let active = true;
+    const params = new URLSearchParams(window.location.search);
+    setTableSessionExpected(params.get('table_session') === '1');
+    fetch('/api/table-session', { credentials: 'same-origin', cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const data = await response.json();
+        if (!data?.success || data.restaurantSlug !== activeRestaurantSlug || !data.csrfToken) return null;
+        return data;
+      })
+      .then((data) => {
+        if (active) setTableSession(data);
+      })
+      .catch(() => { if (active) setTableSession(null); });
+    return () => { active = false; };
+  }, [isClientMenuRoute, activeRestaurantSlug, currentPath]);
 
   // Sync with browser history
   useEffect(() => {
@@ -537,7 +558,10 @@ export default function App() {
 
   // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation & atomic idempotency)
   const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
-    const orderMode = activeTableNumber ? 'sur_place' : 'a_emporter';
+    if (tableSessionExpected && !tableSession) {
+      return { success: false, error: 'La session de cette table est indisponible ou a été révoquée. Scannez à nouveau le QR code physique.' };
+    }
+    const orderMode = tableSession ? 'sur_place' : 'a_emporter';
     
     // Sauvegarder l'intention client complète dans sessionStorage AVANT la soumission
     savePendingOrderIntent({
