@@ -387,6 +387,7 @@ export async function submitOrderWithServerValidation(
     allowedTables?: RestaurantTable[];
     declaredTotal?: number;
     fallbackCatalog?: RestauMenuItem[];
+    csrfToken?: string;
   }
 ): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
@@ -394,11 +395,13 @@ export async function submitOrderWithServerValidation(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(params.csrfToken ? { 'X-RM-CSRF-Token': params.csrfToken } : {}),
       },
+      credentials: 'same-origin',
+      cache: 'no-store',
       body: JSON.stringify({
         restaurantSlug,
         orderMode: params.orderMode,
-        tableNumber: params.tableNumber,
         customerNote: params.customerNote,
         declaredTotal: params.declaredTotal,
         idempotencyKey: params.idempotencyKey,
