@@ -306,7 +306,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const staffRef = db.collection('restaurants').doc(slug).collection('staff');
       if (action === 'staff_list') {
         const snap = await staffRef.get();
-        return json(res, 200, { success: true, staff: snap.docs.map((d: any) => d.data()) });
+        return json(res, 200, { success: true, actorRole: actor.role, staff: snap.docs.map((d: any) => d.data()) });
       }
 
       if (action === 'create_staff') {
