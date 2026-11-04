@@ -157,12 +157,19 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           status: body.status,
           ...(body.status === 'suspended' ? {
             isOpen: false,
+            isOpenBeforeSuspension: restaurantSnap.data()?.isOpen === true,
             suspendedAt: now,
             suspendedBy: user.uid,
             // Session epoch invalidates every previously issued table session,
             // including sessions missed by a partial cleanup batch.
             tableSessionVersion: Number(restaurantSnap.data()?.tableSessionVersion || 0) + 1
-          } : { suspendedAt: null, suspendedBy: null }),
+          } : {
+            // Restore the operational open/closed state that existed before suspension.
+            isOpen: restaurantSnap.data()?.isOpenBeforeSuspension === true,
+            isOpenBeforeSuspension: null,
+            suspendedAt: null,
+            suspendedBy: null
+          }),
           updatedAt: now, updatedBy: user.uid
         }, { merge: true });
         if (body.status === 'suspended') {
