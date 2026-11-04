@@ -139,7 +139,7 @@ export async function resolveTableQr(db: any, token: string) {
   if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.isActive === false) {
     throw new Error('Ce restaurant est temporairement indisponible.');
   }
-  if (!tableSnap.exists || tableSnap.data()?.isActive !== true) throw new Error('Cette table est inactive ou indisponible.');
+  if (!tableSnap.exists || tableSnap.data()?.isActive !== true || Number(tableSnap.data()?.qrVersion || 0) !== Number(tokenData.version || 0)) throw new Error('Cette table est inactive ou son QR a été remplacé.');
 
   const sessionSecret = randomSecret();
   const csrfToken = randomSecret();
@@ -184,7 +184,7 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
   const qrRef = restaurantRef.collection('table_qr_tokens').doc(String(session.qrTokenHash || ''));
   const [restaurantSnap, tableSnap, qrSnap] = await Promise.all([restaurantRef.get(), tableRef.get(), qrRef.get()]);
   if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.isActive === false) return null;
-  if (!tableSnap.exists || tableSnap.data()?.isActive !== true) return null;
+  if (!tableSnap.exists || tableSnap.data()?.isActive !== true || Number(tableSnap.data()?.qrVersion || 0) !== Number(session.qrVersion || 0)) return null;
   if (!qrSnap.exists || qrSnap.data()?.status !== 'active') return null;
   if (Number(qrSnap.data()?.version || 0) !== Number(session.qrVersion || 0)) return null;
 
