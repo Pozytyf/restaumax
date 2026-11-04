@@ -276,5 +276,9 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   if (!['owner', 'manager'].includes(managerRole)) {
     throw new Error('Seul le propriétaire ou un manager du restaurant peut administrer les QR de table.');
   }
+  if (managerRole === 'manager' &&
+      (!Array.isArray(manager.permissions) || !manager.permissions.includes('tables.manage'))) {
+    throw new Error('Permission de gestion des tables requise.');
+  }
   return decoded;
 }
