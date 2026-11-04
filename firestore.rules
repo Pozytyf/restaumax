@@ -127,6 +127,41 @@ service cloud.firestore {
         (fromStatus == 'ready' && toStatus in ['completed', 'cancelled']);
     }
 
+    function canUpdateOrder(targetSlug) {
+      let memberPath = /databases/$(database)/documents/managers/$(request.auth.uid);
+      let member = get(memberPath).data;
+      let changed = incoming().diff(existing()).affectedKeys();
+      let role = member.get('role', '');
+      let permissions = member.get('permissions', []);
+      let statusChanged = changed.hasAny(['status']);
+      let canManage = role == 'owner' ||
+        (role == 'manager' && permissions is list && 'orders.manage' in permissions);
+      let canCancel = role == 'cashier' && permissions is list && 'orders.cancel' in permissions;
+      let canKitchen = role == 'kitchen' && permissions is list && 'kitchen.access' in permissions;
+      let canServe = role == 'server' && permissions is list && 'orders.serve' in permissions;
+
+      return isSignedIn() &&
+        exists(memberPath) &&
+        isRestaurantActive(targetSlug) &&
+        member.get('restaurantSlug', '') == targetSlug &&
+        member.get('active', false) == true &&
+        request.auth.token.get('sessionVersion', 0) == member.get('sessionVersion', 0) &&
+        role in ['owner', 'manager', 'cashier', 'server', 'kitchen'] &&
+        changed.hasOnly(['status', 'statusUpdatedAt', 'kitchenNotes']) &&
+        (!changed.hasAny(['kitchenNotes']) || canManage || canKitchen) &&
+        (!changed.hasAny(['statusUpdatedAt']) || statusChanged) &&
+        (
+          (statusChanged &&
+            ((canManage && isValidOrderTransition(existing().status, incoming().status)) ||
+             (canCancel && existing().status in ['pending', 'in_prep', 'ready'] && incoming().status == 'cancelled') ||
+             (canKitchen &&
+               ((existing().status == 'pending' && incoming().status == 'in_prep') ||
+                (existing().status == 'in_prep' && incoming().status == 'ready'))) ||
+             (canServe && existing().status == 'ready' && incoming().status == 'completed'))) ||
+          (!statusChanged && changed.hasAny(['kitchenNotes']) && (canManage || canKitchen))
+        );
+    }
+
     function isValidOrder(data) {
       return data.keys().hasAll(['id', 'orderNumber', 'restaurantSlug', 'orderMode', 'items', 'totalAmount', 'status'])
         && data.id is string && data.id.size() > 0 && data.id.size() <= 128
@@ -260,8 +295,7 @@ service cloud.firestore {
         allow create: if false;
         allow get: if false;
         allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view'));
-        allow update: if isRestaurantActive(restaurantSlug) &&
-          isValidId(orderId) &&
+        allow update: if isValidId(orderId) &&
           incoming().id == orderId &&
           incoming().id == existing().id &&
           incoming().restaurantSlug == restaurantSlug &&
@@ -269,23 +303,7 @@ service cloud.firestore {
           incoming().orderNumber == existing().orderNumber &&
           incoming().totalAmount == existing().totalAmount &&
           incoming().items == existing().items &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'statusUpdatedAt', 'kitchenNotes']) &&
-          (!incoming().diff(existing()).affectedKeys().hasAny(['kitchenNotes']) ||
-            hasRestaurantPermission(restaurantSlug, 'orders.manage') ||
-            hasRestaurantPermission(restaurantSlug, 'kitchen.access')) &&
-          (!incoming().diff(existing()).affectedKeys().hasAny(['statusUpdatedAt']) ||
-            incoming().status != existing().status) &&
-          (
-            (hasRestaurantPermission(restaurantSlug, 'orders.manage') &&
-              isValidOrderTransition(existing().status, incoming().status)) ||
-            (hasRestaurantPermission(restaurantSlug, 'orders.cancel') &&
-              existing().status in ['pending', 'in_prep', 'ready'] && incoming().status == 'cancelled') ||
-            (hasRestaurantPermission(restaurantSlug, 'kitchen.access') &&
-              ((existing().status == 'pending' && incoming().status == 'in_prep') ||
-               (existing().status == 'in_prep' && incoming().status == 'ready'))) ||
-            (hasRestaurantPermission(restaurantSlug, 'orders.serve') &&
-              existing().status == 'ready' && incoming().status == 'completed')
-          );
+          canUpdateOrder(restaurantSlug);
         allow delete: if false;
       }
     }
