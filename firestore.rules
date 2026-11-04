@@ -35,6 +35,18 @@ service cloud.firestore {
         !get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.keys().hasAny(['deletedAt']);
     }
 
+    function isRestaurantMember(targetSlug) {
+      let memberPath = /databases/$(database)/documents/managers/$(request.auth.uid);
+      let member = get(memberPath).data;
+      return isSignedIn() &&
+        exists(memberPath) &&
+        isAccountActive() &&
+        isRestaurantActive(targetSlug) &&
+        member.get('restaurantSlug', '') == targetSlug &&
+        member.get('active', false) == true &&
+        member.get('role', '') in ['owner', 'manager', 'staff', 'cashier', 'server', 'kitchen'];
+    }
+
     function isAccountActive() {
       return isSignedIn() && (
         !exists(/databases/$(database)/documents/managers/$(request.auth.uid)) ||
@@ -189,7 +201,8 @@ service cloud.firestore {
     // List of all restaurants: FORBIDDEN (not needed by QR menu or single-restaurant hub)
     // Create/update restricted strictly to verified managers of this restaurant
     match /restaurants/{restaurantSlug} {
-      allow get: if isValidId(restaurantSlug) && isRestaurantActive(restaurantSlug);
+      allow get: if isValidId(restaurantSlug) && isRestaurantActive(restaurantSlug) &&
+        (!isSignedIn() || isRestaurantMember(restaurantSlug));
       allow list: if false;
       allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming());
       allow update: if hasRestaurantPermission(restaurantSlug, 'settings.manage') &&
@@ -205,8 +218,10 @@ service cloud.firestore {
       // Public get and list for QR menu viewing
       // Create/update/delete restricted strictly to verified managers of this restaurant
       match /menuItems/{dishId} {
-        allow get: if isValidId(dishId) && isRestaurantActive(restaurantSlug);
-        allow list: if isRestaurantActive(restaurantSlug);
+        allow get: if isValidId(dishId) && isRestaurantActive(restaurantSlug) &&
+          (!isSignedIn() || isRestaurantMember(restaurantSlug));
+        allow list: if isRestaurantActive(restaurantSlug) &&
+          (!isSignedIn() || isRestaurantMember(restaurantSlug));
         allow create: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
           isValidId(dishId) && isValidMenuItem(incoming()) &&
           incoming().restaurantSlug == restaurantSlug && incoming().id == dishId;
