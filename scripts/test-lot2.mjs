@@ -547,7 +547,7 @@ async function runTests() {
   assert(rulesContent.includes("allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view')"), 'Liste des commandes privée et réservée au gérant du restaurant');
 
   // Test 4.3: Restriction stricte des modifications d'ordres KDS
-  assert(rulesContent.includes('affectedKeys().hasOnly([\'status\', \'statusUpdatedAt\', \'kitchenNotes\'])'), 'Mise à jour de commande limitée strictement aux statuts opérationnels');
+  assert(rulesContent.includes("changed.hasOnly(['status', 'statusUpdatedAt', 'kitchenNotes'])"), 'Mise à jour de commande limitée strictement aux statuts opérationnels par la fonction canUpdateOrder');
   assert(rulesContent.includes('incoming().totalAmount == existing().totalAmount'), 'Empêche toute altération du montant après commande');
 
   // ==========================================================================
@@ -821,9 +821,13 @@ async function runTests() {
   // Scénario 8: Règles Firestore multi-tenant et mise à jour KDS préservées
   assert(
     rulesContent.includes("hasRestaurantPermission(restaurantSlug, 'orders.view')") &&
-    rulesContent.includes("hasRestaurantPermission(restaurantSlug, 'orders.manage')") &&
-    rulesContent.includes('affectedKeys().hasOnly([\'status\', \'statusUpdatedAt\', \'kitchenNotes\'])'),
-    'Scénario 8 : Multi-tenant préservé et modifications KDS strictement encadrées'
+    rulesContent.includes('function canUpdateOrder(targetSlug)') &&
+    rulesContent.includes("'orders.manage' in permissions") &&
+    rulesContent.includes("'orders.cancel' in permissions") &&
+    rulesContent.includes("'kitchen.access' in permissions") &&
+    rulesContent.includes("'orders.serve' in permissions") &&
+    rulesContent.includes("changed.hasOnly(['status', 'statusUpdatedAt', 'kitchenNotes'])"),
+    'Scénario 8 : Multi-tenant préservé et transitions KDS encadrées par rôle'
   );
 
   // Scénario 9: Préservation du panier client en cas d'échec
