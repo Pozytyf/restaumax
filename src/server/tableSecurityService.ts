@@ -127,44 +127,60 @@ export async function resolveTableQr(db: any, token: string) {
   const tokenHash = sha256(token);
   const matches = await db.collectionGroup('table_qr_tokens').where('tokenHash', '==', tokenHash).limit(2).get();
   if (matches.size !== 1) throw new Error('QR code inconnu, révoqué ou invalide.');
-  const tokenDoc = matches.docs[0];
-  const tokenData = tokenDoc.data();
-  if (tokenData.status !== 'active' || tokenData.tokenHash !== tokenHash) throw new Error('Ce QR code a été révoqué.');
+  const tokenDocRef = matches.docs[0].ref;
+  const tokenData = matches.docs[0].data();
   const slug = String(tokenData.restaurantSlug || '');
   const tableId = String(tokenData.tableId || '');
   if (!slug || !tableId) throw new Error('QR code mal configuré.');
+
   const restaurantRef = db.collection('restaurants').doc(slug);
   const tableRef = restaurantRef.collection('tables').doc(tableId);
-  const [restaurantSnap, tableSnap] = await Promise.all([restaurantRef.get(), tableRef.get()]);
-  if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.isActive === false) {
-    throw new Error('Ce restaurant est temporairement indisponible.');
-  }
-  if (!tableSnap.exists || tableSnap.data()?.isActive !== true || Number(tableSnap.data()?.qrVersion || 0) !== Number(tokenData.version || 0)) throw new Error('Cette table est inactive ou son QR a été remplacé.');
-
   const sessionSecret = randomSecret();
   const csrfToken = randomSecret();
   const sessionHash = sha256(sessionSecret);
+  const sessionRef = restaurantRef.collection('table_sessions').doc(sessionHash);
   const now = Date.now();
-  await restaurantRef.collection('table_sessions').doc(sessionHash).create({
-    sessionHash,
-    restaurantSlug: slug,
-    tableId,
-    tableNumber: String(tableSnap.data()?.tableNumber || tokenData.tableNumber || ''),
-    qrTokenHash: tokenHash,
-    qrVersion: Number(tokenData.version || 1),
-    csrfHash: sha256(csrfToken),
-    status: 'active',
-    createdAt: now,
-    lastSeenAt: now,
-    expiresAt: now + SESSION_TTL_MS
+  let tableNumber = '';
+
+  // Re-read token, restaurant and table in one transaction. A concurrent rotation/revocation
+  // conflicts with this transaction and cannot create a usable session from a stale QR.
+  await db.runTransaction(async (tx: any) => {
+    const [currentToken, restaurantSnap, tableSnap] = await Promise.all([
+      tx.get(tokenDocRef),
+      tx.get(restaurantRef),
+      tx.get(tableRef)
+    ]);
+    const currentTokenData = currentToken.exists ? currentToken.data() : null;
+    const restaurantData = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const tableData = tableSnap.exists ? tableSnap.data() : null;
+    if (!currentTokenData || currentTokenData.status !== 'active' || currentTokenData.tokenHash !== tokenHash ||
+        currentTokenData.restaurantSlug !== slug || currentTokenData.tableId !== tableId) {
+      throw new Error('Ce QR code a été révoqué ou remplacé.');
+    }
+    if (!restaurantData || restaurantData.status === 'suspended' || restaurantData.isActive === false) {
+      throw new Error('Ce restaurant est temporairement indisponible.');
+    }
+    if (!tableData || tableData.isActive !== true ||
+        Number(tableData.qrVersion || 0) !== Number(currentTokenData.version || 0)) {
+      throw new Error('Cette table est inactive ou son QR a été remplacé.');
+    }
+    tableNumber = String(tableData.tableNumber || currentTokenData.tableNumber || '');
+    tx.create(sessionRef, {
+      sessionHash,
+      restaurantSlug: slug,
+      tableId,
+      tableNumber,
+      qrTokenHash: tokenHash,
+      qrVersion: Number(currentTokenData.version || 1),
+      csrfHash: sha256(csrfToken),
+      status: 'active',
+      createdAt: now,
+      lastSeenAt: now,
+      expiresAt: now + SESSION_TTL_MS
+    });
   });
-  return {
-    sessionSecret,
-    restaurantSlug: slug,
-    tableId,
-    tableNumber: String(tableSnap.data()?.tableNumber || tokenData.tableNumber || ''),
-    csrfToken
-  };
+
+  return { sessionSecret, restaurantSlug: slug, tableId, tableNumber, csrfToken };
 }
 
 export async function getActiveTableSession(db: any, sessionSecret: string | null) {
