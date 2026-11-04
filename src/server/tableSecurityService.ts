@@ -202,7 +202,9 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
   if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'suspended' || restaurantSnap.data()?.isActive === false) return null;
   if (!tableSnap.exists || tableSnap.data()?.isActive !== true || Number(tableSnap.data()?.qrVersion || 0) !== Number(session.qrVersion || 0)) return null;
   if (!qrSnap.exists || qrSnap.data()?.status !== 'active') return null;
+  if (qrSnap.data()?.tokenHash !== session.qrTokenHash || qrSnap.data()?.restaurantSlug !== restaurantSlug || qrSnap.data()?.tableId !== tableId) return null;
   if (Number(qrSnap.data()?.version || 0) !== Number(session.qrVersion || 0)) return null;
+  if (Number(tableSnap.data()?.qrVersion || 0) !== Number(session.qrVersion || 0)) return null;
 
   await sessionDoc.ref.update({ lastSeenAt: now });
   return {
