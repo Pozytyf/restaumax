@@ -129,6 +129,7 @@ export default function App() {
   const { path: activePathname } = parsePathInfo(currentPath);
   const [tableSession, setTableSession] = useState<{ restaurantSlug: string; tableId: string; tableNumber: string; csrfToken: string; expiresAt: number } | null>(null);
   const [tableSessionExpected, setTableSessionExpected] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('table_session') === '1');
+  const [tableSessionChecking, setTableSessionChecking] = useState(false);
   const activeTableNumber = tableSession?.tableNumber || null;
   const [authRestaurantSlug, setAuthRestaurantSlug] = useState<string>('');
   const [authIsSuperAdmin, setAuthIsSuperAdmin] = useState<boolean>(false);
@@ -147,9 +148,11 @@ export default function App() {
     if (!isClientMenuRoute) {
       setTableSession(null);
       setTableSessionExpected(false);
+      setTableSessionChecking(false);
       return;
     }
     let active = true;
+    setTableSessionChecking(true);
     const params = new URLSearchParams(window.location.search);
     setTableSessionExpected(params.get('table_session') === '1');
     fetch('/api/table-session', { credentials: 'same-origin', cache: 'no-store' })
@@ -160,9 +163,9 @@ export default function App() {
         return data;
       })
       .then((data) => {
-        if (active) setTableSession(data);
+        if (active) { setTableSession(data); setTableSessionChecking(false); }
       })
-      .catch(() => { if (active) setTableSession(null); });
+      .catch(() => { if (active) { setTableSession(null); setTableSessionChecking(false); } });
     return () => { active = false; };
   }, [isClientMenuRoute, activeRestaurantSlug, currentPath]);
 
@@ -884,6 +887,7 @@ export default function App() {
           onClearCart={handleClearClientCart}
           onConfirmOrder={handleClientOrderConfirm}
           isUncertain={isOrderUncertain}
+          tableSessionUnavailable={tableSessionExpected && !tableSessionChecking && !tableSession}
           onResetUncertainty={handleResetUncertainty}
           onNavigateHome={() => navigateTo('/')}
 />
