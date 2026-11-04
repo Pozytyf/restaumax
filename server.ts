@@ -858,7 +858,7 @@ app.all('/api/platform-admin', async (req, res) => {
 });
 
 app.post('/api/orders', async (req, res) => {
-  const result = await handleOrderSubmission(req.body);
+  const result = await handleOrderSubmission(req.body, req);
   return res.status(result.statusCode).json(result.body);
 });
 
