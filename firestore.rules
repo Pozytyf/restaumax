@@ -185,13 +185,14 @@ service cloud.firestore {
 
       // Orders subcollection
       // Create: STRICTLY FORBIDDEN from client SDK (must go through trusted server backend /api/orders)
-      // Get: customer can view confirmed order by exact ID
+      // Get: forbidden for public clients; customer confirmation uses the trusted API response.
+      // No client-side order lookup by ID is currently used by the app.
       // List: restricted strictly to authorized managers of this restaurant (protects customer privacy and restaurant order stream)
       // Update: restricted strictly to authorized managers of this restaurant, and limited to operational status fields
       // Delete: STRICTLY FORBIDDEN (audit trail preserved)
       match /orders/{orderId} {
         allow create: if false;
-        allow get: if isValidId(orderId);
+        allow get: if false;
         allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view'));
         allow update: if (hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access')) 
           && isValidId(orderId) 

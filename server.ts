@@ -74,7 +74,8 @@ const isProd = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
-app.use(express.json());
+// Bound request bodies to reduce memory-exhaustion and oversized-payload abuse.
+app.use(express.json({ limit: '64kb' }));
 
 // 1. Initialisation stricte de Firebase Admin SDK
 export let adminDb: any = null;
