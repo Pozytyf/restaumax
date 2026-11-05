@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { manageInventoryWithDb } from '../src/server/inventoryService.ts';
 
 class FakeDb {
@@ -69,7 +70,7 @@ const move = await manageInventoryWithDb(moveDb, moveParams);
 assert.equal(move.success, true);
 assert.equal(move.quantityBefore, 10);
 assert.equal(move.quantityAfter, 7.5);
-assert.equal(moveDb.documents.get('restaurants/chez-awa/stockMovements/mov_' + (await import('node:crypto')).default.createHash('sha256').update('chez-awa:owner-1:movement-key-000001').digest('hex').slice(0,32)).quantityBefore, 10);
+assert.equal(moveDb.documents.get('restaurants/chez-awa/stockMovements/mov_' + createHash('sha256').update('chez-awa:owner-1:movement-key-000001').digest('hex').slice(0,32)).quantityBefore, 10);
 
 const replay = await manageInventoryWithDb(moveDb, moveParams);
 assert.equal(replay.success, true);
