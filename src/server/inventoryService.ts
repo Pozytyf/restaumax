@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export interface InventoryRequestParams {
-  action: 'create' | 'move' | 'archive';
+  action: 'create' | 'move' | 'update' | 'archive';
   restaurantSlug: string;
   actorUid: string;
   sessionVersion: number;
@@ -140,6 +140,40 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
           createdAt: now, createdBy: uid, idempotencyKey: keyHash
         });
         return { success: true, quantityBefore: before, quantityAfter: after, idempotentReplay: false };
+      });
+    }
+
+    if (params.action === 'update') {
+      const itemId = String(params.itemId || '');
+      const name = String(params.name || '').trim();
+      const unit = String(params.unit || '');
+      const minQuantity = params.minQuantity;
+      const unitCost = params.unitCost;
+      const supplier = String(params.supplier || '').trim();
+      if (!/^[a-zA-Z0-9_-]{1,160}$/.test(itemId) ||
+          !name || name.length > 160 || !allowedUnits.has(unit) ||
+          !validAmount(minQuantity) || !validAmount(unitCost) || !Number.isInteger(unitCost) ||
+          supplier.length > 160 ||
+          Math.round(Number(minQuantity) * 1000) !== Number(minQuantity) * 1000) {
+        return { success: false, error: 'Données de modification de stock invalides.' };
+      }
+      const itemRef = db.collection('restaurants').doc(slug).collection('inventoryItems').doc(itemId);
+      return await db.runTransaction(async (tx: any) => {
+        const authz = await authorizeInventoryTransaction(tx, db, slug, uid, params.sessionVersion);
+        if (!authz.ok) return { success: false, error: authz.error };
+        const itemSnap = await tx.get(itemRef);
+        if (!itemSnap.exists || itemSnap.data().active === false) {
+          return { success: false, error: 'Article de stock introuvable ou archivé.' };
+        }
+        const item = itemSnap.data();
+        if (String(item.unit || '') !== unit && Number(item.quantity || 0) !== 0) {
+          return { success: false, error: 'L’unité ne peut pas être modifiée tant que le stock n’est pas à zéro.' };
+        }
+        tx.update(itemRef, {
+          name, unit, minQuantity: Number(minQuantity), unitCost: Number(unitCost),
+          supplier, updatedAt: Date.now()
+        });
+        return { success: true, idempotentReplay: false };
       });
     }
 
