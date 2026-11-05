@@ -46,6 +46,10 @@ assert(platformAdmin.includes("await db.runTransaction(async (tx: any) =>") &&
 assert(qrView.includes('window.confirm') && qrView.includes('setIsRevoking(true)') &&
   qrView.includes('disabled={isGenerating || isRevoking}') &&
   qrView.includes("setQrDataUrl('')") && qrView.includes("setQrSvgString('')") && qrView.includes("setQrUrl('')"),
+const qrGenerateStart = qrView.slice(qrView.indexOf('const generateQrForTable'), qrView.indexOf('const handleGenerateQr'));
+assert(qrGenerateStart.includes("setQrDataUrl('')") && qrGenerateStart.includes("setQrSvgString('')") &&
+  qrGenerateStart.includes("setQrUrl('')") && qrGenerateStart.includes('setQrForTableId(null)'),
+  'QR rotation clears old image and vector assets before the server can invalidate the previous token');
 assert(qrView.includes('const hasCurrentQr = Boolean(currentTable && qrForTableId === currentTable.id') &&
   qrView.includes('qrForTableId !== currentTable.id') && qrView.includes('disabled={isGenerating || isRevoking || !hasCurrentQr}'),
   'QR assets and downloads are bound to the selected table only');
