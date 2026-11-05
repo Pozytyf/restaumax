@@ -184,6 +184,12 @@ async function run() {
     });
     assert(closeReplay.success === true && closeReplay.idempotentReplay === true,
       'Le rejeu de la même clôture retourne le même rapport sans nouvelle écriture');
+    const closeConflict = await closeCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, closingCount: 13900, idempotencyKey: 'close-cash-session-001'
+    });
+    assert(closeConflict.success === false && closeConflict.conflict === true,
+      'Une même clé de clôture ne peut pas être rejouée avec un comptage différent');
     const afterClose = await getCashSessionWithDb(db, slug, uid);
     assert(afterClose === null, 'Une session clôturée n’est plus considérée comme active');
     const paymentAfterClose = await recordCashPaymentWithDb(db, input('order-concurrent', 1000, 'cash-after-close-01'));
