@@ -172,11 +172,13 @@ service cloud.firestore {
         (!changed.hasAny(['statusUpdatedAt']) || statusChanged) &&
         (
           (statusChanged &&
-            ((canManage && isValidOrderTransition(existing().status, incoming().status)) ||
+            ((canManage && isValidOrderTransition(existing().status, incoming().status) &&
+               (incoming().status != 'ready' || existing().get('kitchenItemsCompletedCount', 0) == existing().items.size())) ||
              (canCancel && existing().status in ['pending', 'in_prep', 'ready'] && incoming().status == 'cancelled') ||
              (canKitchen &&
                ((existing().status == 'pending' && incoming().status == 'in_prep') ||
-                (existing().status == 'in_prep' && incoming().status == 'ready'))) ||
+                (existing().status == 'in_prep' && incoming().status == 'ready' &&
+                 existing().get('kitchenItemsCompletedCount', 0) == existing().items.size()))) ||
              (canServe && existing().status == 'ready' && incoming().status == 'completed'))) ||
           (!statusChanged && changed.hasAny(['kitchenNotes']) && (canManage || canKitchen))
         );
