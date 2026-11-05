@@ -893,13 +893,14 @@ export async function handleCustomerPayDunyaInvoiceRequest(payload: unknown, req
     }
     const config = getPayDunyaConfig(process.env);
     if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
-    const appOrigin = String(process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\/$/, '');
+    const requestOrigin = String(req?.headers?.origin || '').replace(/\/$/, '');
+      const appOrigin = String(process.env.APP_ORIGIN || requestOrigin).replace(/\/$/, '');
     let parsedOrigin: URL;
     try { parsedOrigin = new URL(appOrigin); } catch {
       return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya invalide.' } };
     }
-    if (parsedOrigin.protocol !== 'https:' || parsedOrigin.hostname !== 'restaumax.vercel.app' || parsedOrigin.pathname !== '/') {
-      return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN doit être https://restaumax.vercel.app.' } };
+    if (parsedOrigin.protocol !== 'https:' || parsedOrigin.pathname !== '/' || !requestOrigin || parsedOrigin.origin !== requestOrigin) {
+      return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN doit correspondre à l’origine HTTPS de cette version RestauMax.' } };
     }
     const result = await startPayDunyaOrderPaymentWithDb(adminDb, config.data, {
       restaurantSlug: slug,
@@ -1085,12 +1086,13 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     if (input.action === 'create_paydunya_invoice') {
       const config = getPayDunyaConfig(process.env);
       if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
-      const appOrigin = String(process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\/$/, '');
+      const requestOrigin = String(req?.headers?.origin || '').replace(/\/$/, '');
+      const appOrigin = String(process.env.APP_ORIGIN || requestOrigin).replace(/\/$/, '');
       let parsedAppOrigin: URL;
       try { parsedAppOrigin = new URL(appOrigin); } catch {
         return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya est invalide.' } };
       }
-      if (parsedAppOrigin.protocol !== 'https:' || parsedAppOrigin.hostname !== 'restaumax.vercel.app' || parsedAppOrigin.pathname !== '/') {
+      if (parsedAppOrigin.protocol !== 'https:' || parsedAppOrigin.pathname !== '/' || !requestOrigin || parsedAppOrigin.origin !== requestOrigin) {
         return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN doit être https://restaumax.vercel.app.' } };
       }
       const channel = String(input.channel || '') as PayDunyaCiWithdrawMode;
@@ -1117,12 +1119,13 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       if (!canRefund) return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };
       const payoutConfig = getPayDunyaDisbursementConfig(process.env);
       if (!payoutConfig.success) return { statusCode: 503, body: { success: false, error: payoutConfig.error } };
-      const appOrigin = String(process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\/$/, '');
+      const requestOrigin = String(req?.headers?.origin || '').replace(/\/$/, '');
+      const appOrigin = String(process.env.APP_ORIGIN || requestOrigin).replace(/\/$/, '');
       let parsedOrigin: URL;
       try { parsedOrigin = new URL(appOrigin); } catch {
         return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya invalide.' } };
       }
-      if (parsedOrigin.protocol !== 'https:' || parsedOrigin.hostname !== 'restaumax.vercel.app' || parsedOrigin.pathname !== '/') {
+      if (parsedOrigin.protocol !== 'https:' || parsedOrigin.pathname !== '/' || !requestOrigin || parsedOrigin.origin !== requestOrigin) {
         return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN doit être https://restaumax.vercel.app.' } };
       }
       const result = await startPayDunyaRefundWithDb(adminDb, payoutConfig.data, {
