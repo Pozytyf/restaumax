@@ -386,7 +386,7 @@ async function finalizePayDunyaRefund(
   db: any,
   restaurantSlug: string,
   refundId: string,
-  providerStatus: { status: string; token: string; amount?: number; withdrawMode?: string; transactionId?: string; providerReference?: string }
+  providerStatus: { status: string; token: string; amount?: number; withdrawMode?: string; transactionId?: string; providerReference?: string; disburseId?: string }
 ): Promise<PayDunyaRefundResult> {
   const restaurantRef = db.collection('restaurants').doc(restaurantSlug);
   const refundRef = restaurantRef.collection('refunds').doc(refundId);
@@ -410,7 +410,8 @@ async function finalizePayDunyaRefund(
     }
     if (current.disbursementToken !== providerStatus.token ||
         Number(current.amount) !== Number(providerStatus.amount) ||
-        current.providerChannel !== providerStatus.withdrawMode) {
+        current.providerChannel !== providerStatus.withdrawMode ||
+        (providerStatus.disburseId && providerStatus.disburseId !== refundId)) {
       return { success: false, conflict: true, error: 'Le statut fournisseur ne correspond pas au montant, au token ou au canal réservé.' };
     }
     const pendingAmount = Number(payment.refundPendingAmount || 0);
