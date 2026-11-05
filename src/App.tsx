@@ -1049,7 +1049,17 @@ export default function App() {
 
       const payment = paymentResult.payment;
       const refreshedSession = await getCashSessionWithServerValidation(activeRestaurantSlug);
-      if (refreshedSession.success) setCashSession(refreshedSession.session);
+      if (refreshedSession.success) {
+        setCashSession(refreshedSession.session);
+        if (refreshedSession.session) {
+          setDrawerState((previous) => ({
+            ...previous,
+            openingBalance: Number(refreshedSession.session?.openingBalance || 0),
+            currentCash: Number(refreshedSession.session?.openingBalance || 0) +
+              Number(refreshedSession.session?.cashCollected || 0)
+          }));
+        }
+      }
       sounds.playCashRegister();
       const updatedOrder = { ...order, ...paymentResult.order } as RestauOrder;
       setPendingPosOrder(updatedOrder);
@@ -1057,14 +1067,18 @@ export default function App() {
       setPaymentIdempotencyKey(generateClientOrderIdempotencyKey());
 
       const newRecord = mapCashPaymentRecord(payment);
-      setTransactions((previous) => [newRecord, ...previous]);
-      setDrawerState((previous) => ({
-        ...previous,
-        totalSales: previous.totalSales + payment.paidAmount,
-        currentCash: previous.currentCash + payment.paidAmount,
-        cashSales: previous.cashSales + payment.paidAmount,
-        transactionCount: previous.transactionCount + 1
-      }));
+      const paymentAlreadyCounted = paymentResult.idempotentReplay === true ||
+        transactions.some((record) => record.id === newRecord.id);
+      if (!paymentAlreadyCounted) {
+        setTransactions((previous) => [newRecord, ...previous]);
+        setDrawerState((previous) => ({
+          ...previous,
+          totalSales: previous.totalSales + payment.paidAmount,
+          currentCash: previous.currentCash + payment.paidAmount,
+          cashSales: previous.cashSales + payment.paidAmount,
+          transactionCount: previous.transactionCount + 1
+        }));
+      }
       setActiveReceiptModal(newRecord);
       setIsPaymentModalOpen(false);
 
