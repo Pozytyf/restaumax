@@ -952,7 +952,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     if (input.action === 'create_paydunya_invoice') {
       const config = getPayDunyaConfig(process.env);
       if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
-      const appOrigin = String(process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\\/$/, '');
+      const appOrigin = String(process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\/$/, '');
       let parsedAppOrigin: URL;
       try { parsedAppOrigin = new URL(appOrigin); } catch {
         return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya est invalide.' } };
@@ -984,7 +984,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       if (!canRefund) return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };
       const payoutConfig = getPayDunyaDisbursementConfig(process.env);
       if (!payoutConfig.success) return { statusCode: 503, body: { success: false, error: payoutConfig.error } };
-      const appOrigin = String(process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\\/$/, '');
+      const appOrigin = String(process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\/$/, '');
       let parsedOrigin: URL;
       try { parsedOrigin = new URL(appOrigin); } catch {
         return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya invalide.' } };
