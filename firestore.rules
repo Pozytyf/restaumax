@@ -69,7 +69,7 @@ service cloud.firestore {
         (role == 'manager' && permission in [
           'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
           'tables.view', 'tables.manage', 'pos.access', 'kitchen.access',
-          'cash.view', 'cash.manage', 'payments.refund', 'reports.view', 'customers.view',
+          'cash.view', 'cash.manage', 'orders.cancel', 'payments.refund', 'reports.view', 'customers.view',
           'customers.manage', 'inventory.view', 'inventory.manage',
           'staff.view', 'staff.manage', 'settings.view'
         ]) ||
