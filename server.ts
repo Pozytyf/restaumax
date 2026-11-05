@@ -47,6 +47,8 @@ import {
   IdempotencyReservationResult
 } from './src/server/orderService.js';
 import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
+import { getPayDunyaConfig, type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
+import { startPayDunyaOrderPaymentWithDb, processPayDunyaInvoiceCallbackWithDb } from './src/server/paydunyaPaymentService.js';
 import {
   authorizeTableManager,
   buildCsrfCookie,
@@ -855,6 +857,23 @@ export async function handleTableQrManagement(req: any) {
   }
 }
 
+export async function handlePayDunyaCallbackRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  const config = getPayDunyaConfig(process.env);
+  if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+  try {
+    const result = await processPayDunyaInvoiceCallbackWithDb(adminDb, config.data, payload);
+    if (!result.success) return { statusCode: result.conflict ? 409 : 400, body: result };
+    return { statusCode: 200, body: result };
+  } catch (error: any) {
+    console.error('Erreur callback PayDunya:', String(error?.message || error));
+    return { statusCode: 500, body: { success: false, error: 'Notification PayDunya à retraiter.' } };
+  }
+}
+
 export async function handlePaymentsRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) {
     return { statusCode: 503, body: { success: false, error: 'Service de caisse indisponible : Firebase Admin non configuré.' } };
@@ -910,6 +929,34 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
 
     if (!canManageCash) {
       return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de gérer la caisse.' } };
+    }
+
+    if (input.action === 'create_paydunya_invoice') {
+      const config = getPayDunyaConfig(process.env);
+      if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+      const appOrigin = String(process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\\/$/, '');
+      let parsedAppOrigin: URL;
+      try { parsedAppOrigin = new URL(appOrigin); } catch {
+        return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya est invalide.' } };
+      }
+      if (parsedAppOrigin.protocol !== 'https:' || parsedAppOrigin.hostname !== 'restaumax.vercel.app' || parsedAppOrigin.pathname !== '/') {
+        return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN doit être https://restaumax.vercel.app.' } };
+      }
+      const channel = String(input.channel || '') as PayDunyaCiWithdrawMode;
+      const result = await startPayDunyaOrderPaymentWithDb(adminDb, config.data, {
+        restaurantSlug: slug,
+        orderId: String(input.orderId || ''),
+        actorUid: decoded.uid,
+        actorName: String(decoded.name || decoded.email || decoded.uid),
+        sessionVersion: Number(decoded.sessionVersion || 0),
+        idempotencyKey: String(input.idempotencyKey || ''),
+        channel,
+        callbackUrl: `${parsedAppOrigin.origin}/api/payments/paydunya-callback`,
+        returnUrl: `${parsedAppOrigin.origin}/payments/return`,
+        cancelUrl: `${parsedAppOrigin.origin}/payments/cancel`
+      });
+      if (result.success) return { statusCode: 200, body: result };
+      return { statusCode: result.conflict ? 409 : 400, body: result };
     }
 
     if (input.action === 'refund_cash_payment') {
@@ -1119,6 +1166,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any = adminDb)
 // Local Express routes. Vercel uses the equivalent files in /api.
 app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
+});
+
+app.post('/api/payments/paydunya-callback', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handlePayDunyaCallbackRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
 });
 
 app.all('/api/payments', async (req, res) => {
