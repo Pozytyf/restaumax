@@ -7,6 +7,8 @@ on:
     paths:
       - 'src/server/paydunyaService.ts'
       - 'src/server/paydunyaPaymentService.ts'
+      - 'src/server/paydunyaMerchantConfig.ts'
+      - 'scripts/test-paydunya-merchant-config.mjs'
       - 'src/server/paymentService.ts'
       - 'server.ts'
       - 'api/payments/**'
