@@ -689,6 +689,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               </label>
               <textarea
                 rows={2}
+                maxLength={2000}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Description appétissante, ingrédients principaux, saveurs et accompagnement inclus..."
