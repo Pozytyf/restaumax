@@ -184,7 +184,7 @@ const recipePanel = fs.readFileSync(new URL('../src/components/restaumax/Invento
 assert(inventoryUi.includes('<InventoryRecipePanel restaurantSlug={restaurant.slug}'), 'stock module mounts the recipe management panel');
 assert(recipePanel.includes('saveInventoryRecipeWithServerValidation'), 'recipe saves use the trusted backend API');
 assert(recipePanel.includes('new Set(normalized.map(line => line.inventoryItemId)).size !== normalized.length'), 'duplicate ingredients are rejected in the UI');
-assert(recipePanel.includes('no conversion'), 'recipe quantities explicitly avoid implicit unit conversion');
+assert(recipePanel.includes('aucune conversion implicite n’est appliquée'), 'recipe quantities explicitly avoid implicit unit conversion');
 assert(recipePanel.includes('canManage && <form'), 'recipe editing is hidden from staff without inventory management permission');
 assert(recipePanel.includes('Modifier la recette') && recipePanel.includes('setLines(recipe.lines.map'), 'saved recipe sheets can be loaded back into the editor');
 console.log('Inventory service and retry-safe UI: tests passed.');
