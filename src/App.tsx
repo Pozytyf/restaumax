@@ -767,6 +767,7 @@ export default function App() {
 
   // POS Handlers
   const handleAddToCart = (dish: MenuItem) => {
+    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
     setCart((prev) => {
       const existing = prev.find((item) => item.menuItem.id === dish.id);
       if (existing) {
@@ -780,6 +781,7 @@ export default function App() {
   };
 
   const handleUpdateQuantity = (itemId: string, delta: number) => {
+    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
     setCart((prev) =>
       prev
         .map((item) => (item.id === itemId ? { ...item, quantity: item.quantity + delta } : item))
@@ -788,16 +790,19 @@ export default function App() {
   };
 
   const handleRemoveItem = (itemId: string) => {
+    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
     setCart((prev) => prev.filter((item) => item.id !== itemId));
   };
 
   const handleUpdateItemNotes = (itemId: string, notes: string) => {
+    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
     setCart((prev) =>
       prev.map((item) => (item.id === itemId ? { ...item, specialInstructions: notes } : item))
     );
   };
 
   const handleSendToKitchen = async () => {
+    if (pendingPosOrder) { window.alert('Une commande avec un solde restant est en cours d’encaissement. Terminez-la avant de créer une autre commande depuis ce panier.'); return; }
     if (cart.length === 0 || isSubmittingPosOrder) return;
 
     // Never let a client-side discount silently alter a server-calculated order total.
@@ -1006,6 +1011,7 @@ export default function App() {
   };
 
   const handleSelectTableForOrder = (table: Table) => {
+    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de changer de table.'); return; }
     setSelectedTable(table);
     setCurrentRole('pos');
     if (table.status === 'available') {
