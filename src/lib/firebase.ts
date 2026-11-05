@@ -311,7 +311,7 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
     ) return false;
 
     const restaurantSnap = await getDoc(doc(db, 'restaurants', data.restaurantSlug));
-    if (!restaurantSnap.exists() || restaurantSnap.data()?.status !== 'active') return false;
+    if (!restaurantSnap.exists() || restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt) return false;
     if (data.role === 'owner') return restaurantSnap.data()?.ownerUid === user.uid;
     return true;
   } catch (err) {
