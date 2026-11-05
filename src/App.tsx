@@ -144,7 +144,7 @@ export default function App() {
   const [authIsSuperAdmin, setAuthIsSuperAdmin] = useState<boolean>(false);
   const routeRestaurantSlug = activePathname.startsWith('/r/') ? activePathname.split('/')[2] : '';
   const queryRestaurantSlug = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('restaurant') || new URL(currentPath, 'http://localhost').searchParams.get('restaurantSlug') || ''; } catch { return ''; } })();
-  const activeRestaurantSlug = routeRestaurantSlug || (authUser ? (authIsSuperAdmin ? queryRestaurantSlug : authRestaurantSlug) : queryRestaurantSlug) || authRestaurantSlug || 'chez-awa';
+  const activeRestaurantSlug = routeRestaurantSlug || (authIsSuperAdmin ? queryRestaurantSlug : authRestaurantSlug || queryRestaurantSlug) || 'chez-awa';
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
   const isStaffRoute = activePathname === '/staff';
