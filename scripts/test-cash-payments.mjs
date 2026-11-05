@@ -26,6 +26,7 @@ async function run() {
   const orderRef = restaurantRef.collection('orders').doc('order-main');
   const concurrentOrderRef = restaurantRef.collection('orders').doc('order-concurrent');
   const cancelledOrderRef = restaurantRef.collection('orders').doc('order-cancelled');
+  const splitOrderRef = restaurantRef.collection('orders').doc('order-split');
 
   const input = (orderId, amountTendered, idempotencyKey, sessionVersion = 3, actorUid = uid) => ({
     restaurantSlug: slug, orderId, actorUid, sessionVersion, amountTendered, idempotencyKey
@@ -50,6 +51,11 @@ async function run() {
     await cancelledOrderRef.set({
       id: 'order-cancelled', orderNumber: '#CMD-003', restaurantSlug: slug,
       totalAmount: 5000, paidAmount: 0, currency: 'FCFA', status: 'cancelled', items: []
+    });
+    await splitOrderRef.set({
+      id: 'order-split', orderNumber: '#CMD-004', restaurantSlug: slug, orderMode: 'sur_place',
+      tableNumber: '4', totalAmount: 10000, paidAmount: 0, currency: 'FCFA', status: 'pending',
+      items: [{ name: 'Repas partagé test', quantity: 1, unitPrice: 10000 }]
     });
 
     console.log('\n--- Ouverture et contrôle de session de caisse ---');
@@ -205,13 +211,83 @@ async function run() {
     assert(afterClose === null, 'Une session clôturée n’est plus considérée comme active');
     const paymentAfterClose = await recordCashPaymentWithDb(db, input('order-concurrent', 1000, 'cash-after-close-01'));
     assert(paymentAfterClose.success === false, 'Aucun nouvel encaissement n’est accepté après clôture');
+    console.log('\n--- Factures individuelles par convive ---');
+    const splitSession = await openCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, openingBalance: 1000, idempotencyKey: 'open-split-session-01'
+    });
+    assert(splitSession.success === true, 'Une nouvelle session peut être ouverte après clôture de la précédente');
+
+    const guestOne = await recordCashPaymentWithDb(db, {
+      ...input('order-split', 4000, 'split-guest-one-01'),
+      splitGuests: 3, guestNumber: 1, guestName: 'Awa'
+    });
+    assert(guestOne.success === true && guestOne.payment?.paidAmount === 3334 &&
+      guestOne.payment?.changeAmount === 666 && guestOne.order?.guestAccounts?.[0]?.shareAmount === 3334,
+      'Le premier convive reçoit sa part arrondie et la monnaie est calculée correctement');
+    const splitCountConflict = await recordCashPaymentWithDb(db, {
+      ...input('order-split', 1000, 'split-count-change-01'),
+      splitGuests: 2, guestNumber: 2, guestName: 'Koffi'
+    });
+    assert(splitCountConflict.success === false && splitCountConflict.conflict === true,
+      'Le nombre de convives ne peut pas changer après le premier règlement');
+    const guestOneOverpay = await recordCashPaymentWithDb(db, {
+      ...input('order-split', 100, 'split-guest-one-extra'),
+      splitGuests: 3, guestNumber: 1, guestName: 'Awa'
+    });
+    assert(guestOneOverpay.success === false, 'Un convive déjà réglé ne peut pas être encaissé une seconde fois');
+
+    const guestTwoPartial = await recordCashPaymentWithDb(db, {
+      ...input('order-split', 2000, 'split-guest-two-a'),
+      splitGuests: 3, guestNumber: 2, guestName: 'Koffi'
+    });
+    assert(guestTwoPartial.success === true && guestTwoPartial.payment?.paidAmount === 2000 &&
+      guestTwoPartial.payment?.guestRemainingAfter === 1333,
+      'Un sous-compte accepte un paiement partiel indépendant');
+    const guestTwoFinal = await recordCashPaymentWithDb(db, {
+      ...input('order-split', 1333, 'split-guest-two-b'),
+      splitGuests: 3, guestNumber: 2, guestName: 'Koffi'
+    });
+    assert(guestTwoFinal.success === true && guestTwoFinal.payment?.guestRemainingAfter === 0,
+      'Le deuxième convive peut solder uniquement sa propre part');
+    const guestThree = await recordCashPaymentWithDb(db, {
+      ...input('order-split', 3333, 'split-guest-three'),
+      splitGuests: 3, guestNumber: 3, guestName: 'Mariam'
+    });
+    assert(guestThree.success === true && guestThree.order?.paymentStatus === 'paid' &&
+      guestThree.order?.paidAmount === 10000,
+      'Le dernier règlement clôture la commande commune et les trois sous-comptes');
+    const guestThreeReplay = await recordCashPaymentWithDb(db, {
+      ...input('order-split', 3333, 'split-guest-three'),
+      splitGuests: 3, guestNumber: 3, guestName: 'Mariam'
+    });
+    assert(guestThreeReplay.success === true && guestThreeReplay.idempotentReplay === true,
+      'Le rejeu idempotent d’un paiement individuel ne crée pas de doublon');
+    const splitAccounts = guestThree.order?.guestAccounts || [];
+    assert(splitAccounts.length === 3 &&
+      splitAccounts[0].paidAmount === 3334 &&
+      splitAccounts[1].paidAmount === 3333 &&
+      splitAccounts[2].paidAmount === 3333 &&
+      splitAccounts[0].guestName === 'Awa' &&
+      splitAccounts[1].guestName === 'Koffi' &&
+      splitAccounts[2].guestName === 'Mariam',
+      'Les trois sous-comptes conservent leur nom et leur règlement individuel');
+
+    const splitClose = await closeCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, closingCount: 11000, idempotencyKey: 'close-split-session-01'
+    });
+    assert(splitClose.success === true && splitClose.session?.expectedCash === 11000 &&
+      splitClose.session?.variance === 0,
+      'La caisse rapproche correctement les encaissements des trois convives');
+
     const cashSessions = await restaurantRef.collection('cashSessions').get();
     const cashMovements = await restaurantRef.collection('cashMovements').get();
-    assert(cashSessions.size === 1 && cashSessions.docs[0].data().paymentCount === 3 &&
-      cashSessions.docs[0].data().cashOut === 500 &&
-      cashSessions.docs[0].data().cashMovementCount === 1 &&
+    assert(cashSessions.size === 2 &&
+      cashSessions.docs.some((doc) => doc.data().paymentCount === 3 && doc.data().cashOut === 500) &&
+      cashSessions.docs.some((doc) => doc.data().paymentCount === 4 && doc.data().cashCollected === 10000) &&
       cashMovements.size === 1 && cashMovements.docs[0].data().amount === 500,
-      'L’historique de session conserve encaissements et mouvements de caisse exacts');
+      'L’historique conserve les encaissements et mouvements des deux sessions');
 
     console.log('\nRésultats paiements espèces : ' + passed + '/' + (passed + failed) + ' réussis (' + failed + ' échec(s)).');
     if (failed) process.exitCode = 1;
@@ -226,7 +302,7 @@ async function run() {
     if (movements) for (const doc of movements.docs) { try { await doc.ref.delete(); } catch {} }
     const activeSessions = await restaurantRef.collection('cashSessionActive').get().catch(() => null);
     if (activeSessions) for (const doc of activeSessions.docs) { try { await doc.ref.delete(); } catch {} }
-    for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, memberRef, restaurantRef]) {
+    for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, splitOrderRef, memberRef, restaurantRef]) {
       try { await ref.delete(); } catch {}
     }
     try { await app.delete(); } catch {}
