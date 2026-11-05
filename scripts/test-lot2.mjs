@@ -531,6 +531,10 @@ async function runTests() {
   const orderWithoutProgress = mapRestauOrderToKitchenTicket(mockOrder);
   assert(orderWithoutProgress.items[0].completed === false, 'Ne conserve pas une coche locale absente du document Firestore');
 
+  const kdsViewSource = fs.readFileSync(path.resolve('src/components/kds/KdsView.tsx'), 'utf-8');
+  assert(kdsViewSource.includes('if (!ticket.items.every(item => item.completed))'),
+    'Le KDS interdit l’expédition tant que toutes les lignes ne sont pas terminées');
+
   // ==========================================================================
   // SECTION 4 : CORRECTION D — Vérification structurelle des règles Firestore
   // ==========================================================================
