@@ -1382,6 +1382,11 @@ export default function App() {
       else firestoreStatus = 'in_prep';
 
       try {
+        const currentOrder = restauOrders.find(order => order.id === rawOrderId);
+        // Firestore rules require the kitchen transition pending -> in_prep -> ready.
+        if (status === 'ready' && currentOrder?.status === 'pending') {
+          await updateOrderStatus(activeRestaurantSlug, rawOrderId, 'in_prep');
+        }
         await updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus);
       } catch (err) {
         console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
