@@ -282,24 +282,14 @@ service cloud.firestore {
       // Inventory catalog and immutable stock movement audit trail.
       match /inventoryItems/{itemId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
-        allow create, update: if hasRestaurantPermission(restaurantSlug, 'inventory.manage')
-          && isValidId(itemId)
-          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
-          && incoming().unit is string && incoming().unit.size() > 0 && incoming().unit.size() <= 20
-          && incoming().quantity is number && incoming().quantity >= 0
-          && incoming().minQuantity is number && incoming().minQuantity >= 0
-          && incoming().unitCost is number && incoming().unitCost >= 0;
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'inventory.manage') && isValidId(itemId);
+        // Inventory mutations are Admin SDK only and must pass the transactional API.
+        allow create, update, delete: if false;
       }
 
       match /stockMovements/{movementId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
-        allow create: if hasRestaurantPermission(restaurantSlug, 'inventory.manage')
-          && isValidId(movementId)
-          && incoming().itemId is string && incoming().itemId.size() > 0
-          && incoming().delta is number && incoming().delta != 0
-          && incoming().quantityAfter is number && incoming().quantityAfter >= 0;
-        allow update, delete: if false;
+        // Append-only from the trusted Admin SDK transaction; no client writes.
+        allow create, update, delete: if false;
       }
 
       // Orders subcollection
