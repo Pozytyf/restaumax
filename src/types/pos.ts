@@ -95,6 +95,7 @@ export interface PaymentRecord {
   guestRemainingAfter?: number;
   paymentMethod: PaymentMethod;
   refundedAmount?: number;
+  refundPendingAmount?: number;
   refundStatus?: string;
   refundEligible?: boolean;
   providerChannel?: string;
