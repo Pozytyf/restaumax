@@ -94,6 +94,10 @@ export interface PaymentRecord {
   guestPreviouslyPaidAmount?: number;
   guestRemainingAfter?: number;
   paymentMethod: PaymentMethod;
+  refundedAmount?: number;
+  refundStatus?: string;
+  refundEligible?: boolean;
+  providerChannel?: string;
   items: { name: string; quantity: number; price: number }[];
 }
 
