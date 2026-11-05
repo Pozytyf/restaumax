@@ -912,6 +912,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       restaurantSlug: slug,
       orderId: String(input.orderId || ''),
       actorUid: decoded.uid,
+      actorName: String(decoded.name || decoded.email || decoded.uid),
       sessionVersion: Number(decoded.sessionVersion || 0),
       amountTendered: input.amountTendered,
       idempotencyKey: String(input.idempotencyKey || '')
