@@ -939,7 +939,7 @@ async function inventoryRequest(
       body: JSON.stringify({ restaurantSlug, ...payload })
     });
     const data = await response.json();
-    if (!response.ok || !data.success) return { success: false, error: data.error || 'Opération de stock refusée.', retryable: false };
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Opération de stock refusée.', retryable: response.status >= 500 || response.status === 429 };
     return data as InventoryApiResult;
   } catch (error: any) {
     console.error('Erreur appel /api/inventory:', error);
