@@ -396,7 +396,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
 
     const savedDish: RestauMenuItem = {
       id: dishId,
-      restaurantSlug: dishToEdit?.restaurantSlug || restaurant.slug || 'chez-awa',
+      restaurantSlug: dishToEdit?.restaurantSlug || restaurant.slug,
       name: name.trim(),
       description: description.trim(),
       category,
