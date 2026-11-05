@@ -72,8 +72,11 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
           ![quantity, minQuantity].every(v => Math.round(Number(v) * 1000) === Number(v) * 1000)) {
         return { success: false, error: 'Données de création de stock invalides.' };
       }
+      const initialQuantity = Number(quantity);
+      const initialMinQuantity = Number(minQuantity);
+      const initialUnitCost = Number(unitCost);
       const keyHash = digest(`${slug}:${uid}:${key}`);
-      const requestSignature = digest(JSON.stringify({ name, unit, quantity, minQuantity, unitCost, supplier }));
+      const requestSignature = digest(JSON.stringify({ name, unit, quantity: initialQuantity, minQuantity: initialMinQuantity, unitCost: initialUnitCost, supplier }));
       const itemId = `inv_${keyHash}`;
       const itemRef = db.collection('restaurants').doc(slug).collection('inventoryItems').doc(itemId);
       const movementRef = db.collection('restaurants').doc(slug).collection('stockMovements').doc(`initial_${keyHash}`);
@@ -87,11 +90,11 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
         }
         if (movementSnap.exists) return { success: false, error: 'Journal initial orphelin : création bloquée pour contrôle.' };
         const now = Date.now();
-        tx.create(itemRef, { id: itemId, name, unit, quantity, minQuantity, unitCost, supplier, active: true, requestSignature, createdAt: now, updatedAt: now });
-        if (quantity > 0) {
+        tx.create(itemRef, { id: itemId, name, unit, quantity: initialQuantity, minQuantity: initialMinQuantity, unitCost: initialUnitCost, supplier, active: true, requestSignature, createdAt: now, updatedAt: now });
+        if (initialQuantity > 0) {
           tx.create(movementRef, {
-            itemId, itemName: name, unit, quantityBefore: 0, delta: quantity,
-            quantityAfter: quantity, reason: 'Stock initial', createdAt: now,
+            itemId, itemName: name, unit, quantityBefore: 0, delta: initialQuantity,
+            quantityAfter: initialQuantity, reason: 'Stock initial', createdAt: now,
             createdBy: uid, idempotencyKey: keyHash
           });
         }
