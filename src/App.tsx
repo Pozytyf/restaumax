@@ -36,6 +36,7 @@ import {
   type CashSessionApiRecord,
   subscribeToOrders,
   updateOrderStatus,
+  updateKitchenItemCompletionWithServerValidation,
   subscribeToTables,
   persistTable,
   deleteTable,
@@ -74,18 +75,13 @@ import { PlatformAdminView } from './components/restaumax/PlatformAdminView';
  * Mappe de façon déterministe et stable une commande Firestore RestauOrder vers un ticket KDS KitchenTicket
  */
 export function mapRestauOrderToKitchenTicket(
-  order: RestauOrder, 
-  existingTicket?: KitchenTicket
+  order: RestauOrder
 ): KitchenTicket {
   let ticketStatus: TicketStatus = 'in_prep';
   if (order.status === 'ready') ticketStatus = 'ready';
   else if (order.status === 'completed') ticketStatus = 'served';
   else if (order.status === 'cancelled') ticketStatus = 'cancelled';
   else ticketStatus = 'in_prep';
-
-  const existingCompletedNames = new Set(
-    existingTicket?.items.filter(i => i.completed).map(i => i.name) || []
-  );
 
   return {
     id: `ord-${order.id}`,
@@ -112,7 +108,7 @@ export function mapRestauOrderToKitchenTicket(
         quantity: it.quantity,
         course: 'plat',
         notes: notesArr.join(' · '),
-        completed: existingCompletedNames.has(it.name)
+        completed: order.kitchenItemCompletion?.[String(idx)] === true
       };
     })
   };
@@ -534,12 +530,8 @@ export default function App() {
         if (!isMounted) return;
         setRestauOrders(firestoreOrders);
         setKitchenTickets((previous) => {
-          const existingMap = new Map<string, KitchenTicket>(previous.map((ticket) => [ticket.id, ticket]));
           const nonFirestoreTickets = previous.filter((ticket) => !ticket.id.startsWith('ord-'));
-          const mappedTickets = firestoreOrders.map((order) => {
-            const existing = existingMap.get(`ord-${order.id}`);
-            return mapRestauOrderToKitchenTicket(order, existing);
-          });
+          const mappedTickets = firestoreOrders.map((order) => mapRestauOrderToKitchenTicket(order));
           return [...mappedTickets, ...nonFirestoreTickets];
         });
       },
@@ -1333,13 +1325,34 @@ export default function App() {
     }
   };
 
-  const handleToggleKdsItem = (ticketId: string, itemId: string) => {
+  const handleToggleKdsItem = async (ticketId: string, itemId: string, completed: boolean) => {
+    if (ticketId.startsWith('ord-')) {
+      const orderId = ticketId.slice(4);
+      const itemPrefix = `ki-${orderId}-`;
+      if (!itemId.startsWith(itemPrefix)) {
+        window.alert('Ligne de préparation invalide.');
+        return;
+      }
+      const itemIndex = Number(itemId.slice(itemPrefix.length));
+      if (!Number.isInteger(itemIndex) || itemIndex < 0) {
+        window.alert('Ligne de préparation invalide.');
+        return;
+      }
+      const result = await updateKitchenItemCompletionWithServerValidation(
+        activeRestaurantSlug, orderId, itemId, itemIndex, completed
+      );
+      if (!result.success) {
+        window.alert(result.error);
+        return;
+      }
+    }
+
     setKitchenTickets((prev) =>
       prev.map((ticket) =>
         ticket.id === ticketId
           ? {
               ...ticket,
-              items: ticket.items.map((i) => (i.id === itemId ? { ...i, completed: !i.completed } : i))
+              items: ticket.items.map((item) => (item.id === itemId ? { ...item, completed } : item))
             }
           : ticket
       )
