@@ -531,6 +531,7 @@ export interface CashPaymentApiRecord {
   paidAmount: number;
   changeAmount: number;
   totalAmount: number;
+  previouslyPaidAmount: number;
   remainingBefore: number;
   remainingAfter: number;
   paymentStatus: 'partial' | 'paid';
