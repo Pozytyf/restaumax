@@ -204,7 +204,7 @@ export default function App() {
     discountsTotal: 0,
     transactionCount: 0
   });
-  const [transactions, setTransactions] = useState<PaymentRecord[]>([]);
+  const [transactions, setTransactions] = useState<PaymentRecord[]>([]);\n  const [cashSession, setCashSession] = useState<CashSessionApiRecord | null>(null);\n  const [cashSessionLoading, setCashSessionLoading] = useState(false);\n  const [cashSessionActionLoading, setCashSessionActionLoading] = useState(false);
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isSubmittingPosOrder, setIsSubmittingPosOrder] = useState(false);
@@ -332,9 +332,10 @@ export default function App() {
   const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
   const [authRestaurantRole, setAuthRestaurantRole] = useState<string>('');
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
-  const canCollectPayment = isRestaurantOwner ||
+  const canManageCash = isRestaurantOwner ||
     authRestaurantRole === 'manager' ||
     (authRestaurantRole === 'cashier' && userPermissions.includes('cash.manage'));
+  const canCollectPayment = canManageCash && cashSession?.status === 'active';
   const mapCashPaymentRecord = (payment: any): PaymentRecord => ({
     id: String(payment.id),
     orderId: String(payment.orderNumber || payment.orderId),
@@ -468,6 +469,8 @@ export default function App() {
       userPermissions.includes('cash.view') || userPermissions.includes('cash.manage');
     if (!authUser || !canViewCash) {
       setTransactions([]);
+      setCashSession(null);
+      setCashSessionLoading(false);
       setDrawerState({
         openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
         mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
@@ -476,6 +479,22 @@ export default function App() {
     }
 
     let active = true;
+    setCashSessionLoading(true);
+    getCashSessionWithServerValidation(activeRestaurantSlug).then((result) => {
+      if (!active) return;
+      if (result.success) {
+        setCashSession(result.session);
+        setDrawerState((previous) => ({
+          ...previous,
+          openingBalance: Number(result.session?.openingBalance || 0),
+          currentCash: Number(result.session?.openingBalance || 0) + Number(result.session?.cashCollected || 0)
+        }));
+      } else {
+        setCashSession(null);
+        console.warn('Session de caisse indisponible:', result.error);
+      }
+      setCashSessionLoading(false);
+    });
     setTransactions([]);
     setDrawerState({
       openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
@@ -903,6 +922,52 @@ export default function App() {
     }
   };
 
+  const handleOpenCashSession = async (openingBalance: number) => {
+    if (!canManageCash || cashSessionActionLoading) return;
+    setCashSessionActionLoading(true);
+    try {
+      const result = await openCashSessionWithServerValidation(
+        activeRestaurantSlug, openingBalance, generateClientOrderIdempotencyKey()
+      );
+      if (!result.success || !result.session) {
+        window.alert(result.error || "Impossible d'ouvrir la session de caisse.");
+        return;
+      }
+      setCashSession(result.session);
+      setDrawerState((previous) => ({
+        ...previous, openingBalance,
+        currentCash: openingBalance + Number(result.session?.cashCollected || 0)
+      }));
+      window.alert("Session de caisse ouverte. Les encaissements seront rattachés à cette session.");
+    } finally {
+      setCashSessionActionLoading(false);
+    }
+  };
+
+  const handleCloseCashSession = async (closingCount: number) => {
+    if (!canManageCash || cashSessionActionLoading) return;
+    setCashSessionActionLoading(true);
+    try {
+      const result = await closeCashSessionWithServerValidation(
+        activeRestaurantSlug, closingCount, generateClientOrderIdempotencyKey()
+      );
+      if (!result.success || !result.session) {
+        window.alert(result.error || "Impossible de clôturer la session de caisse.");
+        return;
+      }
+      setCashSession(null);
+      setDrawerState((previous) => ({
+        ...previous, openingBalance: 0, currentCash: 0
+      }));
+      const variance = Number(result.session.variance || 0);
+      window.alert(
+        `Session clôturée. Fond théorique : ${formatFCFA(Number(result.session.expectedCash || 0))}. Écart : ${variance > 0 ? '+' : ''}${formatFCFA(variance)}.`
+      );
+    } finally {
+      setCashSessionActionLoading(false);
+    }
+  };
+
   const handleConfirmPayment = async (paymentData: {
     method: PaymentMethod;
     paidAmount: number;
@@ -977,6 +1042,8 @@ export default function App() {
       }
 
       const payment = paymentResult.payment;
+      const refreshedSession = await getCashSessionWithServerValidation(activeRestaurantSlug);
+      if (refreshedSession.success) setCashSession(refreshedSession.session);
       sounds.playCashRegister();
       const updatedOrder = { ...order, ...paymentResult.order } as RestauOrder;
       setPendingPosOrder(updatedOrder);
@@ -1340,6 +1407,12 @@ export default function App() {
               <ManagerView
                 drawerState={drawerState}
                 transactions={transactions}
+                cashSession={cashSession}
+                cashSessionLoading={cashSessionLoading}
+                cashSessionActionLoading={cashSessionActionLoading}
+                canManageCash={canManageCash}
+                onOpenCashSession={handleOpenCashSession}
+                onCloseCashSession={handleCloseCashSession}
                 onViewReceipt={(receipt) => setActiveReceiptModal(receipt)}
               />
             )}
