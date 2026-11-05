@@ -1,4 +1,4 @@
-import { resolveRolePermissions, canManageStaffMember } from '../src/server/platformAdmin.ts';
+import { resolveRolePermissions, resolveManagerPermissionUpdate, canManageStaffMember } from '../src/server/platformAdmin.ts';
 
 let passed = 0;
 let failed = 0;
@@ -17,6 +17,15 @@ assert(resolveRolePermissions('kitchen', ['orders.cancel'], true) === null, 'Cui
 assert(resolveRolePermissions('manager', ['settings.manage'], true) === null, 'Le manager ne peut jamais recevoir settings.manage');
 assert(resolveRolePermissions('cashier', ['orders.cancel'], false) === null, 'Un manager ne peut pas accorder un droit supplémentaire au caissier');
 assert(resolveRolePermissions('cashier', ['orders.cancel'], true)?.includes('orders.cancel') === true, 'Le propriétaire peut accorder un droit supplémentaire dans le plafond du caissier');
+
+const cashierOwnerGrant = ['orders.view','tables.view','pos.access','cash.view','cash.manage','reports.cash.view','orders.cancel'];
+assert(resolveManagerPermissionUpdate('cashier', 'cashier', cashierOwnerGrant)?.includes('orders.cancel') === true,
+  'Un manager conserve une autorisation supplémentaire accordée par le propriétaire lors d’une modification du même rôle');
+assert(resolveManagerPermissionUpdate('cashier', 'server', cashierOwnerGrant) === null,
+  'Un manager ne peut pas supprimer indirectement un droit du propriétaire en changeant le rôle du caissier');
+assert(resolveManagerPermissionUpdate('server', 'cashier', ['orders.view','tables.view','pos.access','orders.serve'])?.includes('cash.manage') === true,
+  'Un manager peut changer un rôle lorsque cela ne retire aucun droit supplémentaire du propriétaire');
+
 
 assert(canManageStaffMember('manager', 'cashier'), 'Le manager peut administrer un caissier');
 assert(canManageStaffMember('manager', 'server'), 'Le manager peut administrer un serveur');
