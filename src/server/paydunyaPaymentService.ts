@@ -313,3 +313,276 @@ export async function processPayDunyaInvoiceCallbackWithDb(
     return { success: true, status: 'completed', paymentId, idempotentReplay: false };
   });
 }
+
+
+import {
+  createPayDunyaDisbursementInvoice,
+  submitPayDunyaDisbursement,
+  checkPayDunyaDisbursementStatus,
+  type PayDunyaDisbursementConfig
+} from './paydunyaService.js';
+
+export interface StartPayDunyaRefundInput {
+  restaurantSlug: string;
+  paymentId: string;
+  actorUid: string;
+  actorName?: string;
+  sessionVersion: number;
+  amount: number;
+  reason: string;
+  idempotencyKey: string;
+  callbackUrl: string;
+}
+
+export interface PayDunyaRefundResult {
+  success: boolean;
+  conflict?: boolean;
+  error?: string;
+  refundId?: string;
+  status?: string;
+  idempotentReplay?: boolean;
+}
+
+async function finalizePayDunyaRefund(
+  db: any,
+  restaurantSlug: string,
+  refundId: string,
+  providerStatus: { status: string; token: string; amount?: number; withdrawMode?: string; transactionId?: string; providerReference?: string }
+): Promise<PayDunyaRefundResult> {
+  const restaurantRef = db.collection('restaurants').doc(restaurantSlug);
+  const refundRef = restaurantRef.collection('refunds').doc(refundId);
+  const snap = await refundRef.get();
+  if (!snap.exists) return { success: false, error: 'Remboursement fournisseur introuvable.' };
+  const refund = snap.data();
+  const paymentRef = restaurantRef.collection('payments').doc(String(refund.paymentId));
+  const orderRef = restaurantRef.collection('orders').doc(String(refund.orderId));
+  return db.runTransaction(async (tx: any) => {
+    const [refundSnap, paymentSnap, orderSnap] = await Promise.all([
+      tx.get(refundRef), tx.get(paymentRef), tx.get(orderRef)
+    ]);
+    if (!refundSnap.exists || !paymentSnap.exists || !orderSnap.exists) {
+      return { success: false, error: 'Registre de remboursement incomplet.' };
+    }
+    const current = refundSnap.data();
+    const payment = paymentSnap.data();
+    const order = orderSnap.data();
+    if (current.status === 'completed') {
+      return { success: true, refundId, status: 'completed', idempotentReplay: true };
+    }
+    if (current.disbursementToken !== providerStatus.token ||
+        Number(current.amount) !== Number(providerStatus.amount) ||
+        current.providerChannel !== providerStatus.withdrawMode) {
+      return { success: false, conflict: true, error: 'Le statut fournisseur ne correspond pas au montant, au token ou au canal réservé.' };
+    }
+    const pendingAmount = Number(payment.refundPendingAmount || 0);
+    const refundedAmount = Number(payment.refundedAmount || 0);
+    if (pendingAmount < Number(current.amount)) {
+      return { success: false, conflict: true, error: 'Réservation de remboursement incohérente.' };
+    }
+    const now = Date.now();
+    if (providerStatus.status === 'pending' || providerStatus.status === 'created') {
+      tx.update(refundRef, { status: 'pending', providerTransactionId: providerStatus.transactionId || null, updatedAt: now });
+      return { success: true, refundId, status: 'pending' };
+    }
+    if (providerStatus.status === 'failed') {
+      tx.update(refundRef, { status: 'failed', failureAt: now, updatedAt: now });
+      tx.update(paymentRef, { refundPendingAmount: Math.max(0, pendingAmount - Number(current.amount)) });
+      return { success: true, refundId, status: 'failed' };
+    }
+    if (providerStatus.status !== 'success') {
+      return { success: false, error: 'Statut de décaissement inconnu.' };
+    }
+    const nextRefunded = refundedAmount + Number(current.amount);
+    const totalOrderRefunded = Number(order.refundedAmount || 0) + Number(current.amount);
+    if (nextRefunded > Number(payment.paidAmount) ||
+        totalOrderRefunded > Number(order.paidAmount || 0)) {
+      return { success: false, conflict: true, error: 'Le cumul des remboursements dépasse les montants encaissés.' };
+    }
+    tx.update(refundRef, {
+      status: 'completed', completedAt: now, updatedAt: now,
+      providerTransactionId: providerStatus.transactionId || null,
+      providerReference: providerStatus.providerReference || null
+    });
+    tx.update(paymentRef, {
+      refundedAmount: nextRefunded,
+      refundPendingAmount: Math.max(0, pendingAmount - Number(current.amount)),
+      refundStatus: nextRefunded >= Number(payment.paidAmount) ? 'refunded' : 'partially_refunded',
+      lastRefundAt: now, lastRefundId: refundId
+    });
+    tx.update(orderRef, {
+      refundedAmount: totalOrderRefunded,
+      netPaidAmount: Math.max(0, Number(order.paidAmount || 0) - totalOrderRefunded),
+      refundStatus: totalOrderRefunded >= Number(order.paidAmount || 0) ? 'refunded' : 'partially_refunded',
+      lastRefundAt: now, lastRefundId: refundId
+    });
+    return { success: true, refundId, status: 'completed' };
+  });
+}
+
+/**
+ * Mobile Money refund is a two-phase, server-only operation:
+ * reserve amount atomically, send PUSH, then settle only after provider status
+ * confirms success. A pending/ambiguous request keeps the amount reserved.
+ */
+export async function startPayDunyaRefundWithDb(
+  db: any,
+  config: PayDunyaDisbursementConfig,
+  input: StartPayDunyaRefundInput,
+  fetchImpl: typeof fetch = fetch
+): Promise<PayDunyaRefundResult> {
+  if (!db) return { success: false, error: 'Firestore indisponible.' };
+  if (!config.pushEnabled || config.mode !== 'live') {
+    return { success: false, error: 'Le remboursement Mobile Money réel est désactivé. Activation PUSH live explicite requise.' };
+  }
+  const slug = clean(input.restaurantSlug, 100);
+  const paymentId = clean(input.paymentId, 128);
+  const actorUid = clean(input.actorUid, 128);
+  const key = clean(input.idempotencyKey, 128);
+  const reason = clean(input.reason, 300);
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(paymentId) || !actorUid ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(key) ||
+      !Number.isSafeInteger(input.amount) || input.amount <= 0 ||
+      reason.length < 3 || reason.length > 300) {
+    return { success: false, error: 'Paramètres de remboursement Mobile Money invalides.' };
+  }
+  let callback: URL;
+  try { callback = new URL(input.callbackUrl); } catch { return { success: false, error: 'URL callback de remboursement invalide.' }; }
+  if (callback.protocol !== 'https:' || callback.hostname !== 'restaumax.vercel.app') {
+    return { success: false, error: 'Le callback de remboursement doit appartenir au domaine HTTPS RestauMax.' };
+  }
+
+  const namespace = `${slug}::${paymentId}::${key}`;
+  const refundId = `refund_${sha256(namespace).slice(0, 32)}`;
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const memberRef = db.collection('managers').doc(actorUid);
+  const paymentRef = restaurantRef.collection('payments').doc(paymentId);
+  const refundRef = restaurantRef.collection('refunds').doc(refundId);
+  const reservation = await db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, memberSnap, paymentSnap, refundSnap] = await Promise.all([
+      tx.get(restaurantRef), tx.get(memberRef), tx.get(paymentRef), tx.get(refundRef)
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = memberSnap.exists ? memberSnap.data() : null;
+    const payment = paymentSnap.exists ? paymentSnap.data() : null;
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(member.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
+      return { ok: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
+    }
+    const canRefund = (member.role === 'owner' && restaurant.ownerUid === actorUid) ||
+      member.role === 'manager' ||
+      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('payments.refund'));
+    if (!canRefund) return { ok: false, error: 'La permission distincte payments.refund est requise.' };
+    if (refundSnap.exists) {
+      const previous = refundSnap.data();
+      if (previous.actorUid !== actorUid || Number(previous.amount) !== input.amount ||
+          previous.paymentId !== paymentId || previous.reason !== reason) {
+        return { ok: false, conflict: true, error: 'Clé de remboursement déjà utilisée pour une autre opération.' };
+      }
+      if (previous.status === 'completed' || previous.status === 'pending' || previous.status === 'created' ||
+          previous.status === 'initiating' || previous.status === 'manual_review') {
+        return { ok: true, replay: true, status: previous.status };
+      }
+      return { ok: false, conflict: true, error: 'Cette demande est déjà clôturée. Créez une nouvelle demande après rapprochement.' };
+    }
+    if (!payment || payment.restaurantSlug !== slug || payment.id !== paymentId ||
+        payment.method !== 'paydunya' || payment.payerPhoneVerified !== true ||
+        !payment.payerPhone || !CI_CHANNELS.has(payment.providerChannel as PayDunyaCiWithdrawMode)) {
+      return { ok: false, error: 'Paiement PayDunya sans numéro et canal d’origine vérifiés : remboursement automatique impossible.' };
+    }
+    const paid = Number(payment.paidAmount || 0);
+    const refunded = Number(payment.refundedAmount || 0);
+    const pending = Number(payment.refundPendingAmount || 0);
+    if (!Number.isSafeInteger(paid) || !Number.isSafeInteger(refunded) ||
+        !Number.isSafeInteger(pending) || input.amount > paid - refunded - pending || input.amount <= 0) {
+      return { ok: false, error: 'Le montant dépasse le solde disponible après remboursements déjà exécutés ou en attente.' };
+    }
+    const orderId = clean(payment.orderId, 128);
+    const orderRef = restaurantRef.collection('orders').doc(orderId);
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists || orderSnap.data()?.restaurantSlug !== slug) {
+      return { ok: false, error: 'Commande d’origine introuvable.' };
+    }
+    const now = Date.now();
+    tx.create(refundRef, {
+      id: refundId, restaurantSlug: slug, paymentId, orderId,
+      amount: input.amount, currency: 'XOF', method: 'paydunya',
+      provider: 'paydunya', providerChannel: payment.providerChannel,
+      beneficiaryPhone: payment.payerPhone, beneficiaryPhoneVerified: true,
+      status: 'initiating', reason, actorUid,
+      actorName: clean(input.actorName, 100), actorRole: member.role,
+      createdAt: now, idempotencyKeyHash: sha256(key)
+    });
+    tx.update(paymentRef, { refundPendingAmount: pending + input.amount });
+    return {
+      ok: true, replay: false, refundId, amount: input.amount,
+      phone: payment.payerPhone, channel: payment.providerChannel
+    };
+  });
+  if (!reservation.ok) return { success: false, conflict: reservation.conflict, error: reservation.error };
+  if (reservation.replay) return { success: true, refundId, status: reservation.status, idempotentReplay: true };
+
+  const created = await createPayDunyaDisbursementInvoice(config, {
+    accountAlias: reservation.phone,
+    amount: reservation.amount,
+    withdrawMode: reservation.channel as PayDunyaCiWithdrawMode,
+    callbackUrl: input.callbackUrl,
+    disburseId: refundId
+  }, fetchImpl);
+  if (!created.success) {
+    await refundRef.update({ status: 'manual_review', lastProviderError: clean(created.error, 180), updatedAt: Date.now() });
+    return { success: false, conflict: true, refundId, error: 'PayDunya n’a pas confirmé la création du décaissement. Le montant reste réservé pour rapprochement manuel ; aucune nouvelle soumission automatique.' };
+  }
+  const tokenHash = sha256(created.data.token);
+  const mappingRef = db.collection('paydunya_disbursement_tokens').doc(tokenHash);
+  await db.runTransaction(async (tx: any) => {
+    const [refundSnap, mappingSnap] = await Promise.all([tx.get(refundRef), tx.get(mappingRef)]);
+    if (!refundSnap.exists || mappingSnap.exists) throw new Error('Conflit de token PayDunya pour ce remboursement.');
+    tx.set(mappingRef, { restaurantSlug: slug, refundId, tokenHash, createdAt: Date.now() });
+    tx.update(refundRef, { status: 'created', disbursementToken: created.data.token, disbursementTokenHash: tokenHash, updatedAt: Date.now() });
+  });
+
+  const submitted = await submitPayDunyaDisbursement(config, created.data.token, refundId, fetchImpl);
+  if (!submitted.success) {
+    await refundRef.update({ status: 'pending_verification', lastProviderError: clean(submitted.error, 180), updatedAt: Date.now() });
+    return { success: true, refundId, status: 'pending_verification' };
+  }
+  const status = await checkPayDunyaDisbursementStatus(config, created.data.token, fetchImpl);
+  if (!status.success) {
+    await refundRef.update({ status: 'pending_verification', updatedAt: Date.now() });
+    return { success: true, refundId, status: 'pending_verification' };
+  }
+  const finalized = await finalizePayDunyaRefund(db, slug, refundId, status.data);
+  return finalized;
+}
+
+/** Signed provider callback; the server still checks the token status directly with PayDunya. */
+export async function processPayDunyaDisbursementCallbackWithDb(
+  db: any,
+  config: PayDunyaDisbursementConfig,
+  callbackEnvelope: unknown,
+  fetchImpl: typeof fetch = fetch
+): Promise<PayDunyaRefundResult> {
+  if (!db) return { success: false, error: 'Firestore indisponible.' };
+  const envelope = asObject(callbackEnvelope);
+  let callbackData: any = envelope.data ?? envelope;
+  if (typeof callbackData === 'string') {
+    try { callbackData = JSON.parse(callbackData); } catch {
+      return { success: false, error: 'Corps de callback de décaissement illisible.' };
+    }
+  }
+  const verified = verifyPayDunyaCallback(config.masterKey, callbackData);
+  if (!verified.success) return { success: false, error: verified.error };
+  const token = clean(verified.data.token, 128);
+  if (!/^[A-Za-z0-9_-]{5,128}$/.test(token)) return { success: false, error: 'Token de décaissement absent.' };
+  const tokenHash = sha256(token);
+  const mappingSnap = await db.collection('paydunya_disbursement_tokens').doc(tokenHash).get();
+  if (!mappingSnap.exists) return { success: false, error: 'Token de décaissement inconnu.' };
+  const mapping = mappingSnap.data();
+  const configResult = config;
+  const status = await checkPayDunyaDisbursementStatus(configResult, token, fetchImpl);
+  if (!status.success) return { success: false, error: status.error };
+  if (status.data.token !== token) return { success: false, error: 'Token de statut fournisseur incohérent.' };
+  return finalizePayDunyaRefund(db, mapping.restaurantSlug, mapping.refundId, status.data);
+}
