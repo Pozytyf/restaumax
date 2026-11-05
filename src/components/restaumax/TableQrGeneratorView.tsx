@@ -115,6 +115,12 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   const generateQrForTable = async (table: RestaurantTable): Promise<boolean> => {
     setQrGenerationError(null);
     setIsGenerating(true);
+    // A rotation invalidates the previous token on the server before the new
+    // URL is returned, so never keep displaying or exporting the old QR.
+    setQrUrl('');
+    setQrDataUrl('');
+    setQrSvgString('');
+    setQrForTableId(null);
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('Votre session gestionnaire a expiré. Reconnectez-vous.');
@@ -137,6 +143,8 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     } catch (err: any) {
       const message = err?.message || 'Erreur lors de la génération du QR sécurisé.';
       setQrUrl('');
+      setQrDataUrl('');
+      setQrSvgString('');
       setQrForTableId(null);
       setQrGenerationError(message);
       return false;
