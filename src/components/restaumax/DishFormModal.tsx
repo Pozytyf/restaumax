@@ -586,10 +586,12 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           <button
             type="button"
             onClick={() => {
+              if (isSaving) return;
               sounds.playTap();
               onClose();
             }}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+            disabled={isSaving}
+            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
             title="Fermer la fenêtre"
           >
             <X size={20} />
