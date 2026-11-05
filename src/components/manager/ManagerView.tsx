@@ -64,7 +64,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
             <div className="flex items-center justify-between text-slate-500 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider">Chiffre d’Affaires</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Encaissements récents</span>
               <div className="w-8 h-8 rounded-lg bg-orange-50 text-[#ff6500] flex items-center justify-center">
                 <TrendingUp size={16} />
               </div>
@@ -73,7 +73,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               {formatFCFA(drawerState.totalSales)}
             </div>
             <div className="text-[11px] text-slate-500 font-medium mt-1">
-              Comparaison historique indisponible
+              Somme des 100 derniers paiements au maximum
             </div>
           </div>
 
@@ -94,7 +94,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
             <div className="flex items-center justify-between text-slate-500 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider">Panier Moyen</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Montant moyen encaissé</span>
               <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
                 <DollarSign size={16} />
               </div>
@@ -103,7 +103,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               {formatFCFA(averageTicket)}
             </div>
             <div className="text-[11px] text-slate-500 font-medium mt-1">
-              Par table encaissée
+              Par opération de paiement
             </div>
           </div>
 
@@ -117,7 +117,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <div className="text-2xl font-black text-[#101d2d] tnum">
               Non calculée
             </div>
-            <div className="text-[11px] text-emerald-600 font-bold mt-1">
+            <div className="text-[11px] text-slate-500 font-medium mt-1">
               Le suivi des temps de préparation sera disponible avec les horodatages cuisine.
             </div>
           </div>
@@ -321,7 +321,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 </span>
                 <h3 className="text-lg font-black mt-0.5">Rapport des encaissements</h3>
                 <p className="text-xs text-slate-300">
-                  Date: {new Date().toLocaleDateString('fr-FR')} · Journal des paiements enregistrés
+                  Consulté le {new Date().toLocaleDateString('fr-FR')} · 100 dernières opérations au maximum
                 </p>
               </div>
               <button
@@ -335,7 +335,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <div className="p-5 space-y-4 text-xs font-mono">
               <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 space-y-2">
                 <div className="flex justify-between">
-                  <span>CHIFFRE TOTAL DU JOUR:</span>
+                  <span>TOTAL DES ENCAISSEMENTS CHARGÉS:</span>
                   <span className="font-bold text-slate-900 tnum">{formatFCFA(drawerState.totalSales)}</span>
                 </div>
                 <div className="flex justify-between">
