@@ -168,6 +168,10 @@ export async function startPayDunyaOrderPaymentWithDb(
     const unitPrice = quantity > 0 ? Math.round(totalPrice / quantity) : 0;
     return { name: clean(item.name, 100), quantity, unitPrice, totalPrice };
   });
+  const returnUrl = new URL(input.returnUrl);
+  returnUrl.searchParams.set('paymentIntentId', reservation.intentId);
+  const cancelUrl = new URL(input.cancelUrl);
+  cancelUrl.searchParams.set('paymentIntentId', reservation.intentId);
   const checkout = await createPayDunyaCheckoutInvoice(config, {
     amount: reservation.amount,
     description: `RestauMax · commande ${clean(order.orderNumber || orderId, 48)}`,
@@ -177,8 +181,8 @@ export async function startPayDunyaOrderPaymentWithDb(
     paymentIntentId: reservation.intentId,
     items,
     callbackUrl: input.callbackUrl,
-    returnUrl: input.returnUrl,
-    cancelUrl: input.cancelUrl,
+    returnUrl: returnUrl.toString(),
+    cancelUrl: cancelUrl.toString(),
     channels: [input.channel]
   }, fetchImpl);
 
