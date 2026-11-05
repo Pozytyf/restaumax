@@ -33,14 +33,13 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showOwnerPassword, setShowOwnerPassword] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [subscriptionRestaurant, setSubscriptionRestaurant] = useState<RestaurantRow | null>(null);
   const [subscriptionForm, setSubscriptionForm] = useState({
     planName: '', priceFcfa: '0', billingCycle: 'monthly',
     status: 'trial', startsOn: '', endsOn: '', notes: ''
   });
-  const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '', ownerPassword: '' });
+  const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '' });
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
@@ -84,7 +83,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       setNotice(reset.success
         ? `Restaurant créé. Un e-mail sécurisé a été envoyé à ${ownerEmail} pour que le propriétaire définisse son mot de passe.`
         : `Restaurant créé. Le compte propriétaire est ${ownerEmail}, mais l’e-mail automatique a échoué ; utilisez « Mot de passe oublié ? » à la connexion.`);
-      setForm({ name: '', ownerName: '', ownerEmail: '', ownerPassword: '' });
+      setForm({ name: '', ownerName: '', ownerEmail: '' });
       setShowCreate(false); await refresh();
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
@@ -265,8 +264,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <input required placeholder="Nom du restaurant" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="rounded-lg border border-slate-700 bg-slate-950 p-3"/>
         <input required placeholder="Nom complet du propriétaire" value={form.ownerName} onChange={e=>setForm({...form,ownerName:e.target.value})} className="rounded-lg border border-slate-700 bg-slate-950 p-3"/>
         <input required type="email" placeholder="E-mail du propriétaire" value={form.ownerEmail} onChange={e=>setForm({...form,ownerEmail:e.target.value})} className="rounded-lg border border-slate-700 bg-slate-950 p-3"/>
-        <div className="relative"><input required minLength={10} type={showOwnerPassword ? "text" : "password"} autoComplete="new-password" placeholder="Mot de passe initial (10 caractères min.)" value={form.ownerPassword} onChange={e=>setForm({...form,ownerPassword:e.target.value})} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 pr-12"/><button type="button" onClick={()=>setShowOwnerPassword(v=>!v)} aria-label={showOwnerPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showOwnerPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div>
-        <p className="text-xs text-amber-300 md:col-span-2">Transmets le mot de passe initial au propriétaire par un canal privé. Il devra le modifier dès sa première connexion.</p>
+        <p className="text-xs text-emerald-300 md:col-span-2">Après création, un e-mail Firebase sécurisé est envoyé au propriétaire pour qu’il définisse lui-même son mot de passe. Aucun mot de passe temporaire n’est demandé ni transmis.</p>
         <div className="flex gap-2 md:col-span-2"><button disabled={loading} className="rounded-lg bg-orange-500 px-5 py-2 font-bold">Créer le restaurant</button><button type="button" onClick={()=>setShowCreate(false)} className="rounded-lg border border-slate-700 px-4 py-2">Annuler</button></div>
       </form>}
       {subscriptionRestaurant && <form onSubmit={saveSubscription} className="grid gap-3 rounded-2xl border border-violet-800 bg-slate-900 p-5 md:grid-cols-2">
