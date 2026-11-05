@@ -10,8 +10,8 @@ Portée : audit statique du code et des règles Firestore. Les tests automatisé
 |---|---|---|
 | Caisse | Implémentation serveur avancée | Exécution réelle et rapprochement multi-moyens à éprouver en Preview |
 | Commandes / POS | Parcours persisté côté serveur | Vérifier tous les cas d'annulation, transferts de table et paiements partiels |
-| Cuisine / KDS | Statuts de commande persistés | Pointage individuel des articles non persistant |
-| Stocks | CRUD et mouvements manuels présents | Aucun lien recette/consommation automatique avec les ventes |
+| Cuisine / KDS | Progression individuelle désormais persistée par endpoint transactionnel | CI et parcours multi-postes Preview encore à valider |
+| Stocks | Mutations manuelles sécurisées côté serveur, journal append-only et historique visible | Nomenclature/recettes et déduction automatique des ventes non implémentées |
 | Abonnements | Gestion manuelle, données privées | Pas de facturation automatique ni suspension automatique à échéance |
 | QR Code | Génération serveur et sessions sécurisées | Parcours scan réel, expiration/révocation et reprise à éprouver |
 | Paiements | PayDunya PAR et orchestration PUSH préparées | Fournisseur TEST et décaissements réels non validés ; factures partagées non compatibles Mobile Money |
@@ -19,20 +19,23 @@ Portée : audit statique du code et des règles Firestore. Les tests automatisé
 
 ## Défauts confirmés
 
-### Cuisine — pointage individuel non persistant
-`handleToggleKdsItem` ne fait que modifier `kitchenTickets` dans l'état React. Le modèle `RestauOrder` ne conserve pas l'état de préparation de chaque ligne. Un rechargement ou un changement d'écran peut donc perdre les coches individuelles, même si le statut global de la commande est sauvegardé.
+### Cuisine — pointage individuel : correction implémentée, validation en attente
+Le pointage de chaque ligne est maintenant stocké dans `RestauOrder.kitchenItemCompletion`. Le navigateur appelle `POST /api/kitchen-item` ; le backend vérifie l'identité Firebase, la session, le restaurant, le rôle (propriétaire, manager autorisé ou cuisine) et l'appartenance de la ligne à la commande, puis écrit dans une transaction Admin SDK idempotente. Le KDS reconstruit ses coches depuis Firestore et interdit de déclarer le ticket prêt tant que toutes les lignes ne sont pas terminées. La transition `pending → in_prep → ready` est respectée.
 
-**Correction requise :** ajouter une opération backend autorisée, transactionnelle et tenant-scoped pour enregistrer l'état de préparation par ligne ; contrôler le rôle cuisine/manager ; tester les conflits et le rechargement. Ne pas contourner les règles Firestore en autorisant des écritures client générales.
+Un test de service couvre les permissions, l'isolation, la session révoquée, la ligne invalide, les commandes déjà prêtes et le rejeu. Le test LOT 2 vérifie désormais la restauration depuis les données persistées. **CI et validation UI sur Preview restent obligatoires** avant de considérer le module comme terminé.
 
 ### Stocks — inventaire non relié aux ventes
 Les entrées/sorties manuelles sont enregistrées, mais aucune nomenclature/recette ne relie les articles vendus aux matières premières. Les ventes ne décrémentent donc pas automatiquement le stock et les seuils ne peuvent pas refléter une consommation réelle.
 
 **Correction requise :** modèle de recettes et unités, conversion contrôlée, déduction atomique lors de la validation d'une commande, annulation/restauration idempotente et journal immuable. Prévoir les produits sans recette et les corrections manuelles avec motif.
 
-### Stocks — cohérence du journal à renforcer
-Le navigateur met à jour `inventoryItems` et crée `stockMovements` dans une transaction Firestore. Les règles vérifient les types et les permissions, mais ne garantissent pas que `quantityAfter` correspond à la quantité antérieure plus `delta`. Le journal n'est donc pas une preuve comptable inviolable contre un client autorisé compromis.
+### Stocks — mutations manuelles : sécurisation implémentée, validation en attente
+Les créations, entrées/sorties et archivages passent désormais par `POST /api/inventory` et le service Admin SDK transactionnel. Les clés d'idempotence sont liées à la signature des données ; chaque mouvement conserve quantité avant, delta, quantité après, motif et acteur. Les sorties négatives sont refusées, les articles avec stock restant ne peuvent pas être archivés et l'historique reste consultable. Les règles Firestore interdisent toutes les écritures du SDK client sur `inventoryItems` et `stockMovements`.
 
-**Correction requise :** déplacer les mouvements dans un endpoint backend transactionnel et interdire les écritures directes du SDK client sur les mouvements et les quantités.
+Les tests de service couvrent création, rejeu, conflit de clé, mouvements, sortie excessive, rôle non autorisé, session périmée et archivage. Les tests des règles Firestore vérifient le refus des écritures directes. **CI et parcours UI sur Preview restent à valider.**
+
+### Stocks — consommation automatique : toujours absente
+Aucune nomenclature/recette ne relie encore les plats aux matières premières. Les ventes ne décrémentent donc pas automatiquement le stock. Cette étape nécessitera un modèle de recette privé (non exposé au menu client), une gestion explicite des unités et une déduction atomique au moment de la confirmation de commande, avec restauration idempotente en cas d'annulation.
 
 ### Salle — libellés fictifs supprimés
 L'écran affichait une durée de service fixe (« 3h 42m ») et une heure de réservation fixe (« 20h00 »), sans source métier correspondante. Ces valeurs ont été remplacées par des libellés neutres dans ce commit.
