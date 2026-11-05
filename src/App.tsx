@@ -460,6 +460,11 @@ export default function App() {
     }
 
     let active = true;
+    setTransactions([]);
+    setDrawerState({
+      openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
+      mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
+    });
     listRecentCashPaymentsWithServerValidation(activeRestaurantSlug).then((result) => {
       if (!active || !result.success) {
         if (active && !result.success) console.warn('Journal de caisse indisponible:', result.error);
