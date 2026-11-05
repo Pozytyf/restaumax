@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { auth, requestManagerPasswordReset } from '../../lib/firebase';
 import { Building2, ShieldCheck, LogOut, Plus, RefreshCw, Ban, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 
 type RestaurantRow = {
@@ -78,7 +78,11 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
     event.preventDefault(); setError(''); setNotice(''); setLoading(true);
     try {
       const result = await request({ action: 'create_restaurant', ...form });
-      setNotice(`Restaurant créé. Compte propriétaire : ${result.owner.email}`);
+      const ownerEmail = String(result.owner?.email || form.ownerEmail).trim();
+      const reset = await requestManagerPasswordReset(ownerEmail);
+      setNotice(reset.success
+        ? `Restaurant créé. Un e-mail sécurisé a été envoyé à ${ownerEmail} pour que le propriétaire définisse son mot de passe.`
+        : `Restaurant créé. Le compte propriétaire est ${ownerEmail}, mais l’e-mail automatique a échoué ; utilisez « Mot de passe oublié ? » à la connexion.`);
       setForm({ name: '', ownerName: '', ownerEmail: '', ownerPassword: '' });
       setShowCreate(false); await refresh();
     } catch (e: any) { setError(e.message); }
