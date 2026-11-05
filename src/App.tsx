@@ -11,11 +11,6 @@ import {
   TicketStatus,
   TableStatus
 } from './types/pos';
-import { 
-  INITIAL_MENU_ITEMS, 
-  INITIAL_KITCHEN_TICKETS, 
-  INITIAL_DRAWER_STATE 
-} from './data/mockData';
 import { CHEZ_AWA_RESTAURANT } from './data/restaumaxData';
 import { RestauMenuItem, ClientCartItem, RestaurantInfo, RestauOrder, RestaurantTable, RestauOrderStatus } from './types/restaumax';
 import { 
@@ -26,6 +21,8 @@ import {
   deleteMenuItem, 
   submitOrderWithServerValidation,
   submitPosOrderWithServerValidation,
+  collectCashPaymentWithServerValidation,
+  listRecentCashPaymentsWithServerValidation,
   subscribeToOrders,
   updateOrderStatus,
   subscribeToTables,
@@ -189,39 +186,33 @@ export default function App() {
 
   // Staff State (POS, Tables, KDS, Manager)
   const [currentRole, setCurrentRole] = useState<Role>('pos');
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(INITIAL_MENU_ITEMS);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discountPercent, setDiscountPercent] = useState<number>(0);
-  const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>(INITIAL_KITCHEN_TICKETS);
-  const [drawerState, setDrawerState] = useState<CashDrawerState>(INITIAL_DRAWER_STATE);
-  const [transactions, setTransactions] = useState<PaymentRecord[]>([
-    {
-      id: 'tx-1',
-      orderId: '#T-101',
-      tableNumber: 'Table 03',
-      waiter: 'Aïcha K.',
-      timestamp: new Date(Date.now() - 40 * 60 * 1000),
-      subtotal: 26000,
-      discount: 0,
-      tax: 0,
-      total: 26000,
-      paidAmount: 30000,
-      changeAmount: 4000,
-      paymentMethod: 'especes',
-      items: [
-        { name: 'Poulet Bicyclette Braisé Entier', quantity: 2, price: 9500 },
-        { name: 'Alloco Banane Plantain Dorée', quantity: 2, price: 2500 }
-      ]
-    }
-  ]);
+  const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>([]);
+  const [drawerState, setDrawerState] = useState<CashDrawerState>({
+    openingBalance: 0,
+    currentCash: 0,
+    totalSales: 0,
+    cashSales: 0,
+    mobileMoneySales: 0,
+    cardSales: 0,
+    discountsTotal: 0,
+    transactionCount: 0
+  });
+  const [transactions, setTransactions] = useState<PaymentRecord[]>([]);
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isSubmittingPosOrder, setIsSubmittingPosOrder] = useState(false);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [pendingPosOrder, setPendingPosOrder] = useState<RestauOrder | null>(null);
+  const [pendingPosPaidAmount, setPendingPosPaidAmount] = useState(0);
+  const [posOrderIdempotencyKey, setPosOrderIdempotencyKey] = useState(() => generateClientOrderIdempotencyKey());
+  const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState(() => generateClientOrderIdempotencyKey());
   const [activeReceiptModal, setActiveReceiptModal] = useState<PaymentRecord | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const serverName = 'Moussa D.';
 
   const handleToggleAudio = () => {
     sounds.enabled = !audioEnabled;
@@ -334,6 +325,7 @@ export default function App() {
 
   // RestauMax Authentication & Manager Authorization State
   const [authUser, setAuthUser] = useState<User | null>(null);
+  const serverName = authUser?.displayName || authUser?.email?.split('@')[0] || 'Personnel';
   const [isAuthorizedManager, setIsAuthorizedManager] = useState<boolean>(false);
   const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
   const [authRestaurantRole, setAuthRestaurantRole] = useState<string>('');
@@ -341,6 +333,29 @@ export default function App() {
   const canCollectPayment = isRestaurantOwner ||
     authRestaurantRole === 'manager' ||
     (authRestaurantRole === 'cashier' && userPermissions.includes('cash.manage'));
+  const mapCashPaymentRecord = (payment: any): PaymentRecord => ({
+    id: String(payment.id),
+    orderId: String(payment.orderNumber || payment.orderId),
+    tableNumber: payment.tableNumber ? `Table ${payment.tableNumber}` : 'À emporter',
+    waiter: String(payment.actorName || payment.actorRole || 'Personnel'),
+    timestamp: new Date(Number(payment.createdAt)),
+    subtotal: Number(payment.totalAmount || 0),
+    discount: 0,
+    tax: 0,
+    total: Number(payment.totalAmount || 0),
+    paidAmount: Number(payment.paidAmount || 0),
+    tenderedAmount: Number(payment.amountTendered || payment.paidAmount || 0),
+    changeAmount: Number(payment.changeAmount || 0),
+    remainingAmount: Number(payment.remainingAfter || 0),
+    paymentStatus: payment.paymentStatus === 'partial' ? 'partial' : 'paid',
+    paymentMethod: 'especes',
+    items: Array.isArray(payment.items) ? payment.items.map((item: any) => ({
+      name: String(item.name || 'Article'),
+      quantity: Number(item.quantity || 1),
+      price: Number(item.unitPrice ?? item.basePrice ?? item.price ?? 0)
+    })) : []
+  });
+
   const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
 
   useEffect(() => {
@@ -430,6 +445,44 @@ export default function App() {
       unsubOrders();
     };
   }, [isAuthorizedManager, isStaffRoute, userPermissions]);
+
+  useEffect(() => {
+    const canViewCash = isRestaurantOwner || authRestaurantRole === 'manager' ||
+      userPermissions.includes('cash.view') || userPermissions.includes('cash.manage');
+    if (!authUser || !canViewCash) {
+      setTransactions([]);
+      setDrawerState({
+        openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
+        mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
+      });
+      return;
+    }
+
+    let active = true;
+    listRecentCashPaymentsWithServerValidation(activeRestaurantSlug).then((result) => {
+      if (!active || !result.success) {
+        if (active && !result.success) console.warn('Journal de caisse indisponible:', result.error);
+        return;
+      }
+      const records = result.payments.map(mapCashPaymentRecord);
+      const totalSales = records.reduce((sum, record) => sum + record.paidAmount, 0);
+      const cashSales = records.filter((record) => record.paymentMethod === 'especes')
+        .reduce((sum, record) => sum + record.paidAmount, 0);
+      setTransactions(records);
+      setDrawerState({
+        openingBalance: 0,
+        currentCash: cashSales,
+        totalSales,
+        cashSales,
+        mobileMoneySales: 0,
+        cardSales: 0,
+        discountsTotal: 0,
+        transactionCount: records.length
+      });
+    });
+
+    return () => { active = false; };
+  }, [authUser, activeRestaurantSlug, isRestaurantOwner, authRestaurantRole, userPermissions]);
 
   const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const res = await signInManager(email, pass);
