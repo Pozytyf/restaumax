@@ -1222,8 +1222,10 @@ export default function App() {
     window.alert(result.status === 'completed'
       ? "Remboursement Mobile Money confirmé par PayDunya."
       : result.status === 'failed'
-        ? "PayDunya a refusé le décaissement. Le journal reste à rapprocher."
-        : "Demande de remboursement transmise. Elle reste en attente de confirmation PayDunya ; ne relancez pas l'opération.");
+        ? "PayDunya a refusé le décaissement. Le montant réservé a été libéré."
+        : result.status === 'created'
+          ? "Le décaissement est créé mais pas encore confirmé comme soumis. Il reste réservé pour rapprochement ; ne relancez pas l'opération."
+          : "Demande de remboursement transmise. Elle reste en attente de confirmation PayDunya ; ne relancez pas l'opération.");
     const refreshed = await listRecentCashPaymentsWithServerValidation(activeRestaurantSlug);
     if (refreshed.success) {
       const records = refreshed.payments.map(mapCashPaymentRecord);
