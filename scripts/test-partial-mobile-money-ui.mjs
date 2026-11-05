@@ -12,6 +12,7 @@ assert(modal.includes('Vous pouvez régler tout ou partie du solde restant'), 'T
 assert(app.includes('paymentIdempotencyKey, paymentData.paidAmount'), 'POS sends the requested partial amount to the server');
 assert(firebase.includes('idempotencyKey, amount'), 'Client request transmits the amount to the backend');
 assert(qrModal.includes('requestedPaymentAmount'), 'Customer QR checkout lets the customer choose a partial payment amount');
+assert(qrModal.includes('Prix configurés par le restaurant') && !qrModal.includes('TVA et service inclus'), 'the client checkout does not claim tax is included when tax is not calculated');
 assert(qrModal.includes('onStartPayDunyaPayment(order, selectedChannel, requestedPaymentAmount)'), 'Customer QR sends the chosen amount to the payment handler');
 assert(app.includes("authUser ? '/gestion' : `/r/${activeRestaurantSlug}?table_session=1`"), 'QR customers return to the table menu after hosted checkout');
 assert(app.includes("disabled={paydunyaReturnStatus === 'checking' || !paymentReturnIntentId}"), 'QR customers can retry secure reconciliation without staff authentication');
