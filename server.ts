@@ -911,6 +911,7 @@ export async function handleCustomerPayDunyaInvoiceRequest(payload: unknown, req
       sessionVersion: Number(session.qrVersion || 0),
       idempotencyKey: String(input.idempotencyKey || ''),
       channel: String(input.channel || '') as PayDunyaCiWithdrawMode,
+      amount: input.amount,
       callbackUrl: `${parsedOrigin.origin}/api/payments/paydunya-callback?restaurantSlug=${encodeURIComponent(slug)}`,
       returnUrl: `${parsedOrigin.origin}/payments/return?restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
       cancelUrl: `${parsedOrigin.origin}/payments/return?cancelled=1&restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
