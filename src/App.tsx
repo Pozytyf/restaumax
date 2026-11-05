@@ -619,7 +619,12 @@ export default function App() {
       setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
       setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
       setIsRestaurantOwner(token.claims.role === 'owner');
-      setUserPermissions(token.claims.role === 'owner' || token.claims.role === 'super_admin' || token.claims.role === 'admin' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setUserPermissions(token.claims.role === 'owner'
+        ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','orders.cancel','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
+        : token.claims.role === 'super_admin' || token.claims.role === 'admin'
+          ? []
+          : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setAuthRestaurantRole(typeof token.claims.role === 'string' ? token.claims.role : '');
       return { success: true };
     }
     return { success: false, error: res.error };
