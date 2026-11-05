@@ -76,6 +76,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   const currentTable: RestaurantTable | null = tableList.find(t => t.id === selectedTableId) || tableList[0] || null;
 
   const canonicalUrl = qrForTableId === currentTable?.id ? qrUrl : '';
+  const hasCurrentQr = Boolean(currentTable && qrForTableId === currentTable.id && qrUrl && qrDataUrl);
 
   // QR assets are generated only from a one-time URL returned by the authenticated server.
   useEffect(() => {
@@ -186,7 +187,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
 
   // Download QR Code as PNG
   const handleDownloadPng = () => {
-    if (!qrDataUrl || !currentTable) return;
+    if (!qrDataUrl || !currentTable || qrForTableId !== currentTable.id) return;
     sounds.playTap();
     const link = document.createElement('a');
     link.href = qrDataUrl;
@@ -198,7 +199,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
 
   // Download QR Code as SVG
   const handleDownloadSvg = () => {
-    if (!qrSvgString || !currentTable) return;
+    if (!qrSvgString || !currentTable || qrForTableId !== currentTable.id) return;
     sounds.playTap();
     const blob = new Blob([qrSvgString], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -286,7 +287,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
               Table {currentTable.tableNumber}
             </div>
             <div className="w-56 h-56 mx-auto bg-white p-2 border-2 border-slate-300 rounded-2xl flex items-center justify-center">
-              {qrDataUrl && (
+              {hasCurrentQr && (
                 <img src={qrDataUrl} alt="QR Code Table" className="w-full h-full object-contain" />
               )}
             </div>
@@ -576,7 +577,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleDownloadPng}
-                      disabled={isGenerating || !qrDataUrl}
+                      disabled={isGenerating || isRevoking || !hasCurrentQr}
                       className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
                       title="Télécharger le QR Code au format image PNG haute résolution"
                     >
@@ -586,7 +587,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
 
                     <button
                       onClick={handleDownloadSvg}
-                      disabled={isGenerating || !qrSvgString}
+                      disabled={isGenerating || isRevoking || !hasCurrentQr || !qrSvgString}
                       className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
                       title="Télécharger le QR Code au format vectoriel SVG sans perte"
                     >
@@ -635,7 +636,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
                         <RefreshCw size={24} className="animate-spin text-[#0c2e22]" />
                         <span className="text-xs font-semibold">Génération QR...</span>
                       </div>
-                    ) : qrDataUrl ? (
+                    ) : hasCurrentQr ? (
                       <img 
                         src={qrDataUrl} 
                         alt={`QR Code Table ${currentTable.tableNumber}`} 
