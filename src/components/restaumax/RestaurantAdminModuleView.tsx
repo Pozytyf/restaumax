@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  addDoc, collection, deleteDoc, doc, onSnapshot, query, runTransaction, updateDoc
+  addDoc, collection, deleteDoc, doc, onSnapshot, query, updateDoc
 } from 'firebase/firestore';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Package, Users, BarChart3, Settings } from 'lucide-react';
-import { auth, db, persistRestaurant } from '../../lib/firebase';
+import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 
 type ModuleId = 'customers' | 'inventory' | 'reports' | 'settings';
 type Customer = { id: string; name: string; phone: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
-type InventoryItem = { id: string; name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier?: string; updatedAt: number };
+type InventoryItem = { id: string; name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier?: string; updatedAt: number; active?: boolean };
 
 const titles: Record<ModuleId, string> = {
   customers: 'Clients et fidélité',
@@ -33,6 +33,7 @@ export const RestaurantAdminModuleView: React.FC<{
   const [notice, setNotice] = useState('');
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '', notes: '' });
   const [itemForm, setItemForm] = useState({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
+  const [inventoryCreateKey, setInventoryCreateKey] = useState(() => crypto.randomUUID().replaceAll('-', ''));
   const [settings, setSettings] = useState({
     name: restaurant.name, tagline: restaurant.tagline || '', address: restaurant.address || '',
     city: restaurant.city || '', phone: restaurant.phone || '', openingHours: restaurant.openingHours || '',
@@ -49,7 +50,7 @@ export const RestaurantAdminModuleView: React.FC<{
     }
     if (module === 'inventory') {
       return onSnapshot(collection(db, 'restaurants', restaurant.slug, 'inventoryItems'), snap => {
-        setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem)).sort((a,b) => a.name.localeCompare(b.name)));
+        setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem)).filter(item => item.active !== false).sort((a,b) => a.name.localeCompare(b.name)));
       }, err => setError(err.message));
     }
     if (module === 'reports') {
@@ -111,12 +112,14 @@ export const RestaurantAdminModuleView: React.FC<{
       setError('Vérifiez le nom, les quantités et le coût unitaire.'); setLoading(false); return;
     }
     try {
-      await addDoc(collection(db, 'restaurants', restaurant.slug, 'inventoryItems'), {
+      const result = await createInventoryItemWithServerValidation(restaurant.slug, {
         name: itemForm.name.trim(), unit: itemForm.unit, quantity, minQuantity, unitCost,
-        supplier: itemForm.supplier.trim(), updatedAt: Date.now()
-      });
+        supplier: itemForm.supplier.trim()
+      }, inventoryCreateKey);
+      if (!result.success) throw new Error(result.error);
       setItemForm({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
-      setNotice('Article de stock ajouté.');
+      setInventoryCreateKey(crypto.randomUUID().replaceAll('-', ''));
+      setNotice('Article de stock ajouté et journal initial sécurisé.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Enregistrement du stock impossible.'); }
     finally { setLoading(false); }
   };
@@ -124,25 +127,28 @@ export const RestaurantAdminModuleView: React.FC<{
   const moveStock = async (item: InventoryItem, delta: number) => {
     if (!canManage || !Number.isFinite(delta) || delta === 0) return;
     setError(''); setNotice('');
-    const itemRef = doc(db, 'restaurants', restaurant.slug, 'inventoryItems', item.id);
-    const movementRef = doc(collection(db, 'restaurants', restaurant.slug, 'stockMovements'));
+    setLoading(true);
     try {
-      await runTransaction(db, async tx => {
-        const snap = await tx.get(itemRef);
-        if (!snap.exists()) throw new Error('Article introuvable.');
-        const current = Number(snap.data().quantity || 0);
-        if (current + delta < 0) throw new Error('Stock insuffisant : sortie refusée.');
-        tx.update(itemRef, { quantity: current + delta, updatedAt: Date.now() });
-        tx.set(movementRef, { itemId: item.id, itemName: item.name, delta, quantityAfter: current + delta, createdAt: Date.now(), createdBy: auth.currentUser?.uid || 'unknown' });
-      });
-      setNotice(delta > 0 ? 'Entrée de stock enregistrée.' : 'Sortie de stock enregistrée.');
+      const result = await moveInventoryStockWithServerValidation(
+        restaurant.slug, item.id, delta,
+        delta > 0 ? 'Entrée manuelle' : 'Sortie manuelle',
+        crypto.randomUUID().replaceAll('-', '')
+      );
+      if (!result.success) throw new Error(result.error);
+      setNotice(delta > 0 ? 'Entrée de stock enregistrée et journalisée.' : 'Sortie de stock enregistrée et journalisée.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Mouvement de stock impossible.'); }
+    finally { setLoading(false); }
   };
 
   const removeInventoryItem = async (id: string) => {
     if (!canManage || !window.confirm('Supprimer cet article du stock ?')) return;
-    try { await deleteDoc(doc(db, 'restaurants', restaurant.slug, 'inventoryItems', id)); setNotice('Article supprimé.'); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Suppression impossible.'); }
+    setLoading(true);
+    try {
+      const result = await archiveInventoryItemWithServerValidation(restaurant.slug, id);
+      if (!result.success) throw new Error(result.error);
+      setNotice('Article archivé. Son historique de mouvements est conservé.');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Archivage impossible.'); }
+    finally { setLoading(false); }
   };
 
   const saveSettings = async (event: React.FormEvent) => {
@@ -207,7 +213,7 @@ export const RestaurantAdminModuleView: React.FC<{
           <button disabled={loading} className="flex items-center justify-center gap-2 rounded-lg bg-slate-900 p-3 font-bold text-white md:col-span-3"><Plus size={16}/> Ajouter au stock</button>
         </form>}
         <section className="overflow-hidden rounded-2xl border bg-white"><div className="border-b p-4 font-bold">État du stock · {inventory.length} référence(s)</div>
-          {inventory.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.supplier || 'Fournisseur non renseigné'} · {formatFCFA(item.unitCost)} / {item.unit}</p><p className={`mt-1 text-sm font-bold ${item.quantity <= item.minQuantity ? 'text-rose-700' : 'text-emerald-700'}`}>{item.quantity} {item.unit} · seuil {item.minQuantity} {item.unit}{item.quantity <= item.minQuantity ? ' · STOCK BAS' : ''}</p></div>{canManage && <div className="flex flex-wrap gap-2"><button onClick={()=>moveStock(item,1)} className="rounded-lg border px-3 py-2 text-sm">+1 entrée</button><button onClick={()=>moveStock(item,-1)} className="rounded-lg border px-3 py-2 text-sm">−1 sortie</button><button onClick={()=>removeInventoryItem(item.id)} aria-label="Supprimer l'article" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
+          {inventory.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.supplier || 'Fournisseur non renseigné'} · {formatFCFA(item.unitCost)} / {item.unit}</p><p className={`mt-1 text-sm font-bold ${item.quantity <= item.minQuantity ? 'text-rose-700' : 'text-emerald-700'}`}>{item.quantity} {item.unit} · seuil {item.minQuantity} {item.unit}{item.quantity <= item.minQuantity ? ' · STOCK BAS' : ''}</p></div>{canManage && <div className="flex flex-wrap gap-2"><button onClick={()=>moveStock(item,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">+1 entrée</button><button onClick={()=>moveStock(item,-1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">−1 sortie</button><button onClick={()=>removeInventoryItem(item.id)} disabled={loading} aria-label="Archiver l'article" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
           {inventory.length===0 && <p className="p-8 text-center text-sm text-slate-500">Aucun article de stock. Ajoutez les matières premières et consommables.</p>}
         </section>
       </>}
