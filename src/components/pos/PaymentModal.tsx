@@ -271,7 +271,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-3">
               <div>
                 <h3 className="text-xs font-black uppercase tracking-wide text-violet-950">Factures individuelles par convive</h3>
-                <p className="mt-1 text-[10px] text-violet-800">Chaque convive dispose de sa part et de son suivi de règlement.</p>
+                <p className="mt-1 text-[10px] text-violet-800">Répartition égale en FCFA ; chaque convive dispose de sa part et de son suivi de règlement.</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <label className="text-[11px] font-bold text-slate-700">Nombre de convives
@@ -315,7 +315,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <span className="font-black text-violet-950">{formatFCFA(guestShareAmount)}</span>
               </div>
               {splitLocked && alreadyPaidAmount > 0 && guestAccounts.length === 0 && (
-                <p className="text-[10px] text-amber-800">La répartition doit être définie avant le premier encaissement.</p>
+                <p className="text-[10px] text-amber-800">Une répartition individuelle ne peut plus être activée après un premier encaissement.</p>
               )}
             </div>
 
