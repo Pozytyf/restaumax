@@ -6,6 +6,7 @@ import {
 import {
   startPayDunyaOrderPaymentWithDb,
   processPayDunyaInvoiceCallbackWithDb,
+  reconcilePayDunyaInvoiceIntentWithDb,
   startPayDunyaRefundWithDb,
   processPayDunyaDisbursementCallbackWithDb
 } from '../src/server/paydunyaPaymentService.ts';
@@ -115,6 +116,23 @@ const signedHash = createHash('sha512').update(masterKey).digest('hex');
 const callback = { data: JSON.stringify({
   hash: signedHash, status: 'completed', invoice: { token: 'test_FLOW123', total_amount: '7500' }
 }) };
+const returnReconciliation = await reconcilePayDunyaInvoiceIntentWithDb(
+  db, config, 'maquis-awa', checkout.paymentIntentId, async () => ({
+    ok: true, json: async () => ({
+      response_code: '00', hash: signedHash,
+      invoice: { token: 'test_FLOW123', total_amount: '7500' },
+      status: 'completed',
+      custom_data: {
+        restaurant_slug: 'maquis-awa', order_id: 'order-100',
+        payment_intent_id: checkout.paymentIntentId
+      },
+      customer: { phone: '+225 07 00 00 00 00' },
+      transaction_id: 'PAY-TX-100'
+    })
+  })
+);
+assert(returnReconciliation.success && returnReconciliation.status === 'completed',
+  'Le retour navigateur peut rapprocher le paiement par confirmation serveur sécurisée');
 const callbackResult = await processPayDunyaInvoiceCallbackWithDb(db, config, callback, async (url) => {
   assert(String(url).endsWith('/checkout-invoice/confirm/test_FLOW123'),
     'Le callback déclenche une confirmation serveur-à-serveur avec le token');
