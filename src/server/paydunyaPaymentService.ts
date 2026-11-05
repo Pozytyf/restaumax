@@ -56,6 +56,7 @@ export interface StartPayDunyaOrderPaymentInput {
   returnUrl: string;
   cancelUrl: string;
   channel: PayDunyaCiWithdrawMode;
+  customerTableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string; tableNumber: string };
 }
 
 export interface StartPayDunyaOrderPaymentResult {
@@ -113,17 +114,32 @@ export async function startPayDunyaOrderPaymentWithDb(
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
     const order = orderSnap.exists ? orderSnap.data() : null;
-    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
-        !member || member.active !== true || member.restaurantSlug !== slug ||
-        Number(member.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
-      return { ok: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
+      return { ok: false, error: 'Restaurant inactif ou accès refusé.' };
     }
-    const authorized = (member.role === 'owner' && restaurant.ownerUid === actorUid) ||
-      member.role === 'manager' ||
-      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
-    if (!authorized) return { ok: false, error: 'Votre rôle ne permet pas de créer un paiement.' };
     if (!order || order.restaurantSlug !== slug || order.status === 'cancelled') {
       return { ok: false, error: 'Commande introuvable, annulée ou rattachée à un autre restaurant.' };
+    }
+    let actorRole: string;
+    if (input.customerTableSession) {
+      const session = input.customerTableSession;
+      const binding = asObject(order.tableSession);
+      if (order.orderMode !== 'sur_place' || String(order.tableNumber || '') !== session.tableNumber ||
+          binding.sessionHash !== session.sessionHash || binding.qrTokenHash !== session.qrTokenHash ||
+          Number(binding.qrVersion) !== Number(session.qrVersion) || binding.tableId !== session.tableId) {
+        return { ok: false, error: 'La commande ne correspond pas à la session QR de cette table.' };
+      }
+      actorRole = 'customer';
+    } else {
+      if (!member || member.active !== true || member.restaurantSlug !== slug ||
+          Number(member.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
+        return { ok: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
+      }
+      const authorized = (member.role === 'owner' && restaurant.ownerUid === actorUid) ||
+        member.role === 'manager' ||
+        (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
+      if (!authorized) return { ok: false, error: 'Votre rôle ne permet pas de créer un paiement.' };
+      actorRole = member.role;
     }
     if (Number(order.splitGuests || 1) > 1 ||
         (Array.isArray(order.guestAccounts) && order.guestAccounts.length > 1)) {
@@ -151,7 +167,7 @@ export async function startPayDunyaOrderPaymentWithDb(
     const now = Date.now();
     tx.create(intentRef, {
       id: intentId, restaurantSlug: slug, orderId, actorUid,
-      actorName: clean(input.actorName, 100), actorRole: member.role,
+      actorName: clean(input.actorName, 100), actorRole,
       signature, amount, currency: 'XOF', channel: input.channel,
       status: 'creating', createdAt: now, updatedAt: now
     });
