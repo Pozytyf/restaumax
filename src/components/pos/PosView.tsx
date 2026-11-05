@@ -37,6 +37,8 @@ interface PosViewProps {
   serverName: string;
   unpaidOrders: RestauOrder[];
   onCollectOrder: (order: RestauOrder) => void;
+  alreadyPaidAmount?: number;
+  isExistingOrder?: boolean;
 }
 
 const CATEGORIES: { id: Category; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
@@ -67,7 +69,9 @@ export const PosView: React.FC<PosViewProps> = ({
   onOpenPayment,
   serverName,
   unpaidOrders,
-  onCollectOrder
+  onCollectOrder,
+  alreadyPaidAmount = 0,
+  isExistingOrder = false
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<Category>('tous');
   const [searchQuery, setSearchQuery] = useState('');
@@ -332,6 +336,8 @@ export const PosView: React.FC<PosViewProps> = ({
           isSendingOrder={isSendingOrder}
           onOpenPayment={onOpenPayment}
           serverName={serverName}
+          alreadyPaidAmount={alreadyPaidAmount}
+          isExistingOrder={isExistingOrder}
         />
       </div>
 
