@@ -146,10 +146,10 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       status: 'active',
       statusLabel: 'Actif',
       icon: SlidersHorizontal,
-      actionLabel: 'Voir les options du menu',
+      actionLabel: 'Gérer les options, suppléments et prix',
       onAction: () => {
         sounds.playTap();
-        onNavigateToClientMenu();
+        setActiveTab('menu_catalog');
       }
     },
     {
@@ -202,7 +202,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       order: 7,
       title: 'Caisse et paiements',
       subtitle: 'Supervision & Clôture Z',
-      description: 'Encaissements en espèces, Mobile Money et carte, audit des règlements et clôture de shift.',
+      description: 'Encaissements en espèces et Mobile Money, audit des règlements et clôture de shift. Carte bancaire non activée en V1.',
       status: 'active',
       statusLabel: 'Actif',
       icon: Calculator,
