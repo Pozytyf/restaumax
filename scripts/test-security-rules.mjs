@@ -5,7 +5,7 @@ import {
   assertSucceeds
 } from '@firebase/rules-unit-testing';
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc
+  collection, deleteDoc, doc, getDoc, getDocs, runTransaction, setDoc, updateDoc
 } from 'firebase/firestore';
 
 const projectId = 'demo-restaumax';
@@ -83,6 +83,9 @@ try {
     });
     await setDoc(doc(db,'restaurants/rest-a/menuItems/dish-1'),{
       id:'dish-1',restaurantSlug:'rest-a',name:'Plat',category:'plats',price:1000,available:true
+    });
+    await setDoc(doc(db,'restaurants/rest-a/menuRecipes/dish-1'),{
+      menuItemId:'dish-1', ingredients:[{itemId:'rice',quantityPerDish:0.2,unit:'kg'}]
     });
     await setDoc(doc(db,'restaurants/rest-b/menuItems/dish-1'),{
       id:'dish-1',restaurantSlug:'rest-b',name:'Plat B',category:'plats',price:1200,available:true
@@ -168,6 +171,22 @@ try {
   // 3. A cashier cannot change menu prices or staff permissions.
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un caissier ne peut pas modifier le prix du menu');
   await denies(updateDoc(doc(a('cashier-escalated'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un droit menu.manage falsifié ne dépasse pas le plafond du caissier');
+
+  const recipeRef = doc(a('manager-a'),'restaurants/rest-a/menuRecipes/dish-1');
+  const linkedDishRef = doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-1');
+  await denies(deleteDoc(recipeRef), 'Un manager ne peut pas supprimer une recette sans supprimer le plat associé');
+  await denies(deleteDoc(linkedDishRef), 'Un manager ne peut pas supprimer un plat tant que sa recette associée subsiste');
+  await allows(runTransaction(a('manager-a'), async transaction => {
+    const [dishSnapshot, recipeSnapshot] = await Promise.all([
+      transaction.get(linkedDishRef),
+      transaction.get(recipeRef)
+    ]);
+    if (recipeSnapshot.exists()) transaction.delete(recipeRef);
+    if (dishSnapshot.exists()) transaction.delete(linkedDishRef);
+  }), 'Le manager peut supprimer atomiquement le plat et sa fiche recette liée');
+  const [deletedDish, deletedRecipe] = await Promise.all([getDoc(linkedDishRef), getDoc(recipeRef)]);
+  check(!deletedDish.exists() && !deletedRecipe.exists(), 'La suppression atomique ne laisse aucune recette orpheline');
+
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/staff/manager-b'),{permissions:['settings.manage']}), 'Un caissier ne peut pas modifier les permissions du personnel');
   await allows(updateDoc(order(a('cashier-cancel'),'rest-a','order-cashier'),{status:'cancelled'}), 'Un caissier peut annuler uniquement si le droit explicite orders.cancel lui est accordé');
 
