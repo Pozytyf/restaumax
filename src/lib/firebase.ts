@@ -562,6 +562,17 @@ export interface CashPaymentApiRecord {
   createdAt: number;
 }
 
+export interface CashMovementApiRecord {
+  id: string;
+  sessionId: string;
+  movementType: 'expense' | 'withdrawal';
+  amount: number;
+  category: string;
+  note?: string;
+  actorName: string;
+  createdAt: number;
+}
+
 export interface CashSessionApiRecord {
   id: string;
   restaurantSlug: string;
@@ -572,6 +583,7 @@ export interface CashSessionApiRecord {
   paymentCount: number;
   cashOut: number;
   cashMovementCount: number;
+  cashMovements?: CashMovementApiRecord[];
   status: 'active' | 'closed';
   openedAt: number;
   closedAt?: number;
