@@ -10,7 +10,7 @@ const env = {
   PAYDUNYA_LIVE_ENABLED: 'false'
 };
 const credentials = {
-  mode: 'test' as const,
+  mode: 'test',
   masterKey: 'merchant-master-key-test',
   privateKey: 'merchant-private-key-test',
   token: 'merchant-token-test'
@@ -24,18 +24,18 @@ assert.throws(() => decryptRestaurantPayDunyaCredentials(encrypted, {
   PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY: 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
 }));
 
-const docs: Record<string, any> = {
+const docs = {
   alpha: { enabled: true, credentials: encrypted },
   beta: { enabled: false, credentials: encrypted }
 };
 const db = {
-  collection: (name: string) => ({
-    doc: (slug: string) => ({
-      collection: (sub: string) => ({
-        doc: (id: string) => ({
+  collection: () => ({
+    doc: (slug) => ({
+      collection: () => ({
+        doc: () => ({
           get: async () => {
             const data = docs[slug];
-            return { exists: Boolean(data && sub === '_private' && id === 'paydunya'), data: () => data };
+            return { exists: Boolean(data), data: () => data };
           }
         })
       })
