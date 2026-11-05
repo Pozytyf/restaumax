@@ -248,7 +248,11 @@ export async function processPayDunyaInvoiceCallbackWithDb(
       const map = mappingSnap.data();
       const restaurantRef = db.collection('restaurants').doc(map.restaurantSlug);
       const intentRef = restaurantRef.collection('paymentIntents').doc(map.intentId);
-      const orderId = clean((await intentRef.get()).data()?.orderId, 128);
+      const intentRead = await intentRef.get();
+      const orderId = clean(intentRead.data()?.orderId, 128);
+      if (!intentRead.exists || !/^[a-zA-Z0-9_-]{1,128}$/.test(orderId)) {
+        return { success: false, error: 'Intention de paiement PayDunya introuvable.' };
+      }
       const orderRef = restaurantRef.collection('orders').doc(orderId);
       await db.runTransaction(async (tx: any) => {
         const [intentSnap, orderSnap] = await Promise.all([tx.get(intentRef), tx.get(orderRef)]);
@@ -298,6 +302,7 @@ export async function processPayDunyaInvoiceCallbackWithDb(
     const intent = intentSnap.data();
     const order = orderSnap.exists ? orderSnap.data() : null;
     if (!order || order.restaurantSlug !== slug || order.status === 'cancelled' ||
+        order.pendingPayDunyaIntentId !== intentId ||
         Number(invoice.totalAmount) !== Number(intent.amount) ||
         Number(intent.amount) <= 0 || intent.currency !== 'XOF') {
       return { success: false, conflict: true, error: 'Le montant ou la commande ne correspond plus à la facture PayDunya ; rapprochement manuel requis.' };
