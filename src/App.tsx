@@ -24,6 +24,7 @@ import {
   collectCashPaymentWithServerValidation,
   createPayDunyaPaymentWithServerValidation,
   refundPayDunyaPaymentWithServerValidation,
+  reconcilePayDunyaPaymentWithServerValidation,
   listRecentCashPaymentsWithServerValidation,
   getCashSessionWithServerValidation,
   openCashSessionWithServerValidation,
@@ -140,7 +141,7 @@ export default function App() {
   const [authRestaurantSlug, setAuthRestaurantSlug] = useState<string>('');
   const [authIsSuperAdmin, setAuthIsSuperAdmin] = useState<boolean>(false);
   const routeRestaurantSlug = activePathname.startsWith('/r/') ? activePathname.split('/')[2] : '';
-  const queryRestaurantSlug = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('restaurant') || ''; } catch { return ''; } })();
+  const queryRestaurantSlug = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('restaurant') || new URL(currentPath, 'http://localhost').searchParams.get('restaurantSlug') || ''; } catch { return ''; } })();
   const activeRestaurantSlug = routeRestaurantSlug || (authIsSuperAdmin ? queryRestaurantSlug : authRestaurantSlug) || authRestaurantSlug || 'chez-awa';
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
@@ -150,6 +151,7 @@ export default function App() {
   const isRestaurantHubRoute = activePathname.startsWith('/gestion');
   const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute && !isPlatformAdminRoute && !isPaymentReturnRoute;
   const paymentReturnOrderId = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('orderId') || ''; } catch { return ''; } })();
+  const paymentReturnIntentId = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('paymentIntentId') || ''; } catch { return ''; } })();
 
   // Recover the HttpOnly table session after the opaque QR resolver redirects to the menu.
   useEffect(() => {
@@ -343,7 +345,37 @@ export default function App() {
 
   // RestauMax Authentication & Manager Authorization State
   const [authUser, setAuthUser] = useState<User | null>(null);
+  const [paydunyaReturnStatus, setPaydunyaReturnStatus] = useState<'idle' | 'checking' | 'completed' | 'pending' | 'cancelled' | 'failed' | 'error'>('idle');
+  const [paydunyaReturnError, setPaydunyaReturnError] = useState('');
+
   const serverName = authUser?.displayName || authUser?.email?.split('@')[0] || 'Personnel';
+
+  const reconcilePayDunyaReturn = async () => {
+    if (!authUser || !paymentReturnIntentId) {
+      setPaydunyaReturnStatus('error');
+      setPaydunyaReturnError('Reconnectez-vous au compte du restaurant pour vérifier cette commande.');
+      return;
+    }
+    setPaydunyaReturnStatus('checking');
+    setPaydunyaReturnError('');
+    const result = await reconcilePayDunyaPaymentWithServerValidation(activeRestaurantSlug, paymentReturnIntentId);
+    if (!result.success) {
+      setPaydunyaReturnStatus('error');
+      setPaydunyaReturnError(result.error);
+      return;
+    }
+    if (result.status === 'completed') setPaydunyaReturnStatus('completed');
+    else if (result.status === 'cancelled') setPaydunyaReturnStatus('cancelled');
+    else if (result.status === 'failed') setPaydunyaReturnStatus('failed');
+    else setPaydunyaReturnStatus('pending');
+  };
+
+  useEffect(() => {
+    if (isPaymentReturnRoute && authUser && paymentReturnIntentId) {
+      void reconcilePayDunyaReturn();
+    }
+  }, [isPaymentReturnRoute, authUser, activeRestaurantSlug, paymentReturnIntentId]);
+
   const [isAuthorizedManager, setIsAuthorizedManager] = useState<boolean>(false);
   const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
   const [authRestaurantRole, setAuthRestaurantRole] = useState<string>('');
@@ -1471,19 +1503,31 @@ export default function App() {
             </div>
             <h1 className="text-xl font-black text-slate-900">Retour du paiement PayDunya</h1>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              Votre retour depuis PayDunya a bien été reçu. RestauMax attend la confirmation serveur sécurisée du fournisseur.
-              Ne relancez pas le paiement pendant cette vérification.
+              {paydunyaReturnStatus === 'checking' ? 'Vérification sécurisée auprès de PayDunya…'
+                : paydunyaReturnStatus === 'completed' ? 'Paiement confirmé. La commande et le journal RestauMax ont été mis à jour.'
+                : paydunyaReturnStatus === 'cancelled' ? 'Le paiement a été annulé chez PayDunya. Aucun encaissement n’a été enregistré.'
+                : paydunyaReturnStatus === 'failed' ? 'PayDunya confirme que le paiement a échoué. Aucun encaissement n’a été enregistré.'
+                : paydunyaReturnStatus === 'pending' ? 'Le paiement est encore en attente chez PayDunya. Ne relancez pas un second paiement ; vérifiez à nouveau dans quelques instants.'
+                : paydunyaReturnStatus === 'error' ? (paydunyaReturnError || 'Le statut n’a pas pu être rapproché automatiquement.')
+                : 'La confirmation sécurisée du paiement va être vérifiée.'}
             </p>
             {paymentReturnOrderId && (
               <p className="mt-3 text-xs font-semibold text-slate-500">Commande : {paymentReturnOrderId}</p>
             )}
             <p className="mt-3 text-xs text-slate-500">
-              Une page de retour ne constitue pas une preuve de paiement. Le journal sera mis à jour uniquement après confirmation PayDunya.
+              Seule la confirmation serveur PayDunya fait foi. Le simple retour du navigateur ne valide jamais un paiement.
             </p>
-            <button onClick={() => navigateTo('/gestion')}
-              className="mt-6 rounded-xl bg-[#101d2d] px-5 py-3 text-sm font-bold text-white">
-              Retour à la gestion du restaurant
-            </button>
+            <div className="mt-6 flex flex-wrap justify-center gap-2">
+              <button onClick={() => void reconcilePayDunyaReturn()}
+                disabled={paydunyaReturnStatus === 'checking' || !authUser || !paymentReturnIntentId}
+                className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 disabled:opacity-50">
+                Vérifier à nouveau
+              </button>
+              <button onClick={() => navigateTo('/gestion')}
+                className="rounded-xl bg-[#101d2d] px-5 py-3 text-sm font-bold text-white">
+                Retour à la gestion du restaurant
+              </button>
+            </div>
           </div>
         </div>
       )}
