@@ -25,4 +25,5 @@ assert(dishForm.includes('disabled={isSaving}'), 'dish form prevents duplicate s
 assert(menuView.includes('await onCreateDish(dish)') && menuView.includes('await onUpdateDish(dish)'), 'catalogue view awaits create and update operations');
 assert(hub.includes('Catalogue actif · {restaurant.name}'), 'catalogue metrics use the current restaurant name in multi-tenant mode');
 assert(!dishForm.includes("restaurant.slug || 'chez-awa'"), 'dish creation never falls back to a hardcoded demo tenant');
+assert(dishForm.includes('newDishIdRef.current') && dishForm.includes('await onSave(savedDish)'), 'dish creation reuses one document ID after an ambiguous network failure');
 console.log('Restaurant management navigation checks passed.');
