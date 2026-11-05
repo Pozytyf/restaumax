@@ -108,6 +108,16 @@ export interface RestauOrderItem {
   prepNotes?: string;
 }
 
+export interface RestauGuestAccount {
+  id: string;
+  guestNumber: number;
+  guestName: string;
+  shareAmount: number;
+  paidAmount: number;
+  remainingAmount: number;
+  paymentStatus: 'unpaid' | 'partial' | 'paid';
+}
+
 export interface RestauOrder {
   id: string;
   orderNumber: string;
@@ -120,6 +130,8 @@ export interface RestauOrder {
   paidAmount?: number;
   remainingAmount?: number;
   paymentStatus?: 'partial' | 'paid' | 'unpaid';
+  splitGuests?: number;
+  guestAccounts?: RestauGuestAccount[];
   lastPaymentAt?: number;
   lastPaymentId?: string;
   currency: 'FCFA';
