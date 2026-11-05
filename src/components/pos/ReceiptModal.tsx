@@ -23,7 +23,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
       : '';
     const shareAmount = receipt.guestShareAmount ?? receipt.total;
     const guestRemaining = receipt.guestRemainingAfter ?? receipt.remainingAmount ?? 0;
-    const paidOnGuestShare = Number(receipt.guestPreviouslyPaidAmount || 0) + receipt.paidAmount;
+    const paidOnGuestShare = Number(receipt.guestName ? receipt.guestPreviouslyPaidAmount || 0 : receipt.previouslyPaidAmount || 0) + receipt.paidAmount;
     const message = [
       restaurant?.name || 'RestauMax',
       `Ticket : ${receipt.orderId}`,
