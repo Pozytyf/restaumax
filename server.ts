@@ -858,6 +858,96 @@ export async function handleTableQrManagement(req: any) {
   }
 }
 
+export async function handleCustomerPayDunyaInvoiceRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  if (!req || !requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+  const input = payload && typeof payload === 'object' ? payload as any : {};
+  const slug = String(input.restaurantSlug || '').trim();
+  const sessionSecret = readCookie(req.headers?.cookie, tableSessionCookieName);
+  const csrfCookie = readCookie(req.headers?.cookie, tableCsrfCookieName);
+  const csrfHeader = req.headers?.['x-rm-csrf-token'];
+  try {
+    const session = await getActiveTableSession(adminDb, sessionSecret);
+    if (!session || !csrfCookie || csrfHeader !== csrfCookie ||
+        String(input.csrfToken || '') !== csrfCookie || !validateCsrf(session, csrfHeader)) {
+      return { statusCode: 401, body: { success: false, error: 'Session QR invalide, expirée ou révoquée. Scannez à nouveau le QR de votre table.' } };
+    }
+    if (slug !== session.restaurantSlug) {
+      return { statusCode: 403, body: { success: false, error: 'La session QR ne correspond pas à ce restaurant.' } };
+    }
+    const config = getPayDunyaConfig(process.env);
+    if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+    const appOrigin = String(process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\/$/, '');
+    let parsedOrigin: URL;
+    try { parsedOrigin = new URL(appOrigin); } catch {
+      return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya invalide.' } };
+    }
+    if (parsedOrigin.protocol !== 'https:' || parsedOrigin.hostname !== 'restaumax.vercel.app' || parsedOrigin.pathname !== '/') {
+      return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN doit être https://restaumax.vercel.app.' } };
+    }
+    const result = await startPayDunyaOrderPaymentWithDb(adminDb, config.data, {
+      restaurantSlug: slug,
+      orderId: String(input.orderId || ''),
+      actorUid: `table_${String(session.sessionHash).slice(0, 32)}`,
+      actorName: 'Client QR',
+      sessionVersion: Number(session.qrVersion || 0),
+      idempotencyKey: String(input.idempotencyKey || ''),
+      channel: String(input.channel || '') as PayDunyaCiWithdrawMode,
+      callbackUrl: `${parsedOrigin.origin}/api/payments/paydunya-callback`,
+      returnUrl: `${parsedOrigin.origin}/payments/return?restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
+      cancelUrl: `${parsedOrigin.origin}/payments/return?cancelled=1&restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
+      customerTableSession: {
+        sessionHash: session.sessionHash,
+        qrTokenHash: session.qrTokenHash,
+        qrVersion: Number(session.qrVersion || 0),
+        tableId: session.tableId,
+        tableNumber: String(session.tableNumber)
+      }
+    });
+    if (result.success) return { statusCode: 200, body: result };
+    return { statusCode: result.conflict ? 409 : 400, body: result };
+  } catch (error: any) {
+    return { statusCode: 401, body: { success: false, error: error?.message || 'Session QR invalide.' } };
+  }
+}
+
+export async function handleCustomerPayDunyaReconcileRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  if (!req || !requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+  const input = payload && typeof payload === 'object' ? payload as any : {};
+  const slug = String(input.restaurantSlug || '').trim();
+  const sessionSecret = readCookie(req.headers?.cookie, tableSessionCookieName);
+  const csrfCookie = readCookie(req.headers?.cookie, tableCsrfCookieName);
+  const csrfHeader = req.headers?.['x-rm-csrf-token'];
+  try {
+    const session = await getActiveTableSession(adminDb, sessionSecret);
+    if (!session || !csrfCookie || csrfHeader !== csrfCookie ||
+        String(input.csrfToken || '') !== csrfCookie || !validateCsrf(session, csrfHeader) ||
+        slug !== session.restaurantSlug) {
+      return { statusCode: 401, body: { success: false, error: 'Session QR invalide ou révoquée.' } };
+    }
+    const config = getPayDunyaConfig(process.env);
+    if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+    const result = await reconcilePayDunyaInvoiceIntentWithDb(
+      adminDb, config.data, slug, String(input.paymentIntentId || '')
+    );
+    if (result.success) return { statusCode: 200, body: result };
+    return { statusCode: result.conflict ? 409 : 400, body: result };
+  } catch {
+    return { statusCode: 401, body: { success: false, error: 'Session QR invalide.' } };
+  }
+}
+
 export async function handlePayDunyaCallbackRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (String(req?.method || '').toUpperCase() !== 'POST') {
     return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
@@ -1224,6 +1314,18 @@ export async function handlePlatformAdmin(req: any, res: any, db: any = adminDb)
 // Local Express routes. Vercel uses the equivalent files in /api.
 app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
+});
+
+app.post('/api/payments/customer-paydunya', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const result = await handleCustomerPayDunyaInvoiceRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/payments/customer-paydunya-reconcile', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const result = await handleCustomerPayDunyaReconcileRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
 });
 
 app.post('/api/payments/paydunya-disbursement-callback', async (req, res) => {
