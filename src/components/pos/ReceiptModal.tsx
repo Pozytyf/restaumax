@@ -125,6 +125,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
               <span>MODE RÈGLEMENT:</span>
               <span className="font-bold">{getMethodLabel(receipt.paymentMethod)}</span>
             </div>
+            {receipt.previouslyPaidAmount !== undefined && receipt.previouslyPaidAmount > 0 && (
+              <div className="flex justify-between">
+                <span>DÉJÀ RÉGLÉ AVANT:</span>
+                <span className="tnum">{formatFCFA(receipt.previouslyPaidAmount)}</span>
+              </div>
+            )}
             {receipt.tenderedAmount !== undefined && (
               <div className="flex justify-between">
                 <span>MONTANT REMIS:</span>
