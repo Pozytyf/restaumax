@@ -4,6 +4,8 @@ import fs from 'node:fs';
 const hub = fs.readFileSync(new URL('../src/components/restaumax/RestaurantHubView.tsx', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const firebase = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
+const dishForm = fs.readFileSync(new URL('../src/components/restaumax/DishFormModal.tsx', import.meta.url), 'utf8');
+const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
 assert(hub.includes("actionLabel: 'Gérer les options, suppléments et prix'"), 'module 3 is clearly labelled as catalogue management');
 assert(hub.includes("id: 'options-prices'") && hub.includes("setActiveTab('menu_catalog')"), 'module 3 opens the administrative catalogue instead of the public client menu');
 assert(hub.includes('Carte bancaire non activée en V1'), 'the cash register module does not advertise an unavailable card payment method');
@@ -16,4 +18,9 @@ assert(app.includes("const canViewTables = !!authUser && (\n      isRestaurantOw
 assert(app.includes("authUser && authIsSuperAdmin"), 'super-admins are redirected away from restaurant operations');
 assert(app.includes("!(isRestaurantOwner || authRestaurantRole === 'manager')"), 'only owners and managers can open the management hub');
 assert(!app.includes('if (!isAuthorizedManager && !isRestaurantHubRoute) return;'), 'opening a protected route alone does not trigger tenant data subscriptions');
+assert(dishForm.includes('onSave: (dish: RestauMenuItem) => Promise<void>'), 'dish form awaits asynchronous catalogue persistence');
+assert(dishForm.includes('await onSave(savedDish)'), 'dish form closes only after the catalogue save resolves');
+assert(dishForm.includes('setSaveError(message)'), 'dish form preserves the form and displays persistence errors');
+assert(dishForm.includes('disabled={isSaving}'), 'dish form prevents duplicate submissions and closing while saving');
+assert(menuView.includes('await onCreateDish(dish)') && menuView.includes('await onUpdateDish(dish)'), 'catalogue view awaits create and update operations');
 console.log('Restaurant management navigation checks passed.');
