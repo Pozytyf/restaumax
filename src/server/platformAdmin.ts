@@ -199,8 +199,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             subscription
           };
         }));
+        const aggregationTime = Date.now();
         const monthlyRecurringRevenueFcfa = restaurants.reduce((sum: number, r: any) => {
-          if (r.status !== 'active' || r.subscription.status !== 'active') return sum;
+          if (r.status !== 'active' || r.subscription.status !== 'active' ||
+              (Number.isFinite(r.subscription.startsAt) && r.subscription.startsAt > aggregationTime) ||
+              (Number.isFinite(r.subscription.endsAt) && r.subscription.endsAt < aggregationTime)) return sum;
           const amount = Number(r.subscription.priceFcfa || 0);
           if (r.subscription.billingCycle === 'monthly') return sum + amount;
           if (r.subscription.billingCycle === 'yearly') return sum + Math.round(amount / 12);
