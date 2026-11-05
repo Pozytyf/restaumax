@@ -261,11 +261,17 @@ export async function getCashSessionWithDb(db: any, restaurantSlug: string, acto
   const sessionSnap = await restaurantRef.collection('cashSessions').doc(sessionId).get();
   if (!sessionSnap.exists || sessionSnap.data()?.status !== 'active' || sessionSnap.data()?.openedByUid !== uid) return null;
   const sessionData = sessionSnap.data();
+  const movementsSnap = await restaurantRef.collection('cashMovements')
+    .where('sessionId', '==', sessionId).limit(50).get();
+  const cashMovements = movementsSnap.docs
+    .map((doc: any) => ({ ...doc.data(), id: doc.id }))
+    .sort((a: any, b: any) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
   return {
     ...sessionData,
     id: sessionSnap.id,
     cashOut: Number(sessionData.cashOut || 0),
-    cashMovementCount: Number(sessionData.cashMovementCount || 0)
+    cashMovementCount: Number(sessionData.cashMovementCount || 0),
+    cashMovements
   };
 }
 
