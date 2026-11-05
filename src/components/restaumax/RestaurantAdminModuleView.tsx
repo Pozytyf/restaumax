@@ -35,7 +35,13 @@ export const RestaurantAdminModuleView: React.FC<{
   const [notice, setNotice] = useState('');
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '', notes: '' });
   const [itemForm, setItemForm] = useState({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
-  const [inventoryCreateKey, setInventoryCreateKey] = useState(() => crypto.randomUUID().replaceAll('-', ''));
+  const [inventoryCreateKey, setInventoryCreateKey] = useState(() => {
+    try {
+      return sessionStorage.getItem(`restaumax:inventory:pending-create:${restaurant.slug}`) || crypto.randomUUID().replaceAll('-', '');
+    } catch {
+      return crypto.randomUUID().replaceAll('-', '');
+    }
+  });
   const [settings, setSettings] = useState({
     name: restaurant.name, tagline: restaurant.tagline || '', address: restaurant.address || '',
     city: restaurant.city || '', phone: restaurant.phone || '', openingHours: restaurant.openingHours || '',
@@ -123,14 +129,21 @@ export const RestaurantAdminModuleView: React.FC<{
       setError('Vérifiez le nom, les quantités et le coût unitaire.'); setLoading(false); return;
     }
     try {
+      const storageKey = `restaumax:inventory:pending-create:${restaurant.slug}`;
+      let storageAvailable = true;
+      try { sessionStorage.setItem(storageKey, inventoryCreateKey); } catch { storageAvailable = false; }
       const result = await createInventoryItemWithServerValidation(restaurant.slug, {
         name: itemForm.name.trim(), unit: itemForm.unit, quantity, minQuantity, unitCost,
         supplier: itemForm.supplier.trim()
       }, inventoryCreateKey);
       if (!result.success) {
-        if (!result.retryable) setInventoryCreateKey(crypto.randomUUID().replaceAll('-', ''));
+        if (!result.retryable) {
+          if (storageAvailable) sessionStorage.removeItem(storageKey);
+          setInventoryCreateKey(crypto.randomUUID().replaceAll('-', ''));
+        }
         throw new Error(result.error);
       }
+      if (storageAvailable) sessionStorage.removeItem(storageKey);
       setItemForm({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
       setInventoryCreateKey(crypto.randomUUID().replaceAll('-', ''));
       setNotice('Article de stock ajouté et journal initial sécurisé.');
