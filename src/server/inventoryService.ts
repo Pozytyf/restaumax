@@ -73,6 +73,7 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
         return { success: false, error: 'Données de création de stock invalides.' };
       }
       const keyHash = digest(`${slug}:${uid}:${key}`);
+      const requestSignature = digest(JSON.stringify({ name, unit, quantity, minQuantity, unitCost, supplier }));
       const itemId = `inv_${keyHash}`;
       const itemRef = db.collection('restaurants').doc(slug).collection('inventoryItems').doc(itemId);
       const movementRef = db.collection('restaurants').doc(slug).collection('stockMovements').doc(`initial_${keyHash}`);
@@ -80,9 +81,13 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
         const authz = await authorizeInventoryTransaction(tx, db, slug, uid, params.sessionVersion);
         if (!authz.ok) return { success: false, error: authz.error };
         const [itemSnap, movementSnap] = await Promise.all([tx.get(itemRef), tx.get(movementRef)]);
-        if (itemSnap.exists) return { success: true, itemId, idempotentReplay: true };
+        if (itemSnap.exists) {
+          if (itemSnap.data().requestSignature !== requestSignature) return { success: false, error: 'Conflit : cette clé de création a déjà été utilisée avec des données différentes.' };
+          return { success: true, itemId, idempotentReplay: true };
+        }
+        if (movementSnap.exists) return { success: false, error: 'Journal initial orphelin : création bloquée pour contrôle.' };
         const now = Date.now();
-        tx.create(itemRef, { id: itemId, name, unit, quantity, minQuantity, unitCost, supplier, active: true, createdAt: now, updatedAt: now });
+        tx.create(itemRef, { id: itemId, name, unit, quantity, minQuantity, unitCost, supplier, active: true, requestSignature, createdAt: now, updatedAt: now });
         if (quantity > 0) {
           tx.create(movementRef, {
             itemId, itemName: name, unit, quantityBefore: 0, delta: quantity,
@@ -106,13 +111,17 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
         return { success: false, error: 'Mouvement de stock invalide.' };
       }
       const keyHash = digest(`${slug}:${uid}:${key}`);
+      const requestSignature = digest(JSON.stringify({ itemId, delta, reason }));
       const itemRef = db.collection('restaurants').doc(slug).collection('inventoryItems').doc(itemId);
       const movementRef = db.collection('restaurants').doc(slug).collection('stockMovements').doc(`mov_${keyHash}`);
       return await db.runTransaction(async (tx: any) => {
         const authz = await authorizeInventoryTransaction(tx, db, slug, uid, params.sessionVersion);
         if (!authz.ok) return { success: false, error: authz.error };
         const [itemSnap, movementSnap] = await Promise.all([tx.get(itemRef), tx.get(movementRef)]);
-        if (movementSnap.exists) return { success: true, idempotentReplay: true };
+        if (movementSnap.exists) {
+          if (movementSnap.data().requestSignature !== requestSignature) return { success: false, error: 'Conflit : cette clé de mouvement a déjà été utilisée avec une opération différente.' };
+          return { success: true, idempotentReplay: true };
+        }
         if (!itemSnap.exists || itemSnap.data().active === false) return { success: false, error: 'Article de stock introuvable ou archivé.' };
         const item = itemSnap.data();
         const before = Number(item.quantity);
@@ -124,7 +133,7 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
         tx.update(itemRef, { quantity: after, updatedAt: now });
         tx.create(movementRef, {
           itemId, itemName: String(item.name || ''), unit: String(item.unit || ''),
-          quantityBefore: before, delta, quantityAfter: after, reason,
+          quantityBefore: before, delta, quantityAfter: after, reason, requestSignature,
           createdAt: now, createdBy: uid, idempotencyKey: keyHash
         });
         return { success: true, quantityBefore: before, quantityAfter: after, idempotentReplay: false };
