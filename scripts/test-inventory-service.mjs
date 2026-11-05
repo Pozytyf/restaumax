@@ -112,4 +112,4 @@ assert.equal(archiveDb.documents.get('restaurants/chez-awa/inventoryItems/rice')
 const archiveReplay = await manageInventoryWithDb(archiveDb, { ...common, action: 'archive', itemId: 'rice' });
 assert.equal(archiveReplay.idempotentReplay, true);
 
-console.log('Inventory service: 12 assertions validées.');
+console.log('Inventory service: 23 assertions validées.');
