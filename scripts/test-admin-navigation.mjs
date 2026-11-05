@@ -12,6 +12,8 @@ assert(!app.includes('canManageStaff={isRestaurantOwner || authIsSuperAdmin}'), 
 assert(firebase.includes("['owner', 'manager', 'cashier', 'server', 'kitchen'].includes(data.role)"), 'only restaurant roles may enter operational workspaces');
 assert(firebase.includes("restaurantSnap.data()?.ownerUid === user.uid"), 'owner workspace access is bound to the restaurant owner UID');
 assert(app.includes("token.claims.role === 'super_admin' || token.claims.role === 'admin'\n          ? []"), 'super-admin receives no restaurant operational permissions in the login flow');
-assert(app.includes('if (!isAuthorizedManager) return;'), 'table subscriptions start only after verified restaurant authorization');
+assert(app.includes("const canViewTables = !!authUser && (\n      isRestaurantOwner || userPermissions.includes('tables.view')"), 'table subscriptions require an explicit tables.view permission');
+assert(app.includes("authUser && authIsSuperAdmin"), 'super-admins are redirected away from restaurant operations');
+assert(app.includes("!(isRestaurantOwner || authRestaurantRole === 'manager')"), 'only owners and managers can open the management hub');
 assert(!app.includes('if (!isAuthorizedManager && !isRestaurantHubRoute) return;'), 'opening a protected route alone does not trigger tenant data subscriptions');
 console.log('Restaurant management navigation checks passed.');
