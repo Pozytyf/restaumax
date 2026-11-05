@@ -44,8 +44,9 @@ assert(platformAdmin.includes("await db.runTransaction(async (tx: any) =>") &&
   'role updates atomically synchronize both staff membership records before Auth claims are refreshed');
 
 assert(qrView.includes('window.confirm') && qrView.includes('setIsRevoking(true)') &&
-  qrView.includes('disabled={isGenerating || isRevoking}'),
-  'QR revocation requires confirmation and prevents duplicate requests');
+  qrView.includes('disabled={isGenerating || isRevoking}') &&
+  qrView.includes("setQrDataUrl('')") && qrView.includes("setQrSvgString('')") && qrView.includes("setQrUrl('')"),
+  'QR revocation requires confirmation, prevents duplicate requests and clears all stale QR representations');
 assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
   hubView.includes("status: permissions.includes('tables.manage') ? 'active' : 'unavailable'"),
   'QR administration entry points are restricted to members with tables.manage');
