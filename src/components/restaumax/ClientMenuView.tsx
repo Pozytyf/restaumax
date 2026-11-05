@@ -36,6 +36,7 @@ export interface ClientMenuViewProps {
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
   onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
+  onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci') => Promise<void>;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
 }
@@ -110,6 +111,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   onRemoveItem,
   onClearCart,
   onConfirmOrder,
+  onStartPayDunyaPayment,
   isUncertain = false,
   onResetUncertainty
 }) => {
@@ -466,6 +468,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       {/* Confirmed Order Modal */}
       <OrderConfirmationModal
         order={confirmedOrder}
+        onStartPayDunyaPayment={onStartPayDunyaPayment}
         onClose={() => setConfirmedOrder(null)}
         onNewOrder={() => {
           setConfirmedOrder(null);
