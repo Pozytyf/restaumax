@@ -554,6 +554,14 @@ export interface CashPaymentApiRecord {
   paidAmount: number;
   changeAmount: number;
   totalAmount: number;
+  splitGuests?: number;
+  guestAccountId?: string;
+  guestNumber?: number;
+  guestName?: string;
+  guestShareAmount?: number;
+  guestPreviouslyPaidAmount?: number;
+  guestRemainingBefore?: number;
+  guestRemainingAfter?: number;
   previouslyPaidAmount: number;
   remainingBefore: number;
   remainingAfter: number;
@@ -659,7 +667,10 @@ export async function collectCashPaymentWithServerValidation(
   restaurantSlug: string,
   orderId: string,
   amountTendered: number,
-  idempotencyKey: string
+  idempotencyKey: string,
+  splitGuests = 1,
+  guestNumber = 1,
+  guestName = ''
 ): Promise<{ success: true; payment: CashPaymentApiRecord; order: any; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
     const user = auth.currentUser;
@@ -673,7 +684,7 @@ export async function collectCashPaymentWithServerValidation(
       },
       credentials: 'same-origin',
       cache: 'no-store',
-      body: JSON.stringify({ restaurantSlug, orderId, amountTendered, idempotencyKey }),
+      body: JSON.stringify({ restaurantSlug, orderId, amountTendered, idempotencyKey, splitGuests, guestNumber, guestName }),
     });
     const data = await response.json();
     if (!response.ok || !data.success) {

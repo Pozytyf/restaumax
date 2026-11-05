@@ -364,6 +364,12 @@ export default function App() {
     changeAmount: Number(payment.changeAmount || 0),
     remainingAmount: Number(payment.remainingAfter || 0),
     paymentStatus: payment.paymentStatus === 'partial' ? 'partial' : 'paid',
+    splitGuests: Number(payment.splitGuests || 1),
+    guestNumber: Number(payment.guestNumber || 1),
+    guestName: String(payment.guestName || ''),
+    guestShareAmount: payment.guestShareAmount !== undefined ? Number(payment.guestShareAmount) : undefined,
+    guestPreviouslyPaidAmount: payment.guestPreviouslyPaidAmount !== undefined ? Number(payment.guestPreviouslyPaidAmount) : undefined,
+    guestRemainingAfter: payment.guestRemainingAfter !== undefined ? Number(payment.guestRemainingAfter) : undefined,
     paymentMethod: 'especes',
     items: Array.isArray(payment.items) ? payment.items.map((item: any) => ({
       name: String(item.name || 'Article'),
@@ -1034,6 +1040,8 @@ export default function App() {
     paidAmount: number;
     changeAmount: number;
     splitGuests: number;
+    guestNumber: number;
+    guestName: string;
   }) => {
     if (!canManageCash || cashSession?.status !== 'active') {
       setIsPaymentModalOpen(false);
@@ -1095,7 +1103,10 @@ export default function App() {
         activeRestaurantSlug,
         order.id,
         paymentData.paidAmount,
-        paymentIdempotencyKey
+        paymentIdempotencyKey,
+        paymentData.splitGuests,
+        paymentData.guestNumber,
+        paymentData.guestName
       );
       if (!paymentResult.success) {
         window.alert(`Encaissement non enregistré : ${paymentResult.error}`);
@@ -1507,6 +1518,8 @@ export default function App() {
             serverName={serverName}
             discountPercent={discountPercent}
             alreadyPaidAmount={pendingPosPaidAmount}
+            orderTotalAmount={pendingPosOrder?.totalAmount}
+            guestAccounts={pendingPosOrder?.guestAccounts}
             isSubmitting={isSubmittingPayment}
             onConfirmPayment={handleConfirmPayment}
           />

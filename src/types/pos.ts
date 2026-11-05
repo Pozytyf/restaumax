@@ -87,6 +87,12 @@ export interface PaymentRecord {
   changeAmount: number;
   remainingAmount?: number;
   paymentStatus?: 'partial' | 'paid';
+  splitGuests?: number;
+  guestNumber?: number;
+  guestName?: string;
+  guestShareAmount?: number;
+  guestPreviouslyPaidAmount?: number;
+  guestRemainingAfter?: number;
   paymentMethod: PaymentMethod;
   items: { name: string; quantity: number; price: number }[];
 }

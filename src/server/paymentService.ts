@@ -7,6 +7,9 @@ export interface CashPaymentInput {
   actorName?: string;
   sessionVersion: number;
   amountTendered: number;
+  splitGuests?: number;
+  guestNumber?: number;
+  guestName?: string;
   idempotencyKey: string;
 }
 
@@ -75,18 +78,27 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
   const actorUid = String(input.actorUid || '').trim();
   const key = String(input.idempotencyKey || '').trim();
   const amountTendered = input.amountTendered;
+  const splitGuests = Number(input.splitGuests ?? 1);
+  const guestNumber = Number(input.guestNumber ?? 1);
+  const guestName = String(input.guestName || '').trim();
 
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) ||
       !/^[a-zA-Z0-9_-]{1,128}$/.test(orderId) ||
       !actorUid ||
       !/^[a-zA-Z0-9_-]{8,128}$/.test(key) ||
-      !Number.isSafeInteger(amountTendered) || amountTendered <= 0 || amountTendered > 100_000_000) {
-    return { success: false, error: 'Paramètres de paiement invalides.' };
+      !Number.isSafeInteger(amountTendered) || amountTendered <= 0 || amountTendered > 100_000_000 ||
+      !Number.isSafeInteger(splitGuests) || splitGuests < 1 || splitGuests > 20 ||
+      !Number.isSafeInteger(guestNumber) || guestNumber < 1 || guestNumber > splitGuests ||
+      guestName.length > 80) {
+    return { success: false, error: 'Paramètres de paiement ou de répartition par convive invalides.' };
   }
 
   const namespace = `${slug}::${orderId}::${key}`;
   const paymentId = `pay_${sha256(namespace).slice(0, 32)}`;
-  const signature = sha256(JSON.stringify({ restaurantSlug: slug, orderId, amountTendered, method: 'especes' }));
+  const signature = sha256(JSON.stringify({
+    restaurantSlug: slug, orderId, amountTendered, method: 'especes',
+    splitGuests, guestNumber, guestName
+  }));
   const restaurantRef = db.collection('restaurants').doc(slug);
   const memberRef = db.collection('managers').doc(actorUid);
   const orderRef = restaurantRef.collection('orders').doc(orderId);
@@ -165,12 +177,75 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
     if (remainingBefore <= 0) {
       return { success: false, error: 'Cette commande est déjà intégralement réglée.' };
     }
+    if (splitGuests > totalAmount) {
+      return { success: false, error: 'Le nombre de convives dépasse le nombre de parts FCFA disponibles.' };
+    }
+    if (order.splitGuests !== undefined && Number(order.splitGuests) !== splitGuests) {
+      return { success: false, conflict: true, error: 'Le nombre de convives ne peut plus être modifié après le premier encaissement.' };
+    }
 
-    const acceptedAmount = Math.min(amountTendered, remainingBefore);
-    const changeAmount = Math.max(0, amountTendered - remainingBefore);
+    let guestAccounts: Array<Record<string, any>>;
+    if (Array.isArray(order.guestAccounts)) {
+      guestAccounts = order.guestAccounts.map((account: any) => ({ ...account }));
+      if (guestAccounts.length !== splitGuests ||
+          guestAccounts.reduce((sum, account) => sum + Number(account.paidAmount || 0), 0) !== alreadyPaid ||
+          guestAccounts.reduce((sum, account) => sum + Number(account.shareAmount || 0), 0) !== totalAmount) {
+        return { success: false, conflict: true, error: 'Les sous-comptes de convives ne correspondent plus au total de la commande.' };
+      }
+    } else {
+      if (alreadyPaid > 0 && splitGuests > 1) {
+        return { success: false, conflict: true, error: 'La répartition individuelle doit être définie avant le premier encaissement.' };
+      }
+      const baseShare = Math.floor(totalAmount / splitGuests);
+      const remainder = totalAmount % splitGuests;
+      guestAccounts = Array.from({ length: splitGuests }, (_, index) => {
+        const shareAmount = baseShare + (index < remainder ? 1 : 0);
+        return {
+          id: `guest_${index + 1}`,
+          guestNumber: index + 1,
+          guestName: `Convive ${index + 1}`,
+          shareAmount,
+          paidAmount: splitGuests === 1 ? alreadyPaid : 0,
+          remainingAmount: shareAmount - (splitGuests === 1 ? alreadyPaid : 0),
+          paymentStatus: alreadyPaid >= shareAmount ? 'paid' : alreadyPaid > 0 ? 'partial' : 'unpaid'
+        };
+      });
+    }
+
+    const guestIndex = guestNumber - 1;
+    const selectedGuest = guestAccounts[guestIndex];
+    if (!selectedGuest || Number(selectedGuest.guestNumber) !== guestNumber) {
+      return { success: false, conflict: true, error: 'Sous-compte du convive introuvable.' };
+    }
+    const guestShareAmount = Number(selectedGuest.shareAmount);
+    const guestPreviouslyPaidAmount = Number(selectedGuest.paidAmount || 0);
+    const guestRemainingBefore = guestShareAmount - guestPreviouslyPaidAmount;
+    if (!Number.isSafeInteger(guestShareAmount) || guestShareAmount <= 0 ||
+        !Number.isSafeInteger(guestPreviouslyPaidAmount) || guestPreviouslyPaidAmount < 0 ||
+        guestPreviouslyPaidAmount > guestShareAmount || guestRemainingBefore <= 0) {
+      return { success: false, error: 'La part de ce convive est déjà réglée ou incohérente.' };
+    }
+
+    const acceptedAmount = Math.min(amountTendered, guestRemainingBefore);
+    const changeAmount = Math.max(0, amountTendered - guestRemainingBefore);
     const paidAmount = alreadyPaid + acceptedAmount;
     const remainingAmount = totalAmount - paidAmount;
-    const paymentStatus = remainingAmount === 0 ? 'paid' : 'partial';
+    const paymentStatus = remainingAmount === 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
+    const guestPaidAmount = guestPreviouslyPaidAmount + acceptedAmount;
+    const guestRemainingAfter = guestShareAmount - guestPaidAmount;
+    const updatedGuestAccount: Record<string, any> = {
+      ...selectedGuest,
+      id: String(selectedGuest.id || `guest_${guestNumber}`),
+      guestNumber,
+      guestName: selectedGuest.guestName && selectedGuest.guestName !== `Convive ${guestNumber}`
+        ? selectedGuest.guestName
+        : guestName || selectedGuest.guestName || `Convive ${guestNumber}`,
+      shareAmount: guestShareAmount,
+      paidAmount: guestPaidAmount,
+      remainingAmount: guestRemainingAfter,
+      paymentStatus: guestRemainingAfter === 0 ? 'paid' : 'partial'
+    };
+    guestAccounts[guestIndex] = updatedGuestAccount;
     const now = Date.now();
 
     const payment = {
@@ -193,12 +268,22 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       remainingBefore,
       remainingAfter: remainingAmount,
       paymentStatus,
+      splitGuests,
+      guestAccountId: updatedGuestAccount.id,
+      guestNumber,
+      guestName: splitGuests > 1 || guestName ? updatedGuestAccount.guestName : '',
+      guestShareAmount,
+      guestPreviouslyPaidAmount,
+      guestRemainingBefore,
+      guestRemainingAfter,
       items: Array.isArray(order.items) ? order.items : [],
       createdAt: now
     };
 
     const updatedOrder = {
       ...order,
+      splitGuests,
+      guestAccounts,
       paidAmount,
       remainingAmount,
       paymentStatus,
@@ -216,6 +301,8 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       createdAt: now
     });
     tx.update(orderRef, {
+      splitGuests,
+      guestAccounts,
       paidAmount,
       remainingAmount,
       paymentStatus,
