@@ -988,7 +988,7 @@ export async function handlePayDunyaCallbackRequest(payload: unknown, req?: any)
     return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
   }
   if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
-  const config = await loadRestaurantPayDunyaConfig(adminDb, String(req?.query?.restaurantSlug || ''), process.env);
+  const config = await loadRestaurantPayDunyaConfig(adminDb, String(req?.query?.restaurantSlug || ''), process.env, true);
   if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
   try {
     const result = await processPayDunyaInvoiceCallbackWithDb(adminDb, config.data, payload);
