@@ -49,6 +49,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   const [qrForTableId, setQrForTableId] = useState<string | null>(null);
   const [qrSvgString, setQrSvgString] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isRevoking, setIsRevoking] = useState<boolean>(false);
   const [qrGenerationError, setQrGenerationError] = useState<string | null>(null);
 
   // New table modal form state
@@ -144,13 +145,15 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   };
 
   const handleGenerateQr = async () => {
-    if (!currentTable || isGenerating) return;
+    if (!currentTable || isGenerating || isRevoking) return;
     await generateQrForTable(currentTable);
   };
 
   const handleRevokeQr = async () => {
-    if (!currentTable) return;
+    if (!currentTable || isGenerating || isRevoking) return;
+    if (!window.confirm(`Révoquer tous les QR actifs de la table ${currentTable.tableNumber} ? Les sessions clients ouvertes sur cette table seront également invalidées.`)) return;
     setFormError(null);
+    setIsRevoking(true);
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('Votre session gestionnaire a expiré. Reconnectez-vous.');
@@ -170,6 +173,8 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
       sounds.playSuccess();
     } catch (err: any) {
       setFormError(err?.message || 'Erreur lors de la révocation du QR.');
+    } finally {
+      setIsRevoking(false);
     }
   };
 
@@ -335,7 +340,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
             {currentTable && (
               <button
                 onClick={handleGenerateQr}
-                disabled={isGenerating || currentTable.isActive !== true}
+                disabled={isGenerating || isRevoking || currentTable.isActive !== true}
                 className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
               >
                 <QrCode size={15} />
@@ -343,8 +348,8 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
               </button>
             )}
             {currentTable && (
-              <button onClick={handleRevokeQr} className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5">
-                <Trash2 size={15} /><span>Révoquer les QR actifs</span>
+              <button onClick={handleRevokeQr} disabled={isGenerating || isRevoking} className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5">
+                <Trash2 size={15} /><span>{isRevoking ? 'Révocation...' : 'Révoquer les QR actifs'}</span>
               </button>
             )}
             {currentTable && canonicalUrl && (
@@ -404,7 +409,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
             <button
               type="button"
               onClick={() => { void generateQrForTable(currentTable); }}
-              disabled={isGenerating}
+              disabled={isGenerating || isRevoking}
               className="shrink-0 px-4 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-bold disabled:opacity-50"
             >
               {isGenerating ? 'Génération...' : 'Réessayer le QR'}
