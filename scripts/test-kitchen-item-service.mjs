@@ -73,6 +73,13 @@ const kitchen = await updateKitchenItemCompletionWithDb(kitchenDb, {
 });
 assert.equal(kitchen.success, true, 'kitchen role with kitchen.access can update KDS progress');
 
+const pendingDb = base();
+pendingDb.documents.set('restaurants/chez-awa/orders/order-1', {
+  ...pendingDb.documents.get('restaurants/chez-awa/orders/order-1'), status: 'pending'
+});
+const pendingOrderProgress = await updateKitchenItemCompletionWithDb(pendingDb, params);
+assert.equal(pendingOrderProgress.success, true);
+
 const cashierDb = base();
 cashierDb.documents.set('managers/cashier-1', {
   active: true, restaurantSlug: 'chez-awa', role: 'cashier', permissions: ['cash.manage'], sessionVersion: 3
