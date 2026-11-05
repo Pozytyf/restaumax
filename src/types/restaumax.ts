@@ -117,6 +117,11 @@ export interface RestauOrder {
   items: RestauOrderItem[];
   itemsCount: number;
   totalAmount: number; // in FCFA
+  paidAmount?: number;
+  remainingAmount?: number;
+  paymentStatus?: 'partial' | 'paid' | 'unpaid';
+  lastPaymentAt?: number;
+  lastPaymentId?: string;
   currency: 'FCFA';
   status: RestauOrderStatus;
   customerNote?: string;
