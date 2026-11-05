@@ -40,6 +40,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
+import { manageInventoryWithDb } from './src/server/inventoryService.js';
 import { 
   processOrderSubmission, 
   ServerFirestoreProvider,
@@ -1392,6 +1393,29 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
   }
 }
 
+export async function handleInventoryRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de stock indisponible : Firebase Admin non configuré.' } };
+  if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const input = payload && typeof payload === 'object' ? { ...(payload as any) } : {};
+    const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+    const result = await manageInventoryWithDb(adminDb, {
+      ...input, restaurantSlug, actorUid: decoded.uid,
+      sessionVersion: Number(decoded.sessionVersion || 0)
+    });
+    return result.success ? { statusCode: 200, body: result } : { statusCode: 403, body: result };
+  } catch (error: any) {
+    console.error('Erreur API gestion stock:', error?.message || String(error));
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la gestion du stock.' } };
+  }
+}
+
 export async function handleKitchenItemRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) {
     return { statusCode: 503, body: { success: false, error: 'Service cuisine indisponible : Firebase Admin non configuré.' } };
@@ -1482,6 +1506,22 @@ app.all('/api/payments', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handlePaymentsRequest(req.method === 'GET' ? undefined : req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/inventory', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleInventoryRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/kitchen-item', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleKitchenItemRequest(req.body, req);
   return res.status(result.statusCode).json(result.body);
 });
 
