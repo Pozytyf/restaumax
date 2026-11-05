@@ -288,6 +288,12 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      match /menuRecipes/{menuItemId} {
+        allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
+        // Recipes are private operational data; only the trusted backend may write them.
+        allow create, update, delete: if false;
+      }
+
       match /stockMovements/{movementId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
         // Append-only from the trusted Admin SDK transaction; no client writes.
