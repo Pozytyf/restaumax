@@ -766,7 +766,7 @@ export default function App() {
   };
 
   // POS Handlers
-  const handleSelectPosTable = (table: Table | null) => {
+  const handleSelectPosTable = (table: Table) => {
     if (pendingPosOrder) {
       window.alert('Terminez le règlement de la commande en cours avant de changer de table.');
       return;
