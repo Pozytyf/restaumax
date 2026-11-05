@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, updateDoc
 } from 'firebase/firestore';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Package, Users, BarChart3, Settings } from 'lucide-react';
-import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings } from 'lucide-react';
+import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 
@@ -35,6 +35,7 @@ export const RestaurantAdminModuleView: React.FC<{
   const [notice, setNotice] = useState('');
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '', notes: '' });
   const [itemForm, setItemForm] = useState({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
+  const [editingInventoryItemId, setEditingInventoryItemId] = useState<string | null>(null);
   const [inventoryCreateKey, setInventoryCreateKey] = useState(() => {
     try {
       return sessionStorage.getItem(`restaumax:inventory:pending-create:${restaurant.slug}`) || crypto.randomUUID().replaceAll('-', '');
@@ -122,13 +123,39 @@ export const RestaurantAdminModuleView: React.FC<{
     } catch (e) { setError(e instanceof Error ? e.message : 'Mise à jour des points impossible.'); }
   };
 
+  const resetInventoryForm = () => {
+    setEditingInventoryItemId(null);
+    setItemForm({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
+  };
+
+  const startEditInventoryItem = (item: InventoryItem) => {
+    setEditingInventoryItemId(item.id);
+    setItemForm({
+      name: item.name, unit: item.unit, quantity: String(item.quantity),
+      minQuantity: String(item.minQuantity), unitCost: String(item.unitCost), supplier: item.supplier || ''
+    });
+    setError('');
+    setNotice('');
+  };
+
   const addInventoryItem = async (event: React.FormEvent) => {
     event.preventDefault(); setLoading(true); setError(''); setNotice('');
     const quantity = Number(itemForm.quantity), minQuantity = Number(itemForm.minQuantity), unitCost = Number(itemForm.unitCost);
-    if (!itemForm.name.trim() || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(minQuantity) || minQuantity < 0 || !Number.isFinite(unitCost) || unitCost < 0) {
+    if (!itemForm.name.trim() || (!editingInventoryItemId && (!Number.isFinite(quantity) || quantity < 0)) ||
+        !Number.isFinite(minQuantity) || minQuantity < 0 || !Number.isFinite(unitCost) || unitCost < 0) {
       setError('Vérifiez le nom, les quantités et le coût unitaire.'); setLoading(false); return;
     }
     try {
+      if (editingInventoryItemId) {
+        const result = await updateInventoryItemWithServerValidation(restaurant.slug, editingInventoryItemId, {
+          name: itemForm.name.trim(), unit: itemForm.unit, minQuantity, unitCost, supplier: itemForm.supplier.trim()
+        });
+        if (!result.success) throw new Error(result.error);
+        resetInventoryForm();
+        setNotice('Informations de l’article mises à jour. La quantité reste gérée par les mouvements.');
+        return;
+      }
+
       const storageKey = `restaumax:inventory:pending-create:${restaurant.slug}`;
       let storageAvailable = true;
       try { sessionStorage.setItem(storageKey, inventoryCreateKey); } catch { storageAvailable = false; }
@@ -144,7 +171,7 @@ export const RestaurantAdminModuleView: React.FC<{
         throw new Error(result.error);
       }
       if (storageAvailable) sessionStorage.removeItem(storageKey);
-      setItemForm({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
+      resetInventoryForm();
       setInventoryCreateKey(crypto.randomUUID().replaceAll('-', ''));
       setNotice('Article de stock ajouté et journal initial sécurisé.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Enregistrement du stock impossible.'); }
@@ -250,17 +277,17 @@ export const RestaurantAdminModuleView: React.FC<{
 
       {module === 'inventory' && <>
         {canManage && <form onSubmit={addInventoryItem} className="grid gap-3 rounded-2xl border bg-white p-5 md:grid-cols-3">
-          <h2 className="font-bold md:col-span-3">Nouvel article de stock</h2>
+          <h2 className="font-bold md:col-span-3">{editingInventoryItemId ? 'Modifier un article de stock' : 'Nouvel article de stock'}</h2>
           <input required placeholder="Désignation" value={itemForm.name} onChange={e=>setItemForm({...itemForm,name:e.target.value})} className="rounded-lg border p-3"/>
           <select value={itemForm.unit} onChange={e=>setItemForm({...itemForm,unit:e.target.value})} className="rounded-lg border p-3"><option>kg</option><option>g</option><option>L</option><option>ml</option><option>unité</option><option>carton</option><option>sac</option></select>
-          <input type="number" min="0" step="0.001" placeholder="Stock initial" value={itemForm.quantity} onChange={e=>setItemForm({...itemForm,quantity:e.target.value})} className="rounded-lg border p-3"/>
+          {!editingInventoryItemId && <input type="number" min="0" step="0.001" placeholder="Stock initial" value={itemForm.quantity} onChange={e=>setItemForm({...itemForm,quantity:e.target.value})} className="rounded-lg border p-3"/>}
           <input type="number" min="0" step="0.001" placeholder="Seuil d'alerte" value={itemForm.minQuantity} onChange={e=>setItemForm({...itemForm,minQuantity:e.target.value})} className="rounded-lg border p-3"/>
           <input type="number" min="0" step="1" placeholder="Coût unitaire FCFA" value={itemForm.unitCost} onChange={e=>setItemForm({...itemForm,unitCost:e.target.value})} className="rounded-lg border p-3"/>
           <input placeholder="Fournisseur" value={itemForm.supplier} onChange={e=>setItemForm({...itemForm,supplier:e.target.value})} className="rounded-lg border p-3"/>
-          <button disabled={loading} className="flex items-center justify-center gap-2 rounded-lg bg-slate-900 p-3 font-bold text-white md:col-span-3"><Plus size={16}/> Ajouter au stock</button>
+          <div className="flex gap-2 md:col-span-3"><button disabled={loading} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-900 p-3 font-bold text-white">{editingInventoryItemId ? <Save size={16}/> : <Plus size={16}/>} {editingInventoryItemId ? 'Enregistrer les modifications' : 'Ajouter au stock'}</button>{editingInventoryItemId && <button type="button" disabled={loading} onClick={resetInventoryForm} className="rounded-lg border px-4 py-3 font-bold text-slate-600">Annuler</button>}</div>
         </form>}
         <section className="overflow-hidden rounded-2xl border bg-white"><div className="border-b p-4 font-bold">État du stock · {inventory.length} référence(s)</div>
-          {inventory.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.supplier || 'Fournisseur non renseigné'} · {formatFCFA(item.unitCost)} / {item.unit}</p><p className={`mt-1 text-sm font-bold ${item.quantity <= item.minQuantity ? 'text-rose-700' : 'text-emerald-700'}`}>{item.quantity} {item.unit} · seuil {item.minQuantity} {item.unit}{item.quantity <= item.minQuantity ? ' · STOCK BAS' : ''}</p></div>{canManage && <div className="flex flex-wrap gap-2"><button onClick={()=>moveStock(item,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">+1 entrée</button><button onClick={()=>moveStock(item,-1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">−1 sortie</button><button onClick={()=>removeInventoryItem(item.id)} disabled={loading} aria-label="Archiver l'article" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
+          {inventory.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.supplier || 'Fournisseur non renseigné'} · {formatFCFA(item.unitCost)} / {item.unit}</p><p className={`mt-1 text-sm font-bold ${item.quantity <= item.minQuantity ? 'text-rose-700' : 'text-emerald-700'}`}>{item.quantity} {item.unit} · seuil {item.minQuantity} {item.unit}{item.quantity <= item.minQuantity ? ' · STOCK BAS' : ''}</p></div>{canManage && <div className="flex flex-wrap gap-2"><button onClick={()=>startEditInventoryItem(item)} disabled={loading} aria-label={`Modifier ${item.name}`} className="rounded-lg border p-2 text-slate-700"><Pencil size={16}/></button><button onClick={()=>moveStock(item,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">+1 entrée</button><button onClick={()=>moveStock(item,-1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">−1 sortie</button><button onClick={()=>removeInventoryItem(item.id)} disabled={loading} aria-label="Archiver l'article" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
           {inventory.length===0 && <p className="p-8 text-center text-sm text-slate-500">Aucun article de stock. Ajoutez les matières premières et consommables.</p>}
         </section>
         <section className="mt-5 overflow-hidden rounded-2xl border bg-white">
