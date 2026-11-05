@@ -172,11 +172,12 @@ try {
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un caissier ne peut pas modifier le prix du menu');
   await denies(updateDoc(doc(a('cashier-escalated'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un droit menu.manage falsifié ne dépasse pas le plafond du caissier');
 
-  const recipeRef = doc(a('manager-a'),'restaurants/rest-a/menuRecipes/dish-1');
-  const linkedDishRef = doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-1');
+  const managerMenuDb = a('manager-a');
+  const recipeRef = doc(managerMenuDb,'restaurants/rest-a/menuRecipes/dish-1');
+  const linkedDishRef = doc(managerMenuDb,'restaurants/rest-a/menuItems/dish-1');
   await denies(deleteDoc(recipeRef), 'Un manager ne peut pas supprimer une recette sans supprimer le plat associé');
   await denies(deleteDoc(linkedDishRef), 'Un manager ne peut pas supprimer un plat tant que sa recette associée subsiste');
-  await allows(runTransaction(a('manager-a'), async transaction => {
+  await allows(runTransaction(managerMenuDb, async transaction => {
     const [dishSnapshot, recipeSnapshot] = await Promise.all([
       transaction.get(linkedDishRef),
       transaction.get(recipeRef)
