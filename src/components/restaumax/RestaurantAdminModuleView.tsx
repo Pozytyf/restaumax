@@ -127,7 +127,10 @@ export const RestaurantAdminModuleView: React.FC<{
         name: itemForm.name.trim(), unit: itemForm.unit, quantity, minQuantity, unitCost,
         supplier: itemForm.supplier.trim()
       }, inventoryCreateKey);
-      if (!result.success) throw new Error(result.error);
+      if (!result.success) {
+        if (!result.retryable) setInventoryCreateKey(crypto.randomUUID().replaceAll('-', ''));
+        throw new Error(result.error);
+      }
       setItemForm({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
       setInventoryCreateKey(crypto.randomUUID().replaceAll('-', ''));
       setNotice('Article de stock ajouté et journal initial sécurisé.');
@@ -140,12 +143,32 @@ export const RestaurantAdminModuleView: React.FC<{
     setError(''); setNotice('');
     setLoading(true);
     try {
+      const storageKey = `restaumax:inventory:pending-move:${restaurant.slug}`;
+      let storageAvailable = true;
+      let pendingMove: { itemId: string; delta: number; idempotencyKey: string } | null = null;
+      try {
+        const raw = sessionStorage.getItem(storageKey);
+        pendingMove = raw ? JSON.parse(raw) : null;
+      } catch {
+        storageAvailable = false;
+      }
+      if (pendingMove && (pendingMove.itemId !== item.id || pendingMove.delta !== delta)) {
+        throw new Error('Un mouvement précédent reste à confirmer. Répétez d’abord exactement le même mouvement pour éviter un doublon.');
+      }
+      const idempotencyKey = pendingMove?.idempotencyKey || crypto.randomUUID().replaceAll('-', '');
+      if (storageAvailable) {
+        sessionStorage.setItem(storageKey, JSON.stringify({ itemId: item.id, delta, idempotencyKey }));
+      }
       const result = await moveInventoryStockWithServerValidation(
         restaurant.slug, item.id, delta,
         delta > 0 ? 'Entrée manuelle' : 'Sortie manuelle',
-        crypto.randomUUID().replaceAll('-', '')
+        idempotencyKey
       );
-      if (!result.success) throw new Error(result.error);
+      if (!result.success) {
+        if (storageAvailable && !result.retryable) sessionStorage.removeItem(storageKey);
+        throw new Error(result.error);
+      }
+      if (storageAvailable) sessionStorage.removeItem(storageKey);
       setNotice(delta > 0 ? 'Entrée de stock enregistrée et journalisée.' : 'Sortie de stock enregistrée et journalisée.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Mouvement de stock impossible.'); }
     finally { setLoading(false); }
