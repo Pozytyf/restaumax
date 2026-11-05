@@ -115,6 +115,7 @@ if (config) {
       ok: true,
       json: async () => ({
         response_code: '00',
+        hash: createHash('sha512').update('test-master-key').digest('hex'),
         invoice: { token: 'test_ABC123', total_amount: 7500 },
         status: 'completed',
         custom_data: { payment_intent_id: 'intent-42' },
