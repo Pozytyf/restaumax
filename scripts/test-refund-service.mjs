@@ -45,6 +45,8 @@ const manager = { role: 'manager', active: true, restaurantSlug: 'demo', session
 const db = seed(manager);
 const first = await refundCashPaymentWithDb(db, base);
 assert.equal(first.success, true, 'manager can refund cash payment');
+assert.equal(first.payment.cashDisbursementConfirmed, true, 'cash handover confirmation is recorded in the refund audit');
+assert.equal(first.payment.cashDisbursementConfirmedByUid, 'actor-1', 'cash handover confirmation records the acting operator');
 assert.equal(db.data.get('restaurants/demo/payments/pay-1').refundedAmount, 2000);
 assert.equal(db.data.get('restaurants/demo/cashSessions/session-1').cashOut, 2000);
 const replay = await refundCashPaymentWithDb(db, base);
