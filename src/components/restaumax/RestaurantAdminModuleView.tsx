@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  addDoc, collection, deleteDoc, doc, onSnapshot, query, updateDoc
+  addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, updateDoc
 } from 'firebase/firestore';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Package, Users, BarChart3, Settings } from 'lucide-react';
 import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
@@ -10,6 +10,7 @@ import { formatFCFA } from '../../utils/format';
 type ModuleId = 'customers' | 'inventory' | 'reports' | 'settings';
 type Customer = { id: string; name: string; phone: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
 type InventoryItem = { id: string; name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier?: string; updatedAt: number; active?: boolean };
+type StockMovement = { id: string; itemName: string; unit: string; quantityBefore: number; delta: number; quantityAfter: number; reason: string; createdAt: number; createdBy: string };
 
 const titles: Record<ModuleId, string> = {
   customers: 'Clients et fidélité',
@@ -27,6 +28,7 @@ export const RestaurantAdminModuleView: React.FC<{
   const canManage = permissions.includes(module === 'customers' ? 'customers.manage' : module === 'inventory' ? 'inventory.manage' : 'settings.manage');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [orders, setOrders] = useState<RestauOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -49,9 +51,18 @@ export const RestaurantAdminModuleView: React.FC<{
       }, err => setError(err.message));
     }
     if (module === 'inventory') {
-      return onSnapshot(collection(db, 'restaurants', restaurant.slug, 'inventoryItems'), snap => {
+      const unsubscribeItems = onSnapshot(collection(db, 'restaurants', restaurant.slug, 'inventoryItems'), snap => {
         setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem)).filter(item => item.active !== false).sort((a,b) => a.name.localeCompare(b.name)));
       }, err => setError(err.message));
+      const movementsQuery = query(
+        collection(db, 'restaurants', restaurant.slug, 'stockMovements'),
+        orderBy('createdAt', 'desc'),
+        limit(30)
+      );
+      const unsubscribeMovements = onSnapshot(movementsQuery, snap => {
+        setStockMovements(snap.docs.map(d => ({ id: d.id, ...d.data() } as StockMovement)));
+      }, err => setError(err.message));
+      return () => { unsubscribeItems(); unsubscribeMovements(); };
     }
     if (module === 'reports') {
       return onSnapshot(query(collection(db, 'restaurants', restaurant.slug, 'orders')), snap => {
@@ -216,8 +227,26 @@ export const RestaurantAdminModuleView: React.FC<{
           {inventory.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.supplier || 'Fournisseur non renseigné'} · {formatFCFA(item.unitCost)} / {item.unit}</p><p className={`mt-1 text-sm font-bold ${item.quantity <= item.minQuantity ? 'text-rose-700' : 'text-emerald-700'}`}>{item.quantity} {item.unit} · seuil {item.minQuantity} {item.unit}{item.quantity <= item.minQuantity ? ' · STOCK BAS' : ''}</p></div>{canManage && <div className="flex flex-wrap gap-2"><button onClick={()=>moveStock(item,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">+1 entrée</button><button onClick={()=>moveStock(item,-1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">−1 sortie</button><button onClick={()=>removeInventoryItem(item.id)} disabled={loading} aria-label="Archiver l'article" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
           {inventory.length===0 && <p className="p-8 text-center text-sm text-slate-500">Aucun article de stock. Ajoutez les matières premières et consommables.</p>}
         </section>
+        <section className="mt-5 overflow-hidden rounded-2xl border bg-white">
+          <div className="border-b p-4 font-bold">Journal des mouvements récents · {stockMovements.length}</div>
+          {stockMovements.map(movement => (
+            <div key={movement.id} className="grid gap-2 border-b p-4 text-sm last:border-0 md:grid-cols-[1fr_auto] md:items-center">
+              <div>
+                <p className="font-bold">{movement.itemName} · {movement.reason || 'Mouvement de stock'}</p>
+                <p className="text-xs text-slate-500">{new Date(movement.createdAt).toLocaleString('fr-FR')} · {movement.createdBy || 'Système'}</p>
+              </div>
+              <div className="text-sm md:text-right">
+                <p className={movement.delta >= 0 ? 'font-bold text-emerald-700' : 'font-bold text-rose-700'}>
+                  {movement.delta > 0 ? '+' : ''}{movement.delta} {movement.unit}
+                </p>
+                <p className="text-xs text-slate-500">{movement.quantityBefore} → {movement.quantityAfter} {movement.unit}</p>
+              </div>
+            </div>
+          ))}
+          {stockMovements.length === 0 && <p className="p-8 text-center text-sm text-slate-500">Aucun mouvement de stock enregistré.</p>}
+        </section>
       </>}
-
+      
       {module === 'reports' && <>
         <div className="grid gap-4 sm:grid-cols-3"><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Commandes finalisées</p><p className="mt-2 text-3xl font-black">{completedOrders.length}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Montant des commandes finalisées</p><p className="mt-2 text-2xl font-black">{formatFCFA(salesTotal)}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Panier moyen</p><p className="mt-2 text-2xl font-black">{formatFCFA(completedOrders.length ? Math.round(salesTotal/completedOrders.length) : 0)}</p></div></div>
         <section className="rounded-2xl border bg-white p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-bold">Meilleures ventes (quantités)</h2><button onClick={exportCsv} className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white"><Download size={15}/> Exporter CSV</button></div>
