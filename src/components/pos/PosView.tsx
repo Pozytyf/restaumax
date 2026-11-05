@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { MenuItem, Category, CartItem, Table } from '../../types/pos';
+import { RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
 import { CartLedger } from './CartLedger';
