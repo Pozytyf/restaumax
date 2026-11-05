@@ -22,6 +22,7 @@ import {
   submitOrderWithServerValidation,
   submitPosOrderWithServerValidation,
   collectCashPaymentWithServerValidation,
+  createPayDunyaPaymentWithServerValidation,
   listRecentCashPaymentsWithServerValidation,
   getCashSessionWithServerValidation,
   openCashSessionWithServerValidation,
@@ -1043,13 +1044,12 @@ export default function App() {
     guestNumber: number;
     guestName: string;
   }) => {
-    if (!canManageCash || cashSession?.status !== 'active') {
+    const isCashPayment = paymentData.method === 'especes';
+    if (!canManageCash || (isCashPayment && cashSession?.status !== 'active')) {
       setIsPaymentModalOpen(false);
-      window.alert("La session de caisse n'est plus active. Ouvrez ou vérifiez votre session avant d'encaisser.");
-      return;
-    }
-    if (paymentData.method !== 'especes') {
-      window.alert("Seuls les paiements en espèces sont actuellement raccordés à un journal serveur. Wave, Orange Money et carte seront activés après intégration des prestataires.");
+      window.alert(isCashPayment
+        ? "La session de caisse n'est plus active. Ouvrez ou vérifiez votre session avant d'encaisser."
+        : "Votre rôle ne permet pas de lancer un paiement Mobile Money.");
       return;
     }
     if (discountPercent > 0) {
@@ -1097,6 +1097,31 @@ export default function App() {
           ticket,
           ...previous.filter((existing) => existing.id !== ticket.id)
         ]);
+      }
+
+      if (!isCashPayment) {
+        const channelByMethod = {
+          wave: 'wave-ci',
+          orange_money: 'orange-money-ci',
+          mtn_money: 'mtn-ci',
+          moov_money: 'moov-ci',
+          djamo: 'djamo-ci'
+        } as const;
+        const channel = channelByMethod[paymentData.method as keyof typeof channelByMethod];
+        if (!channel) {
+          window.alert("Ce moyen de paiement n'est pas disponible.");
+          return;
+        }
+        const checkout = await createPayDunyaPaymentWithServerValidation(
+          activeRestaurantSlug, order.id, channel, paymentIdempotencyKey
+        );
+        if (!checkout.success) {
+          window.alert(`Facture Mobile Money non créée : ${checkout.error}`);
+          return;
+        }
+        setIsPaymentModalOpen(false);
+        window.location.assign(checkout.checkoutUrl);
+        return;
       }
 
       const paymentResult = await collectCashPaymentWithServerValidation(
