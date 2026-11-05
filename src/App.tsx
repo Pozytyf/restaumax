@@ -1307,6 +1307,8 @@ export default function App() {
                   setIsPaymentModalOpen(true);
                 }}
                 serverName={serverName}
+                unpaidOrders={canCollectPayment ? unpaidPosOrders : []}
+                onCollectOrder={handleCollectExistingOrder}
               />
             )}
 
