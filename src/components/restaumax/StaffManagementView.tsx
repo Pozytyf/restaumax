@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { auth } from '../../lib/firebase';
+import { auth, requestManagerPasswordReset } from '../../lib/firebase';
 import { ArrowLeft, UserPlus, Shield, UserX, UserCheck, Trash2, RefreshCw, Eye, EyeOff } from 'lucide-react';
 
 const PERMISSIONS = [
@@ -69,8 +69,12 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
   const create = async (event: React.FormEvent) => {
     event.preventDefault(); setError(''); setNotice(''); setLoading(true);
     try {
+      const createdEmail = form.email.trim();
       await request({ action: 'create_staff', slug: restaurantSlug, ...form });
-      setNotice('Compte créé. Remettez les identifiants à la personne concernée de manière privée.');
+      const reset = await requestManagerPasswordReset(createdEmail);
+      setNotice(reset.success
+        ? 'Compte créé. Un e-mail sécurisé de réinitialisation a été envoyé au membre pour qu’il définisse son propre mot de passe.'
+        : 'Compte créé, mais l’e-mail automatique n’a pas pu être envoyé. Utilisez « Mot de passe oublié ? » sur l’écran de connexion.');
       setForm({ name: '', email: '', password: '', role: 'cashier', permissions: ROLE_DEFAULTS.cashier });
       await refresh();
     } catch (e: any) { setError(e.message); }
