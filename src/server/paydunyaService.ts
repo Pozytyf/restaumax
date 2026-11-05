@@ -384,6 +384,7 @@ export interface PayDunyaDisbursement {
   status: PayDunyaDisbursementStatus;
   transactionId?: string;
   providerReference?: string;
+  disburseId?: string;
   amount?: number;
   withdrawMode?: string;
 }
@@ -542,6 +543,7 @@ export async function checkPayDunyaDisbursementStatus(
       status: status as PayDunyaDisbursementStatus,
       transactionId: cleanText(result.data.transaction_id, 128) || undefined,
       providerReference: cleanText(result.data.provider_ref || result.data.disburse_tx_id, 128) || undefined,
+      disburseId: cleanText(result.data.disburse_id, 128) || undefined,
       amount,
       withdrawMode: cleanText(result.data.withdraw_mode, 64) || undefined
     }
