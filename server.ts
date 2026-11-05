@@ -46,7 +46,7 @@ import {
   OrderProbeResult,
   IdempotencyReservationResult
 } from './src/server/orderService.js';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb } from './src/server/paymentService.js';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb } from './src/server/paymentService.js';
 import {
   authorizeTableManager,
   buildCsrfCookie,
@@ -929,6 +929,22 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     }
     if (input.action === 'close_session') {
       const result = await closeCashSessionWithDb(adminDb, sessionInput);
+      if (result.success) return { statusCode: 200, body: result };
+      if (result.conflict) return { statusCode: 409, body: result };
+      return { statusCode: 400, body: result };
+    }
+    if (input.action === 'record_cash_movement') {
+      const result = await recordCashMovementWithDb(adminDb, {
+        restaurantSlug: slug,
+        actorUid: decoded.uid,
+        actorName: String(decoded.name || decoded.email || decoded.uid),
+        sessionVersion: Number(decoded.sessionVersion || 0),
+        movementType: input.movementType,
+        amount: input.amount,
+        category: String(input.category || ''),
+        note: String(input.note || ''),
+        idempotencyKey: String(input.idempotencyKey || '')
+      });
       if (result.success) return { statusCode: 200, body: result };
       if (result.conflict) return { statusCode: 409, body: result };
       return { statusCode: 400, body: result };
