@@ -165,6 +165,9 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
     if (!order || order.restaurantSlug !== slug || order.status === 'cancelled') {
       return { success: false, error: 'Commande introuvable, annulée ou rattachée à un autre restaurant.' };
     }
+    if (order.pendingPayDunyaIntentId) {
+      return { success: false, conflict: true, error: 'Une facture Mobile Money PayDunya est en attente pour cette commande. Vérifiez son statut avant tout encaissement en espèces.' };
+    }
 
     const totalAmount = Number(order.totalAmount);
     const alreadyPaid = Number(order.paidAmount || 0);
