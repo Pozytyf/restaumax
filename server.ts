@@ -1473,6 +1473,14 @@ app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
 });
 
+app.post('/api/kitchen-item', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleKitchenItemRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
 app.post('/api/payments/customer-paydunya', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   const result = await handleCustomerPayDunyaInvoiceRequest(req.body, req);
