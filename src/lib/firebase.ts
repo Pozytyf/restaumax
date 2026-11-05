@@ -302,15 +302,18 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
     const managerDoc = await getDoc(managerDocRef);
     const data = managerDoc.exists() ? managerDoc.data() : null;
     if (
-      data &&
-      data.active === true &&
-      Number(tokenResult.claims?.sessionVersion || 0) === Number(data.sessionVersion || 0) &&
-      ['owner', 'manager', 'cashier', 'server', 'kitchen'].includes(data.role)
-    ) {
-      return true;
-    }
+      !data ||
+      data.active !== true ||
+      Number(tokenResult.claims?.sessionVersion || 0) !== Number(data.sessionVersion || 0) ||
+      !['owner', 'manager', 'cashier', 'server', 'kitchen'].includes(data.role) ||
+      typeof data.restaurantSlug !== 'string' ||
+      !data.restaurantSlug
+    ) return false;
 
-    return false;
+    const restaurantSnap = await getDoc(doc(db, 'restaurants', data.restaurantSlug));
+    if (!restaurantSnap.exists() || restaurantSnap.data()?.status !== 'active') return false;
+    if (data.role === 'owner') return restaurantSnap.data()?.ownerUid === user.uid;
+    return true;
   } catch (err) {
     console.warn('Erreur lors de la vérification des privilèges gestionnaire:', err);
     return false;
