@@ -586,14 +586,48 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           permissions = resolveRolePermissions(role, expectedPermissions, true);
         }
         if (!permissions) return json(res, 400, { success: false, error: 'Permissions incompatibles avec le plafond du rôle.' });
-        const currentAuthUser = await getAuth().getUser(staffUid);
-        // Permission and role changes invalidate all previously issued sessions.
-        // Firestore checks sessionVersion on every protected read/write, so the old
-        // token is denied as soon as the membership update commits.
+        const managerRecord = managerSnap.exists ? managerSnap.data() : null;
+        const permissionSignature = (value: unknown) => Array.isArray(value)
+          ? value.map(permission => String(permission)).sort().join('|')
+          : '';
+        if (!managerRecord || managerRecord.restaurantSlug !== slug ||
+            managerRecord.uid !== staffUid || managerRecord.role !== member.role ||
+            Number(managerRecord.sessionVersion || 0) !== Number(member.sessionVersion || 0) ||
+            permissionSignature(managerRecord.permissions) !== permissionSignature(member.permissions)) {
+          return json(res, 409, { success: false, error: 'Les références d’accès du membre sont incohérentes. Actualisez la liste ou demandez une réparation du compte.' });
+        }
+
+        // Update both membership records atomically. The session version changes in
+        // the same commit, so all previously issued ID tokens are denied immediately.
         const sessionVersion = currentSessionVersion + 1;
+        const updatedAt = Date.now();
+        await db.runTransaction(async (tx: any) => {
+          const [freshMemberSnap, freshManagerSnap] = await Promise.all([
+            tx.get(memberRef),
+            tx.get(managerRef)
+          ]);
+          if (!freshMemberSnap.exists || !freshManagerSnap.exists) {
+            throw new Error('Références d’accès du membre introuvables.');
+          }
+          const freshMember = freshMemberSnap.data();
+          const freshManager = freshManagerSnap.data();
+          if (freshMember.role !== member.role || freshManager.role !== member.role ||
+              freshManager.restaurantSlug !== slug ||
+              Number(freshMember.sessionVersion || 0) !== currentSessionVersion ||
+              Number(freshManager.sessionVersion || 0) !== currentSessionVersion ||
+              permissionSignature(freshMember.permissions) !== permissionSignature(member.permissions) ||
+              permissionSignature(freshManager.permissions) !== permissionSignature(member.permissions)) {
+            throw new Error('Conflit : les droits du membre ont changé pendant la modification. Actualisez puis réessayez.');
+          }
+          tx.set(memberRef, { role, permissions, sessionVersion, updatedAt, updatedBy: user.uid }, { merge: true });
+          tx.set(managerRef, { role, permissions, sessionVersion, updatedAt, updatedBy: user.uid }, { merge: true });
+        });
+
+        // Refresh the Auth claims only after the authoritative Firestore records
+        // have committed. If Auth is temporarily unavailable, the version mismatch
+        // keeps the old session blocked and an administrator can safely retry.
+        const currentAuthUser = await getAuth().getUser(staffUid);
         await getAuth().setCustomUserClaims(staffUid, { ...(currentAuthUser.customClaims || {}), role, restaurantSlug: slug, permissions, sessionVersion });
-        await memberRef.set({ role, permissions, sessionVersion, updatedAt: Date.now() }, { merge: true });
-        await managerRef.set({ role, permissions, sessionVersion, updatedAt: Date.now() }, { merge: true });
         await getAuth().revokeRefreshTokens(staffUid);
         return json(res, 200, { success: true, requiresReauthentication: true });
       }
