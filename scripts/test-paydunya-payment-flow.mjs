@@ -126,7 +126,7 @@ const callbackResult = await processPayDunyaInvoiceCallbackWithDb(db, config, ca
       restaurant_slug: 'maquis-awa', order_id: 'order-100',
       payment_intent_id: checkout.paymentIntentId
     },
-    customer: { phone: '0700000000' },
+    customer: { phone: '+225 07 00 00 00 00' },
     transaction_id: 'PAY-TX-100'
   }) };
 });
@@ -148,7 +148,7 @@ const replay = await processPayDunyaInvoiceCallbackWithDb(db, config, callback, 
     custom_data: {
       restaurant_slug: 'maquis-awa', order_id: 'order-100',
       payment_intent_id: checkout.paymentIntentId
-    }, customer: { phone: '0700000000' }, transaction_id: 'PAY-TX-100'
+    }, customer: { phone: '+225 07 00 00 00 00' }, transaction_id: 'PAY-TX-100'
   })
 }));
 assert(replay.success && replay.idempotentReplay === true,
