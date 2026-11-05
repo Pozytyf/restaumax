@@ -37,6 +37,27 @@ export interface CashSessionResult {
   session?: Record<string, any> | null;
 }
 
+export interface CashMovementInput {
+  restaurantSlug: string;
+  actorUid: string;
+  actorName?: string;
+  sessionVersion: number;
+  movementType: 'expense' | 'withdrawal';
+  amount: number;
+  category: string;
+  note?: string;
+  idempotencyKey: string;
+}
+
+export interface CashMovementResult {
+  success: boolean;
+  conflict?: boolean;
+  idempotentReplay?: boolean;
+  error?: string;
+  movement?: Record<string, any>;
+  session?: Record<string, any>;
+}
+
 function sha256(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
@@ -293,6 +314,7 @@ export async function openCashSessionWithDb(db: any, input: CashSessionInput): P
       openedByName: String(input.actorName || actorUid), role: member.role,
       sessionVersion: Number(input.sessionVersion || 0),
       openingBalance: Number(openingBalance), cashCollected: 0, paymentCount: 0,
+      cashOut: 0, cashMovementCount: 0,
       status: 'active', openedAt: now, openingSignature: signature
     };
     tx.create(sessionRef, session);
@@ -346,7 +368,7 @@ export async function closeCashSessionWithDb(db: any, input: CashSessionInput): 
         Number(session.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
       return { success: false, error: 'La session active est invalide ou ne vous appartient pas.' };
     }
-    const expectedCash = Number(session.openingBalance || 0) + Number(session.cashCollected || 0);
+    const expectedCash = Number(session.openingBalance || 0) + Number(session.cashCollected || 0) - Number(session.cashOut || 0);
     const variance = Number(closingCount) - expectedCash;
     const now = Date.now();
     const closed = {
@@ -361,5 +383,90 @@ export async function closeCashSessionWithDb(db: any, input: CashSessionInput): 
     });
     tx.update(activeRef, { status: 'closed', closedAt: now, sessionId });
     return { success: true, session: closed };
+  });
+}
+
+export async function recordCashMovementWithDb(db: any, input: CashMovementInput): Promise<CashMovementResult> {
+  if (!db) return { success: false, error: 'Firestore indisponible.' };
+  const slug = String(input.restaurantSlug || '').trim();
+  const actorUid = String(input.actorUid || '').trim();
+  const key = String(input.idempotencyKey || '').trim();
+  const movementType = input.movementType;
+  const amount = input.amount;
+  const category = String(input.category || '').trim().slice(0, 40);
+  const note = String(input.note || '').trim().slice(0, 200);
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !actorUid ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(key) ||
+      !['expense', 'withdrawal'].includes(movementType) ||
+      !Number.isSafeInteger(amount) || Number(amount) < 1 || Number(amount) > 100_000_000 ||
+      category.length < 2) {
+    return { success: false, error: 'Paramètres de sortie de caisse invalides.' };
+  }
+
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const memberRef = db.collection('managers').doc(actorUid);
+  const activeRef = restaurantRef.collection('cashSessionActive').doc(actorUid);
+  const movementId = `move_${sha256(`${slug}::${actorUid}::${key}`).slice(0, 32)}`;
+  const movementRef = restaurantRef.collection('cashMovements').doc(movementId);
+  const signature = sha256(JSON.stringify({ slug, actorUid, movementType, amount, category, note }));
+
+  return db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, memberSnap, activeSnap, movementSnap] = await Promise.all([
+      tx.get(restaurantRef), tx.get(memberRef), tx.get(activeRef), tx.get(movementRef)
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = memberSnap.exists ? memberSnap.data() : null;
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return { success: false, error: 'Compte inactif, session du personnel révoquée ou accès au restaurant refusé.' };
+    }
+    if (!canManageCashSession(member, restaurant, actorUid)) {
+      return { success: false, error: 'Votre rôle ne permet pas d’enregistrer une sortie de caisse.' };
+    }
+    if (movementSnap.exists) {
+      const previous = movementSnap.data();
+      if (previous.signature !== signature || previous.actorUid !== actorUid) {
+        return { success: false, conflict: true, error: 'Clé de sortie déjà utilisée pour une opération différente.' };
+      }
+      const previousSessionRef = restaurantRef.collection('cashSessions').doc(String(previous.sessionId || ''));
+      const previousSessionSnap = await tx.get(previousSessionRef);
+      return {
+        success: true, idempotentReplay: true,
+        movement: { ...previous, id: movementId },
+        session: previousSessionSnap.exists ? { ...previousSessionSnap.data(), id: previousSessionSnap.id } : undefined
+      };
+    }
+    const sessionId = activeSnap.exists ? String(activeSnap.data()?.sessionId || '') : '';
+    if (!sessionId || activeSnap.data()?.status !== 'active') {
+      return { success: false, error: 'Ouvrez une session de caisse avant d’enregistrer une sortie.' };
+    }
+    const sessionRef = restaurantRef.collection('cashSessions').doc(sessionId);
+    const sessionSnap = await tx.get(sessionRef);
+    const session = sessionSnap.exists ? sessionSnap.data() : null;
+    if (!session || session.status !== 'active' || session.openedByUid !== actorUid ||
+        Number(session.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
+      return { success: false, error: 'La session active est invalide ou ne vous appartient pas.' };
+    }
+    const now = Date.now();
+    const movement = {
+      id: movementId, restaurantSlug: slug, sessionId, actorUid,
+      actorName: String(input.actorName || actorUid),
+      movementType, amount: Number(amount), category, note,
+      signature, createdAt: now
+    };
+    const updatedSession = {
+      ...session,
+      cashOut: Number(session.cashOut || 0) + Number(amount),
+      cashMovementCount: Number(session.cashMovementCount || 0) + 1,
+      lastCashMovementAt: now
+    };
+    tx.create(movementRef, movement);
+    tx.update(sessionRef, {
+      cashOut: updatedSession.cashOut,
+      cashMovementCount: updatedSession.cashMovementCount,
+      lastCashMovementAt: now
+    });
+    return { success: true, movement, session: { ...updatedSession, id: sessionId } };
   });
 }
