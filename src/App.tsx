@@ -1569,13 +1569,13 @@ export default function App() {
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-2">
               <button onClick={() => void reconcilePayDunyaReturn()}
-                disabled={paydunyaReturnStatus === 'checking' || !authUser || !paymentReturnIntentId}
+                disabled={paydunyaReturnStatus === 'checking' || !paymentReturnIntentId}
                 className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 disabled:opacity-50">
                 Vérifier à nouveau
               </button>
-              <button onClick={() => navigateTo('/gestion')}
+              <button onClick={() => navigateTo(authUser ? '/gestion' : `/r/${activeRestaurantSlug}?table_session=1`)}
                 className="rounded-xl bg-[#101d2d] px-5 py-3 text-sm font-bold text-white">
-                Retour à la gestion du restaurant
+                {authUser ? 'Retour à la gestion du restaurant' : 'Retour au menu de la table'}
               </button>
             </div>
           </div>
