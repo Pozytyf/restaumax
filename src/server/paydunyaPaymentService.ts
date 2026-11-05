@@ -152,7 +152,7 @@ export async function startPayDunyaOrderPaymentWithDb(
     tx.update(orderRef, { pendingPayDunyaIntentId: intentId, pendingPayDunyaAmount: amount });
     return { ok: true, replay: false, intentId, amount, order, restaurant };
   });
-  if (!reservation.ok) return { success: false, conflict: reservation.conflict, error: reservation.error };
+  if (!reservation.ok) return { success: false, conflict: 'conflict' in reservation ? reservation.conflict : false, error: reservation.error };
   if (reservation.replay) {
     return { success: true, idempotentReplay: true, paymentIntentId: reservation.intentId,
       checkoutUrl: reservation.checkoutUrl, amount: reservation.amount };
