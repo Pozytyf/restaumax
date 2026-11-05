@@ -372,6 +372,10 @@ export default function App() {
     guestShareAmount: payment.guestShareAmount !== undefined ? Number(payment.guestShareAmount) : undefined,
     guestPreviouslyPaidAmount: payment.guestPreviouslyPaidAmount !== undefined ? Number(payment.guestPreviouslyPaidAmount) : undefined,
     guestRemainingAfter: payment.guestRemainingAfter !== undefined ? Number(payment.guestRemainingAfter) : undefined,
+    refundedAmount: Number(payment.refundedAmount || 0),
+    refundStatus: String(payment.refundStatus || ''),
+    refundEligible: payment.refundEligible === true,
+    providerChannel: String(payment.providerChannel || ''),
     paymentMethod: payment.method === 'paydunya'
       ? (payment.providerChannel === 'wave-ci' ? 'wave'
         : payment.providerChannel === 'orange-money-ci' ? 'orange_money'
@@ -1198,6 +1202,40 @@ export default function App() {
     }
   };
 
+  const canRefundPayments = isRestaurantOwner || authRestaurantRole === 'manager' ||
+    (authRestaurantRole === 'cashier' && userPermissions.includes('payments.refund'));
+
+  const handleRefundPayment = async (payment: PaymentRecord, amount: number, reason: string) => {
+    if (!canRefundPayments) {
+      window.alert("Votre rôle ne permet pas de rembourser ce paiement.");
+      return;
+    }
+    const result = await refundPayDunyaPaymentWithServerValidation(
+      activeRestaurantSlug, payment.id, amount, reason, generateClientOrderIdempotencyKey()
+    );
+    if (!result.success) {
+      window.alert(`Remboursement refusé : ${result.error}`);
+      return;
+    }
+    window.alert(result.status === 'completed'
+      ? "Remboursement Mobile Money confirmé par PayDunya."
+      : result.status === 'failed'
+        ? "PayDunya a refusé le décaissement. Le journal reste à rapprocher."
+        : "Demande de remboursement transmise. Elle reste en attente de confirmation PayDunya ; ne relancez pas l'opération.");
+    const refreshed = await listRecentCashPaymentsWithServerValidation(activeRestaurantSlug);
+    if (refreshed.success) {
+      const records = refreshed.payments.map(mapCashPaymentRecord);
+      setTransactions(records);
+      setDrawerState((previous) => ({
+        ...previous,
+        totalSales: records.reduce((sum, record) => sum + record.paidAmount, 0),
+        cashSales: records.filter((record) => record.paymentMethod === 'especes').reduce((sum, record) => sum + record.paidAmount, 0),
+        mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte').reduce((sum, record) => sum + record.paidAmount, 0),
+        transactionCount: records.length
+      }));
+    }
+  };
+
   const handleToggleKdsItem = (ticketId: string, itemId: string) => {
     setKitchenTickets((prev) =>
       prev.map((ticket) =>
@@ -1531,6 +1569,8 @@ export default function App() {
                 cashSessionActionLoading={cashSessionActionLoading}
                 cashMovementActionLoading={cashMovementActionLoading}
                 canManageCash={canManageCash}
+                canRefundPayments={canRefundPayments}
+                onRefundPayment={handleRefundPayment}
                 onOpenCashSession={handleOpenCashSession}
                 onCloseCashSession={handleCloseCashSession}
                 onRecordCashMovement={handleRecordCashMovement}
