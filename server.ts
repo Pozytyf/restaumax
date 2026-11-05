@@ -39,6 +39,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
+import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { 
   processOrderSubmission, 
   ServerFirestoreProvider,
@@ -1388,6 +1389,53 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
   } catch (err: any) {
     console.error('Erreur inattendue API /api/orders:', err?.message || String(err));
     return { statusCode: 500, body: { success: false, error: 'Erreur interne du serveur lors du traitement de la commande.' } };
+  }
+}
+
+export async function handleKitchenItemRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) {
+    return { statusCode: 503, body: { success: false, error: 'Service cuisine indisponible : Firebase Admin non configuré.' } };
+  }
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!req || !requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const input = payload && typeof payload === 'object' ? { ...(payload as any) } : {};
+    const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
+    const orderId = typeof input.orderId === 'string' ? input.orderId.trim() : '';
+    const itemId = typeof input.itemId === 'string' ? input.itemId.trim() : '';
+    const itemIndex = input.itemIndex;
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) ||
+        !/^[a-zA-Z0-9_-]{1,160}$/.test(orderId) ||
+        !Number.isInteger(itemIndex) || itemIndex < 0 || itemIndex > 99 ||
+        typeof input.completed !== 'boolean' ||
+        itemId !== `ki-${orderId}-${itemIndex}`) {
+      return { statusCode: 400, body: { success: false, error: 'Données de préparation invalides.' } };
+    }
+
+    const result = await updateKitchenItemCompletionWithDb(adminDb, {
+      restaurantSlug,
+      orderId,
+      itemId,
+      itemIndex,
+      completed: input.completed,
+      actorUid: decoded.uid,
+      sessionVersion: Number(decoded.sessionVersion || 0)
+    });
+    return result.success
+      ? { statusCode: 200, body: result }
+      : { statusCode: 403, body: result };
+  } catch (error: any) {
+    console.error('Erreur API progression cuisine:', error?.message || String(error));
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la mise à jour cuisine.' } };
   }
 }
 
