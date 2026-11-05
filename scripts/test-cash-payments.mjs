@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb } from '../src/server/paymentService.ts';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, openCashSessionWithDb, closeCashSessionWithDb, getCashSessionWithDb } from '../src/server/paymentService.ts';
 
 let passed = 0;
 let failed = 0;
@@ -51,6 +51,30 @@ async function run() {
       id: 'order-cancelled', orderNumber: '#CMD-003', restaurantSlug: slug,
       totalAmount: 5000, paidAmount: 0, currency: 'FCFA', status: 'cancelled', items: []
     });
+
+    console.log('\n--- Ouverture et contrôle de session de caisse ---');
+    const noSession = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-no-session-01'));
+    assert(noSession.success === false, 'Un encaissement est refusé tant que le caissier ne possède pas de session ouverte');
+    const opened = await openCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, openingBalance: 2000, idempotencyKey: 'open-cash-session-001'
+    });
+    assert(opened.success === true && opened.session?.status === 'active' &&
+      opened.session?.openingBalance === 2000, 'Une session s’ouvre avec un fond de caisse initial enregistré');
+    const openReplay = await openCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, openingBalance: 2000, idempotencyKey: 'open-cash-session-001'
+    });
+    assert(openReplay.success === true && openReplay.idempotentReplay === true,
+      'Le rejeu de la même ouverture retourne la session existante sans doublon');
+    const secondOpen = await openCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, openingBalance: 1000, idempotencyKey: 'open-cash-session-002'
+    });
+    assert(secondOpen.success === false && secondOpen.conflict === true,
+      'Une deuxième session simultanée pour le même caissier est bloquée');
+    const activeSession = await getCashSessionWithDb(db, slug, uid);
+    assert(activeSession?.id === opened.session?.id, 'La session active est récupérable côté serveur');
 
     console.log('\n--- Encaissement partiel et idempotence ---');
     const partial = await recordCashPaymentWithDb(db, input('order-main', 3000, 'cash-partial-0001'));
@@ -114,6 +138,22 @@ async function run() {
     const recent = await listRecentCashPaymentsWithDb(db, slug, 100);
     assert(recent.length === 3, 'Le journal retourne les trois encaissements réellement persistés');
 
+    console.log('\n--- Clôture et rapprochement de caisse ---');
+    const closed = await closeCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, closingCount: 14000, idempotencyKey: 'close-cash-session-001'
+    });
+    assert(closed.success === true && closed.session?.status === 'closed' &&
+      closed.session?.expectedCash === 14500 && closed.session?.variance === -500,
+      'La clôture calcule le montant théorique et l’écart avec le comptage physique');
+    const afterClose = await getCashSessionWithDb(db, slug, uid);
+    assert(afterClose === null, 'Une session clôturée n’est plus considérée comme active');
+    const paymentAfterClose = await recordCashPaymentWithDb(db, input('order-concurrent', 1000, 'cash-after-close-01'));
+    assert(paymentAfterClose.success === false, 'Aucun nouvel encaissement n’est accepté après clôture');
+    const cashSessions = await restaurantRef.collection('cashSessions').get();
+    assert(cashSessions.size === 1 && cashSessions.docs[0].data().paymentCount === 3,
+      'L’historique de session conserve le nombre exact d’encaissements');
+
     console.log('\nRésultats paiements espèces : ' + passed + '/' + (passed + failed) + ' réussis (' + failed + ' échec(s)).');
     if (failed) process.exitCode = 1;
   } finally {
@@ -121,6 +161,10 @@ async function run() {
     if (payments) for (const doc of payments.docs) { try { await doc.ref.delete(); } catch {} }
     const idem = await db.collection('payment_idempotency').where('restaurantSlug', '==', slug).get().catch(() => null);
     if (idem) for (const doc of idem.docs) { try { await doc.ref.delete(); } catch {} }
+    const sessions = await restaurantRef.collection('cashSessions').get().catch(() => null);
+    if (sessions) for (const doc of sessions.docs) { try { await doc.ref.delete(); } catch {} }
+    const activeSessions = await restaurantRef.collection('cashSessionActive').get().catch(() => null);
+    if (activeSessions) for (const doc of activeSessions.docs) { try { await doc.ref.delete(); } catch {} }
     for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, memberRef, restaurantRef]) {
       try { await ref.delete(); } catch {}
     }
