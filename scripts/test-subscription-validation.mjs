@@ -2,7 +2,7 @@ import { validateSubscriptionInput } from '../src/server/subscriptionService.ts'
 
 let passed = 0;
 let failed = 0;
-const assert = (condition: boolean, label: string) => {
+const assert = (condition, label) => {
   if (condition) { passed++; console.log('  ✓ ' + label); }
   else { failed++; console.error('  ✗ ' + label); }
 };
