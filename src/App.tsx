@@ -1283,10 +1283,11 @@ export default function App() {
       window.alert("Votre rôle ne permet pas de rembourser ce paiement.");
       return;
     }
+    if (payment.paymentMethod === 'especes' && !window.confirm(`Confirmez-vous avoir remis physiquement ${formatFCFA(amount)} au client ? Le remboursement sera inscrit dans la caisse.`)) return;
     const idempotencyKey = generateClientOrderIdempotencyKey();
     const result = payment.paymentMethod === 'especes'
       ? await refundCashPaymentWithServerValidation(
-          activeRestaurantSlug, payment.id, amount, reason, idempotencyKey
+          activeRestaurantSlug, payment.id, amount, reason, idempotencyKey, true
         )
       : await refundPayDunyaPaymentWithServerValidation(
           activeRestaurantSlug, payment.id, amount, reason, idempotencyKey
