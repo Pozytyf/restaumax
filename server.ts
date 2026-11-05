@@ -971,7 +971,7 @@ export async function handleCustomerPayDunyaReconcileRequest(payload: unknown, r
         Number(binding.qrVersion) !== Number(session.qrVersion) || binding.tableId !== session.tableId) {
       return { statusCode: 403, body: { success: false, error: 'Cette commande ne correspond pas à la session QR de votre table.' } };
     }
-    const config = getPayDunyaConfig(process.env);
+    const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
     if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
     const result = await reconcilePayDunyaInvoiceIntentWithDb(
       adminDb, config.data, slug, paymentIntentId
@@ -1074,6 +1074,30 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
 
     if (!canManageCash) {
       return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de gérer la caisse.' } };
+    }
+
+    if (input.action === 'configure_paydunya_account') {
+      if (!isOwner) return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire vérifié peut connecter le compte PayDunya.' } };
+      if (input.enabled === false) {
+        await adminDb.collection('restaurants').doc(slug).collection('_private').doc('paydunya')
+          .set({ enabled: false, disabledAt: Date.now(), updatedAt: Date.now() }, { merge: true });
+        return { statusCode: 200, body: { success: true, connected: false } };
+      }
+      try {
+        const credentials = {
+          mode: String(input.mode || 'test') as 'test' | 'live',
+          masterKey: String(input.masterKey || ''),
+          privateKey: String(input.privateKey || ''),
+          token: String(input.token || '')
+        };
+        if (credentials.mode === 'live' && process.env.PAYDUNYA_LIVE_ENABLED !== 'true') {
+          return { statusCode: 403, body: { success: false, error: 'Les clés Production ne peuvent pas être activées sur RestauMax pour le moment.' } };
+        }
+        await saveRestaurantPayDunyaCredentials(adminDb, slug, credentials, process.env);
+        return { statusCode: 200, body: { success: true, connected: true, mode: credentials.mode } };
+      } catch (error: any) {
+        return { statusCode: 400, body: { success: false, error: String(error?.message || 'Identifiants PayDunya invalides.') } };
+      }
     }
 
     if (input.action === 'reconcile_paydunya_payment') {
