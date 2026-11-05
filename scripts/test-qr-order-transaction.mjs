@@ -108,7 +108,7 @@ async function run() {
       staffSessionVersion: 0,
       staffTableId: tableId
     });
-    assert(staffOrder.success === true, 'Une commande sur place du personnel authentifié peut être enregistrée sans session QR');
+    assert(staffOrder.success === true, 'Une commande sur place du personnel authentifié peut être enregistrée sans session QR' + (staffOrder.error ? ' — ' + staffOrder.error : ''));
 
     await staffRef.update({ permissions: [] });
     const deniedStaffParams = buildParams('staff-no-pos-permission-' + Date.now());
