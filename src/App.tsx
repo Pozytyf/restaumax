@@ -486,9 +486,9 @@ export default function App() {
     return () => unsubAuth();
   }, []);
 
-  // Subscribe to Tables subcollection when manager is authorized or management hub is active
+  // Subscribe to Tables only after the authenticated restaurant membership is verified.
   useEffect(() => {
-    if (!isAuthorizedManager && !isRestaurantHubRoute) return;
+    if (!isAuthorizedManager) return;
 
     let isMounted = true;
     const unsubTables = subscribeToTables(activeRestaurantSlug, (tbls) => {
@@ -501,7 +501,7 @@ export default function App() {
       isMounted = false;
       unsubTables();
     };
-  }, [isAuthorizedManager, isRestaurantHubRoute, activeRestaurantSlug]);
+  }, [isAuthorizedManager, activeRestaurantSlug]);
 
   // Subscribe to the active restaurant's orders for KDS and unpaid POS recovery.
   useEffect(() => {
