@@ -706,6 +706,42 @@ export async function collectCashPaymentWithServerValidation(
   }
 }
 
+export type PayDunyaClientChannel = 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci';
+
+export async function createPayDunyaPaymentWithServerValidation(
+  restaurantSlug: string,
+  orderId: string,
+  channel: PayDunyaClientChannel,
+  idempotencyKey: string
+): Promise<{ success: true; checkoutUrl: string; paymentIntentId: string; amount: number; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({
+        action: 'create_paydunya_invoice', restaurantSlug, orderId, channel, idempotencyKey
+      })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success || typeof data.checkoutUrl !== 'string') {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'PayDunya n’a pas pu créer la facture.' };
+    }
+    return {
+      success: true, checkoutUrl: data.checkoutUrl,
+      paymentIntentId: String(data.paymentIntentId || ''),
+      amount: Number(data.amount || 0), idempotentReplay: data.idempotentReplay === true
+    };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau lors de la création de la facture PayDunya.' };
+  }
+}
+
 export async function listRecentCashPaymentsWithServerValidation(
   restaurantSlug: string
 ): Promise<{ success: true; payments: CashPaymentApiRecord[] } | { success: false; error: string }> {
