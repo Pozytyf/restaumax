@@ -8,7 +8,6 @@ import {
   Smartphone, 
   CreditCard, 
   CheckCircle2, 
-  Users, 
   RotateCcw,
   Receipt
 } from 'lucide-react';
@@ -20,6 +19,8 @@ interface PaymentModalProps {
   selectedTable: Table | null;
   serverName: string;
   discountPercent: number;
+  alreadyPaidAmount?: number;
+  isSubmitting?: boolean;
   onConfirmPayment: (paymentData: {
     method: PaymentMethod;
     paidAmount: number;
@@ -35,35 +36,36 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   selectedTable,
   serverName,
   discountPercent,
+  alreadyPaidAmount = 0,
+  isSubmitting = false,
   onConfirmPayment
 }) => {
   const [method, setMethod] = useState<PaymentMethod>('especes');
   const [tenderedStr, setTenderedStr] = useState<string>('');
-  const [splitGuests, setSplitGuests] = useState<number>(1);
 
   const subtotal = cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
   const discountAmount = Math.round((subtotal * discountPercent) / 100);
   const total = Math.max(0, subtotal - discountAmount);
 
-  // Initialize tendered amount when modal opens
+  const balanceDue = Math.max(0, total - alreadyPaidAmount);
+
+  // Initialize tendered amount when the modal opens or the remaining balance changes.
   useEffect(() => {
     if (isOpen) {
-      setTenderedStr(total.toString());
-      setSplitGuests(1);
+      setTenderedStr(balanceDue.toString());
       setMethod('especes');
     }
-  }, [isOpen, total]);
+  }, [isOpen, balanceDue]);
 
   if (!isOpen) return null;
 
   const tenderedAmount = parseInt(tenderedStr.replace(/\D/g, '') || '0', 10);
-  const changeAmount = Math.max(0, tenderedAmount - total);
-  const remainingDue = Math.max(0, total - tenderedAmount);
-  const perGuestShare = Math.ceil(total / splitGuests);
+  const changeAmount = Math.max(0, tenderedAmount - balanceDue);
+  const remainingDue = Math.max(0, balanceDue - tenderedAmount);
 
   const handleNumpadPress = (digit: string) => {
     sounds.playTap();
-    if (tenderedStr === '0' || tenderedStr === total.toString()) {
+    if (tenderedStr === '0' || tenderedStr === balanceDue.toString()) {
       setTenderedStr(digit);
     } else {
       setTenderedStr(tenderedStr + digit);
@@ -86,7 +88,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
   const handleSetExact = () => {
     sounds.playTap();
-    setTenderedStr(total.toString());
+    setTenderedStr(balanceDue.toString());
   };
 
   const handleQuickPreset = (value: number) => {
@@ -95,16 +97,16 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   const handleValidate = () => {
-    if (tenderedAmount < total && method === 'especes') {
+    if (method !== 'especes' || tenderedAmount <= 0) {
       sounds.playAlert();
       return;
     }
-    sounds.playCashRegister();
+    sounds.playTap();
     onConfirmPayment({
       method,
       paidAmount: tenderedAmount,
-      changeAmount: method === 'especes' ? changeAmount : 0,
-      splitGuests
+      changeAmount,
+      splitGuests: 1
     });
   };
 
@@ -144,8 +146,13 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 Net à Payer
               </span>
               <div className="text-2xl sm:text-3xl font-black text-[#101d2d] tnum">
-                {formatFCFA(total)}
+                {formatFCFA(balanceDue)}
               </div>
+              {alreadyPaidAmount > 0 && (
+                <div className="text-xs font-semibold text-emerald-700 mt-1">
+                  Déjà réglé : {formatFCFA(alreadyPaidAmount)}
+                </div>
+              )}
               {discountPercent > 0 && (
                 <div className="text-xs font-semibold text-emerald-600 mt-1">
                   Remise de {discountPercent}% appliquée (-{formatFCFA(discountAmount)})
@@ -177,6 +184,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
                 <button
                   type="button"
+                  disabled
                   onClick={() => {
                     sounds.playTap();
                     setMethod('wave');
@@ -185,15 +193,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${
                     method === 'wave'
                       ? 'bg-[#1ba8f0] text-white border-[#1ba8f0] shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'} opacity-50 cursor-not-allowed`}
                 >
                   <Smartphone size={16} />
-                  Wave Money
+                  Wave Money · bientôt
                 </button>
 
                 <button
                   type="button"
+                  disabled
                   onClick={() => {
                     sounds.playTap();
                     setMethod('orange_money');
@@ -202,15 +210,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${
                     method === 'orange_money'
                       ? 'bg-[#ff6500] text-white border-[#ff6500] shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'} opacity-50 cursor-not-allowed`}
                 >
                   <Smartphone size={16} />
-                  Orange Money
+                  Orange Money · bientôt
                 </button>
 
                 <button
                   type="button"
+                  disabled
                   onClick={() => {
                     sounds.playTap();
                     setMethod('carte');
@@ -219,53 +227,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${
                     method === 'carte'
                       ? 'bg-[#101d2d] text-white border-[#101d2d] shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'} opacity-50 cursor-not-allowed`}
                 >
                   <CreditCard size={16} className={method === 'carte' ? 'text-emerald-400' : 'text-slate-500'} />
-                  Carte Bancaire
+                  Carte bancaire · bientôt
                 </button>
               </div>
             </div>
 
-            {/* Split Bill Calculator */}
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                  <Users size={14} className="text-slate-500" />
-                  Partage de l’addition
-                </span>
-                <span className="text-xs font-bold text-slate-900 tnum">
-                  {splitGuests} {splitGuests > 1 ? 'personnes' : 'personne'}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                {[1, 2, 3, 4, 5].map((count) => (
-                  <button
-                    key={count}
-                    type="button"
-                    onClick={() => {
-                      sounds.playTap();
-                      setSplitGuests(count);
-                    }}
-                    className={`flex-1 py-1 text-xs font-bold rounded-lg border transition-all ${
-                      splitGuests === count
-                        ? 'bg-[#ff6500] text-white border-[#ff6500]'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {count}P
-                  </button>
-                ))}
-              </div>
-
-              {splitGuests > 1 && (
-                <div className="mt-2 text-center text-xs font-bold text-slate-800 bg-white border border-slate-200 py-1.5 rounded-lg tnum">
-                  {formatFCFA(perGuestShare)} / personne
-                </div>
-              )}
-            </div>
+            {/* Individual bill splitting is intentionally hidden until sub-account settlement is connected. */}
 
             {/* Quick Bill Tender Presets for Cash */}
             {method === 'especes' && (
@@ -370,11 +340,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               <button
                 type="button"
                 onClick={handleValidate}
-                disabled={tenderedAmount < total && method === 'especes'}
+                disabled={isSubmitting || tenderedAmount <= 0 || method !== 'especes'}
                 className="w-full h-14 bg-[#ff6500] hover:bg-[#e05800] active:scale-[0.99] disabled:opacity-40 disabled:pointer-events-none text-white text-base font-extrabold rounded-xl shadow-lg shadow-orange-600/30 transition-all flex items-center justify-center gap-2"
               >
                 <CheckCircle2 size={20} />
-                <span>Confirmer le Règlement</span>
+                <span>{isSubmitting ? 'Enregistrement…' : 'Confirmer le Règlement'}</span>
               </button>
             </div>
           </div>

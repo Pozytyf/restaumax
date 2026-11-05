@@ -31,11 +31,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-2xs flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto animate-in zoom-in-95 duration-200">
         {/* Top Banner */}
-        <div className="bg-emerald-600 text-white px-4 py-3 flex items-center justify-between">
+        <div className={`${receipt.paymentStatus === 'partial' ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-4 py-3 flex items-center justify-between`}>
           <div className="flex items-center gap-2">
             <CheckCircle size={18} />
             <span className="text-xs font-bold uppercase tracking-wider">
-              Paiement Validé avec Succès
+              {receipt.paymentStatus === 'partial' ? 'Paiement partiel enregistré' : 'Paiement validé avec succès'}
             </span>
           </div>
           <button
@@ -125,9 +125,21 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
               <span>MODE RÈGLEMENT:</span>
               <span className="font-bold">{getMethodLabel(receipt.paymentMethod)}</span>
             </div>
+            {receipt.previouslyPaidAmount !== undefined && receipt.previouslyPaidAmount > 0 && (
+              <div className="flex justify-between">
+                <span>DÉJÀ RÉGLÉ AVANT:</span>
+                <span className="tnum">{formatFCFA(receipt.previouslyPaidAmount)}</span>
+              </div>
+            )}
+            {receipt.tenderedAmount !== undefined && (
+              <div className="flex justify-between">
+                <span>MONTANT REMIS:</span>
+                <span className="tnum">{formatFCFA(receipt.tenderedAmount)}</span>
+              </div>
+            )}
             {receipt.paidAmount > 0 && (
               <div className="flex justify-between">
-                <span>MONTANT REÇU:</span>
+                <span>MONTANT AFFECTÉ:</span>
                 <span className="tnum">{formatFCFA(receipt.paidAmount)}</span>
               </div>
             )}
@@ -135,6 +147,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
               <div className="flex justify-between font-bold text-emerald-700">
                 <span>RENDU MONNAIE:</span>
                 <span className="tnum">{formatFCFA(receipt.changeAmount)}</span>
+              </div>
+            )}
+            {receipt.remainingAmount !== undefined && receipt.remainingAmount > 0 && (
+              <div className="flex justify-between font-bold text-amber-700">
+                <span>RESTE À PAYER:</span>
+                <span className="tnum">{formatFCFA(receipt.remainingAmount)}</span>
               </div>
             )}
           </div>

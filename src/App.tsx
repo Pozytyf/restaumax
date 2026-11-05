@@ -11,11 +11,6 @@ import {
   TicketStatus,
   TableStatus
 } from './types/pos';
-import { 
-  INITIAL_MENU_ITEMS, 
-  INITIAL_KITCHEN_TICKETS, 
-  INITIAL_DRAWER_STATE 
-} from './data/mockData';
 import { CHEZ_AWA_RESTAURANT } from './data/restaumaxData';
 import { RestauMenuItem, ClientCartItem, RestaurantInfo, RestauOrder, RestaurantTable, RestauOrderStatus } from './types/restaumax';
 import { 
@@ -26,6 +21,8 @@ import {
   deleteMenuItem, 
   submitOrderWithServerValidation,
   submitPosOrderWithServerValidation,
+  collectCashPaymentWithServerValidation,
+  listRecentCashPaymentsWithServerValidation,
   subscribeToOrders,
   updateOrderStatus,
   subscribeToTables,
@@ -44,6 +41,7 @@ import {
   clearPendingOrderIntent, 
   updatePendingOrderIntentUncertainty 
 } from './utils/orderIntentStorage';
+import { formatFCFA } from './utils/format';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -189,39 +187,33 @@ export default function App() {
 
   // Staff State (POS, Tables, KDS, Manager)
   const [currentRole, setCurrentRole] = useState<Role>('pos');
-  const [menuItems, setMenuItems] = useState<MenuItem[]>(INITIAL_MENU_ITEMS);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discountPercent, setDiscountPercent] = useState<number>(0);
-  const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>(INITIAL_KITCHEN_TICKETS);
-  const [drawerState, setDrawerState] = useState<CashDrawerState>(INITIAL_DRAWER_STATE);
-  const [transactions, setTransactions] = useState<PaymentRecord[]>([
-    {
-      id: 'tx-1',
-      orderId: '#T-101',
-      tableNumber: 'Table 03',
-      waiter: 'Aïcha K.',
-      timestamp: new Date(Date.now() - 40 * 60 * 1000),
-      subtotal: 26000,
-      discount: 0,
-      tax: 0,
-      total: 26000,
-      paidAmount: 30000,
-      changeAmount: 4000,
-      paymentMethod: 'especes',
-      items: [
-        { name: 'Poulet Bicyclette Braisé Entier', quantity: 2, price: 9500 },
-        { name: 'Alloco Banane Plantain Dorée', quantity: 2, price: 2500 }
-      ]
-    }
-  ]);
+  const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>([]);
+  const [drawerState, setDrawerState] = useState<CashDrawerState>({
+    openingBalance: 0,
+    currentCash: 0,
+    totalSales: 0,
+    cashSales: 0,
+    mobileMoneySales: 0,
+    cardSales: 0,
+    discountsTotal: 0,
+    transactionCount: 0
+  });
+  const [transactions, setTransactions] = useState<PaymentRecord[]>([]);
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isSubmittingPosOrder, setIsSubmittingPosOrder] = useState(false);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [pendingPosOrder, setPendingPosOrder] = useState<RestauOrder | null>(null);
+  const [pendingPosPaidAmount, setPendingPosPaidAmount] = useState(0);
+  const [posOrderIdempotencyKey, setPosOrderIdempotencyKey] = useState(() => generateClientOrderIdempotencyKey());
+  const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState(() => generateClientOrderIdempotencyKey());
   const [activeReceiptModal, setActiveReceiptModal] = useState<PaymentRecord | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const serverName = 'Moussa D.';
 
   const handleToggleAudio = () => {
     sounds.enabled = !audioEnabled;
@@ -334,6 +326,7 @@ export default function App() {
 
   // RestauMax Authentication & Manager Authorization State
   const [authUser, setAuthUser] = useState<User | null>(null);
+  const serverName = authUser?.displayName || authUser?.email?.split('@')[0] || 'Personnel';
   const [isAuthorizedManager, setIsAuthorizedManager] = useState<boolean>(false);
   const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
   const [authRestaurantRole, setAuthRestaurantRole] = useState<string>('');
@@ -341,6 +334,30 @@ export default function App() {
   const canCollectPayment = isRestaurantOwner ||
     authRestaurantRole === 'manager' ||
     (authRestaurantRole === 'cashier' && userPermissions.includes('cash.manage'));
+  const mapCashPaymentRecord = (payment: any): PaymentRecord => ({
+    id: String(payment.id),
+    orderId: String(payment.orderNumber || payment.orderId),
+    tableNumber: payment.tableNumber ? `Table ${payment.tableNumber}` : 'À emporter',
+    waiter: String(payment.actorName || payment.actorRole || 'Personnel'),
+    timestamp: new Date(Number(payment.createdAt)),
+    subtotal: Number(payment.totalAmount || 0),
+    discount: 0,
+    tax: 0,
+    total: Number(payment.totalAmount || 0),
+    paidAmount: Number(payment.paidAmount || 0),
+    tenderedAmount: Number(payment.amountTendered || payment.paidAmount || 0),
+    previouslyPaidAmount: Number(payment.previouslyPaidAmount || 0),
+    changeAmount: Number(payment.changeAmount || 0),
+    remainingAmount: Number(payment.remainingAfter || 0),
+    paymentStatus: payment.paymentStatus === 'partial' ? 'partial' : 'paid',
+    paymentMethod: 'especes',
+    items: Array.isArray(payment.items) ? payment.items.map((item: any) => ({
+      name: String(item.name || 'Article'),
+      quantity: Number(item.quantity || 1),
+      price: Number(item.unitPrice ?? item.basePrice ?? item.price ?? 0)
+    })) : []
+  });
+
   const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
 
   useEffect(() => {
@@ -430,6 +447,49 @@ export default function App() {
       unsubOrders();
     };
   }, [isAuthorizedManager, isStaffRoute, userPermissions]);
+
+  useEffect(() => {
+    const canViewCash = isRestaurantOwner || authRestaurantRole === 'manager' ||
+      userPermissions.includes('cash.view') || userPermissions.includes('cash.manage');
+    if (!authUser || !canViewCash) {
+      setTransactions([]);
+      setDrawerState({
+        openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
+        mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
+      });
+      return;
+    }
+
+    let active = true;
+    setTransactions([]);
+    setDrawerState({
+      openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
+      mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
+    });
+    listRecentCashPaymentsWithServerValidation(activeRestaurantSlug).then((result) => {
+      if (!active || !result.success) {
+        if (active && !result.success) console.warn('Journal de caisse indisponible:', result.error);
+        return;
+      }
+      const records = result.payments.map(mapCashPaymentRecord);
+      const totalSales = records.reduce((sum, record) => sum + record.paidAmount, 0);
+      const cashSales = records.filter((record) => record.paymentMethod === 'especes')
+        .reduce((sum, record) => sum + record.paidAmount, 0);
+      setTransactions(records);
+      setDrawerState({
+        openingBalance: 0,
+        currentCash: cashSales,
+        totalSales,
+        cashSales,
+        mobileMoneySales: 0,
+        cardSales: 0,
+        discountsTotal: 0,
+        transactionCount: records.length
+      });
+    });
+
+    return () => { active = false; };
+  }, [authUser, activeRestaurantSlug, isRestaurantOwner, authRestaurantRole, userPermissions]);
 
   const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const res = await signInManager(email, pass);
@@ -712,7 +772,36 @@ export default function App() {
   };
 
   // POS Handlers
+  const handleSelectPosTable = (table: Table) => {
+    if (pendingPosOrder) {
+      window.alert('Terminez le règlement de la commande en cours avant de changer de table.');
+      return;
+    }
+    setSelectedTable(table);
+  };
+
+  const handleSetDiscountPercent = (value: number) => {
+    if (pendingPosOrder) {
+      window.alert('La remise ne peut pas être modifiée tant que le solde de la commande reste dû.');
+      return;
+    }
+    if (value > 0) {
+      window.alert("Les remises POS seront réactivées après validation des règles de remise côté serveur.");
+      return;
+    }
+    setDiscountPercent(0);
+  };
+
+  const handleClearPosCart = () => {
+    if (pendingPosOrder) {
+      window.alert('Le panier est verrouillé jusqu’au règlement complet de la commande en cours.');
+      return;
+    }
+    setCart([]);
+  };
+
   const handleAddToCart = (dish: MenuItem) => {
+    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
     setCart((prev) => {
       const existing = prev.find((item) => item.menuItem.id === dish.id);
       if (existing) {
@@ -726,6 +815,7 @@ export default function App() {
   };
 
   const handleUpdateQuantity = (itemId: string, delta: number) => {
+    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
     setCart((prev) =>
       prev
         .map((item) => (item.id === itemId ? { ...item, quantity: item.quantity + delta } : item))
@@ -734,16 +824,19 @@ export default function App() {
   };
 
   const handleRemoveItem = (itemId: string) => {
+    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
     setCart((prev) => prev.filter((item) => item.id !== itemId));
   };
 
   const handleUpdateItemNotes = (itemId: string, notes: string) => {
+    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
     setCart((prev) =>
       prev.map((item) => (item.id === itemId ? { ...item, specialInstructions: notes } : item))
     );
   };
 
   const handleSendToKitchen = async () => {
+    if (pendingPosOrder) { window.alert('Une commande avec un solde restant est en cours d’encaissement. Terminez-la avant de créer une autre commande depuis ce panier.'); return; }
     if (cart.length === 0 || isSubmittingPosOrder) return;
 
     // Never let a client-side discount silently alter a server-calculated order total.
@@ -794,55 +887,113 @@ export default function App() {
     }
   };
 
-  const handleConfirmPayment = (paymentData: {
+  const handleConfirmPayment = async (paymentData: {
     method: PaymentMethod;
     paidAmount: number;
     changeAmount: number;
     splitGuests: number;
   }) => {
-    // Client-side safeguard only; Firestore also denies direct payment writes.
     if (!canCollectPayment) {
       setIsPaymentModalOpen(false);
       window.alert("Votre rôle ne permet pas d'encaisser un paiement.");
       return;
     }
-    const subtotal = cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
-    const discountAmount = Math.round((subtotal * discountPercent) / 100);
-    const total = Math.max(0, subtotal - discountAmount);
-    const orderId = `#T-${Math.floor(100 + Math.random() * 900)}`;
+    if (paymentData.method !== 'especes') {
+      window.alert("Seuls les paiements en espèces sont actuellement raccordés à un journal serveur. Wave, Orange Money et carte seront activés après intégration des prestataires.");
+      return;
+    }
+    if (discountPercent > 0) {
+      window.alert("Les remises POS ne sont pas encore validées côté serveur. Retirez la remise avant d'encaisser.");
+      return;
+    }
+    if (cart.length === 0 && !pendingPosOrder) return;
+    if (isSubmittingPayment || isSubmittingPosOrder) return;
 
-    const newRecord: PaymentRecord = {
-      id: `tx-${Date.now()}`,
-      orderId,
-      tableNumber: selectedTable ? selectedTable.name : 'Vente Directe',
-      waiter: serverName,
-      timestamp: new Date(),
-      subtotal,
-      discount: discountAmount,
-      tax: 0,
-      total,
-      paidAmount: paymentData.paidAmount,
-      changeAmount: paymentData.changeAmount,
-      paymentMethod: paymentData.method,
-      items: cart.map((item) => ({
-        name: item.menuItem.name,
-        quantity: item.quantity,
-        price: item.menuItem.price
-      }))
-    };
+    setIsSubmittingPayment(true);
+    try {
+      let order = pendingPosOrder;
+      if (!order) {
+        const clientCart: ClientCartItem[] = cart.map((item) => ({
+          id: item.id,
+          menuItemId: item.menuItem.id,
+          name: item.menuItem.name,
+          basePrice: item.menuItem.price,
+          unitPrice: item.menuItem.price,
+          quantity: item.quantity,
+          selectedExtras: [],
+          prepNotes: item.specialInstructions,
+          imageUrl: item.menuItem.imageUrl
+        }));
 
-    setDrawerState((prev) => ({
-      ...prev,
-      totalSales: prev.totalSales + total,
-      currentCash: prev.currentCash + (paymentData.method === 'especes' ? total : 0),
-      cashSales: prev.cashSales + (paymentData.method === 'especes' ? total : 0),
-      transactionCount: prev.transactionCount + 1
-    }));
+        const orderResult = await submitPosOrderWithServerValidation(activeRestaurantSlug, {
+          cart: clientCart,
+          orderMode: selectedTable ? 'sur_place' : 'a_emporter',
+          tableNumber: selectedTable?.number || null,
+          idempotencyKey: posOrderIdempotencyKey,
+          customerNote: `Commande saisie au comptoir par ${serverName}`
+        });
 
-    setTransactions((prev) => [newRecord, ...prev]);
-    setIsPaymentModalOpen(false);
-    setActiveReceiptModal(newRecord);
-    setCart([]);
+        if (!orderResult.success) {
+          window.alert(`Commande non créée : ${orderResult.error}`);
+          return;
+        }
+
+        order = orderResult.order;
+        setPosOrderIdempotencyKey(generateClientOrderIdempotencyKey());
+        setPendingPosOrder(order);
+        setPendingPosPaidAmount(Number(order.paidAmount || 0));
+        const ticket = mapRestauOrderToKitchenTicket(order);
+        setKitchenTickets((previous) => [
+          ticket,
+          ...previous.filter((existing) => existing.id !== ticket.id)
+        ]);
+      }
+
+      const paymentResult = await collectCashPaymentWithServerValidation(
+        activeRestaurantSlug,
+        order.id,
+        paymentData.paidAmount,
+        paymentIdempotencyKey
+      );
+      if (!paymentResult.success) {
+        window.alert(`Encaissement non enregistré : ${paymentResult.error}`);
+        return;
+      }
+
+      const payment = paymentResult.payment;
+      sounds.playCashRegister();
+      const updatedOrder = { ...order, ...paymentResult.order } as RestauOrder;
+      setPendingPosOrder(updatedOrder);
+      setPendingPosPaidAmount(Number(updatedOrder.paidAmount || 0));
+      setPaymentIdempotencyKey(generateClientOrderIdempotencyKey());
+
+      const newRecord = mapCashPaymentRecord(payment);
+      setTransactions((previous) => [newRecord, ...previous]);
+      setDrawerState((previous) => ({
+        ...previous,
+        totalSales: previous.totalSales + payment.paidAmount,
+        currentCash: previous.currentCash + payment.paidAmount,
+        cashSales: previous.cashSales + payment.paidAmount,
+        transactionCount: previous.transactionCount + 1
+      }));
+      setActiveReceiptModal(newRecord);
+      setIsPaymentModalOpen(false);
+
+      if (payment.paymentStatus === 'paid') {
+        setCart([]);
+        setPendingPosOrder(null);
+        setPendingPosPaidAmount(0);
+        setPosOrderIdempotencyKey(generateClientOrderIdempotencyKey());
+        setDiscountPercent(0);
+      } else {
+        window.alert(`Paiement partiel enregistré. Reste à payer : ${formatFCFA(payment.remainingAfter)}. Vous pourrez reprendre l'encaissement depuis le panier.`);
+      }
+    } catch (err) {
+      console.error('Erreur encaissement POS:', err);
+      window.alert("L'encaissement n'a pas pu être confirmé. Vérifiez le journal avant de réessayer ; le panier a été conservé.");
+    } finally {
+      setIsSubmittingPayment(false);
+    }
   };
 
   const handleToggleKdsItem = (ticketId: string, itemId: string) => {
@@ -895,6 +1046,7 @@ export default function App() {
   };
 
   const handleSelectTableForOrder = (table: Table) => {
+    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de changer de table.'); return; }
     setSelectedTable(table);
     setCurrentRole('pos');
     if (table.status === 'available') {
@@ -1060,14 +1212,14 @@ export default function App() {
                 cart={cart}
                 selectedTable={selectedTable}
                 tables={tables}
-                onSelectTable={setSelectedTable}
+                onSelectTable={handleSelectPosTable}
                 onAddToCart={handleAddToCart}
                 onUpdateQuantity={handleUpdateQuantity}
                 onRemoveItem={handleRemoveItem}
                 onUpdateItemNotes={handleUpdateItemNotes}
-                onClearCart={() => setCart([])}
+                onClearCart={handleClearPosCart}
                 discountPercent={discountPercent}
-                onSetDiscountPercent={setDiscountPercent}
+                onSetDiscountPercent={handleSetDiscountPercent}
                 onSendToKitchen={handleSendToKitchen}
                 isSendingOrder={isSubmittingPosOrder}
                 onOpenPayment={() => {
@@ -1115,6 +1267,8 @@ export default function App() {
             selectedTable={selectedTable}
             serverName={serverName}
             discountPercent={discountPercent}
+            alreadyPaidAmount={pendingPosPaidAmount}
+            isSubmitting={isSubmittingPayment}
             onConfirmPayment={handleConfirmPayment}
           />
 

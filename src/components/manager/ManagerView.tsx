@@ -12,7 +12,6 @@ import {
   CreditCard, 
   Receipt, 
   FileText, 
-  ArrowUpRight,
   ShieldCheck,
   CheckCircle,
   Eye
@@ -42,10 +41,10 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-extrabold text-[#101d2d] tracking-tight">
-              Supervision de Shift & Gestion de Caisse
+              Supervision du journal de caisse
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
-              Audit temps réel des encaissements, répartition des modes de paiement et clôture.
+              Journal des encaissements persistés. Les sessions de caisse et la clôture officielle restent à configurer.
             </p>
           </div>
 
@@ -57,7 +56,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             className="px-4 py-2.5 bg-[#101d2d] hover:bg-[#1a2c42] text-white text-xs sm:text-sm font-bold rounded-xl shadow-sm flex items-center gap-2 self-start sm:self-auto transition-colors"
           >
             <FileText size={16} />
-            <span>Générer Clôture Z (Rapport du Jour)</span>
+            <span>Consulter le rapport des encaissements</span>
           </button>
         </div>
 
@@ -65,7 +64,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
             <div className="flex items-center justify-between text-slate-500 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider">Chiffre d’Affaires</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Encaissements récents</span>
               <div className="w-8 h-8 rounded-lg bg-orange-50 text-[#ff6500] flex items-center justify-center">
                 <TrendingUp size={16} />
               </div>
@@ -73,30 +72,29 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <div className="text-2xl font-black text-[#101d2d] tnum">
               {formatFCFA(drawerState.totalSales)}
             </div>
-            <div className="text-[11px] text-emerald-600 font-bold mt-1 flex items-center gap-1">
-              <ArrowUpRight size={13} />
-              <span>+18.4% vs même shift hier</span>
+            <div className="text-[11px] text-slate-500 font-medium mt-1">
+              Somme des 100 derniers paiements au maximum
             </div>
           </div>
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
             <div className="flex items-center justify-between text-slate-500 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider">Transactions Validées</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Paiements enregistrés</span>
               <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
                 <Receipt size={16} />
               </div>
             </div>
             <div className="text-2xl font-black text-[#101d2d] tnum">
-              {drawerState.transactionCount} tickets
+              {drawerState.transactionCount} transactions
             </div>
             <div className="text-[11px] text-slate-500 font-medium mt-1">
-              Moyenne: ~14.2 tickets / heure
+              Historique des 100 derniers encaissements au maximum
             </div>
           </div>
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
             <div className="flex items-center justify-between text-slate-500 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider">Panier Moyen</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Montant moyen encaissé</span>
               <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
                 <DollarSign size={16} />
               </div>
@@ -105,7 +103,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               {formatFCFA(averageTicket)}
             </div>
             <div className="text-[11px] text-slate-500 font-medium mt-1">
-              Par table encaissée
+              Par opération de paiement
             </div>
           </div>
 
@@ -117,10 +115,10 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </div>
             </div>
             <div className="text-2xl font-black text-[#101d2d] tnum">
-              13 min 40s
+              Non calculée
             </div>
-            <div className="text-[11px] text-emerald-600 font-bold mt-1">
-              94% des plats sous 15 min
+            <div className="text-[11px] text-slate-500 font-medium mt-1">
+              Le suivi des temps de préparation sera disponible avec les horodatages cuisine.
             </div>
           </div>
         </div>
@@ -136,8 +134,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
             <div className="space-y-3 text-xs">
               <div className="flex justify-between py-2 border-b border-slate-100">
-                <span className="text-slate-600">Fond de caisse ouverture:</span>
-                <span className="font-bold text-slate-900 tnum">{formatFCFA(drawerState.openingBalance)}</span>
+                <span className="text-slate-600">Fond de caisse d’ouverture:</span>
+                <span className="font-bold text-amber-700">Non configuré</span>
               </div>
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-600">Encaissements Espèces:</span>
@@ -148,16 +146,16 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 <span className="font-bold text-rose-600 tnum">-{formatFCFA(drawerState.discountsTotal)}</span>
               </div>
               <div className="flex justify-between py-2.5 bg-slate-50 px-3 rounded-xl border border-slate-200 mt-2">
-                <span className="font-extrabold text-slate-900">Total Espèces Théorique:</span>
+                <span className="font-extrabold text-slate-900">Encaissements espèces enregistrés:</span>
                 <span className="text-base font-black text-[#ff6500] tnum">
                   {formatFCFA(drawerState.currentCash)}
                 </span>
               </div>
             </div>
 
-            <div className="mt-5 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 flex items-center gap-2">
-              <ShieldCheck size={16} className="text-emerald-600 shrink-0" />
-              <span>Caisse équilibrée. Aucun écart de fond de caisse détecté.</span>
+            <div className="mt-5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 flex items-center gap-2">
+              <ShieldCheck size={16} className="text-amber-600 shrink-0" />
+              <span>Fond de caisse d’ouverture non configuré. Effectuez le rapprochement physique avant toute clôture.</span>
             </div>
           </div>
 
@@ -191,7 +189,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   {formatFCFA(drawerState.mobileMoneySales)}
                 </div>
                 <div className="text-[11px] text-blue-600 mt-1 font-semibold">
-                  {drawerState.totalSales > 0 ? Math.round((drawerState.mobileMoneySales / drawerState.totalSales) * 100) : 0}% du total (Canal n°1)
+                  {drawerState.totalSales > 0 ? Math.round((drawerState.mobileMoneySales / drawerState.totalSales) * 100) : 0}% des encaissements enregistrés
                 </div>
               </div>
 
@@ -257,7 +255,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <th className="py-3 px-4">Serveur</th>
                   <th className="py-3 px-4">Articles</th>
                   <th className="py-3 px-4">Règlement</th>
-                  <th className="py-3 px-4 text-right">Total Net</th>
+                  <th className="py-3 px-4 text-right">Montant encaissé</th>
                   <th className="py-3 px-4 text-center">Reçu</th>
                 </tr>
               </thead>
@@ -265,7 +263,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 {transactions.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-slate-400">
-                      Aucune transaction récente dans ce shift.
+                      Aucun encaissement enregistré dans les 100 dernières opérations.
                     </td>
                   </tr>
                 ) : (
@@ -292,7 +290,12 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right font-black text-[#ff6500] tnum">
-                        {formatFCFA(tx.total)}
+                        <div>{formatFCFA(tx.paidAmount)}</div>
+                        {tx.paymentStatus === 'partial' && (
+                          <div className="text-[10px] font-semibold text-amber-700 mt-0.5">
+                            Partiel · reste {formatFCFA(tx.remainingAmount || 0)}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <button
@@ -312,18 +315,18 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         </div>
       </div>
 
-      {/* Clôture Z Modal */}
+      {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
       {showZReportModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-2xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-150">
             <div className="bg-[#101d2d] text-white p-5 flex items-start justify-between">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
-                  Rapport Officiel
+                  Aperçu non officiel
                 </span>
-                <h3 className="text-lg font-black mt-0.5">Clôture de Caisse Journalière (Z)</h3>
+                <h3 className="text-lg font-black mt-0.5">Rapport des encaissements</h3>
                 <p className="text-xs text-slate-300">
-                  Date: {new Date().toLocaleDateString('fr-FR')} · Arrêté définitif du shift
+                  Consulté le {new Date().toLocaleDateString('fr-FR')} · 100 dernières opérations au maximum
                 </p>
               </div>
               <button
@@ -337,7 +340,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <div className="p-5 space-y-4 text-xs font-mono">
               <div className="border border-slate-200 rounded-xl p-4 bg-slate-50 space-y-2">
                 <div className="flex justify-between">
-                  <span>CHIFFRE TOTAL DU JOUR:</span>
+                  <span>TOTAL DES ENCAISSEMENTS CHARGÉS:</span>
                   <span className="font-bold text-slate-900 tnum">{formatFCFA(drawerState.totalSales)}</span>
                 </div>
                 <div className="flex justify-between">
@@ -353,14 +356,14 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <span className="tnum">{formatFCFA(drawerState.cardSales)}</span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-slate-300 font-bold text-slate-900">
-                  <span>ESPÈCES EN TIROIR:</span>
+                  <span>ENCAISSEMENTS ESPÈCES:</span>
                   <span className="tnum">{formatFCFA(drawerState.currentCash)}</span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 font-sans font-medium">
                 <CheckCircle size={18} className="text-emerald-600 shrink-0" />
-                <span>Tous les bordereaux et télécommandes sont synchronisés.</span>
+                <span>Aperçu indicatif uniquement : le fond d’ouverture, les dépenses, les sessions de caisse et le rapprochement physique ne sont pas encore enregistrés.</span>
               </div>
 
               <div className="pt-2 flex items-center gap-2 font-sans">
@@ -371,13 +374,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   }}
                   className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors"
                 >
-                  Imprimer Rapport Z
+                  Imprimer l’aperçu
                 </button>
                 <button
                   onClick={() => setShowZReportModal(false)}
                   className="flex-1 py-2.5 bg-[#ff6500] hover:bg-[#e05800] text-white font-bold text-xs rounded-xl shadow-sm transition-colors"
                 >
-                  Valider la Clôture
+                  Fermer l’aperçu
                 </button>
               </div>
             </div>

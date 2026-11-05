@@ -82,7 +82,11 @@ export interface PaymentRecord {
   tax: number;
   total: number;
   paidAmount: number;
+  tenderedAmount?: number;
+  previouslyPaidAmount?: number;
   changeAmount: number;
+  remainingAmount?: number;
+  paymentStatus?: 'partial' | 'paid';
   paymentMethod: PaymentMethod;
   items: { name: string; quantity: number; price: number }[];
 }
