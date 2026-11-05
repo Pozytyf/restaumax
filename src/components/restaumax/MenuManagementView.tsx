@@ -95,7 +95,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
       const query = searchQuery.trim().toLowerCase();
       const matchQuery = !query ||
         item.name.toLowerCase().includes(query) ||
-        item.description.toLowerCase().includes(query) ||
+        (item.description || '').toLowerCase().includes(query) ||
         (item.tags && item.tags.some(t => t.toLowerCase().includes(query)));
 
       return matchCat && matchAvailability && matchQuery;
