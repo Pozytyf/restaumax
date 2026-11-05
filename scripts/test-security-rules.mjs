@@ -96,6 +96,9 @@ try {
   await denies(getDoc(doc(a('manager-a'),'restaurants/rest-b/menuItems/dish-1')), 'Restaurant A ne peut pas lire le menu privé de B lorsqu’il est authentifié');
   await denies(getDocs(collection(a('manager-a'),'restaurants/rest-b/menuItems')), 'Restaurant A ne peut pas lister le menu de B');
   await allows(getDoc(doc(anonymous,'restaurants/rest-b')), 'Le profil public reste lisible pour un client non authentifié');
+  const publicRestaurantSnapshot = await getDoc(doc(anonymous, 'restaurants/rest-a'));
+  check(publicRestaurantSnapshot.exists() && !('subscription' in (publicRestaurantSnapshot.data() || {})),
+    'Le document restaurant public ne contient aucun champ d’abonnement');
   await allows(getDoc(doc(anonymous,'restaurants/rest-b/menuItems/dish-1')), 'Le menu public reste lisible pour un client non authentifié');
   await denies(getDoc(table(a('manager-a'),'rest-b')), 'Restaurant A ne peut pas lire les tables de B');
   await denies(setDoc(table(a('manager-a'),'rest-b'),{id:'table-1',tableNumber:'X',capacity:2,isActive:true}), 'Restaurant A ne peut pas écrire dans B');
