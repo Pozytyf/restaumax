@@ -41,7 +41,8 @@ Les clés API marchandes TEST ne sont pas des variables globales Vercel : elles 
 - Les factures sont rattachées au restaurant, à la commande et à une intention idempotente.
 - Le navigateur ne peut jamais déclarer un paiement réussi.
 - Le callback doit être authentifié par le hash SHA-512 de la Master Key du restaurant, puis le statut doit être confirmé auprès de PayDunya.
-- Les commandes avec plusieurs comptes convives ne sont pas encore prises en charge pour Mobile Money ; le paiement espèces reste distinct.
+- Les paiements Mobile Money peuvent régler tout ou partie du solde restant, depuis le POS ou le QR de table. Le serveur vérifie le montant demandé et le limite au solde réel de la commande ; chaque versement confirmé met à jour le cumul payé et le reste dû.
+- Les paiements Mobile Money sur des factures partagées entre plusieurs comptes convives ne sont pas encore pris en charge ; le paiement espèces conserve la répartition individuelle.
 - En cas de résultat fournisseur ambigu, la tentative est bloquée pour rapprochement : aucune nouvelle facture automatique ne doit être créée.
 
 ## Remboursements
