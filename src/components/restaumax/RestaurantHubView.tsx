@@ -98,6 +98,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   permissions = []
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog' | 'qr_tables' | 'staff' | 'customers' | 'inventory' | 'reports' | 'settings'>('overview');
+  const canViewCatalog = permissions.includes('menu.view') || permissions.includes('menu.manage');
   // Format current date in French standard
   const todayFormatted = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
@@ -128,14 +129,14 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       title: 'Menu et catalogue des plats',
       subtitle: 'Carte client & spécialités',
       description: 'Consultation de la carte complète, fiches techniques et pilotage de la disponibilité en direct.',
-      status: 'active',
-      statusLabel: 'Actif',
+      status: canViewCatalog ? 'active' : 'unavailable',
+      statusLabel: canViewCatalog ? 'Accès catalogue autorisé' : 'Réservé au propriétaire / manager',
       icon: BookOpen,
-      actionLabel: 'Gérer le catalogue & disponibilités',
-      onAction: () => {
+      actionLabel: canViewCatalog ? 'Gérer le catalogue & disponibilités' : undefined,
+      onAction: canViewCatalog ? () => {
         sounds.playTap();
         setActiveTab('menu_catalog');
-      }
+      } : undefined
     },
     {
       id: 'options-prices',
@@ -143,14 +144,14 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       title: 'Options, suppléments et prix',
       subtitle: 'Personnalisations & Tarifs en FCFA',
       description: 'Accompagnements inclus ou payants (ex. alloco +500 FCFA), suppléments sauces et consignes cuisine.',
-      status: 'active',
-      statusLabel: 'Actif',
+      status: canViewCatalog ? 'active' : 'unavailable',
+      statusLabel: canViewCatalog ? 'Accès catalogue autorisé' : 'Réservé au propriétaire / manager',
       icon: SlidersHorizontal,
-      actionLabel: 'Gérer les options, suppléments et prix',
-      onAction: () => {
+      actionLabel: canViewCatalog ? 'Gérer les options, suppléments et prix' : undefined,
+      onAction: canViewCatalog ? () => {
         sounds.playTap();
         setActiveTab('menu_catalog');
-      }
+      } : undefined
     },
     {
       id: 'orders',
@@ -274,7 +275,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     }
   ];
 
-  if (activeTab === 'menu_catalog') {
+  if (activeTab === 'menu_catalog' && canViewCatalog) {
     return (
       <MenuManagementView
         restaurant={restaurant}
