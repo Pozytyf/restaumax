@@ -1371,8 +1371,12 @@ export default function App() {
                 onSendToKitchen={handleSendToKitchen}
                 isSendingOrder={isSubmittingPosOrder}
                 onOpenPayment={() => {
-                  if (!canCollectPayment) {
+                  if (!canManageCash) {
                     window.alert("Votre rôle ne permet pas d'encaisser un paiement.");
+                    return;
+                  }
+                  if (cashSession?.status !== 'active') {
+                    window.alert("Ouvrez d'abord votre session de caisse depuis l'écran Supervision & Caisse.");
                     return;
                   }
                   setIsPaymentModalOpen(true);
