@@ -3,7 +3,16 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } fr
 import { auth } from '../../lib/firebase';
 import { Building2, ShieldCheck, LogOut, Plus, RefreshCw, Ban, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 
-type RestaurantRow = { slug: string; name: string; ownerName?: string; ownerEmail?: string; status?: string; isOpen?: boolean; deletedAt?: number };
+type RestaurantRow = {
+  slug: string; name: string; ownerName?: string; ownerEmail?: string;
+  status?: string; isOpen?: boolean; deletedAt?: number;
+  subscription?: {
+    planName?: string; priceFcfa?: number; currency?: string;
+    billingCycle?: 'monthly' | 'yearly' | 'custom';
+    status?: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
+    startsAt?: number; endsAt?: number; notes?: string;
+  };
+};
 type StaffRow = { uid: string; email: string; displayName: string; role: 'owner' | 'manager' | 'staff'; active: boolean; permissions?: string[] };
 
 export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant: (slug: string) => void }> = ({ onBack, onOpenRestaurant }) => {
@@ -19,6 +28,11 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   const [showPassword, setShowPassword] = useState(false);
   const [showOwnerPassword, setShowOwnerPassword] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [subscriptionRestaurant, setSubscriptionRestaurant] = useState<RestaurantRow | null>(null);
+  const [subscriptionForm, setSubscriptionForm] = useState({
+    planName: '', priceFcfa: '0', billingCycle: 'monthly',
+    status: 'trial', startsOn: '', endsOn: '', notes: ''
+  });
   const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '', ownerPassword: '' });
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
@@ -62,6 +76,70 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       setForm({ name: '', ownerName: '', ownerEmail: '', ownerPassword: '' });
       setShowCreate(false); await refresh();
     } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const dateInputFromTimestamp = (value?: number) =>
+    value && Number.isFinite(value) ? new Date(value).toISOString().slice(0, 10) : '';
+
+  const subscriptionStatusLabel = (status?: string) => {
+    const labels: Record<string, string> = {
+      trial: 'Essai', active: 'Actif', past_due: 'Paiement en retard',
+      suspended: 'Suspendu', cancelled: 'Résilié'
+    };
+    return labels[status || ''] || 'Non défini';
+  };
+
+  const billingCycleLabel = (cycle?: string) => {
+    const labels: Record<string, string> = {
+      monthly: 'mensuel', yearly: 'annuel', custom: 'personnalisé'
+    };
+    return labels[cycle || ''] || 'période non définie';
+  };
+
+  const editSubscription = (restaurant: RestaurantRow) => {
+    const subscription = restaurant.subscription || {};
+    setSubscriptionRestaurant(restaurant);
+    setSubscriptionForm({
+      planName: subscription.planName || '',
+      priceFcfa: String(subscription.priceFcfa ?? 0),
+      billingCycle: subscription.billingCycle || 'monthly',
+      status: subscription.status || 'trial',
+      startsOn: dateInputFromTimestamp(subscription.startsAt),
+      endsOn: dateInputFromTimestamp(subscription.endsAt),
+      notes: subscription.notes || ''
+    });
+  };
+
+  const saveSubscription = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!subscriptionRestaurant) return;
+    setLoading(true); setError(''); setNotice('');
+    try {
+      const priceFcfa = Number(subscriptionForm.priceFcfa);
+      const startsAt = Date.parse(`${subscriptionForm.startsOn}T00:00:00.000Z`);
+      const endsAt = Date.parse(`${subscriptionForm.endsOn}T23:59:59.999Z`);
+      if (!Number.isSafeInteger(priceFcfa) || priceFcfa < 0 || !Number.isFinite(startsAt) ||
+          !Number.isFinite(endsAt) || endsAt <= startsAt) {
+        throw new Error('Vérifiez le tarif et les dates de validité de l’abonnement.');
+      }
+      await request({
+        action: 'update_subscription',
+        slug: subscriptionRestaurant.slug,
+        subscription: {
+          planName: subscriptionForm.planName.trim(),
+          priceFcfa,
+          billingCycle: subscriptionForm.billingCycle,
+          status: subscriptionForm.status,
+          startsAt,
+          endsAt,
+          notes: subscriptionForm.notes.trim()
+        }
+      });
+      setNotice(`Abonnement de ${subscriptionRestaurant.name} mis à jour.`);
+      setSubscriptionRestaurant(null);
+      await refresh();
+    } catch (e: any) { setError(e.message || 'Mise à jour de l’abonnement impossible.'); }
     finally { setLoading(false); }
   };
 
@@ -155,7 +233,63 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <p className="text-xs text-amber-300 md:col-span-2">Transmets le mot de passe initial au propriétaire par un canal privé. Il devra le modifier dès sa première connexion.</p>
         <div className="flex gap-2 md:col-span-2"><button disabled={loading} className="rounded-lg bg-orange-500 px-5 py-2 font-bold">Créer le restaurant</button><button type="button" onClick={()=>setShowCreate(false)} className="rounded-lg border border-slate-700 px-4 py-2">Annuler</button></div>
       </form>}
-      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-4 font-bold">Établissements ({restaurants.length})</div>{restaurants.length === 0 ? <p className="p-8 text-center text-sm text-slate-400">Aucun restaurant enregistré.</p> : restaurants.map(r=><React.Fragment key={r.slug}><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4"><div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3"><Building2 size={20}/></div><div><p className="font-bold">{r.name}</p><p className="text-xs text-slate-400">{r.slug} · {r.ownerName || r.ownerEmail || 'Propriétaire non renseigné'}</p></div></div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${r.status === 'deleted' || r.deletedAt ? 'bg-slate-700 text-slate-300' : r.status === 'suspended' ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'}`}>{r.status === 'deleted' || r.deletedAt ? 'Supprimé' : r.status === 'suspended' ? 'Suspendu' : 'Actif'}</span>{r.status !== 'deleted' && !r.deletedAt && <><button onClick={()=>onOpenRestaurant(r.slug)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">Gérer</button><button disabled={loading} onClick={()=>setStatus(r,r.status === 'suspended' ? 'active' : 'suspended')} className="flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-xs">{r.status === 'suspended' ? <CheckCircle2 size={14}/> : <Ban size={14}/>} {r.status === 'suspended' ? 'Réactiver' : 'Suspendre'}</button><button disabled={loading} onClick={()=>deleteRestaurant(r)} className="rounded-lg border border-rose-900 px-3 py-2 text-xs font-bold text-rose-300">Supprimer</button></>}<button disabled={loading} onClick={()=>toggleRestaurantStaff(r)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">{expandedRestaurant === r.slug ? 'Masquer les comptes' : 'Gérer les comptes'}</button></div></div>{expandedRestaurant === r.slug && <div className="space-y-3 border-b border-slate-800 bg-slate-950/60 p-4">{(staffByRestaurant[r.slug] || []).map(member=><div key={member.uid} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 p-3"><div><p className="font-bold text-sm">{member.displayName} <span className="text-xs text-slate-400">· {member.role === 'owner' ? 'Propriétaire' : member.role === 'manager' ? 'Gérant' : 'Serveur / Personnel'}</span></p><p className="text-xs text-slate-400">{member.email} · {member.active ? 'Actif' : 'Suspendu'}</p></div><div className="flex gap-2">{member.active ? <button disabled={loading || r.status === 'deleted' || Boolean(r.deletedAt)} onClick={()=>setUserStatus(r,member,'suspended')} className="rounded-lg border border-rose-900 px-3 py-2 text-xs text-rose-300">Suspendre</button> : <button disabled={loading || r.status !== 'active'} onClick={()=>setUserStatus(r,member,'active')} className="rounded-lg border border-emerald-900 px-3 py-2 text-xs text-emerald-300">Réactiver</button>}<button disabled={loading || r.status === 'deleted' || Boolean(r.deletedAt)} onClick={()=>deleteUser(r,member)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs">Supprimer</button></div></div>)}{(staffByRestaurant[r.slug] || []).length === 0 && <p className="text-sm text-slate-400">Aucun compte associé.</p>}<p className="text-xs text-slate-500">Les comptes propriétaires ne peuvent être supprimés que par le super-administrateur. Les historiques métier sont conservés.</p></div>}</React.Fragment>)}</div>
+      {subscriptionRestaurant && <form onSubmit={saveSubscription} className="grid gap-3 rounded-2xl border border-violet-800 bg-slate-900 p-5 md:grid-cols-2">
+        <div className="md:col-span-2 flex items-start justify-between gap-3">
+          <div><h3 className="text-lg font-bold">Abonnement · {subscriptionRestaurant.name}</h3>
+            <p className="text-xs text-slate-400">Gestion manuelle du plan et de sa période. Aucun prélèvement automatique ni blocage d’accès à échéance n’est déclenché pour le moment.</p></div>
+          <button type="button" onClick={() => setSubscriptionRestaurant(null)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs">Fermer</button>
+        </div>
+        <label className="text-sm">Nom du plan
+          <input required minLength={2} maxLength={80} value={subscriptionForm.planName}
+            onChange={e=>setSubscriptionForm({...subscriptionForm,planName:e.target.value})}
+            placeholder="Ex. Essentiel, Pro, Premium"
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/>
+        </label>
+        <label className="text-sm">Tarif (FCFA)
+          <input required type="number" min="0" max="1000000000" step="1" value={subscriptionForm.priceFcfa}
+            onChange={e=>setSubscriptionForm({...subscriptionForm,priceFcfa:e.target.value})}
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/>
+        </label>
+        <label className="text-sm">Périodicité
+          <select value={subscriptionForm.billingCycle} onChange={e=>setSubscriptionForm({...subscriptionForm,billingCycle:e.target.value})}
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3">
+            <option value="monthly">Mensuelle</option><option value="yearly">Annuelle</option><option value="custom">Personnalisée</option>
+          </select>
+        </label>
+        <label className="text-sm">Statut
+          <select value={subscriptionForm.status} onChange={e=>setSubscriptionForm({...subscriptionForm,status:e.target.value})}
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3">
+            <option value="trial">Essai</option><option value="active">Actif</option><option value="past_due">Paiement en retard</option>
+            <option value="suspended">Suspendu</option><option value="cancelled">Résilié</option>
+          </select>
+        </label>
+        <label className="text-sm">Début de validité
+          <input required type="date" value={subscriptionForm.startsOn}
+            onChange={e=>setSubscriptionForm({...subscriptionForm,startsOn:e.target.value})}
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/>
+        </label>
+        <label className="text-sm">Fin de validité
+          <input required type="date" value={subscriptionForm.endsOn}
+            onChange={e=>setSubscriptionForm({...subscriptionForm,endsOn:e.target.value})}
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/>
+        </label>
+        <label className="text-sm md:col-span-2">Notes internes (facultatif)
+          <textarea maxLength={500} value={subscriptionForm.notes}
+            onChange={e=>setSubscriptionForm({...subscriptionForm,notes:e.target.value})}
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/>
+        </label>
+        <div className="flex gap-2 md:col-span-2">
+          <button disabled={loading} className="rounded-lg bg-violet-600 px-5 py-2 font-bold disabled:opacity-50">Enregistrer l’abonnement</button>
+          <button type="button" onClick={()=>setSubscriptionRestaurant(null)} className="rounded-lg border border-slate-700 px-4 py-2">Annuler</button>
+        </div>
+      </form>}
+      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-4 font-bold">Établissements ({restaurants.length})</div>{restaurants.length === 0 ? <p className="p-8 text-center text-sm text-slate-400">Aucun restaurant enregistré.</p> : restaurants.map(r=><React.Fragment key={r.slug}><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4"><div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3"><Building2 size={20}/></div><div><p className="font-bold">{r.name}</p><p className="text-xs text-slate-400">{r.slug} · {r.ownerName || r.ownerEmail || 'Propriétaire non renseigné'}</p>
+                      <p className="text-[11px] text-violet-300">
+                        {r.subscription?.planName
+                          ? `${r.subscription.planName} · ${Number(r.subscription.priceFcfa || 0).toLocaleString('fr-FR')} FCFA · ${billingCycleLabel(r.subscription.billingCycle)} · ${subscriptionStatusLabel(r.subscription.status)}`
+                          : 'Abonnement non configuré'}
+                        {r.subscription?.endsAt ? ` · échéance ${new Date(r.subscription.endsAt).toLocaleDateString('fr-FR')}` : ''}
+                      </p></div></div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${r.status === 'deleted' || r.deletedAt ? 'bg-slate-700 text-slate-300' : r.status === 'suspended' ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'}`}>{r.status === 'deleted' || r.deletedAt ? 'Supprimé' : r.status === 'suspended' ? 'Suspendu' : 'Actif'}</span>{r.status !== 'deleted' && !r.deletedAt && <><button onClick={()=>onOpenRestaurant(r.slug)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">Gérer</button><button disabled={loading} onClick={()=>editSubscription(r)} className="rounded-lg border border-violet-800 px-3 py-2 text-xs font-bold text-violet-300">Abonnement</button><button disabled={loading} onClick={()=>setStatus(r,r.status === 'suspended' ? 'active' : 'suspended')} className="flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-xs">{r.status === 'suspended' ? <CheckCircle2 size={14}/> : <Ban size={14}/>} {r.status === 'suspended' ? 'Réactiver' : 'Suspendre'}</button><button disabled={loading} onClick={()=>deleteRestaurant(r)} className="rounded-lg border border-rose-900 px-3 py-2 text-xs font-bold text-rose-300">Supprimer</button></>}<button disabled={loading} onClick={()=>toggleRestaurantStaff(r)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">{expandedRestaurant === r.slug ? 'Masquer les comptes' : 'Gérer les comptes'}</button></div></div>{expandedRestaurant === r.slug && <div className="space-y-3 border-b border-slate-800 bg-slate-950/60 p-4">{(staffByRestaurant[r.slug] || []).map(member=><div key={member.uid} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 p-3"><div><p className="font-bold text-sm">{member.displayName} <span className="text-xs text-slate-400">· {member.role === 'owner' ? 'Propriétaire' : member.role === 'manager' ? 'Gérant' : 'Serveur / Personnel'}</span></p><p className="text-xs text-slate-400">{member.email} · {member.active ? 'Actif' : 'Suspendu'}</p></div><div className="flex gap-2">{member.active ? <button disabled={loading || r.status === 'deleted' || Boolean(r.deletedAt)} onClick={()=>setUserStatus(r,member,'suspended')} className="rounded-lg border border-rose-900 px-3 py-2 text-xs text-rose-300">Suspendre</button> : <button disabled={loading || r.status !== 'active'} onClick={()=>setUserStatus(r,member,'active')} className="rounded-lg border border-emerald-900 px-3 py-2 text-xs text-emerald-300">Réactiver</button>}<button disabled={loading || r.status === 'deleted' || Boolean(r.deletedAt)} onClick={()=>deleteUser(r,member)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs">Supprimer</button></div></div>)}{(staffByRestaurant[r.slug] || []).length === 0 && <p className="text-sm text-slate-400">Aucun compte associé.</p>}<p className="text-xs text-slate-500">Les comptes propriétaires ne peuvent être supprimés que par le super-administrateur. Les historiques métier sont conservés.</p></div>}</React.Fragment>)}</div>
       </>}
     </main>
   </div>;
