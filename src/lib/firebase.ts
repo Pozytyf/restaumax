@@ -922,6 +922,39 @@ export function subscribeToOrders(
 }
 
 /**
+ * Persists a kitchen line completion state through the trusted backend.
+ * The client never writes KDS progress directly to Firestore.
+ */
+export async function updateKitchenItemCompletionWithServerValidation(
+  restaurantSlug: string,
+  orderId: string,
+  itemId: string,
+  itemIndex: number,
+  completed: boolean
+): Promise<{ success: true; completed: boolean; idempotentReplay?: boolean } | { success: false; error: string }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/kitchen-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, orderId, itemId, itemIndex, completed })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, error: data.error || 'Mise à jour cuisine refusée.' };
+    }
+    return { success: true, completed: data.completed === true, idempotentReplay: data.idempotentReplay === true };
+  } catch (error: any) {
+    console.error('Erreur appel /api/kitchen-item:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant la mise à jour cuisine.' };
+  }
+}
+
+/**
  * Met à jour le statut opérationnel d'une commande (in_prep, ready, completed, etc.)
  */
 export async function updateOrderStatus(
