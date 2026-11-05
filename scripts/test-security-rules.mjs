@@ -144,6 +144,20 @@ try {
     category:'plats', price:2500, available:true, description:'Test', imageUrl:'',
     prepTimeMinutes:15
   }), 'Un manager autorisé peut créer un plat dans le catalogue de son restaurant');
+  const invalidMenuBase = { restaurantSlug:'rest-a', name:'Plat invalide', category:'plats', price:2500, available:true };
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-float-price'),{
+    ...invalidMenuBase, id:'dish-float-price', price:2500.5
+  }), 'Le catalogue refuse un prix FCFA non entier');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-category'),{
+    ...invalidMenuBase, id:'dish-invalid-category', category:'autre'
+  }), 'Le catalogue refuse une catégorie hors nomenclature');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-options'),{
+    ...invalidMenuBase, id:'dish-invalid-options', optionGroups:'corrompu'
+  }), 'Le catalogue refuse une structure de groupes d’options qui n’est pas une liste');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-prep-time'),{
+    ...invalidMenuBase, id:'dish-invalid-prep-time', prepTimeMinutes:1441
+  }), 'Le catalogue refuse un temps de préparation hors plage');
+
   await allows(updateDoc(managerDish, { price:2750 }), 'Un manager autorisé peut modifier le prix d’un plat');
   await denies(updateDoc(managerDish, { restaurantSlug:'rest-b' }), 'Un manager ne peut pas déplacer un plat vers un autre restaurant');
   await allows(deleteDoc(managerDish), 'Un manager autorisé peut supprimer un plat du catalogue');
