@@ -68,7 +68,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
           <div className="flex items-center gap-2">
             <CheckCircle size={18} />
             <span className="text-xs font-bold uppercase tracking-wider">
-              {receiptIsPartial ? 'Paiement partiel enregistré' : 'Part individuelle réglée'}
+              {receipt.guestName
+                ? (receiptIsPartial ? 'Part du convive partiellement réglée' : 'Part individuelle réglée')
+                : (receiptIsPartial ? 'Paiement partiel enregistré' : 'Paiement validé avec succès')}
             </span>
           </div>
           <button
