@@ -496,7 +496,7 @@ export default function App() {
         setDrawerState((previous) => ({
           ...previous,
           openingBalance: Number(result.session?.openingBalance || 0),
-          currentCash: Number(result.session?.openingBalance || 0) + Number(result.session?.cashCollected || 0)
+          currentCash: Number(result.session?.openingBalance || 0) + Number(result.session?.cashCollected || 0) - Number(result.session?.cashOut || 0)
         }));
       } else {
         setCashSession(null);
@@ -1095,7 +1095,7 @@ export default function App() {
       const refreshedCashSession = refreshedSession.success === true ? refreshedSession.session : null;
       if (refreshedSession.success === true) setCashSession(refreshedCashSession);
       const refreshedCashTotal = refreshedCashSession
-        ? Number(refreshedCashSession.openingBalance || 0) + Number(refreshedCashSession.cashCollected || 0)
+        ? Number(refreshedCashSession.openingBalance || 0) + Number(refreshedCashSession.cashCollected || 0) - Number(refreshedCashSession.cashOut || 0)
         : null;
       sounds.playCashRegister();
       const updatedOrder = { ...order, ...paymentResult.order } as RestauOrder;
