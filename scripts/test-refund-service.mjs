@@ -40,7 +40,7 @@ const seed = (member, method = 'especes') => new FakeDb({
   'restaurants/demo/cashSessions/session-1': { status: 'active', openedByUid: 'actor-1', sessionVersion: 2, cashOut: 0 }
 });
 const base = { restaurantSlug: 'demo', paymentId: 'pay-1', actorUid: 'actor-1', sessionVersion: 2,
-  amount: 2000, reason: 'Erreur de commande', idempotencyKey: 'refund-test-001' };
+  amount: 2000, reason: 'Erreur de commande', idempotencyKey: 'refund-test-001', cashDisbursementConfirmed: true };
 const manager = { role: 'manager', active: true, restaurantSlug: 'demo', sessionVersion: 2, permissions: ['payments.refund'] };
 const db = seed(manager);
 const first = await refundCashPaymentWithDb(db, base);
@@ -51,6 +51,8 @@ const replay = await refundCashPaymentWithDb(db, base);
 assert.equal(replay.success, true);
 assert.equal(replay.idempotentReplay, true);
 assert.equal(db.data.get('restaurants/demo/payments/pay-1').refundedAmount, 2000, 'idempotent replay does not double refund');
+
+assert.equal((await refundCashPaymentWithDb(seed(manager), { ...base, cashDisbursementConfirmed: false })).success, false, 'cash refund requires explicit physical handover confirmation');
 
 const cashierNoGrant = seed({ role: 'cashier', active: true, restaurantSlug: 'demo', sessionVersion: 2, permissions: ['cash.manage'] });
 assert.equal((await refundCashPaymentWithDb(cashierNoGrant, base)).success, false, 'cashier without refund permission is denied');
