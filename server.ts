@@ -948,6 +948,9 @@ export async function handleCustomerPayDunyaReconcileRequest(payload: unknown, r
       return { statusCode: 401, body: { success: false, error: 'Session QR invalide ou révoquée.' } };
     }
     const paymentIntentId = String(input.paymentIntentId || '');
+    if (!/^pdi_[a-f0-9]{32}$/.test(paymentIntentId)) {
+      return { statusCode: 400, body: { success: false, error: 'Référence de paiement QR invalide.' } };
+    }
     const intentRef = adminDb.collection('restaurants').doc(slug).collection('paymentIntents').doc(paymentIntentId);
     const intentSnap = await intentRef.get();
     if (!intentSnap.exists) return { statusCode: 404, body: { success: false, error: 'Intention de paiement introuvable.' } };
