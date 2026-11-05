@@ -158,15 +158,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (action === 'overview') {
         const snap = await db.collection('restaurants').get();
         const restaurants = await Promise.all(snap.docs.map(async (d: any) => {
-          const data = d.data();
+          const data = d.data() || {};
           const subscriptionRef = db.collection('restaurantSubscriptions').doc(d.id);
           let subscriptionSnap = await subscriptionRef.get();
 
-          // Migrate any legacy subscription out of the publicly readable restaurant document.
-          if (!subscriptionSnap.exists && data.subscription !== undefined) {
-            if (data.subscription && typeof data.subscription === 'object') {
-              await subscriptionRef.set(data.subscription);
-            }
+          if (!subscriptionSnap.exists && data.subscription && typeof data.subscription === 'object') {
+            await subscriptionRef.set(data.subscription);
             await d.ref.update({ subscription: FieldValue.delete() });
             await db.collection('admin_audit_logs').add({
               action: 'migrate_restaurant_subscription_private',
@@ -181,15 +178,44 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             });
           }
 
-          const publicRestaurantData = { ...data };
-          delete publicRestaurantData.subscription;
+          const raw = subscriptionSnap.exists ? subscriptionSnap.data() || {} : {};
+          const subscription = {
+            planName: typeof raw.planName === 'string' ? raw.planName : null,
+            status: typeof raw.status === 'string' ? raw.status : 'unknown',
+            billingCycle: typeof raw.billingCycle === 'string' ? raw.billingCycle : null,
+            priceFcfa: Number.isSafeInteger(raw.priceFcfa) ? raw.priceFcfa : null,
+            startsAt: Number.isFinite(raw.startsAt) ? raw.startsAt : null,
+            endsAt: Number.isFinite(raw.endsAt) ? raw.endsAt : null
+          };
           return {
             slug: d.id,
-            ...publicRestaurantData,
-            subscription: subscriptionSnap.exists ? subscriptionSnap.data() : undefined
+            name: typeof data.name === 'string' ? data.name : '',
+            status: typeof data.status === 'string' ? data.status : 'unknown',
+            isOpen: data.isOpen === true,
+            createdAt: Number.isFinite(data.createdAt) ? data.createdAt : null,
+            city: typeof data.city === 'string' ? data.city : '',
+            country: typeof data.country === 'string' ? data.country : '',
+            currency: typeof data.currency === 'string' ? data.currency : 'FCFA',
+            subscription
           };
         }));
-        return json(res, 200, { success: true, restaurants, total: restaurants.length });
+        const summary = {
+          totalRestaurants: restaurants.length,
+          activeRestaurants: restaurants.filter((r: any) => r.status === 'active').length,
+          suspendedRestaurants: restaurants.filter((r: any) => r.status === 'suspended').length,
+          deletedRestaurants: restaurants.filter((r: any) => r.status === 'deleted').length,
+          openRestaurants: restaurants.filter((r: any) => r.isOpen && r.status === 'active').length,
+          subscriptionsByStatus: restaurants.reduce((acc: Record<string, number>, r: any) => {
+            const key = r.subscription.status || 'unknown'; acc[key] = (acc[key] || 0) + 1; return acc;
+          }, {}),
+          subscriptionsByPlan: restaurants.reduce((acc: Record<string, number>, r: any) => {
+            const key = r.subscription.planName || 'unassigned'; acc[key] = (acc[key] || 0) + 1; return acc;
+          }, {}),
+          recurringRevenueFcfa: restaurants.reduce((sum: number, r: any) =>
+            r.status === 'active' && r.subscription.status === 'active'
+              ? sum + Number(r.subscription.priceFcfa || 0) : sum, 0)
+        };
+        return json(res, 200, { success: true, restaurants, total: restaurants.length, summary });
       }
 
       if (action === 'create_restaurant') {
