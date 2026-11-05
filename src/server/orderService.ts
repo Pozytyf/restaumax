@@ -88,6 +88,7 @@ export interface ExecuteOrderTransactionParams {
   signature: string;
   orderToCreate: RestauOrder;
   tableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string };
+  staffTableId?: string;
 }
 
 export interface ExecuteOrderTransactionResult {
@@ -277,6 +278,7 @@ export async function processOrderSubmission(
 
   // 7. Validation obligatoire des tables réelles pour les commandes sur place
   let cleanTableNumber: string | null = null;
+  let validatedTableId: string | undefined;
   if (orderMode === 'sur_place') {
     if (!tableNumber || typeof tableNumber !== 'string' || !tableNumber.trim()) {
       return { success: false, error: "Le numéro de table est obligatoire pour une commande sur place." };
@@ -317,6 +319,7 @@ export async function processOrderSubmission(
         error: `La table "${cleanTableNumber}" est actuellement inactive ou fermée.` 
       };
     }
+    validatedTableId = matched.id;
   }
 
   // 8. Validation stricte du catalogue et de chaque ligne
@@ -505,7 +508,8 @@ export async function processOrderSubmission(
         orderId,
         signature: currentSignature,
         orderToCreate: confirmedOrder,
-        tableSession
+        tableSession,
+        staffTableId: validatedTableId
       });
       return txResult;
     } catch (err: any) {
