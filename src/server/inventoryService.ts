@@ -149,7 +149,11 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
         if (!authz.ok) return { success: false, error: authz.error };
         const itemSnap = await tx.get(itemRef);
         if (!itemSnap.exists) return { success: false, error: 'Article de stock introuvable.' };
-        if (itemSnap.data().active === false) return { success: true, idempotentReplay: true };
+        const item = itemSnap.data();
+        if (item.active === false) return { success: true, idempotentReplay: true };
+        if (Number(item.quantity || 0) !== 0) {
+          return { success: false, error: 'Impossible d’archiver un article avec un stock restant. Enregistrez d’abord une sortie ou un inventaire.' };
+        }
         tx.update(itemRef, { active: false, archivedAt: Date.now(), archivedBy: uid, updatedAt: Date.now() });
         return { success: true, idempotentReplay: false };
       });
