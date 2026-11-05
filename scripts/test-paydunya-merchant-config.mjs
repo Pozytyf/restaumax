@@ -51,8 +51,24 @@ if (alpha.success) {
 }
 const beta = await loadRestaurantPayDunyaConfig(db, 'beta', env);
 assert.equal(beta.success, false);
+
+// Existing live transactions must remain reconcilable after the merchant is
+// disabled or new live operations are globally paused. This mode is settlement-only.
+const liveCredentials = { ...credentials, mode: 'live' };
+const liveEncrypted = encryptRestaurantPayDunyaCredentials(liveCredentials, env);
+docs.live = { enabled: false, credentials: liveEncrypted };
+const liveBlocked = await loadRestaurantPayDunyaConfig(db, 'live', env);
+assert.equal(liveBlocked.success, false);
+const liveSettlement = await loadRestaurantPayDunyaConfig(db, 'live', env, true);
+assert.equal(liveSettlement.success, true);
+if (liveSettlement.success) {
+  assert.equal(liveSettlement.data.mode, 'live');
+  assert.match(liveSettlement.data.createInvoiceUrl, /api\/v1/);
+  assert.doesNotMatch(liveSettlement.data.createInvoiceUrl, /sandbox-api/);
+}
+
 const missing = await loadRestaurantPayDunyaConfig(db, 'gamma', env);
 assert.equal(missing.success, false);
 const invalidSlug = await loadRestaurantPayDunyaConfig(db, '../alpha', env);
 assert.equal(invalidSlug.success, false);
-console.log('PayDunya merchant isolation: 12 assertions passed.');
+console.log('PayDunya merchant isolation and settlement-only access: 17 assertions passed.');
