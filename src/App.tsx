@@ -486,9 +486,15 @@ export default function App() {
     return () => unsubAuth();
   }, []);
 
-  // Subscribe to Tables only after the authenticated restaurant membership is verified.
+  // Subscribe to tables only for members with the explicit tables.view permission.
   useEffect(() => {
-    if (!isAuthorizedManager) return;
+    const canViewTables = !!authUser && (
+      isRestaurantOwner || userPermissions.includes('tables.view')
+    );
+    if (!canViewTables) {
+      setRestauTables([]);
+      return;
+    }
 
     let isMounted = true;
     const unsubTables = subscribeToTables(activeRestaurantSlug, (tbls) => {
@@ -501,7 +507,7 @@ export default function App() {
       isMounted = false;
       unsubTables();
     };
-  }, [isAuthorizedManager, activeRestaurantSlug]);
+  }, [authUser, isRestaurantOwner, userPermissions, activeRestaurantSlug]);
 
   // Subscribe to the active restaurant's orders for KDS and unpaid POS recovery.
   useEffect(() => {
@@ -1509,12 +1515,22 @@ export default function App() {
             <p className="text-xs font-bold text-slate-700">Vérification de la session sécurisée...</p>
             <p className="text-[11px] text-slate-400 mt-1">Connexion sécurisée au Centre de Gestion RestauMax</p>
           </div>
+        ) : (authUser && authIsSuperAdmin) ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-[#f4f7fb] p-8 text-center">
+            <p className="text-sm font-bold text-slate-800">Le super-administrateur n’a pas accès aux opérations d’un restaurant.</p>
+            <button onClick={() => navigateTo('/admin')} className="rounded-xl bg-[#101d2d] px-5 py-3 text-sm font-bold text-white">Accéder à l’administration plateforme</button>
+          </div>
         ) : (!authUser || !isAuthorizedManager) ? (
           <ManagerLoginView
             onLogin={handleManagerLogin}
             onBackToMenu={() => navigateTo('/')}
             restaurantName={restaurant.name}
           />
+        ) : !(isRestaurantOwner || authRestaurantRole === 'manager') ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-[#f4f7fb] p-8 text-center">
+            <p className="text-sm font-bold text-slate-800">Votre rôle ne permet pas d’accéder au Centre de Gestion.</p>
+            <button onClick={() => navigateTo('/staff')} className="rounded-xl bg-[#101d2d] px-5 py-3 text-sm font-bold text-white">Ouvrir mon espace de travail</button>
+          </div>
         ) : (
           <RestaurantHubView
             restaurant={restaurant}
