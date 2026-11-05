@@ -1062,6 +1062,17 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       (member.role === 'cashier' && Array.isArray(member.permissions) &&
         (member.permissions.includes('cash.view') || member.permissions.includes('cash.manage') || member.permissions.includes('reports.cash.view')));
 
+    if (method === 'GET' && String(req.query?.action || '') === 'paydunya_account_status') {
+      if (!isOwner) return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire vérifié peut consulter la configuration du compte marchand.' } };
+      const merchantSnap = await restaurantRef.collection('_private').doc('paydunya').get();
+      const merchantData = merchantSnap.exists ? merchantSnap.data() : null;
+      return { statusCode: 200, body: {
+        success: true,
+        connected: Boolean(merchantData?.enabled === true && merchantData?.credentials),
+        mode: merchantData?.enabled === true ? String(merchantData?.mode || 'test') : null
+      } };
+    }
+
     if (method === 'GET') {
       if (!canViewCash) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les encaissements.' } };
       if (String(req.query?.action || '') === 'session_status') {
