@@ -981,7 +981,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         channel,
         callbackUrl: `${parsedAppOrigin.origin}/api/payments/paydunya-callback`,
         returnUrl: `${parsedAppOrigin.origin}/payments/return?restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
-        cancelUrl: `${parsedAppOrigin.origin}/payments/cancel`
+        cancelUrl: `${parsedAppOrigin.origin}/payments/return?cancelled=1&restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`
       });
       if (result.success) return { statusCode: 200, body: result };
       return { statusCode: result.conflict ? 409 : 400, body: result };
