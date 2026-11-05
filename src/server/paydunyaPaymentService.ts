@@ -108,9 +108,21 @@ export async function startPayDunyaOrderPaymentWithDb(
   const orderRef = restaurantRef.collection('orders').doc(orderId);
   const intentRef = restaurantRef.collection('paymentIntents').doc(intentId);
   const reservation = await db.runTransaction(async (tx: any) => {
-    const [restaurantSnap, memberSnap, orderSnap, intentSnap] = await Promise.all([
+    const reads: Promise<any>[] = [
       tx.get(restaurantRef), tx.get(memberRef), tx.get(orderRef), tx.get(intentRef)
-    ]);
+    ];
+    if (input.customerTableSession) {
+      reads.push(
+        tx.get(restaurantRef.collection('table_sessions').doc(input.customerTableSession.sessionHash)),
+        tx.get(restaurantRef.collection('table_qr_tokens').doc(input.customerTableSession.qrTokenHash)),
+        tx.get(restaurantRef.collection('tables').doc(input.customerTableSession.tableId))
+      );
+    }
+    const snapshots = await Promise.all(reads);
+    const restaurantSnap = snapshots[0];
+    const memberSnap = snapshots[1];
+    const orderSnap = snapshots[2];
+    const intentSnap = snapshots[3];
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
     const order = orderSnap.exists ? orderSnap.data() : null;
@@ -124,10 +136,29 @@ export async function startPayDunyaOrderPaymentWithDb(
     if (input.customerTableSession) {
       const session = input.customerTableSession;
       const binding = asObject(order.tableSession);
-      if (order.orderMode !== 'sur_place' || String(order.tableNumber || '') !== session.tableNumber ||
+      const sessionData = snapshots[4]?.exists ? snapshots[4].data() : null;
+      const qrData = snapshots[5]?.exists ? snapshots[5].data() : null;
+      const tableData = snapshots[6]?.exists ? snapshots[6].data() : null;
+      const now = Date.now();
+      const activeSession = Boolean(
+        sessionData && sessionData.status === 'active' && Number(sessionData.expiresAt) > now &&
+        sessionData.restaurantSlug === slug && sessionData.sessionHash === session.sessionHash &&
+        sessionData.qrTokenHash === session.qrTokenHash && sessionData.tableId === session.tableId &&
+        Number(sessionData.qrVersion) === Number(session.qrVersion) &&
+        qrData && qrData.status === 'active' && qrData.tokenHash === session.qrTokenHash &&
+        qrData.restaurantSlug === slug && qrData.tableId === session.tableId &&
+        Number(qrData.version) === Number(session.qrVersion) &&
+        tableData && tableData.isActive === true &&
+        Number(tableData.qrVersion || 0) === Number(session.qrVersion) &&
+        String(tableData.tableNumber || '') === session.tableNumber &&
+        Number(sessionData.restaurantSessionVersion || 0) === Number(restaurant.tableSessionVersion || 0) &&
+        restaurant.isOpen !== false
+      );
+      if (!activeSession || order.orderMode !== 'sur_place' ||
+          String(order.tableNumber || '') !== session.tableNumber ||
           binding.sessionHash !== session.sessionHash || binding.qrTokenHash !== session.qrTokenHash ||
           Number(binding.qrVersion) !== Number(session.qrVersion) || binding.tableId !== session.tableId) {
-        return { ok: false, error: 'La commande ne correspond pas à la session QR de cette table.' };
+        return { ok: false, error: 'La commande ne correspond plus à une session QR active de cette table.' };
       }
       actorRole = 'customer';
     } else {
