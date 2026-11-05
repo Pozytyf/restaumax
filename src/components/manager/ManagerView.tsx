@@ -310,18 +310,18 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         </div>
       </div>
 
-      {/* Clôture Z Modal */}
+      {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
       {showZReportModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-2xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-150">
             <div className="bg-[#101d2d] text-white p-5 flex items-start justify-between">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
-                  Rapport Officiel
+                  Aperçu non officiel
                 </span>
-                <h3 className="text-lg font-black mt-0.5">Clôture de Caisse Journalière (Z)</h3>
+                <h3 className="text-lg font-black mt-0.5">Rapport des encaissements</h3>
                 <p className="text-xs text-slate-300">
-                  Date: {new Date().toLocaleDateString('fr-FR')} · Arrêté définitif du shift
+                  Date: {new Date().toLocaleDateString('fr-FR')} · Journal des paiements enregistrés
                 </p>
               </div>
               <button
@@ -351,14 +351,14 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <span className="tnum">{formatFCFA(drawerState.cardSales)}</span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-slate-300 font-bold text-slate-900">
-                  <span>ESPÈCES EN TIROIR:</span>
+                  <span>ENCAISSEMENTS ESPÈCES:</span>
                   <span className="tnum">{formatFCFA(drawerState.currentCash)}</span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 font-sans font-medium">
                 <CheckCircle size={18} className="text-emerald-600 shrink-0" />
-                <span>Tous les bordereaux et télécommandes sont synchronisés.</span>
+                <span>Aperçu indicatif uniquement : le fond d’ouverture, les dépenses, les sessions de caisse et le rapprochement physique ne sont pas encore enregistrés.</span>
               </div>
 
               <div className="pt-2 flex items-center gap-2 font-sans">
@@ -369,13 +369,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   }}
                   className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors"
                 >
-                  Imprimer Rapport Z
+                  Imprimer l’aperçu
                 </button>
                 <button
                   onClick={() => setShowZReportModal(false)}
                   className="flex-1 py-2.5 bg-[#ff6500] hover:bg-[#e05800] text-white font-bold text-xs rounded-xl shadow-sm transition-colors"
                 >
-                  Valider la Clôture
+                  Fermer l’aperçu
                 </button>
               </div>
             </div>
