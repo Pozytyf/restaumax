@@ -742,6 +742,34 @@ export async function createPayDunyaPaymentWithServerValidation(
   }
 }
 
+export async function reconcilePayDunyaPaymentWithServerValidation(
+  restaurantSlug: string,
+  paymentIntentId: string
+): Promise<{ success: true; status: string; paymentId?: string; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ action: 'reconcile_paydunya_payment', restaurantSlug, paymentIntentId })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'Le statut PayDunya ne peut pas être vérifié.' };
+    }
+    return { success: true, status: String(data.status || 'pending'),
+      paymentId: data.paymentId ? String(data.paymentId) : undefined,
+      idempotentReplay: data.idempotentReplay === true };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau pendant le rapprochement PayDunya.' };
+  }
+}
+
 export async function refundPayDunyaPaymentWithServerValidation(
   restaurantSlug: string,
   paymentId: string,
