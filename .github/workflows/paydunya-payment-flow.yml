@@ -36,5 +36,7 @@ jobs:
         run: npm run lint
       - name: PayDunya service and lifecycle tests
         run: npm run test:paydunya
+      - name: Merchant credential isolation
+        run: npx tsx scripts/test-paydunya-merchant-config.mjs
       - name: Production build
         run: npm run build
