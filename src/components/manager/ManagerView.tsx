@@ -290,7 +290,12 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right font-black text-[#ff6500] tnum">
-                        {formatFCFA(tx.paidAmount)}
+                        <div>{formatFCFA(tx.paidAmount)}</div>
+                        {tx.paymentStatus === 'partial' && (
+                          <div className="text-[10px] font-semibold text-amber-700 mt-0.5">
+                            Partiel · reste {formatFCFA(tx.remainingAmount || 0)}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <button
