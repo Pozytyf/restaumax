@@ -443,6 +443,11 @@ export async function refundCashPaymentWithDb(db: any, input: CashRefundInput): 
     if (movementSnap.exists) {
       return { success: false, conflict: true, error: 'Un mouvement de caisse existe déjà pour ce remboursement.' };
     }
+    const availableCash = Number(session.openingBalance || 0) +
+      Number(session.cashCollected || 0) - Number(session.cashOut || 0);
+    if (!Number.isSafeInteger(availableCash) || amount > availableCash) {
+      return { success: false, error: 'Le tiroir ne dispose pas d’un solde suffisant pour effectuer ce remboursement.' };
+    }
 
     const paidAmount = Number(payment.paidAmount);
     const refundedAmount = Number(payment.refundedAmount || 0);
