@@ -2,7 +2,7 @@ import React from 'react';
 import { PaymentRecord } from '../../types/pos';
 import type { RestaurantInfo } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
-import { Printer, CheckCircle, X } from 'lucide-react';
+import { Printer, CheckCircle, X, Share2 } from 'lucide-react';
 
 interface ReceiptModalProps {
   receipt: PaymentRecord | null;
@@ -15,6 +15,35 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleShare = async () => {
+    const guestLabel = receipt.guestName
+      ? `Convive : ${receipt.guestName} (${receipt.guestNumber || 1}/${receipt.splitGuests || 1})`
+      : '';
+    const shareAmount = receipt.guestShareAmount ?? receipt.total;
+    const guestRemaining = receipt.guestRemainingAfter ?? receipt.remainingAmount ?? 0;
+    const message = [
+      restaurant?.name || 'RestauMax',
+      `Ticket : ${receipt.orderId}`,
+      receipt.tableNumber,
+      guestLabel,
+      `Part à régler : ${formatFCFA(shareAmount)}`,
+      `Payé : ${formatFCFA(receipt.paidAmount)}`,
+      `Reste : ${formatFCFA(guestRemaining)}`
+    ].filter(Boolean).join('\n');
+    try {
+      if (typeof navigator.share === 'function') {
+        await navigator.share({ title: 'Reçu de paiement RestauMax', text: message });
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(message);
+        window.alert('Résumé du reçu copié. Vous pouvez le partager.');
+      } else {
+        window.alert('Le partage n’est pas disponible sur ce navigateur.');
+      }
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') window.alert('Impossible de partager le reçu depuis ce navigateur.');
+    }
   };
 
   const getMethodLabel = (m: string) => {
@@ -82,6 +111,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
               <span>SERVEUR:</span>
               <span>{receipt.waiter}</span>
             </div>
+            {receipt.guestName && (
+              <div className="flex justify-between">
+                <span>CONVIVE:</span>
+                <span className="font-bold">{receipt.guestName} ({receipt.guestNumber || 1}/{receipt.splitGuests || 1})</span>
+              </div>
+            )}
           </div>
 
           {/* Line Items */}
@@ -117,6 +152,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
               <span>TOTAL NET:</span>
               <span className="tnum">{formatFCFA(receipt.total)}</span>
             </div>
+            {receipt.guestName && receipt.guestShareAmount !== undefined && (
+              <div className="flex justify-between font-black text-violet-800">
+                <span>PART INDIVIDUELLE:</span>
+                <span className="tnum">{formatFCFA(receipt.guestShareAmount)}</span>
+              </div>
+            )}
           </div>
 
           {/* Tender Details */}
@@ -149,12 +190,17 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
                 <span className="tnum">{formatFCFA(receipt.changeAmount)}</span>
               </div>
             )}
-            {receipt.remainingAmount !== undefined && receipt.remainingAmount > 0 && (
+            {receipt.guestName && receipt.guestRemainingAfter !== undefined && receipt.guestRemainingAfter > 0 ? (
+              <div className="flex justify-between font-bold text-amber-700">
+                <span>RESTE DE SA PART:</span>
+                <span className="tnum">{formatFCFA(receipt.guestRemainingAfter)}</span>
+              </div>
+            ) : !receipt.guestName && receipt.remainingAmount !== undefined && receipt.remainingAmount > 0 ? (
               <div className="flex justify-between font-bold text-amber-700">
                 <span>RESTE À PAYER:</span>
                 <span className="tnum">{formatFCFA(receipt.remainingAmount)}</span>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Footer Note */}
@@ -173,7 +219,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
         </div>
 
         {/* Action Buttons */}
-        <div className="p-4 bg-slate-50 flex items-center gap-3">
+        <div className="p-4 bg-slate-50 flex items-center gap-2">
+          <button
+            onClick={handleShare}
+            className="flex-1 py-2.5 px-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs font-bold rounded-lg shadow-2xs flex items-center justify-center gap-1.5 transition-colors"
+          >
+            <Share2 size={15} />
+            Partager
+          </button>
           <button
             onClick={handlePrint}
             className="flex-1 py-2.5 px-3 bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs font-bold rounded-lg shadow-2xs flex items-center justify-center gap-1.5 transition-colors"
