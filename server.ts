@@ -47,7 +47,8 @@ import {
   IdempotencyReservationResult
 } from './src/server/orderService.js';
 import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
-import { getPayDunyaConfig, getPayDunyaDisbursementConfig, type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
+import { type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
+import { loadRestaurantPayDunyaConfig, saveRestaurantPayDunyaCredentials } from './src/server/paydunyaMerchantConfig.js';
 import { startPayDunyaOrderPaymentWithDb, processPayDunyaInvoiceCallbackWithDb, startPayDunyaRefundWithDb, processPayDunyaDisbursementCallbackWithDb, reconcilePayDunyaInvoiceIntentWithDb } from './src/server/paydunyaPaymentService.js';
 import {
   authorizeTableManager,
@@ -891,7 +892,7 @@ export async function handleCustomerPayDunyaInvoiceRequest(payload: unknown, req
     if (slug !== session.restaurantSlug) {
       return { statusCode: 403, body: { success: false, error: 'La session QR ne correspond pas à ce restaurant.' } };
     }
-    const config = getPayDunyaConfig(process.env);
+    const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
     if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
     const requestOrigin = String(req?.headers?.origin || '').replace(/\/$/, '');
       const appOrigin = String(process.env.APP_ORIGIN || requestOrigin).replace(/\/$/, '');
@@ -910,7 +911,7 @@ export async function handleCustomerPayDunyaInvoiceRequest(payload: unknown, req
       sessionVersion: Number(session.qrVersion || 0),
       idempotencyKey: String(input.idempotencyKey || ''),
       channel: String(input.channel || '') as PayDunyaCiWithdrawMode,
-      callbackUrl: `${parsedOrigin.origin}/api/payments/paydunya-callback`,
+      callbackUrl: `${parsedOrigin.origin}/api/payments/paydunya-callback?restaurantSlug=${encodeURIComponent(slug)}`,
       returnUrl: `${parsedOrigin.origin}/payments/return?restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
       cancelUrl: `${parsedOrigin.origin}/payments/return?cancelled=1&restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
       customerTableSession: {
@@ -1004,7 +1005,9 @@ export async function handlePayDunyaDisbursementCallbackRequest(payload: unknown
     return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
   }
   if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
-  const config = getPayDunyaDisbursementConfig(process.env);
+  const callbackSlug = String(req?.query?.restaurantSlug || '');
+  const merchantConfig = await loadRestaurantPayDunyaConfig(adminDb, callbackSlug, process.env);
+  const config = merchantConfig.success ? { success: true as const, data: { ...merchantConfig.data, pushEnabled: merchantConfig.data.mode === 'live' && process.env.PAYDUNYA_LIVE_ENABLED === 'true' && process.env.PAYDUNYA_PUSH_ENABLED === 'true' } } : merchantConfig;
   if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
   try {
     const result = await processPayDunyaDisbursementCallbackWithDb(adminDb, config.data, payload);
@@ -1104,7 +1107,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         sessionVersion: Number(decoded.sessionVersion || 0),
         idempotencyKey: String(input.idempotencyKey || ''),
         channel,
-        callbackUrl: `${parsedAppOrigin.origin}/api/payments/paydunya-callback`,
+        callbackUrl: `${parsedAppOrigin.origin}/api/payments/paydunya-callback?restaurantSlug=${encodeURIComponent(slug)}`,
         returnUrl: `${parsedAppOrigin.origin}/payments/return?restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
         cancelUrl: `${parsedAppOrigin.origin}/payments/return?cancelled=1&restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`
       });
@@ -1117,7 +1120,8 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         (member.role === 'cashier' && Array.isArray(member.permissions) &&
           member.permissions.includes('payments.refund'));
       if (!canRefund) return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };
-      const payoutConfig = getPayDunyaDisbursementConfig(process.env);
+      const merchantConfig = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
+      const payoutConfig = merchantConfig.success ? { success: true as const, data: { ...merchantConfig.data, pushEnabled: merchantConfig.data.mode === 'live' && process.env.PAYDUNYA_LIVE_ENABLED === 'true' && process.env.PAYDUNYA_PUSH_ENABLED === 'true' } } : merchantConfig;
       if (!payoutConfig.success) return { statusCode: 503, body: { success: false, error: payoutConfig.error } };
       const requestOrigin = String(req?.headers?.origin || '').replace(/\/$/, '');
       const appOrigin = String(process.env.APP_ORIGIN || requestOrigin).replace(/\/$/, '');
@@ -1137,7 +1141,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         amount: input.amount,
         reason: String(input.reason || ''),
         idempotencyKey: String(input.idempotencyKey || ''),
-        callbackUrl: `${parsedOrigin.origin}/api/payments/paydunya-disbursement-callback`
+        callbackUrl: `${parsedOrigin.origin}/api/payments/paydunya-disbursement-callback?restaurantSlug=${encodeURIComponent(slug)}`
       });
       if (result.success) return { statusCode: 200, body: result };
       return { statusCode: result.conflict ? 409 : 400, body: result };
