@@ -560,7 +560,13 @@ export async function startPayDunyaRefundWithDb(
   const submitted = await submitPayDunyaDisbursement(config, created.data.token, refundId, fetchImpl);
   // Even a non-00/ambiguous submit response must be reconciled using the same token
   // before deciding whether another submit is safe.
-  const status = await checkPayDunyaDisbursementStatus(config, created.data.token, fetchImpl);
+  let status = await checkPayDunyaDisbursementStatus(config, created.data.token, fetchImpl);
+  // PayDunya explicitly permits resubmitting the SAME token only when its
+  // check-status endpoint still says "created". This is not a new payout.
+  if (status.success && status.data.status === 'created') {
+    await submitPayDunyaDisbursement(config, created.data.token, refundId, fetchImpl);
+    status = await checkPayDunyaDisbursementStatus(config, created.data.token, fetchImpl);
+  }
   if (!status.success) {
     await refundRef.update({
       status: 'pending_verification',
