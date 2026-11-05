@@ -167,7 +167,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                   Total Commande
                 </span>
                 <span className="text-[10px] text-slate-400">
-                  TVA et service inclus · Règlement au serveur ou en caisse
+                  TVA et service inclus · Mobile Money sur QR table, serveur ou caisse
                 </span>
               </div>
               <span className="text-lg sm:text-xl font-black text-[#ff6500] tnum">
