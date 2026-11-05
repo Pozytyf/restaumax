@@ -50,7 +50,23 @@ assert.equal(first.success, true);
 assert.equal(first.completed, true);
 assert.equal(first.idempotentReplay, false);
 assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemCompletion['0'], true);
+assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount, 1, 'completed line count is updated transactionally');
 
+const secondLine = await updateKitchenItemCompletionWithDb(db, {
+  ...params, itemId: 'ki-order-1-1', itemIndex: 1
+});
+assert.equal(secondLine.success, true);
+assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount, 2,
+  'count reaches the total number of completed lines');
+const uncheckFirstLine = await updateKitchenItemCompletionWithDb(db, {
+  ...params, completed: false
+});
+assert.equal(uncheckFirstLine.success, true);
+assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount, 1,
+  'unchecking a line decrements the completed count');
+const recheckFirstLine = await updateKitchenItemCompletionWithDb(db, params);
+assert.equal(recheckFirstLine.success, true);
+assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount, 2);
 const replay = await updateKitchenItemCompletionWithDb(db, params);
 assert.equal(replay.success, true);
 assert.equal(replay.idempotentReplay, true);
@@ -117,10 +133,12 @@ const apiSource = fs.readFileSync(new URL('../api/kitchen-item.ts', import.meta.
 const firebaseSource = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const kdsView = fs.readFileSync(new URL('../src/components/kds/KdsView.tsx', import.meta.url), 'utf8');
+const rulesSource = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 assert(serverSource.includes("app.post('/api/kitchen-item'"), 'Local Express exposes the KDS item endpoint');
 assert(apiSource.includes('handleKitchenItemRequest(req.body, req)'), 'Vercel API exposes the KDS item endpoint');
 assert(firebaseSource.includes("fetch('/api/kitchen-item'"), 'Client persists KDS progress through the trusted API');
 assert(appSource.includes('updateKitchenItemCompletionWithServerValidation('), 'KDS UI uses the trusted persistence helper');
 assert(appSource.includes("completed: order.kitchenItemCompletion?.[String(idx)] === true"), 'Firestore KDS progress is restored when tickets resubscribe');
 assert(kdsView.includes("if (ticket.status !== 'in_prep') return;"), 'KDS item progress is locked after the ticket is ready');
+assert(rulesSource.includes("existing().get('kitchenItemsCompletedCount', 0) == existing().items.size()"), 'Firestore blocks ready transitions until every order line is completed');
 console.log('KDS item progress service and API: 14 assertions validées.');
