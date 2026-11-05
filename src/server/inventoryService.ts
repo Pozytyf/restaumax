@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto';
 
 export interface InventoryRequestParams {
-  action: 'create' | 'move' | 'update' | 'archive';
+  action: 'create' | 'move' | 'update' | 'save_recipe' | 'archive';
   restaurantSlug: string;
   actorUid: string;
   sessionVersion: number;
   idempotencyKey?: string;
   itemId?: string;
+  menuItemId?: string;
+  recipeLines?: Array<{ inventoryItemId: string; quantityPerDish: number }>;
   name?: string;
   unit?: string;
   quantity?: number;
@@ -174,6 +176,67 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
           supplier, updatedAt: Date.now()
         });
         return { success: true, idempotentReplay: false };
+      });
+    }
+
+    if (params.action === 'save_recipe') {
+      const menuItemId = String(params.menuItemId || '');
+      const recipeLines = params.recipeLines;
+      if (!/^[a-zA-Z0-9_-]{1,160}$/.test(menuItemId) ||
+          !Array.isArray(recipeLines) || recipeLines.length < 1 || recipeLines.length > 30) {
+        return { success: false, error: 'Fiche recette invalide : sélectionnez un plat et au moins un ingrédient.' };
+      }
+      const seenInventoryIds = new Set<string>();
+      for (const line of recipeLines) {
+        const inventoryItemId = String(line?.inventoryItemId || '');
+        const quantity = line?.quantityPerDish;
+        if (!/^[a-zA-Z0-9_-]{1,160}$/.test(inventoryItemId) ||
+            seenInventoryIds.has(inventoryItemId) ||
+            typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0 || quantity > 1000 ||
+            Math.round(quantity * 1000) !== quantity * 1000) {
+          return { success: false, error: 'Chaque ingrédient doit être unique et avoir une quantité positive (maximum 3 décimales).' };
+        }
+        seenInventoryIds.add(inventoryItemId);
+      }
+
+      const restaurantRef = db.collection('restaurants').doc(slug);
+      const menuItemRef = restaurantRef.collection('menuItems').doc(menuItemId);
+      const recipeRef = restaurantRef.collection('menuRecipes').doc(menuItemId);
+      const inventoryRefs = recipeLines.map(line =>
+        restaurantRef.collection('inventoryItems').doc(String(line.inventoryItemId))
+      );
+      return await db.runTransaction(async (tx: any) => {
+        const authz = await authorizeInventoryTransaction(tx, db, slug, uid, params.sessionVersion);
+        if (!authz.ok) return { success: false, error: authz.error };
+        const [menuItemSnap, ...inventorySnaps] = await Promise.all([
+          tx.get(menuItemRef),
+          ...inventoryRefs.map((ref: any) => tx.get(ref))
+        ]);
+        if (!menuItemSnap.exists || menuItemSnap.data().restaurantSlug !== slug) {
+          return { success: false, error: 'Plat introuvable dans le catalogue de ce restaurant.' };
+        }
+        const resolvedLines = recipeLines.map((line, index) => {
+          const snap = inventorySnaps[index];
+          if (!snap?.exists || snap.data().active === false) {
+            throw new Error('Un ingrédient est introuvable ou archivé.');
+          }
+          const item = snap.data();
+          return {
+            inventoryItemId: String(line.inventoryItemId),
+            itemName: String(item.name || ''),
+            unit: String(item.unit || ''),
+            quantityPerDish: Number(line.quantityPerDish)
+          };
+        });
+        const now = Date.now();
+        tx.set(recipeRef, {
+          menuItemId,
+          menuItemName: String(menuItemSnap.data().name || ''),
+          lines: resolvedLines,
+          updatedAt: now,
+          updatedBy: uid
+        });
+        return { success: true, menuItemId, lineCount: resolvedLines.length, idempotentReplay: false };
       });
     }
 
