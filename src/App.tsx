@@ -26,6 +26,7 @@ import {
   getCashSessionWithServerValidation,
   openCashSessionWithServerValidation,
   closeCashSessionWithServerValidation,
+  recordCashMovementWithServerValidation,
   type CashSessionApiRecord,
   subscribeToOrders,
   updateOrderStatus,
@@ -212,6 +213,10 @@ export default function App() {
   const [cashSession, setCashSession] = useState<CashSessionApiRecord | null>(null);
   const [cashSessionLoading, setCashSessionLoading] = useState(false);
   const [cashSessionActionLoading, setCashSessionActionLoading] = useState(false);
+  const [cashMovementActionLoading, setCashMovementActionLoading] = useState(false);
+  const [cashSessionOpenIdempotencyKey, setCashSessionOpenIdempotencyKey] = useState(() => generateClientOrderIdempotencyKey());
+  const [cashSessionCloseIdempotencyKey, setCashSessionCloseIdempotencyKey] = useState(() => generateClientOrderIdempotencyKey());
+  const [cashMovementIdempotencyKey, setCashMovementIdempotencyKey] = useState(() => generateClientOrderIdempotencyKey());
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isSubmittingPosOrder, setIsSubmittingPosOrder] = useState(false);
@@ -494,7 +499,7 @@ export default function App() {
         setDrawerState((previous) => ({
           ...previous,
           openingBalance: Number(result.session?.openingBalance || 0),
-          currentCash: Number(result.session?.openingBalance || 0) + Number(result.session?.cashCollected || 0)
+          currentCash: Number(result.session?.openingBalance || 0) + Number(result.session?.cashCollected || 0) - Number(result.session?.cashOut || 0)
         }));
       } else {
         setCashSession(null);
@@ -933,7 +938,7 @@ export default function App() {
     setCashSessionActionLoading(true);
     try {
       const result = await openCashSessionWithServerValidation(
-        activeRestaurantSlug, openingBalance, generateClientOrderIdempotencyKey()
+        activeRestaurantSlug, openingBalance, cashSessionOpenIdempotencyKey
       );
       if (result.success === false) {
         window.alert(result.error || "Impossible d'ouvrir la session de caisse.");
@@ -944,6 +949,7 @@ export default function App() {
         return;
       }
       setCashSession(result.session);
+      setCashSessionOpenIdempotencyKey(generateClientOrderIdempotencyKey());
       setDrawerState((previous) => ({
         ...previous, openingBalance,
         currentCash: openingBalance + Number(result.session?.cashCollected || 0)
@@ -959,7 +965,7 @@ export default function App() {
     setCashSessionActionLoading(true);
     try {
       const result = await closeCashSessionWithServerValidation(
-        activeRestaurantSlug, closingCount, generateClientOrderIdempotencyKey()
+        activeRestaurantSlug, closingCount, cashSessionCloseIdempotencyKey
       );
       if (result.success === false) {
         window.alert(result.error || "Impossible de clôturer la session de caisse.");
@@ -970,6 +976,7 @@ export default function App() {
         return;
       }
       setCashSession(null);
+      setCashSessionCloseIdempotencyKey(generateClientOrderIdempotencyKey());
       setDrawerState((previous) => ({
         ...previous, openingBalance: 0, currentCash: 0
       }));
@@ -979,6 +986,40 @@ export default function App() {
       );
     } finally {
       setCashSessionActionLoading(false);
+    }
+  };
+
+  const handleRecordCashMovement = async (
+    movementType: 'expense' | 'withdrawal',
+    amount: number,
+    category: string,
+    note: string
+  ) => {
+    if (!canManageCash || cashMovementActionLoading || cashSession?.status !== 'active') return;
+    setCashMovementActionLoading(true);
+    try {
+      const result = await recordCashMovementWithServerValidation(
+        activeRestaurantSlug, movementType, amount, category, note, cashMovementIdempotencyKey
+      );
+      if (result.success === false) {
+        window.alert(result.error || "Impossible d'enregistrer la sortie de caisse.");
+        return;
+      }
+      if (!result.session) {
+        window.alert("La sortie a été enregistrée, mais le serveur n'a pas retourné la session mise à jour. Actualisez la page.");
+        return;
+      }
+      setCashSession(result.session);
+      setCashMovementIdempotencyKey(generateClientOrderIdempotencyKey());
+      setDrawerState((previous) => ({
+        ...previous,
+        openingBalance: Number(result.session?.openingBalance || 0),
+        currentCash: Number(result.session?.openingBalance || 0) +
+          Number(result.session?.cashCollected || 0) - Number(result.session?.cashOut || 0)
+      }));
+      window.alert("Sortie de caisse enregistrée et rattachée à la session active.");
+    } finally {
+      setCashMovementActionLoading(false);
     }
   };
 
@@ -1060,7 +1101,7 @@ export default function App() {
       const refreshedCashSession = refreshedSession.success === true ? refreshedSession.session : null;
       if (refreshedSession.success === true) setCashSession(refreshedCashSession);
       const refreshedCashTotal = refreshedCashSession
-        ? Number(refreshedCashSession.openingBalance || 0) + Number(refreshedCashSession.cashCollected || 0)
+        ? Number(refreshedCashSession.openingBalance || 0) + Number(refreshedCashSession.cashCollected || 0) - Number(refreshedCashSession.cashOut || 0)
         : null;
       sounds.playCashRegister();
       const updatedOrder = { ...order, ...paymentResult.order } as RestauOrder;
@@ -1442,9 +1483,11 @@ export default function App() {
                 cashSession={cashSession}
                 cashSessionLoading={cashSessionLoading}
                 cashSessionActionLoading={cashSessionActionLoading}
+                cashMovementActionLoading={cashMovementActionLoading}
                 canManageCash={canManageCash}
                 onOpenCashSession={handleOpenCashSession}
                 onCloseCashSession={handleCloseCashSession}
+                onRecordCashMovement={handleRecordCashMovement}
                 onViewReceipt={(receipt) => setActiveReceiptModal(receipt)}
               />
             )}

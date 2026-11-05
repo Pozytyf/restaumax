@@ -22,6 +22,8 @@ interface CashSessionSummary {
   openingBalance: number;
   cashCollected: number;
   paymentCount: number;
+  cashOut: number;
+  cashMovementCount: number;
   status: 'active' | 'closed';
   openedAt: number;
   expectedCash?: number;
@@ -34,9 +36,11 @@ interface ManagerViewProps {
   cashSession: CashSessionSummary | null;
   cashSessionLoading: boolean;
   cashSessionActionLoading: boolean;
+  cashMovementActionLoading: boolean;
   canManageCash: boolean;
   onOpenCashSession: (openingBalance: number) => Promise<void>;
   onCloseCashSession: (closingCount: number) => Promise<void>;
+  onRecordCashMovement: (movementType: 'expense' | 'withdrawal', amount: number, category: string, note: string) => Promise<void>;
   onViewReceipt: (receipt: PaymentRecord) => void;
 }
 
@@ -46,14 +50,20 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   cashSession,
   cashSessionLoading,
   cashSessionActionLoading,
+  cashMovementActionLoading,
   canManageCash,
   onOpenCashSession,
   onCloseCashSession,
+  onRecordCashMovement,
   onViewReceipt
 }) => {
   const [showZReportModal, setShowZReportModal] = useState(false);
   const [openingBalanceInput, setOpeningBalanceInput] = useState('0');
   const [closingCountInput, setClosingCountInput] = useState('');
+  const [movementAmountInput, setMovementAmountInput] = useState('');
+  const [movementTypeInput, setMovementTypeInput] = useState<'expense' | 'withdrawal'>('expense');
+  const [movementCategoryInput, setMovementCategoryInput] = useState('achats');
+  const [movementNoteInput, setMovementNoteInput] = useState('');
 
   const averageTicket = drawerState.transactionCount > 0 
     ? Math.round(drawerState.totalSales / drawerState.transactionCount) 
@@ -109,33 +119,85 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 </div>
                 <div className="rounded-xl bg-slate-50 p-4">
                   <p className="text-xs font-semibold text-slate-500">Espèces théoriques</p>
-                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.openingBalance + cashSession.cashCollected)}</p>
+                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.openingBalance + cashSession.cashCollected - cashSession.cashOut)}</p>
                 </div>
                 <div className="rounded-xl bg-slate-50 p-4">
                   <p className="text-xs font-semibold text-slate-500">Nombre d’encaissements</p>
                   <p className="mt-1 text-lg font-black">{cashSession.paymentCount}</p>
                 </div>
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-xs font-semibold text-slate-500">Sorties de caisse</p>
+                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.cashOut)}</p>
+                  <p className="text-[10px] text-slate-500">{cashSession.cashMovementCount} mouvement(s)</p>
+                </div>
               </div>
               {canManageCash ? (
-                <form onSubmit={(event) => {
-                  event.preventDefault();
-                  const amount = Number(closingCountInput);
-                  if (!Number.isSafeInteger(amount) || amount < 0) return;
-                  void onCloseCashSession(amount);
-                  setClosingCountInput('');
-                }} className="flex flex-col justify-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-                  <label className="text-sm font-bold text-slate-800">Comptage physique en caisse (FCFA)
-                    <input required type="number" min="0" max="100000000" step="1" value={closingCountInput}
-                      onChange={(event) => setClosingCountInput(event.target.value)}
-                      placeholder="Saisir le montant réellement compté"
-                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
-                  </label>
-                  <button type="submit" disabled={cashSessionActionLoading || closingCountInput === ''}
-                    className="rounded-lg bg-[#101d2d] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
-                    {cashSessionActionLoading ? 'Clôture en cours…' : 'Clôturer la session et rapprocher'}
-                  </button>
-                </form>
-              ) : <p className="self-center text-sm text-slate-500">Session active. La clôture est réservée au personnel autorisé à gérer la caisse.</p>}
+                <div className="space-y-3">
+                  <form onSubmit={(event) => {
+                    event.preventDefault();
+                    const amount = Number(movementAmountInput);
+                    if (!Number.isSafeInteger(amount) || amount < 1) return;
+                    void onRecordCashMovement(movementTypeInput, amount, movementCategoryInput, movementNoteInput);
+                    setMovementAmountInput('');
+                    setMovementNoteInput('');
+                  }} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800">Sortie de caisse</h3>
+                      <p className="mt-1 text-[11px] text-slate-500">Dépense ou retrait à déduire du solde théorique</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="text-xs font-bold text-slate-700">Type
+                        <select value={movementTypeInput} onChange={(event) => setMovementTypeInput(event.target.value as 'expense' | 'withdrawal')}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm">
+                          <option value="expense">Dépense</option>
+                          <option value="withdrawal">Retrait</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-bold text-slate-700">Catégorie
+                        <select value={movementCategoryInput} onChange={(event) => setMovementCategoryInput(event.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm">
+                          <option value="achats">Achats</option>
+                          <option value="transport">Transport</option>
+                          <option value="entretien">Entretien</option>
+                          <option value="autre">Autre</option>
+                        </select>
+                      </label>
+                    </div>
+                    <label className="text-xs font-bold text-slate-700">Montant (FCFA)
+                      <input required type="number" min="1" max="100000000" step="1" value={movementAmountInput}
+                        onChange={(event) => setMovementAmountInput(event.target.value)}
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
+                    </label>
+                    <label className="text-xs font-bold text-slate-700">Motif (facultatif)
+                      <input maxLength={200} value={movementNoteInput} onChange={(event) => setMovementNoteInput(event.target.value)}
+                        placeholder="Ex. achat de charbon"
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
+                    </label>
+                    <button type="submit" disabled={cashMovementActionLoading || movementAmountInput === ''}
+                      className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-800 disabled:opacity-50">
+                      {cashMovementActionLoading ? 'Enregistrement…' : 'Enregistrer la sortie'}
+                    </button>
+                  </form>
+                  <form onSubmit={(event) => {
+                    event.preventDefault();
+                    const amount = Number(closingCountInput);
+                    if (!Number.isSafeInteger(amount) || amount < 0) return;
+                    void onCloseCashSession(amount);
+                    setClosingCountInput('');
+                  }} className="flex flex-col justify-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+                    <label className="text-sm font-bold text-slate-800">Comptage physique en caisse (FCFA)
+                      <input required type="number" min="0" max="100000000" step="1" value={closingCountInput}
+                        onChange={(event) => setClosingCountInput(event.target.value)}
+                        placeholder="Saisir le montant réellement compté"
+                        className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
+                    </label>
+                    <button type="submit" disabled={cashSessionActionLoading || closingCountInput === ''}
+                      className="rounded-lg bg-[#101d2d] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
+                      {cashSessionActionLoading ? 'Clôture en cours…' : 'Clôturer la session et rapprocher'}
+                    </button>
+                  </form>
+                </div>
+              ) : <p className="self-center text-sm text-slate-500">Session active. La clôture et les sorties de caisse sont réservées au personnel autorisé.</p>}
             </div>
           ) : canManageCash ? (
             <form onSubmit={(event) => {
@@ -252,7 +314,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
             <div className="mt-5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 flex items-center gap-2">
               <ShieldCheck size={16} className="text-amber-600 shrink-0" />
-              <span>Solde théorique = fond d’ouverture + encaissements de la session. Les dépenses, sorties de caisse et remboursements ne sont pas encore intégrés.</span>
+              <span>Solde théorique = fond d’ouverture + encaissements - sorties enregistrées. Les remboursements restent à intégrer.</span>
             </div>
           </div>
 
@@ -460,7 +522,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
               <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 font-sans font-medium">
                 <CheckCircle size={18} className="text-emerald-600 shrink-0" />
-                <span>Aperçu indicatif : les sessions et comptages physiques sont enregistrés. Les dépenses, sorties, remboursements et le rapprochement comptable complet restent à intégrer.</span>
+                <span>Aperçu indicatif : les sessions, sorties de caisse et comptages physiques sont enregistrés. Les remboursements et le rapprochement comptable complet restent à intégrer.</span>
               </div>
 
               <div className="pt-2 flex items-center gap-2 font-sans">

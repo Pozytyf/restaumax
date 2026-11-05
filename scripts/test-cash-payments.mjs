@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, openCashSessionWithDb, closeCashSessionWithDb, getCashSessionWithDb } from '../src/server/paymentService.ts';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, openCashSessionWithDb, closeCashSessionWithDb, getCashSessionWithDb, recordCashMovementWithDb } from '../src/server/paymentService.ts';
 
 let passed = 0;
 let failed = 0;
@@ -145,27 +145,68 @@ async function run() {
     const recent = await listRecentCashPaymentsWithDb(db, slug, 100);
     assert(recent.length === 3, 'Le journal retourne les trois encaissements réellement persistés');
 
+    console.log('\n--- Sorties de caisse et rapprochement ---');
+    const overspend = await recordCashMovementWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, movementType: 'withdrawal', amount: 20000,
+      category: 'retrait', note: 'Retrait supérieur au disponible', idempotencyKey: 'cash-overspend-01'
+    });
+    assert(overspend.success === false, 'Une sortie supérieure au solde théorique disponible est refusée');
+    const expense = await recordCashMovementWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, movementType: 'expense', amount: 500,
+      category: 'achats', note: 'Achat de charbon', idempotencyKey: 'cash-expense-0001'
+    });
+    assert(expense.success === true && expense.session?.cashOut === 500 &&
+      expense.session?.cashMovementCount === 1,
+      'Une dépense est enregistrée et déduite du solde de la session');
+    const expenseReplay = await recordCashMovementWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, movementType: 'expense', amount: 500,
+      category: 'achats', note: 'Achat de charbon', idempotencyKey: 'cash-expense-0001'
+    });
+    assert(expenseReplay.success === true && expenseReplay.idempotentReplay === true &&
+      expenseReplay.session?.cashOut === 500,
+      'Le rejeu idempotent d’une dépense ne double pas la sortie');
+    const expenseConflict = await recordCashMovementWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, movementType: 'expense', amount: 700,
+      category: 'achats', note: 'Autre montant', idempotencyKey: 'cash-expense-0001'
+    });
+    assert(expenseConflict.success === false && expenseConflict.conflict === true,
+      'Une même clé ne peut pas servir à enregistrer une sortie différente');
+
     console.log('\n--- Clôture et rapprochement de caisse ---');
     const closed = await closeCashSessionWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
       sessionVersion: 3, closingCount: 14000, idempotencyKey: 'close-cash-session-001'
     });
     assert(closed.success === true && closed.session?.status === 'closed' &&
-      closed.session?.expectedCash === 14500 && closed.session?.variance === -500,
-      'La clôture calcule le montant théorique et l’écart avec le comptage physique');
+      closed.session?.expectedCash === 14000 && closed.session?.variance === 0,
+      'La clôture calcule le solde théorique après sorties et l’écart avec le comptage physique');
     const closeReplay = await closeCashSessionWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
       sessionVersion: 3, closingCount: 14000, idempotencyKey: 'close-cash-session-001'
     });
     assert(closeReplay.success === true && closeReplay.idempotentReplay === true,
       'Le rejeu de la même clôture retourne le même rapport sans nouvelle écriture');
+    const closeConflict = await closeCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, closingCount: 13900, idempotencyKey: 'close-cash-session-001'
+    });
+    assert(closeConflict.success === false && closeConflict.conflict === true,
+      'Une même clé de clôture ne peut pas être rejouée avec un comptage différent');
     const afterClose = await getCashSessionWithDb(db, slug, uid);
     assert(afterClose === null, 'Une session clôturée n’est plus considérée comme active');
     const paymentAfterClose = await recordCashPaymentWithDb(db, input('order-concurrent', 1000, 'cash-after-close-01'));
     assert(paymentAfterClose.success === false, 'Aucun nouvel encaissement n’est accepté après clôture');
     const cashSessions = await restaurantRef.collection('cashSessions').get();
-    assert(cashSessions.size === 1 && cashSessions.docs[0].data().paymentCount === 3,
-      'L’historique de session conserve le nombre exact d’encaissements');
+    const cashMovements = await restaurantRef.collection('cashMovements').get();
+    assert(cashSessions.size === 1 && cashSessions.docs[0].data().paymentCount === 3 &&
+      cashSessions.docs[0].data().cashOut === 500 &&
+      cashSessions.docs[0].data().cashMovementCount === 1 &&
+      cashMovements.size === 1 && cashMovements.docs[0].data().amount === 500,
+      'L’historique de session conserve encaissements et mouvements de caisse exacts');
 
     console.log('\nRésultats paiements espèces : ' + passed + '/' + (passed + failed) + ' réussis (' + failed + ' échec(s)).');
     if (failed) process.exitCode = 1;
@@ -176,6 +217,8 @@ async function run() {
     if (idem) for (const doc of idem.docs) { try { await doc.ref.delete(); } catch {} }
     const sessions = await restaurantRef.collection('cashSessions').get().catch(() => null);
     if (sessions) for (const doc of sessions.docs) { try { await doc.ref.delete(); } catch {} }
+    const movements = await restaurantRef.collection('cashMovements').get().catch(() => null);
+    if (movements) for (const doc of movements.docs) { try { await doc.ref.delete(); } catch {} }
     const activeSessions = await restaurantRef.collection('cashSessionActive').get().catch(() => null);
     if (activeSessions) for (const doc of activeSessions.docs) { try { await doc.ref.delete(); } catch {} }
     for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, memberRef, restaurantRef]) {
