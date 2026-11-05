@@ -171,7 +171,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             await d.ref.update({ subscription: FieldValue.delete() });
           }
 
-          const { subscription: _legacySubscription, ...publicRestaurantData } = data;
+          const publicRestaurantData = { ...data };
+          delete publicRestaurantData.subscription;
           return {
             slug: d.id,
             ...publicRestaurantData,
