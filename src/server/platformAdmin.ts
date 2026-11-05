@@ -199,6 +199,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             subscription
           };
         }));
+        const monthlyRecurringRevenueFcfa = restaurants.reduce((sum: number, r: any) => {
+          if (r.status !== 'active' || r.subscription.status !== 'active') return sum;
+          const amount = Number(r.subscription.priceFcfa || 0);
+          if (r.subscription.billingCycle === 'monthly') return sum + amount;
+          if (r.subscription.billingCycle === 'yearly') return sum + Math.round(amount / 12);
+          return sum;
+        }, 0);
         const summary = {
           totalRestaurants: restaurants.length,
           activeRestaurants: restaurants.filter((r: any) => r.status === 'active').length,
@@ -211,9 +218,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           subscriptionsByPlan: restaurants.reduce((acc: Record<string, number>, r: any) => {
             const key = r.subscription.planName || 'unassigned'; acc[key] = (acc[key] || 0) + 1; return acc;
           }, {}),
-          recurringRevenueFcfa: restaurants.reduce((sum: number, r: any) =>
-            r.status === 'active' && r.subscription.status === 'active'
-              ? sum + Number(r.subscription.priceFcfa || 0) : sum, 0)
+          monthlyRecurringRevenueFcfa,
+          recurringRevenueFcfa: monthlyRecurringRevenueFcfa
         };
         return json(res, 200, { success: true, restaurants, total: restaurants.length, summary });
       }
