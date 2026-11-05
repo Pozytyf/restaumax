@@ -6,6 +6,7 @@ import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Us
 import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
+import { InventoryRecipePanel } from './InventoryRecipePanel';
 
 type ModuleId = 'customers' | 'inventory' | 'reports' | 'settings';
 type Customer = { id: string; name: string; phone: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
@@ -290,6 +291,7 @@ export const RestaurantAdminModuleView: React.FC<{
           {inventory.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.supplier || 'Fournisseur non renseigné'} · {formatFCFA(item.unitCost)} / {item.unit}</p><p className={`mt-1 text-sm font-bold ${item.quantity <= item.minQuantity ? 'text-rose-700' : 'text-emerald-700'}`}>{item.quantity} {item.unit} · seuil {item.minQuantity} {item.unit}{item.quantity <= item.minQuantity ? ' · STOCK BAS' : ''}</p></div>{canManage && <div className="flex flex-wrap gap-2"><button onClick={()=>startEditInventoryItem(item)} disabled={loading} aria-label={`Modifier ${item.name}`} className="rounded-lg border p-2 text-slate-700"><Pencil size={16}/></button><button onClick={()=>moveStock(item,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">+1 entrée</button><button onClick={()=>moveStock(item,-1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">−1 sortie</button><button onClick={()=>removeInventoryItem(item.id)} disabled={loading} aria-label="Archiver l'article" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
           {inventory.length===0 && <p className="p-8 text-center text-sm text-slate-500">Aucun article de stock. Ajoutez les matières premières et consommables.</p>}
         </section>
+        <InventoryRecipePanel restaurantSlug={restaurant.slug} canManage={canManage} inventory={inventory} />
         <section className="mt-5 overflow-hidden rounded-2xl border bg-white">
           <div className="border-b p-4 font-bold">Journal des mouvements récents · {stockMovements.length}</div>
           {stockMovements.map(movement => (
