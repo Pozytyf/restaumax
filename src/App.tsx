@@ -779,7 +779,11 @@ export default function App() {
       window.alert('La remise ne peut pas être modifiée tant que le solde de la commande reste dû.');
       return;
     }
-    setDiscountPercent(value);
+    if (value > 0) {
+      window.alert("Les remises POS seront réactivées après validation des règles de remise côté serveur.");
+      return;
+    }
+    setDiscountPercent(0);
   };
 
   const handleClearPosCart = () => {
@@ -897,7 +901,7 @@ export default function App() {
       return;
     }
     if (cart.length === 0 && !pendingPosOrder) return;
-    if (isSubmittingPayment) return;
+    if (isSubmittingPayment || isSubmittingPosOrder) return;
 
     setIsSubmittingPayment(true);
     try {
