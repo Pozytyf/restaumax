@@ -1,5 +1,7 @@
 name: PayDunya payment and refund lifecycle
 on:
+  push:
+    branches: [fix/authorization-refunds-platform-audit]
   pull_request:
     branches: [main]
     paths:
