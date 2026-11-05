@@ -57,7 +57,9 @@ service cloud.firestore {
         isRestaurantActive(targetSlug) &&
         member.get('restaurantSlug', '') == targetSlug &&
         member.get('active', false) == true &&
-        member.get('role', '') in ['owner', 'manager', 'staff', 'cashier', 'server', 'kitchen'];
+        member.get('role', '') in ['owner', 'manager', 'cashier', 'server', 'kitchen'] &&
+        (member.get('role', '') != 'owner' ||
+          get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.ownerUid == request.auth.uid);
     }
 
     // Maximum permission ceilings for the six restaurant roles.
@@ -67,7 +69,7 @@ service cloud.firestore {
         (role == 'manager' && permission in [
           'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
           'tables.view', 'tables.manage', 'pos.access', 'kitchen.access',
-          'cash.view', 'cash.manage', 'reports.view', 'customers.view',
+          'cash.view', 'cash.manage', 'payments.refund', 'reports.view', 'customers.view',
           'customers.manage', 'inventory.view', 'inventory.manage',
           'staff.view', 'staff.manage', 'settings.view'
         ]) ||
@@ -80,8 +82,7 @@ service cloud.firestore {
         ]) ||
         (role == 'kitchen' && permission in [
           'orders.view', 'kitchen.access'
-        ]) ||
-        (role == 'staff' && permission in ['orders.view', 'tables.view']);
+        ]);
     }
 
     // Restaurant access is ALWAYS membership-scoped. Platform custom claims
@@ -93,7 +94,9 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurantSlug == targetSlug &&
         get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active == true &&
-        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['owner', 'manager', 'staff', 'cashier', 'server', 'kitchen'] &&
+        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['owner', 'manager', 'cashier', 'server', 'kitchen'] &&
+        (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role != 'owner' ||
+          get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.ownerUid == request.auth.uid) &&
         (
           get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'owner' ||
           (
@@ -149,7 +152,9 @@ service cloud.firestore {
       let role = member.get('role', '');
       let permissions = member.get('permissions', []);
       let statusChanged = changed.hasAny(['status']);
-      let canManage = role == 'owner' ||
+      let isVerifiedOwner = role == 'owner' &&
+        get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.ownerUid == request.auth.uid;
+      let canManage = isVerifiedOwner ||
         (role == 'manager' && permissions is list && 'orders.manage' in permissions);
       let canCancel = role == 'cashier' && permissions is list && 'orders.cancel' in permissions;
       let canKitchen = role == 'kitchen' && permissions is list && 'kitchen.access' in permissions;
