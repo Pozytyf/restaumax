@@ -21,6 +21,7 @@ assert(staffUiSource.includes("'orders.cancel','payments.refund','reports.view'"
 const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
 const hubView = fs.readFileSync(new URL('../src/components/restaumax/RestaurantHubView.tsx', import.meta.url), 'utf8');
 const platformAdmin = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
+const staffView = fs.readFileSync(new URL('../src/components/restaumax/StaffManagementView.tsx', import.meta.url), 'utf8');
 assert(menuView.includes("canManageCatalog = false") && menuView.includes("if (!canManageCatalog) return"),
   'catalogue mutation handlers are denied by default without menu.manage');
 assert(menuView.includes("{canManageCatalog && <button") && menuView.includes("{canManageCatalog && <>"),
@@ -30,6 +31,9 @@ assert(hubView.includes("canManageCatalog={permissions.includes('menu.manage')}"
 assert(hubView.includes("const canViewCatalog = permissions.includes('menu.view') || permissions.includes('menu.manage')") &&
   hubView.includes("status: canViewCatalog ? 'active' : 'unavailable'"),
   'catalogue consultation is hidden from roles without menu.view');
+assert(staffView.includes('Autorisations supplémentaires accordées par le propriétaire') &&
+  staffView.includes('Elles ne peuvent être retirées que par le propriétaire.'),
+  'Managers can see owner-granted extras but cannot edit or remove them');
 assert(platformAdmin.includes("const sessionVersion = currentSessionVersion + 1") &&
   platformAdmin.includes("await getAuth().revokeRefreshTokens(staffUid)"),
   'role and permission changes invalidate prior staff sessions and require reauthentication');
