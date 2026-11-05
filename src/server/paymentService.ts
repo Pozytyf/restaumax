@@ -453,6 +453,11 @@ export async function recordCashMovementWithDb(db: any, input: CashMovementInput
         Number(session.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
       return { success: false, error: 'La session active est invalide ou ne vous appartient pas.' };
     }
+    const availableCash = Number(session.openingBalance || 0) +
+      Number(session.cashCollected || 0) - Number(session.cashOut || 0);
+    if (Number(amount) > availableCash) {
+      return { success: false, error: 'La sortie dépasse le montant théorique disponible dans le tiroir.' };
+    }
     const now = Date.now();
     const movement = {
       id: movementId, restaurantSlug: slug, sessionId, actorUid,
