@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   deploy-firestore-rules:
-    name: Publish Firestore rules to the approved Production project
+    name: Publish Firestore rules to the approved Production database
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -35,6 +35,7 @@ jobs:
 
     env:
       FIREBASE_PROJECT_ID: gen-lang-client-0138815290
+      FIRESTORE_DATABASE_ID: ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf
 
     steps:
       - name: Validate explicit Production confirmation
@@ -62,27 +63,39 @@ jobs:
           DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_FIREBASE_DEPLOYER_SA }}
         run: |
           set -euo pipefail
+
           test "$GITHUB_REF" = "refs/heads/main" || {
             echo "::error::Deployment is allowed only from main."
             exit 1
           }
+
           test "$FIREBASE_PROJECT_ID" = "gen-lang-client-0138815290" || {
             echo "::error::Unexpected Firebase project."
             exit 1
           }
+
+          test "$FIRESTORE_DATABASE_ID" = "ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf" || {
+            echo "::error::Unexpected Firestore database."
+            exit 1
+          }
+
           test -n "$WIF_PROVIDER" || {
-            echo "::error::Missing environment variable GCP_WIF_PROVIDER."
+            echo "::error::Missing GCP_WIF_PROVIDER."
             exit 1
           }
+
           test -n "$DEPLOY_SERVICE_ACCOUNT" || {
-            echo "::error::Missing environment variable GCP_FIREBASE_DEPLOYER_SA."
+            echo "::error::Missing GCP_FIREBASE_DEPLOYER_SA."
             exit 1
           }
-          test -f firebase.json && test -f firestore.rules || {
-            echo "::error::firebase.json or firestore.rules is missing."
+
+          test -f firebase.production.json && test -f firestore.rules || {
+            echo "::error::Production configuration or firestore.rules is missing."
             exit 1
           }
-          echo "Target project: $FIREBASE_PROJECT_ID"
+
+          echo "Target Firebase project: $FIREBASE_PROJECT_ID"
+          echo "Target Firestore database: $FIRESTORE_DATABASE_ID"
           echo "Rules source: firestore.rules"
 
       - name: Authenticate to Google Cloud using short-lived OIDC credentials
@@ -94,12 +107,25 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
 
-      - name: Deploy Firestore Security Rules only
+      - name: Verify that the Production database already exists
         shell: bash
         run: |
           set -euo pipefail
+
+          npx --yes firebase-tools@15.34.2 firestore:databases:get "$FIRESTORE_DATABASE_ID" \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+
+          echo "Existing Production database verified."
+
+      - name: Deploy Firestore Security Rules to the named database only
+        shell: bash
+        run: |
+          set -euo pipefail
+
           npx --yes firebase-tools@15.34.2 deploy \
-            --only firestore:rules \
+            --config firebase.production.json \
+            --only "firestore:$FIRESTORE_DATABASE_ID" \
             --project "$FIREBASE_PROJECT_ID" \
             --non-interactive
 
@@ -108,8 +134,9 @@ jobs:
         run: |
           {
             echo "### Firestore rules published"
-            echo "- Firebase project: `$FIREBASE_PROJECT_ID`"
-            echo "- Source: `firestore.rules` from `main`"
+            echo "- Firebase project: \`$FIREBASE_PROJECT_ID\`"
+            echo "- Firestore database: \`$FIRESTORE_DATABASE_ID\`"
+            echo "- Source: \`firestore.rules\` from \`main\`"
             echo "- Scope: Firestore Security Rules only"
-            echo "- Commit: `$GITHUB_SHA`"
+            echo "- Commit: \`$GITHUB_SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"
