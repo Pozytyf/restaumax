@@ -1098,6 +1098,67 @@ export default function App() {
   };
 
 
+  const unpaidPosOrders = useMemo(() => restauOrders
+    .filter((order) => {
+      if (order.status === 'cancelled' || order.paymentStatus === 'paid') return false;
+      const remaining = Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0)));
+      return Number.isFinite(remaining) && remaining > 0;
+    })
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 8), [restauOrders]);
+
+  const handleCollectExistingOrder = (order: RestauOrder) => {
+    if (!canCollectPayment) {
+      window.alert("Votre rôle ne permet pas d'encaisser cette commande.");
+      return;
+    }
+    if (isSubmittingPayment || isSubmittingPosOrder) return;
+    if (pendingPosOrder && pendingPosOrder.id !== order.id) {
+      window.alert("Un autre règlement partiel est déjà ouvert. Terminez-le avant d'en sélectionner un autre.");
+      return;
+    }
+    if (cart.length > 0 && (!pendingPosOrder || pendingPosOrder.id !== order.id)) {
+      const confirmed = window.confirm("Le panier non enregistré sera remplacé par cette commande. Continuer ?");
+      if (!confirmed) return;
+    }
+
+    const restoredCart: CartItem[] = order.items.map((item) => {
+      const existing = menuItems.find((menuItem) => menuItem.id === item.menuItemId);
+      const menuItem: MenuItem = {
+        id: item.menuItemId || item.id,
+        name: item.name,
+        category: existing?.category || 'plats',
+        price: Number(item.unitPrice),
+        description: existing?.description || '',
+        imageUrl: existing?.imageUrl || '',
+        available: existing?.available ?? false,
+        prepTimeMinutes: existing?.prepTimeMinutes || 0,
+        course: existing?.course || 'plat',
+        tags: existing?.tags
+      };
+      const notes = [
+        item.selectedOption?.optionName,
+        item.selectedExtras?.map((extra) => extra.name).join(', '),
+        item.prepNotes
+      ].filter(Boolean).join(' · ');
+      return {
+        id: item.id,
+        menuItem,
+        quantity: item.quantity,
+        specialInstructions: notes,
+        course: menuItem.course
+      };
+    });
+
+    setCart(restoredCart);
+    setPendingPosOrder(order);
+    setPendingPosPaidAmount(Number(order.paidAmount || 0));
+    setSelectedTable(order.tableNumber ? tables.find((table) => table.number === order.tableNumber) || null : null);
+    setDiscountPercent(0);
+    setCurrentRole('pos');
+    setIsPaymentModalOpen(true);
+  };
+
   const activeTicketsCount = kitchenTickets.filter((t) => t.status === 'in_prep' || t.status === 'ready').length;
 
   return (
