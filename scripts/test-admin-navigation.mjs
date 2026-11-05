@@ -23,6 +23,18 @@ assert(dishForm.includes('await onSave(savedDish)'), 'dish form closes only afte
 assert(dishForm.includes('setSaveError(message)'), 'dish form preserves the form and displays persistence errors');
 assert(dishForm.includes('disabled={isSaving}'), 'dish form prevents duplicate submissions and closing while saving');
 assert(menuView.includes('await onCreateDish(dish)') && menuView.includes('await onUpdateDish(dish)'), 'catalogue view awaits create and update operations');
+assert(app.includes('subscribeToMenuItems(') && app.includes('activeRestaurantSlug'),
+  'the customer menu and management workspace subscribe to the selected restaurant catalogue');
+assert(app.includes('setMenuItems(activeMenuItems.map((dish) => ({'),
+  'the POS menu is derived from the same live Firestore catalogue');
+const clientMenu = fs.readFileSync(new URL('../src/components/restaumax/ClientMenuView.tsx', import.meta.url), 'utf8');
+assert(clientMenu.includes('available === false') || clientMenu.includes('available !== false'),
+  'unavailable dishes are excluded from the customer ordering flow');
+assert(menuView.includes('canManageCatalog = false') && menuView.includes('if (!canManageCatalog) return'),
+  'catalogue mutation actions are guarded by the menu.manage permission');
+assert(!menuView.includes('Répertoire complet Chez Awa'),
+  'catalogue UI contains no hardcoded demo restaurant label');
+
 assert(hub.includes('Catalogue actif · {restaurant.name}'), 'catalogue metrics use the current restaurant name in multi-tenant mode');
 assert(!dishForm.includes("restaurant.slug || 'chez-awa'"), 'dish creation never falls back to a hardcoded demo tenant');
 assert(dishForm.includes('newDishIdRef.current') && dishForm.includes('await onSave(savedDish)'), 'dish creation reuses one document ID after an ambiguous network failure');
