@@ -867,7 +867,12 @@ export async function handleTableQrManagement(req: any) {
     return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
   } catch (err: any) {
     const message = String(err?.message || 'Accès refusé.');
-    const statusCode = /Authentification|Accès|Permission/.test(message) ? 403 : 400;
+    const code = String(err?.code || '');
+    const statusCode = code.startsWith('auth/') || /Authentification|Identité|Session utilisateur/.test(message)
+      ? 401
+      : /Accès|Permission|propriétaire|Restaurant inactif|indisponible/.test(message)
+        ? 403
+        : 400;
     return { statusCode, body: { success: false, error: message } };
   }
 }
