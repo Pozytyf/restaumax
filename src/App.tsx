@@ -1297,7 +1297,7 @@ export default function App() {
       return;
     }
     if (payment.paymentMethod === 'especes') {
-      window.alert("Remboursement espèces enregistré dans la caisse. Assurez-vous que la remise physique au client a bien été effectuée.");
+      window.alert("Remboursement espèces enregistré. La confirmation de remise physique au client est journalisée.");
     } else {
       window.alert(result.status === 'completed'
         ? "Remboursement Mobile Money confirmé par PayDunya."
