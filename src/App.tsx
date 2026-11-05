@@ -935,8 +935,12 @@ export default function App() {
       const result = await openCashSessionWithServerValidation(
         activeRestaurantSlug, openingBalance, generateClientOrderIdempotencyKey()
       );
-      if (!result.success || !result.session) {
+      if (result.success === false) {
         window.alert(result.error || "Impossible d'ouvrir la session de caisse.");
+        return;
+      }
+      if (!result.session) {
+        window.alert("Le serveur n'a pas retourné la session ouverte.");
         return;
       }
       setCashSession(result.session);
@@ -957,8 +961,12 @@ export default function App() {
       const result = await closeCashSessionWithServerValidation(
         activeRestaurantSlug, closingCount, generateClientOrderIdempotencyKey()
       );
-      if (!result.success || !result.session) {
+      if (result.success === false) {
         window.alert(result.error || "Impossible de clôturer la session de caisse.");
+        return;
+      }
+      if (!result.session) {
+        window.alert("Le serveur n'a pas retourné le rapport de clôture.");
         return;
       }
       setCashSession(null);
@@ -1049,9 +1057,10 @@ export default function App() {
 
       const payment = paymentResult.payment;
       const refreshedSession = await getCashSessionWithServerValidation(activeRestaurantSlug);
-      if (refreshedSession.success) setCashSession(refreshedSession.session);
-      const refreshedCashTotal = refreshedSession.success && refreshedSession.session
-        ? Number(refreshedSession.session.openingBalance || 0) + Number(refreshedSession.session.cashCollected || 0)
+      const refreshedCashSession = refreshedSession.success === true ? refreshedSession.session : null;
+      if (refreshedSession.success === true) setCashSession(refreshedCashSession);
+      const refreshedCashTotal = refreshedCashSession
+        ? Number(refreshedCashSession.openingBalance || 0) + Number(refreshedCashSession.cashCollected || 0)
         : null;
       sounds.playCashRegister();
       const updatedOrder = { ...order, ...paymentResult.order } as RestauOrder;
@@ -1071,10 +1080,10 @@ export default function App() {
           cashSales: previous.cashSales + payment.paidAmount,
           transactionCount: previous.transactionCount + 1
         }));
-      } else if (refreshedCashTotal !== null && refreshedSession.session) {
+      } else if (refreshedCashTotal !== null && refreshedCashSession) {
         setDrawerState((previous) => ({
           ...previous,
-          openingBalance: Number(refreshedSession.session?.openingBalance || 0),
+          openingBalance: Number(refreshedCashSession.openingBalance || 0),
           currentCash: refreshedCashTotal
         }));
       }
