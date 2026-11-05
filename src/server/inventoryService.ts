@@ -67,7 +67,7 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
       const supplier = String(params.supplier || '').trim();
       const key = String(params.idempotencyKey || '');
       if (!name || name.length > 160 || !allowedUnits.has(unit) ||
-          !validAmount(quantity) || !validAmount(minQuantity) || !validAmount(unitCost) ||
+          !validAmount(quantity) || !validAmount(minQuantity) || !validAmount(unitCost) || !Number.isInteger(unitCost) ||
           supplier.length > 160 || !/^[a-zA-Z0-9_-]{16,128}$/.test(key) ||
           ![quantity, minQuantity].every(v => Math.round(Number(v) * 1000) === Number(v) * 1000)) {
         return { success: false, error: 'Données de création de stock invalides.' };
