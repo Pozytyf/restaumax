@@ -860,7 +860,7 @@ export async function refundCashPaymentWithServerValidation(
   amount: number,
   reason: string,
   idempotencyKey: string
-): Promise<{ success: true; payment: Record<string, unknown>; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+): Promise<{ success: true; payment: Record<string, unknown>; status: string; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'Connexion du personnel requise.' };
@@ -879,7 +879,7 @@ export async function refundCashPaymentWithServerValidation(
       return { success: false, conflict: response.status === 409 || data.conflict === true,
         error: data.error || 'Le remboursement espèces a été refusé.' };
     }
-    return { success: true, payment: data.payment || {}, idempotentReplay: data.idempotentReplay === true };
+    return { success: true, payment: data.payment || {}, status: 'recorded', idempotentReplay: data.idempotentReplay === true };
   } catch (error: any) {
     return { success: false, error: error?.message || 'Erreur réseau lors du remboursement espèces.' };
   }
