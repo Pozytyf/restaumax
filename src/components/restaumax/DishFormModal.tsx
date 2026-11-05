@@ -818,12 +818,17 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               <input
                 type="text"
                 value={tagsInput}
-                onChange={(e) => setTagsInput(e.target.value)}
+                maxLength={2000}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  const uniqueTags = nextValue.split(',').map(tag => tag.trim()).filter(Boolean).filter((tag, index, all) => all.indexOf(tag) === index);
+                  if (uniqueTags.length <= 30) setTagsInput(nextValue);
+                }}
                 placeholder="ex. Signature, Recommandé, Épicé, Nouveauté"
                 className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#ff6500] focus:bg-white transition-all"
               />
               <p className="text-[11px] text-slate-400 mt-1">
-                Ces badges apparaîtront sur la fiche produit du menu client QR.
+                Ces badges apparaîtront sur la fiche produit du menu client QR (30 tags maximum).
               </p>
             </div>
           </div>
