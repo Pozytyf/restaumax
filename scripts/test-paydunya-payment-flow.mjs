@@ -386,5 +386,8 @@ const qrReconciliation = await reconcilePayDunyaInvoiceIntentWithDb(
 );
 assert(qrReconciliation.success && qrReconciliation.status === 'completed',
   'Le paiement QR est rapproché par confirmation PayDunya côté serveur');
+assert(db.read('restaurants/maquis-awa/orders/order-qr').paidAmount === 2500 &&
+  db.read('restaurants/maquis-awa/orders/order-qr').remainingAmount === 2000,
+  'Le paiement QR partiel conserve le solde restant de la commande');
 
 console.log(`Résultats PayDunya end-to-end : ${passed}/${passed} réussis.`);
