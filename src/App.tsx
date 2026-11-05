@@ -23,6 +23,7 @@ import {
   submitPosOrderWithServerValidation,
   collectCashPaymentWithServerValidation,
   createPayDunyaPaymentWithServerValidation,
+  refundPayDunyaPaymentWithServerValidation,
   listRecentCashPaymentsWithServerValidation,
   getCashSessionWithServerValidation,
   openCashSessionWithServerValidation,
@@ -348,7 +349,7 @@ export default function App() {
   const canManageCash = isRestaurantOwner ||
     authRestaurantRole === 'manager' ||
     (authRestaurantRole === 'cashier' && userPermissions.includes('cash.manage'));
-  const canCollectPayment = canManageCash && cashSession?.status === 'active';
+  const canCollectPayment = canManageCash;
   const mapCashPaymentRecord = (payment: any): PaymentRecord => ({
     id: String(payment.id),
     orderId: String(payment.orderNumber || payment.orderId),
@@ -371,7 +372,13 @@ export default function App() {
     guestShareAmount: payment.guestShareAmount !== undefined ? Number(payment.guestShareAmount) : undefined,
     guestPreviouslyPaidAmount: payment.guestPreviouslyPaidAmount !== undefined ? Number(payment.guestPreviouslyPaidAmount) : undefined,
     guestRemainingAfter: payment.guestRemainingAfter !== undefined ? Number(payment.guestRemainingAfter) : undefined,
-    paymentMethod: 'especes',
+    paymentMethod: payment.method === 'paydunya'
+      ? (payment.providerChannel === 'wave-ci' ? 'wave'
+        : payment.providerChannel === 'orange-money-ci' ? 'orange_money'
+        : payment.providerChannel === 'mtn-ci' ? 'mtn_money'
+        : payment.providerChannel === 'moov-ci' ? 'moov_money'
+        : payment.providerChannel === 'djamo-ci' ? 'djamo' : 'especes')
+      : 'especes',
     items: Array.isArray(payment.items) ? payment.items.map((item: any) => ({
       name: String(item.name || 'Article'),
       quantity: Number(item.quantity || 1),
@@ -492,7 +499,8 @@ export default function App() {
       setCashSessionLoading(false);
       setDrawerState({
         openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
-        mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
+        mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte')
+          .reduce((sum, record) => sum + record.paidAmount, 0), cardSales: 0, discountsTotal: 0, transactionCount: 0
       });
       return;
     }
@@ -1484,10 +1492,6 @@ export default function App() {
                 onOpenPayment={() => {
                   if (!canManageCash) {
                     window.alert("Votre rôle ne permet pas d'encaisser un paiement.");
-                    return;
-                  }
-                  if (cashSession?.status !== 'active') {
-                    window.alert("Ouvrez d'abord votre session de caisse depuis l'écran Supervision & Caisse.");
                     return;
                   }
                   setIsPaymentModalOpen(true);
