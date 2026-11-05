@@ -2,7 +2,7 @@ name: RestauMax CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/authorization-refunds-platform-audit]
   pull_request:
     branches: [main]
 
