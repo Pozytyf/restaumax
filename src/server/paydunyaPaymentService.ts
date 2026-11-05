@@ -224,6 +224,18 @@ export async function startPayDunyaOrderPaymentWithDb(
     const unitPrice = quantity > 0 ? Math.round(totalPrice / quantity) : 0;
     return { name: clean(item.name, 100), quantity, unitPrice, totalPrice };
   });
+  const previouslyPaid = Number(order.paidAmount || 0);
+  const itemizedTotal = items.reduce((sum: number, item: any) => sum + item.totalPrice, 0);
+  const canShowFullItemization = previouslyPaid === 0 &&
+    reservation.amount === Number(order.totalAmount) && items.length > 0 &&
+    itemizedTotal === reservation.amount;
+  const invoiceItems = canShowFullItemization ? items : [{
+    name: `Règlement commande ${clean(order.orderNumber || orderId, 48)}`,
+    quantity: 1,
+    unitPrice: reservation.amount,
+    totalPrice: reservation.amount,
+    description: previouslyPaid > 0 ? 'Versement complémentaire ou solde restant' : 'Acompte partiel'
+  }];
   const returnUrl = new URL(input.returnUrl);
   returnUrl.searchParams.set('paymentIntentId', reservation.intentId);
   const cancelUrl = new URL(input.cancelUrl);
@@ -235,7 +247,7 @@ export async function startPayDunyaOrderPaymentWithDb(
     restaurantName: clean(restaurant.name || restaurant.restaurantName, 100) || 'RestauMax',
     orderId,
     paymentIntentId: reservation.intentId,
-    items,
+    items: invoiceItems,
     callbackUrl: input.callbackUrl,
     returnUrl: returnUrl.toString(),
     cancelUrl: cancelUrl.toString(),
