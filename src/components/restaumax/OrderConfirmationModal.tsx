@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
@@ -18,13 +18,17 @@ interface OrderConfirmationModalProps {
   order: RestauOrder | null;
   onClose: () => void;
   onNewOrder: () => void;
+  onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci') => Promise<void>;
 }
 
 export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   order,
   onClose,
-  onNewOrder
+  onNewOrder,
+  onStartPayDunyaPayment
 }) => {
+  const [selectedChannel, setSelectedChannel] = useState<'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci'>('wave-ci');
+  const [isStartingPayment, setIsStartingPayment] = useState(false);
   if (!order) return null;
 
   return (
@@ -171,6 +175,33 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
               </span>
             </div>
           </div>
+
+          {order.orderMode === 'sur_place' && onStartPayDunyaPayment && (
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 space-y-3">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wide text-blue-950">Régler maintenant par Mobile Money</h3>
+                <p className="mt-1 text-[10px] text-blue-900">Choisissez votre opérateur. Le paiement sera confirmé par PayDunya avant toute mise à jour du reçu.</p>
+              </div>
+              <select value={selectedChannel} onChange={(event) => setSelectedChannel(event.target.value as typeof selectedChannel)}
+                disabled={isStartingPayment}
+                className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-800">
+                <option value="wave-ci">Wave</option>
+                <option value="orange-money-ci">Orange Money</option>
+                <option value="mtn-ci">MTN MoMo</option>
+                <option value="moov-ci">Moov Money</option>
+                <option value="djamo-ci">Djamo</option>
+              </select>
+              <button type="button" disabled={isStartingPayment}
+                onClick={async () => {
+                  setIsStartingPayment(true);
+                  try { await onStartPayDunyaPayment(order, selectedChannel); }
+                  finally { setIsStartingPayment(false); }
+                }}
+                className="w-full rounded-xl bg-[#101d2d] px-4 py-3 text-xs font-black text-white disabled:opacity-50">
+                {isStartingPayment ? 'Préparation du paiement…' : `Payer ${formatFCFA(order.totalAmount)} avec PayDunya`}
+              </button>
+            </div>
+          )}
 
           {/* Info callout */}
           <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 flex items-start gap-2.5">
