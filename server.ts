@@ -48,7 +48,7 @@ import {
 } from './src/server/orderService.js';
 import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
 import { getPayDunyaConfig, getPayDunyaDisbursementConfig, type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
-import { startPayDunyaOrderPaymentWithDb, processPayDunyaInvoiceCallbackWithDb, startPayDunyaRefundWithDb, processPayDunyaDisbursementCallbackWithDb } from './src/server/paydunyaPaymentService.js';
+import { startPayDunyaOrderPaymentWithDb, processPayDunyaInvoiceCallbackWithDb, startPayDunyaRefundWithDb, processPayDunyaDisbursementCallbackWithDb, reconcilePayDunyaInvoiceIntentWithDb } from './src/server/paydunyaPaymentService.js';
 import {
   authorizeTableManager,
   buildCsrfCookie,
@@ -947,6 +947,16 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
 
     if (!canManageCash) {
       return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de gérer la caisse.' } };
+    }
+
+    if (input.action === 'reconcile_paydunya_payment') {
+      const config = getPayDunyaConfig(process.env);
+      if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+      const result = await reconcilePayDunyaInvoiceIntentWithDb(
+        adminDb, config.data, slug, String(input.paymentIntentId || '')
+      );
+      if (result.success) return { statusCode: 200, body: result };
+      return { statusCode: result.conflict ? 409 : 400, body: result };
     }
 
     if (input.action === 'create_paydunya_invoice') {
