@@ -23,6 +23,7 @@ interface PaymentModalProps {
   serverName: string;
   discountPercent: number;
   alreadyPaidAmount?: number;
+  orderTotalAmount?: number;
   guestAccounts?: RestauGuestAccount[];
   isSubmitting?: boolean;
   onConfirmPayment: (paymentData: {
@@ -43,6 +44,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   serverName,
   discountPercent,
   alreadyPaidAmount = 0,
+  orderTotalAmount,
   guestAccounts = EMPTY_GUEST_ACCOUNTS,
   isSubmitting = false,
   onConfirmPayment
@@ -55,7 +57,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
   const subtotal = cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
   const discountAmount = Math.round((subtotal * discountPercent) / 100);
-  const total = Math.max(0, subtotal - discountAmount);
+  const total = Math.max(0, orderTotalAmount ?? (subtotal - discountAmount));
 
   const baseGuestShare = Math.floor(total / splitGuests);
   const remainderGuestShare = total % splitGuests;
