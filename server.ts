@@ -357,13 +357,14 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
   if (!db) {
     throw new Error("Opération refusée : Instance Firestore non disponible.");
   }
-  const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate, tableSession, staffOrder, staffTableId } = params;
+  const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate, tableSession, staffOrder, staffTableId, staffActorUid, staffSessionVersion } = params;
   const restaurantRef = db.collection('restaurants').doc(restaurantSlug);
   const docRefKey = db.collection('idempotency_keys').doc(keyDocId);
   const docRefOrder = restaurantRef.collection('orders').doc(orderId);
-  const isTrustedStaffOrder = staffOrder === true && typeof staffTableId === 'string' && staffTableId.length > 0;
+  const isTrustedStaffOrder = staffOrder === true && typeof staffActorUid === 'string' && staffActorUid.length > 0;
+  const hasTrustedStaffTable = isTrustedStaffOrder && typeof staffTableId === 'string' && staffTableId.length > 0;
 
-  if (orderToCreate.orderMode === 'sur_place' && !tableSession && !isTrustedStaffOrder) {
+  if (orderToCreate.orderMode === 'sur_place' && !tableSession && !hasTrustedStaffTable) {
     return { success: false, error: 'Commande sur place refusée : session QR sécurisée ou authentification du personnel obligatoire.' };
   }
 
@@ -377,13 +378,20 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       t.get(docRefOrder),
       t.get(restaurantRef)
     ];
+    let staffMemberIndex = -1;
+    let staffTableIndex = -1;
+    if (isTrustedStaffOrder) {
+      staffMemberIndex = reads.length;
+      reads.push(t.get(db.collection('managers').doc(staffActorUid)));
+    }
     if (tableSession) {
       reads.push(
         t.get(restaurantRef.collection('table_sessions').doc(tableSession.sessionHash)),
         t.get(restaurantRef.collection('table_qr_tokens').doc(tableSession.qrTokenHash)),
         t.get(restaurantRef.collection('tables').doc(tableSession.tableId))
       );
-    } else if (isTrustedStaffOrder && orderToCreate.orderMode === 'sur_place') {
+    } else if (hasTrustedStaffTable && orderToCreate.orderMode === 'sur_place') {
+      staffTableIndex = reads.length;
       reads.push(t.get(restaurantRef.collection('tables').doc(staffTableId)));
     }
     const snapshots = await Promise.all(reads);
@@ -395,8 +403,21 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       return { success: false, error: 'Commande refusée : restaurant inactif ou indisponible.' };
     }
 
-    if (isTrustedStaffOrder && orderToCreate.orderMode === 'sur_place' && !tableSession) {
-      const staffTableSnap = snapshots[3];
+    if (isTrustedStaffOrder) {
+      const memberSnap = snapshots[staffMemberIndex];
+      const member = memberSnap?.exists ? memberSnap.data() : null;
+      const memberSessionMatches = Number(staffSessionVersion || 0) === Number(member?.sessionVersion || 0);
+      const isOwner = member?.role === 'owner' && restaurantData.ownerUid === staffActorUid;
+      const hasPosPermission = ['manager', 'cashier', 'server'].includes(member?.role) &&
+        Array.isArray(member?.permissions) && member.permissions.includes('pos.access');
+      if (!member || member.active !== true || member.restaurantSlug !== restaurantSlug ||
+          !memberSessionMatches || (!isOwner && !hasPosPermission)) {
+        return { success: false, error: 'Commande du personnel refusée : compte suspendu, session révoquée ou permission POS absente.' };
+      }
+    }
+
+    if (hasTrustedStaffTable && orderToCreate.orderMode === 'sur_place' && !tableSession) {
+      const staffTableSnap = snapshots[staffTableIndex];
       const staffTable = staffTableSnap?.exists ? staffTableSnap.data() : null;
       if (!staffTable || staffTable.isActive !== true ||
           String(staffTable.tableNumber || '').trim().toLowerCase() !== String(orderToCreate.tableNumber || '').trim().toLowerCase() ||
@@ -883,7 +904,12 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
     const staffProvider: ServerFirestoreProvider = {
       ...serverFirestoreProvider,
       async executeOrderTransaction(params) {
-        return executeOrderTransactionWithDb(adminDb, { ...params, staffOrder: true });
+        return executeOrderTransactionWithDb(adminDb, {
+          ...params,
+          staffOrder: true,
+          staffActorUid: decoded.uid,
+          staffSessionVersion: Number(decoded.sessionVersion || 0)
+        });
       }
     };
     const result = await processOrderSubmission(input, staffProvider);
