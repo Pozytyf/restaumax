@@ -8,7 +8,6 @@ import {
   Smartphone, 
   CreditCard, 
   CheckCircle2, 
-  Users, 
   RotateCcw,
   Receipt
 } from 'lucide-react';
@@ -102,7 +101,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       sounds.playAlert();
       return;
     }
-    sounds.playCashRegister();
+    sounds.playTap();
     onConfirmPayment({
       method,
       paidAmount: tenderedAmount,
