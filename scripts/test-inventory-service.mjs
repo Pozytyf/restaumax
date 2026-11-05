@@ -101,11 +101,14 @@ const stale = await manageInventoryWithDb(seed(), {
 });
 assert.equal(stale.success, false);
 
+const archiveBlocked = await manageInventoryWithDb(seed(), { ...common, action: 'archive', itemId: 'rice' });
+assert.equal(archiveBlocked.success, false);
 const archiveDb = seed();
+archiveDb.documents.set('restaurants/chez-awa/inventoryItems/rice', { ...archiveDb.documents.get('restaurants/chez-awa/inventoryItems/rice'), quantity: 0 });
 const archive = await manageInventoryWithDb(archiveDb, { ...common, action: 'archive', itemId: 'rice' });
 assert.equal(archive.success, true);
 assert.equal(archiveDb.documents.get('restaurants/chez-awa/inventoryItems/rice').active, false);
 const archiveReplay = await manageInventoryWithDb(archiveDb, { ...common, action: 'archive', itemId: 'rice' });
 assert.equal(archiveReplay.idempotentReplay, true);
 
-console.log('Inventory service: 9 scénarios validés.');
+console.log('Inventory service: 12 assertions validées.');
