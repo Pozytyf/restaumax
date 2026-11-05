@@ -11,9 +11,9 @@ assert(staff.includes('requestManagerPasswordReset(createdEmail)'), 'staff accou
 assert(platform.includes('requestManagerPasswordReset(ownerEmail)'), 'restaurant owner creation sends a password setup email');
 assert(login.includes('requestManagerPasswordReset(normalizedEmail)'), 'users can request a reset from the login screen');
 assert(firebase.includes('sendPasswordResetEmail(auth, email.trim())'), 'password setup uses Firebase Auth email delivery');
-assert(!/form\\.password|Mot de passe initial/.test(staff), 'staff UI does not collect an initial password');
-assert(!/form\\.ownerPassword|Mot de passe initial/.test(platform), 'owner UI does not collect an initial password');
-assert(!/body\\.password|const password = String\\(body\\.password/.test(backend), 'backend does not require caller-supplied initial passwords');
-assert(/auth\\.createUser\\(\\{ email, displayName: name, disabled: false \\}\\)/.test(backend), 'staff Auth account is created without a preset password');
-assert(/email: ownerEmail, displayName: ownerName, disabled: false/.test(backend), 'owner Auth account is created without a preset password');
+assert(!staff.includes('form.password') && !staff.includes('Mot de passe initial'), 'staff UI does not collect an initial password');
+assert(!platform.includes('form.ownerPassword') && !platform.includes('Mot de passe initial'), 'owner UI does not collect an initial password');
+assert(!backend.includes('body.password') && !backend.includes('const password = String(body.password'), 'backend does not require caller-supplied initial passwords');
+assert(backend.includes('auth.createUser({ email, displayName: name, disabled: false })'), 'staff Auth account is created without a preset password');
+assert(backend.includes('email: ownerEmail, displayName: ownerName, disabled: false'), 'owner Auth account is created without a preset password');
 console.log('Account onboarding email and passwordless provisioning checks passed (9 assertions).');
