@@ -51,8 +51,8 @@ export interface RestaurantHubViewProps {
   onNavigateToClientMenu: () => void;
   onNavigateToStaffRole: (role: 'pos' | 'floor' | 'kds' | 'manager') => void;
   onToggleDishAvailability: (dishId: string) => void;
-  onCreateDish: (dish: RestauMenuItem) => void;
-  onUpdateDish: (dish: RestauMenuItem) => void;
+  onCreateDish: (dish: RestauMenuItem) => Promise<void>;
+  onUpdateDish: (dish: RestauMenuItem) => Promise<void>;
   onDeleteDish: (dishId: string) => void;
   currentUserEmail?: string | null;
   onSignOut?: () => void;
