@@ -12,7 +12,6 @@ import {
   CreditCard, 
   Receipt, 
   FileText, 
-  ArrowUpRight,
   ShieldCheck,
   CheckCircle,
   Eye
