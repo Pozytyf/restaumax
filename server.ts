@@ -46,7 +46,7 @@ import {
   OrderProbeResult,
   IdempotencyReservationResult
 } from './src/server/orderService.js';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb } from './src/server/paymentService.js';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
 import {
   authorizeTableManager,
   buildCsrfCookie,
@@ -910,6 +910,28 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
 
     if (!canManageCash) {
       return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de gérer la caisse.' } };
+    }
+
+    if (input.action === 'refund_cash_payment') {
+      const canRefund = isOwner || member.role === 'manager' ||
+        (member.role === 'cashier' && Array.isArray(member.permissions) &&
+          member.permissions.includes('payments.refund'));
+      if (!canRefund) {
+        return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };
+      }
+      const refundResult = await refundCashPaymentWithDb(adminDb, {
+        restaurantSlug: slug,
+        paymentId: String(input.paymentId || ''),
+        actorUid: decoded.uid,
+        actorName: String(decoded.name || decoded.email || decoded.uid),
+        sessionVersion: Number(decoded.sessionVersion || 0),
+        amount: input.amount,
+        reason: String(input.reason || ''),
+        idempotencyKey: String(input.idempotencyKey || '')
+      });
+      if (refundResult.success) return { statusCode: 200, body: refundResult };
+      if (refundResult.conflict) return { statusCode: 409, body: refundResult };
+      return { statusCode: 400, body: refundResult };
     }
 
     const sessionInput = {
