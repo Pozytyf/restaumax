@@ -18,6 +18,18 @@ assert.equal(resolveRolePermissions('kitchen', ['payments.refund']), null);
 const adminSource = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
 const staffUiSource = fs.readFileSync(new URL('../src/components/restaumax/StaffManagementView.tsx', import.meta.url), 'utf8');
 assert(staffUiSource.includes("'orders.cancel','payments.refund','reports.view'"), 'staff UI exposes manager cancellation and refund permissions consistently');
+const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
+const hubView = fs.readFileSync(new URL('../src/components/restaumax/RestaurantHubView.tsx', import.meta.url), 'utf8');
+assert(menuView.includes("canManageCatalog = false") && menuView.includes("if (!canManageCatalog) return"),
+  'catalogue mutation handlers are denied by default without menu.manage');
+assert(menuView.includes("{canManageCatalog && <button") && menuView.includes("{canManageCatalog && <>"),
+  'create, edit, delete and availability actions are hidden without menu.manage');
+assert(hubView.includes("canManageCatalog={permissions.includes('menu.manage')}"),
+  'catalogue edit access is driven by the verified role permission set');
+assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
+  hubView.includes("status: permissions.includes('tables.manage') ? 'active' : 'unavailable'"),
+  'QR administration entry points are restricted to members with tables.manage');
+
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const managerRule = firestoreRules.match(/role == 'manager' && permission in \[([\s\S]*?)\]\)/)?.[1] || '';
 assert(managerRule.includes("'orders.cancel'") && managerRule.includes("'payments.refund'"), 'Firestore manager ceiling includes cancellation and refund permissions');
