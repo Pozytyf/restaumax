@@ -214,6 +214,9 @@ export default function App() {
   const [cashSessionLoading, setCashSessionLoading] = useState(false);
   const [cashSessionActionLoading, setCashSessionActionLoading] = useState(false);
   const [cashMovementActionLoading, setCashMovementActionLoading] = useState(false);
+  const [cashSessionOpenIdempotencyKey, setCashSessionOpenIdempotencyKey] = useState(() => generateClientOrderIdempotencyKey());
+  const [cashSessionCloseIdempotencyKey, setCashSessionCloseIdempotencyKey] = useState(() => generateClientOrderIdempotencyKey());
+  const [cashMovementIdempotencyKey, setCashMovementIdempotencyKey] = useState(() => generateClientOrderIdempotencyKey());
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isSubmittingPosOrder, setIsSubmittingPosOrder] = useState(false);
@@ -935,7 +938,7 @@ export default function App() {
     setCashSessionActionLoading(true);
     try {
       const result = await openCashSessionWithServerValidation(
-        activeRestaurantSlug, openingBalance, generateClientOrderIdempotencyKey()
+        activeRestaurantSlug, openingBalance, cashSessionOpenIdempotencyKey
       );
       if (result.success === false) {
         window.alert(result.error || "Impossible d'ouvrir la session de caisse.");
@@ -946,6 +949,7 @@ export default function App() {
         return;
       }
       setCashSession(result.session);
+      setCashSessionOpenIdempotencyKey(generateClientOrderIdempotencyKey());
       setDrawerState((previous) => ({
         ...previous, openingBalance,
         currentCash: openingBalance + Number(result.session?.cashCollected || 0)
@@ -961,7 +965,7 @@ export default function App() {
     setCashSessionActionLoading(true);
     try {
       const result = await closeCashSessionWithServerValidation(
-        activeRestaurantSlug, closingCount, generateClientOrderIdempotencyKey()
+        activeRestaurantSlug, closingCount, cashSessionCloseIdempotencyKey
       );
       if (result.success === false) {
         window.alert(result.error || "Impossible de clôturer la session de caisse.");
@@ -972,6 +976,7 @@ export default function App() {
         return;
       }
       setCashSession(null);
+      setCashSessionCloseIdempotencyKey(generateClientOrderIdempotencyKey());
       setDrawerState((previous) => ({
         ...previous, openingBalance: 0, currentCash: 0
       }));
@@ -994,7 +999,7 @@ export default function App() {
     setCashMovementActionLoading(true);
     try {
       const result = await recordCashMovementWithServerValidation(
-        activeRestaurantSlug, movementType, amount, category, note, generateClientOrderIdempotencyKey()
+        activeRestaurantSlug, movementType, amount, category, note, cashMovementIdempotencyKey
       );
       if (result.success === false) {
         window.alert(result.error || "Impossible d'enregistrer la sortie de caisse.");
@@ -1005,6 +1010,7 @@ export default function App() {
         return;
       }
       setCashSession(result.session);
+      setCashMovementIdempotencyKey(generateClientOrderIdempotencyKey());
       setDrawerState((previous) => ({
         ...previous,
         openingBalance: Number(result.session?.openingBalance || 0),
