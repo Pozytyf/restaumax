@@ -335,10 +335,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 404, { success: false, error: 'Restaurant introuvable ou supprimé.' });
         }
         const now = Date.now();
-        const updatedSubscription = {
-          ...validation.subscription, updatedAt: now, updatedBy: user.uid
-        };
         const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
+        const currentSubscriptionSnap = await subscriptionRef.get();
+        const requestedNotes = typeof body.subscription?.notes === 'string'
+          ? body.subscription.notes.trim().slice(0, 500) : '';
+        const preservedNotes = requestedNotes || String(currentSubscriptionSnap.data()?.notes || '');
+        const updatedSubscription = {
+          ...validation.subscription, notes: preservedNotes, updatedAt: now, updatedBy: user.uid
+        };
         await subscriptionRef.set(updatedSubscription, { merge: true });
         if (restaurantSnap.data()?.subscription !== undefined) {
           await restaurantRef.update({ subscription: FieldValue.delete() });
