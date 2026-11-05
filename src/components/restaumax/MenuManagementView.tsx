@@ -32,6 +32,7 @@ export interface MenuManagementViewProps {
   menuItems: RestauMenuItem[];
   catalogLoading?: boolean;
   catalogError?: string | null;
+  canManageCatalog?: boolean;
   onToggleAvailability: (dishId: string) => void;
   onCreateDish: (dish: RestauMenuItem) => Promise<void>;
   onUpdateDish: (dish: RestauMenuItem) => Promise<void>;
@@ -58,6 +59,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
   menuItems,
   catalogLoading = false,
   catalogError = null,
+  canManageCatalog = false,
   onToggleAvailability,
   onCreateDish,
   onUpdateDish,
@@ -101,23 +103,27 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
   }, [menuItems, selectedCategory, availabilityFilter, searchQuery]);
 
   const handleToggle = (dishId: string) => {
+    if (!canManageCatalog) return;
     sounds.playTap();
     onToggleAvailability(dishId);
   };
 
   const handleOpenCreateModal = () => {
+    if (!canManageCatalog) return;
     sounds.playTap();
     setSelectedDishToEdit(null);
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (dish: RestauMenuItem) => {
+    if (!canManageCatalog) return;
     sounds.playTap();
     setSelectedDishToEdit(dish);
     setIsModalOpen(true);
   };
 
   const handleSaveDish = async (dish: RestauMenuItem): Promise<void> => {
+    if (!canManageCatalog) throw new Error('Permission menu.manage requise.');
     if (selectedDishToEdit) {
       await onUpdateDish(dish);
     } else {
@@ -126,6 +132,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
   };
 
   const handleDeleteDish = (dish: RestauMenuItem) => {
+    if (!canManageCatalog) return;
     const confirmed = window.confirm(
       `Supprimer définitivement « ${dish.name} » du catalogue ? Cette action ne peut pas être annulée.`
     );
@@ -168,14 +175,14 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5">
-            <button
+            {canManageCatalog && <button
               onClick={handleOpenCreateModal}
               className="px-4 py-2 bg-[#ff6500] hover:bg-[#e05800] text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5 active:scale-95"
               title="Ajouter un nouveau plat au catalogue"
             >
               <Plus size={16} />
               <span>Nouveau plat</span>
-            </button>
+            </button>}
 
             <button
               onClick={() => {
@@ -500,6 +507,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
 
                     {/* Actions: Modifier & Disponibilité */}
                     <div className="flex items-center gap-2">
+                      {canManageCatalog && <>
                       <button
                         onClick={() => handleOpenEditModal(item)}
                         className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-all flex items-center gap-1.5 active:scale-95 border border-slate-200"
@@ -539,6 +547,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                           </>
                         )}
                       </button>
+                      </>}
                     </div>
                   </div>
                 </div>
