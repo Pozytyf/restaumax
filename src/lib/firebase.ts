@@ -516,6 +516,55 @@ export async function submitPosOrderWithServerValidation(
   }
 }
 
+export interface JekoPaymentConfigStatus {
+  configured: boolean;
+  provider: 'jeko' | null;
+  storeIdMasked: string | null;
+  updatedAt: number | null;
+}
+
+async function callJekoProviderConfig(
+  method: 'GET' | 'POST' | 'DELETE',
+  restaurantSlug: string,
+  payload?: Record<string, string>
+): Promise<{ success: boolean; status?: JekoPaymentConfigStatus; error?: string }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion propriétaire requise.' };
+    const idToken = await user.getIdToken(true);
+    const url = method === 'GET'
+      ? `/api/payment-provider-config?restaurantSlug=${encodeURIComponent(restaurantSlug)}`
+      : '/api/payment-provider-config';
+    const response = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        ...(method === 'GET' ? {} : { 'Content-Type': 'application/json' })
+      },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      ...(method === 'GET' ? {} : { body: JSON.stringify({ restaurantSlug, ...(payload || {}) }) })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Configuration Jèko refusée.' };
+    return { success: true, status: data.status };
+  } catch (err: any) {
+    console.error('Erreur API configuration Jèko:', err);
+    return { success: false, error: err?.message || 'Erreur réseau.' };
+  }
+}
+
+export const getJekoPaymentConfigStatusWithServerValidation = (slug: string) =>
+  callJekoProviderConfig('GET', slug);
+
+export const saveJekoPaymentConfigWithServerValidation = (
+  slug: string,
+  config: { apiKey: string; apiKeyId: string; storeId: string; webhookSecret: string }
+) => callJekoProviderConfig('POST', slug, config);
+
+export const deleteJekoPaymentConfigWithServerValidation = (slug: string) =>
+  callJekoProviderConfig('DELETE', slug);
+
 export interface CashPaymentApiRecord {
   id: string;
   restaurantSlug: string;
