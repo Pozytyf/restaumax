@@ -748,7 +748,8 @@ export async function createCustomerPayDunyaPaymentWithServerValidation(
   orderId: string,
   channel: PayDunyaClientChannel,
   idempotencyKey: string,
-  csrfToken: string
+  csrfToken: string,
+  amount: number
 ): Promise<{ success: true; checkoutUrl: string; paymentIntentId: string; amount: number } | { success: false; error: string; conflict?: boolean }> {
   try {
     const response = await fetch('/api/payments/customer-paydunya', {
@@ -756,7 +757,7 @@ export async function createCustomerPayDunyaPaymentWithServerValidation(
       headers: { 'Content-Type': 'application/json', 'X-RM-CSRF-Token': csrfToken },
       credentials: 'same-origin',
       cache: 'no-store',
-      body: JSON.stringify({ restaurantSlug, orderId, channel, idempotencyKey, csrfToken })
+      body: JSON.stringify({ restaurantSlug, orderId, channel, idempotencyKey, csrfToken, amount })
     });
     const data = await response.json();
     if (!response.ok || !data.success || typeof data.checkoutUrl !== 'string') {
