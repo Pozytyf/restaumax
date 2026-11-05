@@ -1200,7 +1200,8 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         sessionVersion: Number(decoded.sessionVersion || 0),
         amount: input.amount,
         reason: String(input.reason || ''),
-        idempotencyKey: String(input.idempotencyKey || '')
+        idempotencyKey: String(input.idempotencyKey || ''),
+        cashDisbursementConfirmed: input.cashDisbursementConfirmed === true
       });
       if (refundResult.success) return { statusCode: 200, body: refundResult };
       if (refundResult.conflict) return { statusCode: 409, body: refundResult };
