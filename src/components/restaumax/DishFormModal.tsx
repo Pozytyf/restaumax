@@ -188,11 +188,13 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveInFlight = useRef(false);
+  const newDishIdRef = useRef('');
 
   // Initialize or reset form when modal opens or dish changes
   useEffect(() => {
     if (!isOpen) return;
     saveInFlight.current = false;
+    newDishIdRef.current = dishToEdit?.id || `dish-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     setIsSaving(false);
     setSaveError(null);
 
@@ -356,7 +358,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       .filter((t) => t.length > 0)
       .filter((t, idx, arr) => arr.indexOf(t) === idx); // Remove duplicates
 
-    const dishId = dishToEdit?.id || `dish-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const dishId = dishToEdit?.id || newDishIdRef.current;
 
     // Build finalized option groups with integer numbers and strictly one default option
     const savedOptionGroups: MenuOptionGroup[] | undefined =
