@@ -33,8 +33,8 @@ export interface MenuManagementViewProps {
   catalogLoading?: boolean;
   catalogError?: string | null;
   onToggleAvailability: (dishId: string) => void;
-  onCreateDish: (dish: RestauMenuItem) => void;
-  onUpdateDish: (dish: RestauMenuItem) => void;
+  onCreateDish: (dish: RestauMenuItem) => Promise<void>;
+  onUpdateDish: (dish: RestauMenuItem) => Promise<void>;
   onDeleteDish: (dishId: string) => void;
   onBackToHub: () => void;
   onNavigateToClientMenu: () => void;
@@ -117,11 +117,11 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
     setIsModalOpen(true);
   };
 
-  const handleSaveDish = (dish: RestauMenuItem) => {
+  const handleSaveDish = async (dish: RestauMenuItem): Promise<void> => {
     if (selectedDishToEdit) {
-      onUpdateDish(dish);
+      await onUpdateDish(dish);
     } else {
-      onCreateDish(dish);
+      await onCreateDish(dish);
     }
   };
 
