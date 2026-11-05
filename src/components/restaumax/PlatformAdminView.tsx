@@ -221,7 +221,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       {subscriptionRestaurant && <form onSubmit={saveSubscription} className="grid gap-3 rounded-2xl border border-violet-800 bg-slate-900 p-5 md:grid-cols-2">
         <div className="md:col-span-2 flex items-start justify-between gap-3">
           <div><h3 className="text-lg font-bold">Abonnement · {subscriptionRestaurant.name}</h3>
-            <p className="text-xs text-slate-400">Gestion manuelle du plan et de sa période. Aucun prélèvement automatique n’est déclenché.</p></div>
+            <p className="text-xs text-slate-400">Gestion manuelle du plan et de sa période. Aucun prélèvement automatique ni blocage d’accès à échéance n’est déclenché pour le moment.</p></div>
           <button type="button" onClick={() => setSubscriptionRestaurant(null)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs">Fermer</button>
         </div>
         <label className="text-sm">Nom du plan
