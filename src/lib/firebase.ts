@@ -854,6 +854,37 @@ export async function refundPayDunyaPaymentWithServerValidation(
   }
 }
 
+export async function refundCashPaymentWithServerValidation(
+  restaurantSlug: string,
+  paymentId: string,
+  amount: number,
+  reason: string,
+  idempotencyKey: string
+): Promise<{ success: true; payment: Record<string, unknown>; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({
+        action: 'refund_cash_payment', restaurantSlug, paymentId, amount, reason, idempotencyKey
+      })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'Le remboursement espèces a été refusé.' };
+    }
+    return { success: true, payment: data.payment || {}, idempotentReplay: data.idempotentReplay === true };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau lors du remboursement espèces.' };
+  }
+}
+
 export async function listRecentCashPaymentsWithServerValidation(
   restaurantSlug: string
 ): Promise<{ success: true; payments: CashPaymentApiRecord[] } | { success: false; error: string }> {
