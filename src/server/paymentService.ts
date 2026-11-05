@@ -593,6 +593,7 @@ export interface RefundPaymentInput {
   amount: number;
   reason: string;
   idempotencyKey: string;
+  cashDisbursementConfirmed: boolean;
 }
 
 /**
@@ -614,7 +615,7 @@ export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput
       !actorUid ||
       !/^[a-zA-Z0-9_-]{8,128}$/.test(key) ||
       !Number.isSafeInteger(input.amount) || input.amount <= 0 || input.amount > 100_000_000 ||
-      reason.length < 3 || reason.length > 300) {
+      reason.length < 3 || reason.length > 300 || input.cashDisbursementConfirmed !== true) {
     return { success: false, error: 'Paramètres de remboursement invalides.' };
   }
 
@@ -702,6 +703,8 @@ export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput
       orderNumber: payment.orderNumber || order.orderNumber || orderId,
       amount: input.amount, currency: payment.currency || order.currency || 'FCFA',
       method: 'especes', status: 'recorded',
+      cashDisbursementConfirmed: true, cashDisbursementConfirmedAt: now,
+      cashDisbursementConfirmedByUid: actorUid,
       reason, actorUid, actorName: String(input.actorName || actorUid),
       actorRole: member.role, createdAt: now,
       idempotencyKeyHash: sha256(key)
