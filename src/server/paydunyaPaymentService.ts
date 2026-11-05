@@ -329,6 +329,7 @@ export async function processPayDunyaInvoiceCallbackWithDb(
     const order = orderSnap.exists ? orderSnap.data() : null;
     if (!order || order.restaurantSlug !== slug || order.status === 'cancelled' ||
         order.pendingPayDunyaIntentId !== intentId ||
+        Number(order.pendingPayDunyaAmount) !== Number(intent.amount) ||
         Number(invoice.totalAmount) !== Number(intent.amount) ||
         Number(intent.amount) <= 0 || intent.currency !== 'XOF') {
       return { success: false, conflict: true, error: 'Le montant ou la commande ne correspond plus à la facture PayDunya ; rapprochement manuel requis.' };
