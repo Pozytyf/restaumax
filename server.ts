@@ -357,13 +357,14 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
   if (!db) {
     throw new Error("Opération refusée : Instance Firestore non disponible.");
   }
-  const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate, tableSession } = params;
+  const { restaurantSlug, idempotencyKey, keyDocId, orderId, signature, orderToCreate, tableSession, staffOrder, staffTableId } = params;
   const restaurantRef = db.collection('restaurants').doc(restaurantSlug);
   const docRefKey = db.collection('idempotency_keys').doc(keyDocId);
   const docRefOrder = restaurantRef.collection('orders').doc(orderId);
+  const isTrustedStaffOrder = staffOrder === true && typeof staffTableId === 'string' && staffTableId.length > 0;
 
-  if (orderToCreate.orderMode === 'sur_place' && !tableSession) {
-    return { success: false, error: 'Commande sur place refusée : session QR sécurisée obligatoire.' };
+  if (orderToCreate.orderMode === 'sur_place' && !tableSession && !isTrustedStaffOrder) {
+    return { success: false, error: 'Commande sur place refusée : session QR sécurisée ou authentification du personnel obligatoire.' };
   }
 
   return await db.runTransaction(async (t: any) => {
@@ -382,6 +383,8 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         t.get(restaurantRef.collection('table_qr_tokens').doc(tableSession.qrTokenHash)),
         t.get(restaurantRef.collection('tables').doc(tableSession.tableId))
       );
+    } else if (isTrustedStaffOrder && orderToCreate.orderMode === 'sur_place') {
+      reads.push(t.get(restaurantRef.collection('tables').doc(staffTableId)));
     }
     const snapshots = await Promise.all(reads);
     const snapKey = snapshots[0];
@@ -390,6 +393,16 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
     const restaurantData = snapRestaurant.exists ? snapRestaurant.data() : null;
     if (!restaurantData || restaurantData.status !== 'active' || restaurantData.deletedAt || restaurantData.isActive === false) {
       return { success: false, error: 'Commande refusée : restaurant inactif ou indisponible.' };
+    }
+
+    if (isTrustedStaffOrder && orderToCreate.orderMode === 'sur_place' && !tableSession) {
+      const staffTableSnap = snapshots[3];
+      const staffTable = staffTableSnap?.exists ? staffTableSnap.data() : null;
+      if (!staffTable || staffTable.isActive !== true ||
+          String(staffTable.tableNumber || '').trim().toLowerCase() !== String(orderToCreate.tableNumber || '').trim().toLowerCase() ||
+          restaurantData.isOpen === false) {
+        return { success: false, error: 'Commande du personnel refusée : table inactive, numéro incohérent ou restaurant fermé.' };
+      }
     }
 
     if (tableSession) {
@@ -820,6 +833,73 @@ export async function handleTableQrManagement(req: any) {
   }
 }
 
+export async function handlePosOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) {
+    return { statusCode: 503, body: { success: false, error: 'Service POS indisponible : Firebase Admin non configuré.' } };
+  }
+  if (!req || !requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
+    const slug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) {
+      return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+    }
+    if (!['sur_place', 'a_emporter'].includes(input.orderMode)) {
+      return { statusCode: 400, body: { success: false, error: 'Mode de commande invalide.' } };
+    }
+
+    const restaurantRef = adminDb.collection('restaurants').doc(slug);
+    const membershipRef = adminDb.collection('managers').doc(decoded.uid);
+    const [restaurantSnap, membershipSnap] = await Promise.all([restaurantRef.get(), membershipRef.get()]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = membershipSnap.exists ? membershipSnap.data() : null;
+
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(decoded.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return { statusCode: 403, body: { success: false, error: 'Compte inactif ou accès à ce restaurant refusé.' } };
+    }
+
+    const isOwner = member.role === 'owner' && restaurant.ownerUid === decoded.uid;
+    const canUsePos = isOwner || (
+      ['manager', 'cashier', 'server'].includes(member.role) &&
+      Array.isArray(member.permissions) && member.permissions.includes('pos.access')
+    );
+    if (!canUsePos) {
+      return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de créer une commande depuis le POS.' } };
+    }
+
+    input.tableNumber = input.orderMode === 'sur_place' ? String(input.tableNumber || '').trim() : null;
+    delete input.tableSession;
+
+    const staffProvider: ServerFirestoreProvider = {
+      ...serverFirestoreProvider,
+      async executeOrderTransaction(params) {
+        return executeOrderTransactionWithDb(adminDb, { ...params, staffOrder: true });
+      }
+    };
+    const result = await processOrderSubmission(input, staffProvider);
+    if (result.success) return { statusCode: 200, body: result };
+    if (result.conflict) return { statusCode: 409, body: result };
+    return { statusCode: 400, body: result };
+  } catch (err: any) {
+    const message = String(err?.message || '');
+    if (/auth|token|revoked|expired/i.test(message)) {
+      return { statusCode: 401, body: { success: false, error: 'Session du personnel invalide. Reconnectez-vous.' } };
+    }
+    console.error('Erreur API POS:', message || String(err));
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne lors de la création de la commande POS.' } };
+  }
+}
+
 export async function handleOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb) {
     return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible : Firebase Admin non configuré.' } };
@@ -870,6 +950,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any = adminDb)
 // Local Express routes. Vercel uses the equivalent files in /api.
 app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
+});
+
+app.post('/api/pos-orders', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handlePosOrderSubmission(req.body, req);
+  return res.status(result.statusCode).json(result.body);
 });
 
 app.post('/api/orders', async (req, res) => {
