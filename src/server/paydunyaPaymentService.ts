@@ -366,8 +366,8 @@ async function finalizePayDunyaRefund(
     const current = refundSnap.data();
     const payment = paymentSnap.data();
     const order = orderSnap.data();
-    if (current.status === 'completed') {
-      return { success: true, refundId, status: 'completed', idempotentReplay: true };
+    if (current.status === 'completed' || current.status === 'failed') {
+      return { success: true, refundId, status: current.status, idempotentReplay: true };
     }
     if (current.disbursementToken !== providerStatus.token ||
         Number(current.amount) !== Number(providerStatus.amount) ||
@@ -544,13 +544,15 @@ export async function startPayDunyaRefundWithDb(
   });
 
   const submitted = await submitPayDunyaDisbursement(config, created.data.token, refundId, fetchImpl);
-  if (!submitted.success) {
-    await refundRef.update({ status: 'pending_verification', lastProviderError: clean(submitted.error, 180), updatedAt: Date.now() });
-    return { success: true, refundId, status: 'pending_verification' };
-  }
+  // Even a non-00/ambiguous submit response must be reconciled using the same token
+  // before deciding whether another submit is safe.
   const status = await checkPayDunyaDisbursementStatus(config, created.data.token, fetchImpl);
   if (!status.success) {
-    await refundRef.update({ status: 'pending_verification', updatedAt: Date.now() });
+    await refundRef.update({
+      status: 'pending_verification',
+      lastProviderError: submitted.success ? null : clean(submitted.error, 180),
+      updatedAt: Date.now()
+    });
     return { success: true, refundId, status: 'pending_verification' };
   }
   const finalized = await finalizePayDunyaRefund(db, slug, refundId, status.data);
