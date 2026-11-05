@@ -132,7 +132,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
   const handleValidate = () => {
     const isMobileMoney = method !== 'especes' && method !== 'carte';
-    if (tenderedAmount <= 0 || (isMobileMoney && (tenderedAmount !== balanceDue || splitGuests > 1 || guestAccounts.length > 1))) {
+    if (tenderedAmount <= 0 || (isMobileMoney && (tenderedAmount > balanceDue || splitGuests > 1 || guestAccounts.length > 1))) {
       sounds.playAlert();
       return;
     }
@@ -237,7 +237,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <p className="mt-2 text-[10px] text-amber-700">Les paiements Mobile Money des factures partagées seront activés après validation du rapprochement par convive.</p>
               )}
               {method !== 'especes' && method !== 'carte' && (
-                <p className="mt-2 text-[10px] text-slate-500">Le montant Mobile Money doit correspondre exactement au solde restant. Vous serez redirigé vers la page sécurisée PayDunya.</p>
+                <p className="mt-2 text-[10px] text-slate-500">Vous pouvez régler tout ou partie du solde restant. Le montant ne peut pas le dépasser ; la confirmation est effectuée par PayDunya.</p>
               )}
             </div>
 
