@@ -149,6 +149,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               <div className="text-2xl sm:text-3xl font-black text-[#101d2d] tnum">
                 {formatFCFA(balanceDue)}
               </div>
+              {alreadyPaidAmount > 0 && (
+                <div className="text-xs font-semibold text-emerald-700 mt-1">
+                  Déjà réglé : {formatFCFA(alreadyPaidAmount)}
+                </div>
+              )}
               {discountPercent > 0 && (
                 <div className="text-xs font-semibold text-emerald-600 mt-1">
                   Remise de {discountPercent}% appliquée (-{formatFCFA(discountAmount)})
