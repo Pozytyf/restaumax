@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   createPayDunyaCheckoutInvoice,
   confirmPayDunyaInvoice,
@@ -12,7 +12,7 @@ const CI_CHANNELS = new Set<PayDunyaCiWithdrawMode>([
 ]);
 
 function sha256(value: string): string {
-  return crypto.createHash('sha256').update(value).digest('hex');
+  return createHash('sha256').update(value).digest('hex');
 }
 function clean(value: unknown, max = 160): string {
   return String(value ?? '').trim().slice(0, max);
@@ -673,7 +673,7 @@ export async function reconcilePayDunyaInvoiceIntentWithDb(
     return { success: false, error: 'Token PayDunya absent ; rapprochement manuel requis.' };
   }
   const localEnvelope = {
-    hash: crypto.createHash('sha512').update(config.masterKey).digest('hex'),
+    hash: createHash('sha512').update(config.masterKey).digest('hex'),
     invoice: { token }
   };
   return processPayDunyaInvoiceCallbackWithDb(db, config, localEnvelope, fetchImpl);
