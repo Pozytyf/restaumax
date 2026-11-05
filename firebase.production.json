@@ -1,0 +1,9 @@
+
+{
+  "firestore": [
+    {
+      "database": "ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf",
+      "rules": "firestore.rules"
+    }
+  ]
+}
