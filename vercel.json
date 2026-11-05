@@ -3,15 +3,43 @@
   "functions": {
     "api/*.ts": {
       "includeFiles": "firebase-applet-config.json"
+    },
+    "api/payments/*.ts": {
+      "includeFiles": "firebase-applet-config.json"
     }
   },
   "rewrites": [
-    { "source": "/q/:token", "destination": "/api/tables/resolve-qr?token=:token" },
-    { "source": "/r/:path*", "destination": "/index.html" },
-    { "source": "/gestion", "destination": "/index.html" },
-    { "source": "/gestion/:path*", "destination": "/index.html" },
-    { "source": "/staff", "destination": "/index.html" },
-    { "source": "/admin", "destination": "/index.html" },
-    { "source": "/admin/:path*", "destination": "/index.html" }
+    {
+      "source": "/q/:token",
+      "destination": "/api/tables/resolve-qr?token=:token"
+    },
+    {
+      "source": "/r/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/gestion",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/gestion/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/staff",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/payments/:path*",
+      "destination": "/index.html"
+    }
   ]
 }
