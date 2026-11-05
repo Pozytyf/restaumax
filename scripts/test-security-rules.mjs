@@ -151,6 +151,13 @@ try {
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-float-price'),{
     ...invalidMenuBase, id:'dish-float-price', price:2500.5
   }), 'Le catalogue refuse un prix FCFA non entier');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-zero-price'),{
+    ...invalidMenuBase, id:'dish-zero-price', price:0
+  }), 'Le catalogue refuse un prix nul comme le formulaire de gestion');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-zero-prep'),{
+    ...invalidMenuBase, id:'dish-zero-prep', prepTimeMinutes:0
+  }), 'Le catalogue refuse un temps de préparation nul');
+
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-category'),{
     ...invalidMenuBase, id:'dish-invalid-category', category:'autre'
   }), 'Le catalogue refuse une catégorie hors nomenclature');
