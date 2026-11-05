@@ -25,6 +25,7 @@ import {
   persistDishAvailability,
   deleteMenuItem, 
   submitOrderWithServerValidation,
+  submitPosOrderWithServerValidation,
   subscribeToOrders,
   updateOrderStatus,
   subscribeToTables,
@@ -765,7 +766,7 @@ export default function App() {
         imageUrl: item.menuItem.imageUrl
       }));
 
-      const result = await submitOrderWithServerValidation(activeRestaurantSlug, {
+      const result = await submitPosOrderWithServerValidation(activeRestaurantSlug, {
         cart: clientCart,
         orderMode: selectedTable ? 'sur_place' : 'a_emporter',
         tableNumber: selectedTable?.number || null,
