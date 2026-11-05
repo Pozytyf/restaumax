@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Plus, 
@@ -25,7 +25,7 @@ export interface DishFormModalProps {
   onClose: () => void;
   dishToEdit: RestauMenuItem | null;
   restaurant: RestaurantInfo;
-  onSave: (dish: RestauMenuItem) => void;
+  onSave: (dish: RestauMenuItem) => Promise<void>;
 }
 
 const CATEGORY_OPTIONS: { id: RestauMenuItem['category']; label: string }[] = [
@@ -185,10 +185,16 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState(false);
   const [imageLoadError, setImageLoadError] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveInFlight = useRef(false);
 
   // Initialize or reset form when modal opens or dish changes
   useEffect(() => {
     if (!isOpen) return;
+    saveInFlight.current = false;
+    setIsSaving(false);
+    setSaveError(null);
 
     if (dishToEdit) {
       setName(dishToEdit.name || '');
@@ -332,9 +338,11 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent | React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    if (saveInFlight.current) return;
     setTouched(true);
+    setSaveError(null);
 
     if (!validateForm()) {
       sounds.playAlert();
@@ -401,9 +409,20 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       availableExtras: savedExtras,
     };
 
+    saveInFlight.current = true;
+    setIsSaving(true);
     sounds.playTap();
-    onSave(savedDish);
-    onClose();
+    try {
+      await onSave(savedDish);
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Le plat n'a pas pu être enregistré. Réessayez.";
+      setSaveError(message);
+      sounds.playAlert();
+    } finally {
+      saveInFlight.current = false;
+      setIsSaving(false);
+    }
   };
 
   // Option Groups Handlers
@@ -579,6 +598,12 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+          {saveError && (
+            <div role="alert" className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-rose-800 text-xs font-semibold">
+              {saveError}
+            </div>
+          )}
+
           {/* Global error banner if submitted with errors */}
           {touched && Object.keys(errors).length > 0 && (
             <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-start gap-3 text-rose-800 text-xs">
@@ -1063,10 +1088,12 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           <button
             type="button"
             onClick={() => {
+              if (isSaving) return;
               sounds.playTap();
               onClose();
             }}
-            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors"
+            disabled={isSaving}
+            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors disabled:opacity-50"
           >
             Annuler
           </button>
@@ -1074,10 +1101,11 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           <button
             type="button"
             onClick={handleSubmit}
-            className="px-6 py-2.5 rounded-xl bg-[#ff6500] hover:bg-[#e05800] text-white text-xs font-black shadow-sm transition-all flex items-center gap-2 active:scale-95"
+            disabled={isSaving}
+            className="px-6 py-2.5 rounded-xl bg-[#ff6500] hover:bg-[#e05800] text-white text-xs font-black shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-wait"
           >
             <Check size={16} />
-            <span>{isEditing ? 'Enregistrer les modifications' : 'Créer et ajouter le plat'}</span>
+            <span>{isSaving ? 'Enregistrement…' : isEditing ? 'Enregistrer les modifications' : 'Créer et ajouter le plat'}</span>
           </button>
         </div>
       </div>
