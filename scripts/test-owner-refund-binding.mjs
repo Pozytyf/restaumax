@@ -42,7 +42,7 @@ function makeDb(uid, ownerUid) {
   });
 }
 const input = { restaurantSlug: 'r', paymentId: 'p', actorUid: 'owner-1', sessionVersion: 1,
-  amount: 500, reason: 'Refund test', idempotencyKey: 'owner-refund-001' };
+  amount: 500, reason: 'Refund test', idempotencyKey: 'owner-refund-001', cashDisbursementConfirmed: true };
 const valid = await refundCashPaymentWithDb(makeDb('owner-1', 'owner-1'), input);
 assert.equal(valid.success, true, 'verified owner can refund');
 const mismatch = await refundCashPaymentWithDb(makeDb('owner-2', 'owner-1'), { ...input, actorUid: 'owner-2' });
