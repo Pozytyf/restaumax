@@ -26,6 +26,12 @@ export const InventoryRecipePanel: React.FC<{ restaurantSlug: string; canManage:
     return () => { stopMenu(); stopRecipes(); };
   }, [restaurantSlug]);
 
+  const edit = (recipe: Recipe) => {
+    setMenuItemId(recipe.menuItemId);
+    setLines(recipe.lines.map(line => ({ inventoryItemId: line.inventoryItemId, quantityPerDish: String(line.quantityPerDish) })));
+    setError(''); setNotice('');
+  };
+
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!canManage || busy) return;
@@ -69,7 +75,7 @@ export const InventoryRecipePanel: React.FC<{ restaurantSlug: string; canManage:
         <button disabled={busy || inventory.length===0 || menu.length===0} className="rounded-lg bg-slate-900 px-4 py-3 text-sm font-bold text-white">{busy ? 'Enregistrement…' : 'Enregistrer la fiche recette'}</button>
       </div>
     </form>}
-    {recipes.map(recipe=><div key={recipe.menuItemId} className="border-b p-4 last:border-0"><p className="font-bold">{recipe.menuItemName}</p><p className="mt-1 text-sm text-slate-600">{recipe.lines.map(line=>line.itemName + ' : ' + line.quantityPerDish + ' ' + line.unit).join(' · ')}</p></div>)}
+    {recipes.map(recipe=><div key={recipe.menuItemId} className="flex flex-wrap items-start justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{recipe.menuItemName}</p><p className="mt-1 text-sm text-slate-600">{recipe.lines.map(line=>line.itemName + ' : ' + line.quantityPerDish + ' ' + line.unit).join(' · ')}</p></div>{canManage && <button type="button" onClick={()=>edit(recipe)} className="rounded-lg border px-3 py-2 text-sm font-semibold">Modifier la recette</button>}</div>)}
     {recipes.length===0 && <p className="p-5 text-sm text-slate-500">Aucune recette définie. La déduction automatique des ventes sera activée après sécurisation du cycle transactionnel de commande.</p>}
   </section>;
 };
