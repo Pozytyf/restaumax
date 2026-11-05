@@ -319,6 +319,237 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
   });
 }
 
+export interface CashRefundInput {
+  restaurantSlug: string;
+  paymentId: string;
+  actorUid: string;
+  actorName?: string;
+  sessionVersion: number;
+  amount: number;
+  reason: string;
+  idempotencyKey: string;
+}
+
+export interface CashRefundResult {
+  success: boolean;
+  conflict?: boolean;
+  idempotentReplay?: boolean;
+  error?: string;
+  refund?: Record<string, any>;
+  payment?: Record<string, any>;
+  order?: Record<string, any>;
+  session?: Record<string, any>;
+}
+
+/**
+ * Rembourse un paiement espèces dans une transaction atomique.
+ * Le remboursement diminue le montant payé de la commande et du sous-compte
+ * éventuel, tout en enregistrant une sortie de caisse dans la session active.
+ */
+export async function refundCashPaymentWithDb(db: any, input: CashRefundInput): Promise<CashRefundResult> {
+  if (!db) return { success: false, error: 'Firestore indisponible.' };
+  const slug = String(input.restaurantSlug || '').trim();
+  const paymentId = String(input.paymentId || '').trim();
+  const actorUid = String(input.actorUid || '').trim();
+  const key = String(input.idempotencyKey || '').trim();
+  const amount = input.amount;
+  const reason = String(input.reason || '').trim().slice(0, 200);
+
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(paymentId) || !actorUid ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(key) ||
+      !Number.isSafeInteger(amount) || amount <= 0 || amount > 100_000_000 ||
+      reason.length < 3) {
+    return { success: false, error: 'Paramètres de remboursement invalides.' };
+  }
+
+  const namespace = `${slug}::${paymentId}::${key}`;
+  const refundId = `refund_${sha256(namespace).slice(0, 32)}`;
+  const signature = sha256(JSON.stringify({ slug, paymentId, actorUid, amount, reason }));
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const memberRef = db.collection('managers').doc(actorUid);
+  const paymentRef = restaurantRef.collection('payments').doc(paymentId);
+  const refundRef = restaurantRef.collection('paymentRefunds').doc(refundId);
+  const idempotencyRef = db.collection('payment_refund_idempotency').doc(sha256(namespace).slice(0, 40));
+  const activeRef = restaurantRef.collection('cashSessionActive').doc(actorUid);
+
+  return db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, memberSnap, paymentSnap, idempotencySnap, refundSnap, activeSnap] = await Promise.all([
+      tx.get(restaurantRef), tx.get(memberRef), tx.get(paymentRef),
+      tx.get(idempotencyRef), tx.get(refundRef), tx.get(activeRef)
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = memberSnap.exists ? memberSnap.data() : null;
+    const payment = paymentSnap.exists ? paymentSnap.data() : null;
+
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return { success: false, error: 'Compte inactif, session du personnel révoquée ou accès au restaurant refusé.' };
+    }
+
+    const isOwner = member.role === 'owner' && restaurant.ownerUid === actorUid;
+    const canRefund = isOwner || member.role === 'manager' ||
+      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('payments.refund'));
+    if (!canRefund) {
+      return { success: false, error: 'Votre rôle ne possède pas la permission de remboursement.' };
+    }
+
+    if (!payment) return { success: false, error: 'Paiement introuvable.' };
+    const orderId = String(payment.orderId || '');
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(orderId)) {
+      return { success: false, error: 'Référence de commande du paiement invalide.' };
+    }
+    const orderRef = restaurantRef.collection('orders').doc(orderId);
+    const orderSnap = await tx.get(orderRef);
+    const order = orderSnap.exists ? orderSnap.data() : null;
+
+    if (idempotencySnap.exists) {
+      const previous = idempotencySnap.data();
+      if (previous.signature !== signature || previous.actorUid !== actorUid || previous.paymentId !== paymentId) {
+        return { success: false, conflict: true, error: 'Clé de remboursement déjà utilisée pour une autre opération.' };
+      }
+      if (!refundSnap.exists || !order) {
+        return { success: false, conflict: true, error: 'Registre de remboursement incomplet. Nouvelle opération bloquée.' };
+      }
+      return {
+        success: true, idempotentReplay: true,
+        refund: { ...refundSnap.data(), id: refundId },
+        payment: { ...payment, id: paymentId },
+        order: { ...order, id: orderId }
+      };
+    }
+
+    if (payment.method !== 'especes' || payment.restaurantSlug !== slug || !order || order.restaurantSlug !== slug) {
+      return { success: false, error: 'Seuls les paiements espèces valides peuvent être remboursés par cette opération.' };
+    }
+    if (order.status === 'cancelled') {
+      return { success: false, error: 'Une commande annulée ne peut pas être remboursée une seconde fois.' };
+    }
+
+    const sessionId = activeSnap.exists ? String(activeSnap.data()?.sessionId || '') : '';
+    if (!sessionId || activeSnap.data()?.status !== 'active') {
+      return { success: false, error: 'Ouvrez une session de caisse avant tout remboursement espèces.' };
+    }
+    const sessionRef = restaurantRef.collection('cashSessions').doc(sessionId);
+    const movementId = `move_${sha256(`refund::${refundId}`).slice(0, 32)}`;
+    const movementRef = restaurantRef.collection('cashMovements').doc(movementId);
+    const [sessionSnap, movementSnap] = await Promise.all([tx.get(sessionRef), tx.get(movementRef)]);
+    const session = sessionSnap.exists ? sessionSnap.data() : null;
+    if (!session || session.status !== 'active' || session.openedByUid !== actorUid ||
+        Number(session.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
+      return { success: false, error: 'La session de caisse active est invalide ou ne vous appartient pas.' };
+    }
+    if (movementSnap.exists) {
+      return { success: false, conflict: true, error: 'Un mouvement de caisse existe déjà pour ce remboursement.' };
+    }
+
+    const paidAmount = Number(payment.paidAmount);
+    const refundedAmount = Number(payment.refundedAmount || 0);
+    const orderPaidAmount = Number(order.paidAmount || 0);
+    const totalAmount = Number(order.totalAmount);
+    if (!Number.isSafeInteger(paidAmount) || paidAmount <= 0 ||
+        !Number.isSafeInteger(refundedAmount) || refundedAmount < 0 || refundedAmount > paidAmount ||
+        !Number.isSafeInteger(orderPaidAmount) || orderPaidAmount < amount ||
+        !Number.isSafeInteger(totalAmount) || totalAmount <= 0 || orderPaidAmount > totalAmount ||
+        amount > paidAmount - refundedAmount) {
+      return { success: false, error: 'Le montant demandé dépasse le montant réellement remboursable.' };
+    }
+
+    let guestAccounts = Array.isArray(order.guestAccounts)
+      ? order.guestAccounts.map((account: any) => ({ ...account }))
+      : undefined;
+    if (payment.guestAccountId) {
+      if (!guestAccounts) return { success: false, conflict: true, error: 'Sous-compte du convive introuvable pour ce paiement.' };
+      const guestIndex = guestAccounts.findIndex((account: any) => account.id === payment.guestAccountId);
+      if (guestIndex < 0) return { success: false, conflict: true, error: 'Sous-compte du convive introuvable.' };
+      const guest = guestAccounts[guestIndex];
+      const guestPaid = Number(guest.paidAmount || 0);
+      const guestShare = Number(guest.shareAmount);
+      if (!Number.isSafeInteger(guestPaid) || guestPaid < amount ||
+          !Number.isSafeInteger(guestShare) || guestShare <= 0 || guestPaid > guestShare) {
+        return { success: false, conflict: true, error: 'Le solde du sous-compte ne permet pas ce remboursement.' };
+      }
+      const updatedGuestPaid = guestPaid - amount;
+      guestAccounts[guestIndex] = {
+        ...guest,
+        paidAmount: updatedGuestPaid,
+        remainingAmount: guestShare - updatedGuestPaid,
+        paymentStatus: updatedGuestPaid === 0 ? 'unpaid' : updatedGuestPaid === guestShare ? 'paid' : 'partial'
+      };
+    }
+
+    const now = Date.now();
+    const updatedPaidAmount = orderPaidAmount - amount;
+    const updatedRemainingAmount = totalAmount - updatedPaidAmount;
+    const updatedPayment = {
+      ...payment,
+      refundedAmount: refundedAmount + amount,
+      refundStatus: refundedAmount + amount === paidAmount ? 'refunded' : 'partial_refund',
+      lastRefundAt: now
+    };
+    const updatedOrder = {
+      ...order,
+      ...(guestAccounts ? { guestAccounts } : {}),
+      paidAmount: updatedPaidAmount,
+      remainingAmount: updatedRemainingAmount,
+      paymentStatus: updatedPaidAmount === 0 ? 'unpaid' : updatedRemainingAmount === 0 ? 'paid' : 'partial',
+      lastRefundAt: now,
+      lastRefundId: refundId
+    };
+    const refund = {
+      id: refundId, restaurantSlug: slug, paymentId, orderId,
+      actorUid, actorName: String(input.actorName || actorUid),
+      sessionId, amount, reason,
+      guestAccountId: payment.guestAccountId || null,
+      guestNumber: payment.guestNumber || null,
+      signature, createdAt: now
+    };
+    const movement = {
+      id: movementId, restaurantSlug: slug, sessionId, actorUid,
+      actorName: String(input.actorName || actorUid),
+      movementType: 'expense', amount, category: 'refund',
+      note: `Remboursement ${paymentId} — ${reason}`,
+      referenceId: refundId, createdAt: now
+    };
+    const updatedSession = {
+      ...session,
+      cashOut: Number(session.cashOut || 0) + amount,
+      cashMovementCount: Number(session.cashMovementCount || 0) + 1,
+      lastCashMovementAt: now
+    };
+
+    tx.create(refundRef, refund);
+    tx.create(movementRef, movement);
+    tx.create(idempotencyRef, { signature, actorUid, paymentId, refundId, createdAt: now });
+    tx.update(paymentRef, {
+      refundedAmount: updatedPayment.refundedAmount,
+      refundStatus: updatedPayment.refundStatus,
+      lastRefundAt: now
+    });
+    tx.update(orderRef, {
+      ...(guestAccounts ? { guestAccounts } : {}),
+      paidAmount: updatedOrder.paidAmount,
+      remainingAmount: updatedOrder.remainingAmount,
+      paymentStatus: updatedOrder.paymentStatus,
+      lastRefundAt: now,
+      lastRefundId: refundId
+    });
+    tx.update(sessionRef, {
+      cashOut: updatedSession.cashOut,
+      cashMovementCount: updatedSession.cashMovementCount,
+      lastCashMovementAt: now
+    });
+
+    return {
+      success: true, refund,
+      payment: { ...updatedPayment, id: paymentId },
+      order: { ...updatedOrder, id: orderId },
+      session: { ...updatedSession, id: sessionId }
+    };
+  });
+}
+
 export async function listRecentCashPaymentsWithDb(db: any, restaurantSlug: string, limit = 100): Promise<Record<string, any>[]> {
   if (!db) throw new Error('Firestore indisponible.');
   const slug = String(restaurantSlug || '').trim();
