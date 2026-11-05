@@ -91,6 +91,7 @@ export interface PaymentRecord {
   guestNumber?: number;
   guestName?: string;
   guestShareAmount?: number;
+  guestPreviouslyPaidAmount?: number;
   guestRemainingAfter?: number;
   paymentMethod: PaymentMethod;
   items: { name: string; quantity: number; price: number }[];
