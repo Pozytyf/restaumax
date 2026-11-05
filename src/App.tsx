@@ -557,8 +557,7 @@ export default function App() {
       setCashSessionLoading(false);
       setDrawerState({
         openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
-        mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte')
-          .reduce((sum, record) => sum + record.paidAmount, 0), cardSales: 0, discountsTotal: 0, transactionCount: 0
+        mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
       });
       return;
     }
@@ -599,7 +598,8 @@ export default function App() {
         ...previous,
         totalSales,
         cashSales,
-        mobileMoneySales: 0,
+        mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte')
+          .reduce((sum, record) => sum + record.paidAmount, 0),
         cardSales: 0,
         discountsTotal: 0,
         transactionCount: records.length
