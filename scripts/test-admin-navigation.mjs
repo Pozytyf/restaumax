@@ -39,6 +39,8 @@ const clientMenu = fs.readFileSync(new URL('../src/components/restaumax/ClientMe
 assert(clientMenu.includes('available === false') || clientMenu.includes('available !== false'),
   'unavailable dishes are excluded from the customer ordering flow');
 assert(menuView.includes('canManageCatalog = false') && menuView.includes('if (!canManageCatalog) return'),
+assert(menuView.includes("(item.description || '').toLowerCase().includes(query)"),
+  'catalogue search tolerates legacy entries without a description');
   'catalogue mutation actions are guarded by the menu.manage permission');
 assert(!menuView.includes('Répertoire complet Chez Awa'),
   'catalogue UI contains no hardcoded demo restaurant label');
