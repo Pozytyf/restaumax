@@ -570,6 +570,8 @@ export interface CashSessionApiRecord {
   openingBalance: number;
   cashCollected: number;
   paymentCount: number;
+  cashOut: number;
+  cashMovementCount: number;
   status: 'active' | 'closed';
   openedAt: number;
   closedAt?: number;
@@ -626,6 +628,19 @@ export async function closeCashSessionWithServerValidation(
   restaurantSlug: string, closingCount: number, idempotencyKey: string
 ) {
   return cashSessionRequest(restaurantSlug, { action: 'close_session', closingCount, idempotencyKey });
+}
+
+export async function recordCashMovementWithServerValidation(
+  restaurantSlug: string,
+  movementType: 'expense' | 'withdrawal',
+  amount: number,
+  category: string,
+  note: string,
+  idempotencyKey: string
+) {
+  return cashSessionRequest(restaurantSlug, {
+    action: 'record_cash_movement', movementType, amount, category, note, idempotencyKey
+  });
 }
 
 export async function collectCashPaymentWithServerValidation(
