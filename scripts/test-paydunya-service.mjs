@@ -1,0 +1,143 @@
+import { createHash } from 'node:crypto';
+import {
+  getPayDunyaConfig,
+  buildPayDunyaCheckoutPayload,
+  createPayDunyaCheckoutInvoice,
+  confirmPayDunyaInvoice,
+  verifyPayDunyaCallback,
+  PAYDUNYA_CI_PAYMENT_CHANNELS
+} from '../src/server/paydunyaService.ts';
+
+let passed = 0;
+let failed = 0;
+const assert = (condition, label) => {
+  if (condition) { passed++; console.log('  ✓ ' + label); }
+  else { failed++; console.error('  ✗ ' + label); }
+};
+
+const env = {
+  PAYDUNYA_ENABLED: 'true',
+  PAYDUNYA_MODE: 'test',
+  PAYDUNYA_MASTER_KEY: 'test-master-key',
+  PAYDUNYA_PRIVATE_KEY: 'test-private-key',
+  PAYDUNYA_TOKEN: 'test-token'
+};
+const configResult = getPayDunyaConfig(env);
+assert(configResult.success === true, 'La configuration sandbox est acceptée');
+const config = configResult.success ? configResult.data : null;
+assert(config?.createInvoiceUrl === 'https://app.paydunya.com/sandbox-api/v1/checkout-invoice/create',
+  'Le mode test utilise exclusivement l’endpoint sandbox');
+assert(getPayDunyaConfig({ ...env, PAYDUNYA_ENABLED: 'false' }).success === false,
+  'Le fournisseur reste désactivé par défaut');
+assert(getPayDunyaConfig({ ...env, PAYDUNYA_MODE: 'live' }).success === false,
+  'Le mode production exige une activation explicite');
+assert(getPayDunyaConfig({ ...env, PAYDUNYA_MODE: 'live', PAYDUNYA_LIVE_ENABLED: 'true' }).success === true,
+  'Le mode production ne peut être configuré qu’avec son garde-fou');
+
+console.log('\n--- Construction de la facture ---');
+const invoiceInput = {
+  amount: 7500,
+  description: 'Règlement commande #CMD-42 · Convive 2',
+  restaurantSlug: 'chez-awa',
+  restaurantName: 'Maquis Chez Awa',
+  orderId: 'order-42',
+  paymentIntentId: 'intent-42',
+  guestNumber: 2,
+  guestAccountId: 'guest_2',
+  customer: { name: 'Awa', phone: '+2250700000000' },
+  items: [{ name: 'Attiéké poisson', quantity: 1, unitPrice: 7500, totalPrice: 7500 }],
+  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-callback',
+  returnUrl: 'https://restaumax.vercel.app/payments/return',
+  cancelUrl: 'https://restaumax.vercel.app/payments/cancel'
+};
+const payload = buildPayDunyaCheckoutPayload(invoiceInput);
+const invoiceNode = payload.invoice;
+assert(invoiceNode.total_amount === 7500, 'Le montant facturé est défini côté serveur');
+assert(invoiceNode.channels.length === 5 && PAYDUNYA_CI_PAYMENT_CHANNELS.includes('wave-ci') &&
+  PAYDUNYA_CI_PAYMENT_CHANNELS.includes('orange-money-ci'),
+  'Les canaux Mobile Money de Côte d’Ivoire sont disponibles');
+assert(payload.custom_data.payment_intent_id === 'intent-42' &&
+  payload.custom_data.guest_account_id === 'guest_2',
+  'Les références internes du paiement et du sous-compte sont transmises en données personnalisées');
+let invalidAmount = false;
+try { buildPayDunyaCheckoutPayload({ ...invoiceInput, amount: 1.5 }); } catch { invalidAmount = true; }
+assert(invalidAmount, 'Un montant non entier est refusé avant appel fournisseur');
+
+console.log('\n--- Création et confirmation d’une facture ---');
+if (config) {
+  let capturedUrl = '';
+  let capturedOptions = null;
+  const createMock = async (url, options) => {
+    capturedUrl = String(url);
+    capturedOptions = options;
+    return {
+      ok: true,
+      json: async () => ({
+        response_code: '00',
+        response_text: 'https://app.paydunya.com/sandbox-checkout/invoice/test_ABC123',
+        token: 'test_ABC123'
+      })
+    };
+  };
+  const created = await createPayDunyaCheckoutInvoice(config, invoiceInput, createMock);
+  assert(created.success === true && created.data.token === 'test_ABC123',
+    'Une réponse fournisseur valide retourne le token de facture');
+  assert(created.success === true && created.data.checkoutUrl.startsWith('https://app.paydunya.com/sandbox-checkout/'),
+    'Seule une URL de paiement PayDunya HTTPS est acceptée');
+  assert(capturedUrl === config.createInvoiceUrl &&
+    capturedOptions.headers['PAYDUNYA-MASTER-KEY'] === 'test-master-key',
+    'La requête utilise l’endpoint et les en-têtes serveur PayDunya');
+
+  const badUrl = await createPayDunyaCheckoutInvoice(config, invoiceInput, async () => ({
+    ok: true,
+    json: async () => ({
+      response_code: '00', response_text: 'https://evil.example/pay', token: 'test_BAD123'
+    })
+  }));
+  assert(badUrl.success === false, 'Une URL de redirection externe est refusée');
+
+  const failedProvider = await createPayDunyaCheckoutInvoice(config, invoiceInput, async () => ({
+    ok: true,
+    json: async () => ({ response_code: '99', response_text: 'Rejected' })
+  }));
+  assert(failedProvider.success === false, 'Une réponse fournisseur non réussie ne crée pas de paiement');
+
+  let confirmUrl = '';
+  const confirmMock = async (url) => {
+    confirmUrl = String(url);
+    return {
+      ok: true,
+      json: async () => ({
+        response_code: '00',
+        invoice: { token: 'test_ABC123', total_amount: 7500 },
+        status: 'completed',
+        custom_data: { payment_intent_id: 'intent-42' },
+        receipt_url: 'https://app.paydunya.com/sandbox-checkout/receipt/pdf/test_ABC123.pdf'
+      })
+    };
+  };
+  const confirmed = await confirmPayDunyaInvoice(config, 'test_ABC123', confirmMock);
+  assert(confirmed.success === true && confirmed.data.status === 'completed' &&
+    confirmed.data.totalAmount === 7500,
+    'La confirmation récupère le statut et le montant exacts de la facture');
+  assert(confirmUrl.endsWith('/checkout-invoice/confirm/test_ABC123'),
+    'La confirmation utilise le token de facture encodé dans l’endpoint');
+  const invalidToken = await confirmPayDunyaInvoice(config, 'bad token', confirmMock);
+  assert(invalidToken.success === false, 'Un token de facture mal formé est refusé');
+}
+
+console.log('\n--- Vérification de notification IPN ---');
+const masterKey = 'test-master-key';
+const validHash = createHash('sha512').update(masterKey).digest('hex');
+const callback = { hash: validHash, status: 'completed', invoice: { total_amount: 7500, token: 'test_ABC123' } };
+assert(verifyPayDunyaCallback(masterKey, callback).success === true,
+  'Une notification signée avec la Master Key est acceptée');
+assert(verifyPayDunyaCallback(masterKey, JSON.stringify(callback)).success === true,
+  'Une notification encodée en JSON est acceptée');
+assert(verifyPayDunyaCallback(masterKey, { ...callback, hash: '0'.repeat(128) }).success === false,
+  'Une notification dont la signature est falsifiée est rejetée');
+assert(verifyPayDunyaCallback('', callback).success === false,
+  'Une notification ne peut pas être validée sans clé serveur');
+
+console.log('\nRésultats PayDunya : ' + passed + '/' + (passed + failed) + ' réussis (' + failed + ' échec(s)).');
+if (failed > 0) process.exit(1);
