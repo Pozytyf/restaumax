@@ -176,6 +176,80 @@ const forged = await processPayDunyaInvoiceCallbackWithDb(db, config, {
 });
 assert(!forged.success, 'Une notification IPN falsifiée est rejetée');
 
+// A Mobile Money invoice may cover only part of the remaining order balance.
+db.seed('restaurants/maquis-awa/orders/order-200', {
+  id: 'order-200', restaurantSlug: 'maquis-awa', orderNumber: 'CMD-200',
+  status: 'pending', totalAmount: 7500, paidAmount: 2000, remainingAmount: 5500,
+  paymentStatus: 'partial', currency: 'FCFA',
+  items: [{ name: 'Poulet braisé', quantity: 1, unitPrice: 7500, totalPrice: 7500 }]
+});
+const partialCheckout = await startPayDunyaOrderPaymentWithDb(db, config, {
+  restaurantSlug: 'maquis-awa', orderId: 'order-200', actorUid: 'manager-1',
+  actorName: 'Manager', sessionVersion: 3, idempotencyKey: 'mobile_partial_200',
+  amount: 3000,
+  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-callback',
+  returnUrl: 'https://restaumax.vercel.app/payments/return',
+  cancelUrl: 'https://restaumax.vercel.app/payments/cancel',
+  channel: 'wave-ci'
+}, async (url, options) => {
+  const body = JSON.parse(options.body);
+  assert(body.invoice.total_amount === 3000, 'La facture Mobile Money partielle utilise le montant demandé, pas tout le solde');
+  return { ok: true, json: async () => ({
+    response_code: '00', token: 'test_PARTIAL200',
+    response_text: 'https://app.paydunya.com/sandbox-checkout/invoice/test_PARTIAL200'
+  }) };
+});
+assert(partialCheckout.success && partialCheckout.amount === 3000,
+  'Un paiement Mobile Money partiel est accepté par le backend');
+
+const conflictingAmount = await startPayDunyaOrderPaymentWithDb(db, config, {
+  restaurantSlug: 'maquis-awa', orderId: 'order-200', actorUid: 'manager-1',
+  actorName: 'Manager', sessionVersion: 3, idempotencyKey: 'mobile_partial_200',
+  amount: 2500,
+  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-callback',
+  returnUrl: 'https://restaumax.vercel.app/payments/return',
+  cancelUrl: 'https://restaumax.vercel.app/payments/cancel',
+  channel: 'wave-ci'
+}, async () => { throw new Error('must not create a second invoice for the same idempotency key'); });
+assert(!conflictingAmount.success && conflictingAmount.conflict === true,
+  'La même clé idempotente ne peut pas être réutilisée avec un autre montant');
+
+const partialReconciliation = await reconcilePayDunyaInvoiceIntentWithDb(
+  db, config, 'maquis-awa', partialCheckout.paymentIntentId, async (url) => {
+    assert(String(url).endsWith('/checkout-invoice/confirm/test_PARTIAL200'),
+      'Le paiement partiel est confirmé auprès de PayDunya côté serveur');
+    return { ok: true, json: async () => ({
+      response_code: '00', hash: signedHash,
+      invoice: { token: 'test_PARTIAL200', total_amount: '3000' },
+      status: 'completed',
+      custom_data: {
+        restaurant_slug: 'maquis-awa', order_id: 'order-200',
+        payment_intent_id: partialCheckout.paymentIntentId
+      },
+      customer: { phone: '+225 05 00 00 00 00' },
+      transaction_id: 'PAY-TX-200'
+    }) };
+  }
+);
+assert(partialReconciliation.success && partialReconciliation.status === 'completed',
+  'La confirmation du paiement partiel est rapprochée');
+assert(db.read('restaurants/maquis-awa/orders/order-200').paidAmount === 5000 &&
+  db.read('restaurants/maquis-awa/orders/order-200').remainingAmount === 2500 &&
+  db.read('restaurants/maquis-awa/orders/order-200').paymentStatus === 'partial',
+  'Le paiement partiel met à jour le montant payé et le solde restant sans clôturer la commande');
+
+const overBalance = await startPayDunyaOrderPaymentWithDb(db, config, {
+  restaurantSlug: 'maquis-awa', orderId: 'order-200', actorUid: 'manager-1',
+  actorName: 'Manager', sessionVersion: 3, idempotencyKey: 'mobile_over_balance_200',
+  amount: 3000,
+  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-callback',
+  returnUrl: 'https://restaumax.vercel.app/payments/return',
+  cancelUrl: 'https://restaumax.vercel.app/payments/cancel',
+  channel: 'wave-ci'
+}, async () => { throw new Error('must reject over-balance before provider call'); });
+assert(!overBalance.success && overBalance.error?.includes('dépasser le solde restant'),
+  'Le backend refuse tout montant supérieur au solde restant');
+
 const payoutConfigResult = getPayDunyaDisbursementConfig({
   ...testEnv, PAYDUNYA_MODE: 'live', PAYDUNYA_LIVE_ENABLED: 'true', PAYDUNYA_PUSH_ENABLED: 'true'
 });
