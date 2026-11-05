@@ -279,6 +279,9 @@ export async function openCashSessionWithDb(db: any, input: CashSessionInput): P
       if (previous.openingSignature !== signature || previous.openedByUid !== actorUid) {
         return { success: false, conflict: true, error: 'Clé d’ouverture déjà utilisée pour une autre session.' };
       }
+      if (previous.status !== 'active' || activeSnap.data()?.sessionId !== sessionId || activeSnap.data()?.status !== 'active') {
+        return { success: false, conflict: true, error: 'Cette session a déjà été clôturée. Utilisez une nouvelle clé pour ouvrir une nouvelle session.' };
+      }
       return { success: true, idempotentReplay: true, session: { ...previous, id: sessionId } };
     }
     if (activeSnap.exists && activeSnap.data()?.status === 'active') {
@@ -328,12 +331,17 @@ export async function closeCashSessionWithDb(db: any, input: CashSessionInput): 
       return { success: false, error: 'Votre rôle ne permet pas de clôturer une session de caisse.' };
     }
     const sessionId = activeSnap.exists ? String(activeSnap.data()?.sessionId || '') : '';
-    if (!sessionId || activeSnap.data()?.status !== 'active') {
-      return { success: false, error: 'Aucune session de caisse active à clôturer.' };
-    }
+    if (!sessionId) return { success: false, error: 'Aucune session de caisse à clôturer.' };
     const sessionRef = restaurantRef.collection('cashSessions').doc(sessionId);
     const sessionSnap = await tx.get(sessionRef);
     const session = sessionSnap.exists ? sessionSnap.data() : null;
+    if (activeSnap.data()?.status !== 'active') {
+      if (session?.status === 'closed' && session.openedByUid === actorUid &&
+          session.closingIdempotencyKey === key) {
+        return { success: true, idempotentReplay: true, session: { ...session, id: sessionId } };
+      }
+      return { success: false, error: 'Aucune session de caisse active à clôturer.' };
+    }
     if (!session || session.status !== 'active' || session.openedByUid !== actorUid ||
         Number(session.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
       return { success: false, error: 'La session active est invalide ou ne vous appartient pas.' };
