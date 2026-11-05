@@ -952,7 +952,11 @@ export async function handleCustomerPayDunyaReconcileRequest(payload: unknown, r
     const intentSnap = await intentRef.get();
     if (!intentSnap.exists) return { statusCode: 404, body: { success: false, error: 'Intention de paiement introuvable.' } };
     const intent = intentSnap.data();
-    const orderRef = adminDb.collection('restaurants').doc(slug).collection('orders').doc(String(intent.orderId || ''));
+    const orderId = String(intent.orderId || '');
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(orderId)) {
+      return { statusCode: 400, body: { success: false, error: 'Référence de commande de paiement invalide.' } };
+    }
+    const orderRef = adminDb.collection('restaurants').doc(slug).collection('orders').doc(orderId);
     const orderSnap = await orderRef.get();
     const order = orderSnap.exists ? orderSnap.data() : null;
     const binding = order?.tableSession || {};
