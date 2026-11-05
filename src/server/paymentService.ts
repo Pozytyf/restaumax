@@ -260,7 +260,13 @@ export async function getCashSessionWithDb(db: any, restaurantSlug: string, acto
   if (!sessionId) return null;
   const sessionSnap = await restaurantRef.collection('cashSessions').doc(sessionId).get();
   if (!sessionSnap.exists || sessionSnap.data()?.status !== 'active' || sessionSnap.data()?.openedByUid !== uid) return null;
-  return { ...sessionSnap.data(), id: sessionSnap.id };
+  const sessionData = sessionSnap.data();
+  return {
+    ...sessionData,
+    id: sessionSnap.id,
+    cashOut: Number(sessionData.cashOut || 0),
+    cashMovementCount: Number(sessionData.cashMovementCount || 0)
+  };
 }
 
 export async function openCashSessionWithDb(db: any, input: CashSessionInput): Promise<CashSessionResult> {
