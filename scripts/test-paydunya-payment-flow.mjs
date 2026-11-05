@@ -342,6 +342,7 @@ const qrCheckout = await startPayDunyaOrderPaymentWithDb(db, config, {
   restaurantSlug: 'maquis-awa', orderId: 'order-qr',
   actorUid: 'table_session-hash-qr-4', actorName: 'Client QR', sessionVersion: 2,
   idempotencyKey: 'qr_mobile_pay_001',
+  amount: 2500,
   callbackUrl: 'https://restaumax-git-preview-test.vercel.app/api/payments/paydunya-callback',
   returnUrl: 'https://restaumax-git-preview-test.vercel.app/payments/return?restaurantSlug=maquis-awa&orderId=order-qr',
   cancelUrl: 'https://restaumax-git-preview-test.vercel.app/payments/return?cancelled=1&restaurantSlug=maquis-awa&orderId=order-qr',
@@ -349,8 +350,8 @@ const qrCheckout = await startPayDunyaOrderPaymentWithDb(db, config, {
   customerTableSession: { ...qrBinding, tableNumber: '4' }
 }, async (url, options) => {
   const body = JSON.parse(options.body);
-  assert(body.invoice.total_amount === 4500 && body.invoice.channels[0] === 'wave-ci',
-    'Le paiement QR utilise le solde exact et le canal Wave choisi');
+  assert(body.invoice.total_amount === 2500 && body.invoice.channels[0] === 'wave-ci',
+    'Le paiement QR accepte un montant partiel et le canal Wave choisi');
   return { ok: true, json: async () => ({
     response_code: '00', token: 'test_QR123',
     response_text: 'https://app.paydunya.com/sandbox-checkout/invoice/test_QR123'
@@ -373,7 +374,7 @@ const qrReconciliation = await reconcilePayDunyaInvoiceIntentWithDb(
   db, config, 'maquis-awa', qrCheckout.paymentIntentId, async () => ({
     ok: true, json: async () => ({
       response_code: '00', hash: signedHash,
-      invoice: { token: 'test_QR123', total_amount: '4500' },
+      invoice: { token: 'test_QR123', total_amount: '2500' },
       status: 'completed',
       custom_data: {
         restaurant_slug: 'maquis-awa', order_id: 'order-qr',
