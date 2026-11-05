@@ -523,6 +523,7 @@ export interface CashPaymentApiRecord {
   orderNumber: string;
   tableNumber: string | null;
   actorUid: string;
+  actorName: string;
   actorRole: string;
   method: 'especes';
   currency: string;
