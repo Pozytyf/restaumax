@@ -79,13 +79,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
             <div className="flex items-center justify-between text-slate-500 mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider">Transactions Validées</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Paiements enregistrés</span>
               <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
                 <Receipt size={16} />
               </div>
             </div>
             <div className="text-2xl font-black text-[#101d2d] tnum">
-              {drawerState.transactionCount} tickets
+              {drawerState.transactionCount} transactions
             </div>
             <div className="text-[11px] text-slate-500 font-medium mt-1">
               Historique des 100 derniers encaissements au maximum
@@ -255,7 +255,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <th className="py-3 px-4">Serveur</th>
                   <th className="py-3 px-4">Articles</th>
                   <th className="py-3 px-4">Règlement</th>
-                  <th className="py-3 px-4 text-right">Total Net</th>
+                  <th className="py-3 px-4 text-right">Montant encaissé</th>
                   <th className="py-3 px-4 text-center">Reçu</th>
                 </tr>
               </thead>
@@ -263,7 +263,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 {transactions.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-slate-400">
-                      Aucune transaction récente dans ce shift.
+                      Aucun encaissement enregistré dans les 100 dernières opérations.
                     </td>
                   </tr>
                 ) : (
@@ -290,7 +290,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right font-black text-[#ff6500] tnum">
-                        {formatFCFA(tx.total)}
+                        {formatFCFA(tx.paidAmount)}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <button
