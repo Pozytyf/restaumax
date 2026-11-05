@@ -17,7 +17,7 @@ import {
 interface KdsViewProps {
   tickets: KitchenTicket[];
   canMarkServed?: boolean;
-  onToggleItemComplete: (ticketId: string, itemId: string) => void;
+  onToggleItemComplete: (ticketId: string, itemId: string, completed: boolean) => void;
   onUpdateTicketStatus: (ticketId: string, status: TicketStatus) => void;
 }
 
@@ -420,7 +420,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
                         onClick={(e) => {
                           e.stopPropagation();
                           sounds.playTap();
-                          onToggleItemComplete(ticket.id, item.id);
+                          onToggleItemComplete(ticket.id, item.id, !item.completed);
                         }}
                         className={`py-2.5 px-2 rounded-lg cursor-pointer transition-colors flex items-start gap-2.5 ${
                           item.completed
