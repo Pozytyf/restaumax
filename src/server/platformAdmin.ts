@@ -567,11 +567,15 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
         if (!permissions) return json(res, 400, { success: false, error: 'Permissions incompatibles avec le plafond du rôle.' });
         const currentAuthUser = await getAuth().getUser(staffUid);
-        const sessionVersion = currentSessionVersion;
+        // Permission and role changes invalidate all previously issued sessions.
+        // Firestore checks sessionVersion on every protected read/write, so the old
+        // token is denied as soon as the membership update commits.
+        const sessionVersion = currentSessionVersion + 1;
         await getAuth().setCustomUserClaims(staffUid, { ...(currentAuthUser.customClaims || {}), role, restaurantSlug: slug, permissions, sessionVersion });
         await memberRef.set({ role, permissions, sessionVersion, updatedAt: Date.now() }, { merge: true });
-        await db.collection('managers').doc(staffUid).set({ role, permissions, sessionVersion }, { merge: true });
-        return json(res, 200, { success: true });
+        await managerRef.set({ role, permissions, sessionVersion, updatedAt: Date.now() }, { merge: true });
+        await getAuth().revokeRefreshTokens(staffUid);
+        return json(res, 200, { success: true, requiresReauthentication: true });
       }
     }
 
