@@ -712,7 +712,8 @@ export async function createPayDunyaPaymentWithServerValidation(
   restaurantSlug: string,
   orderId: string,
   channel: PayDunyaClientChannel,
-  idempotencyKey: string
+  idempotencyKey: string,
+  amount: number
 ): Promise<{ success: true; checkoutUrl: string; paymentIntentId: string; amount: number; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
     const user = auth.currentUser;
@@ -724,7 +725,7 @@ export async function createPayDunyaPaymentWithServerValidation(
       credentials: 'same-origin',
       cache: 'no-store',
       body: JSON.stringify({
-        action: 'create_paydunya_invoice', restaurantSlug, orderId, channel, idempotencyKey
+        action: 'create_paydunya_invoice', restaurantSlug, orderId, channel, idempotencyKey, amount
       })
     });
     const data = await response.json();
