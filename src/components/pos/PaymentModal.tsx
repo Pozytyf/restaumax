@@ -13,6 +13,8 @@ import {
   Receipt
 } from 'lucide-react';
 
+const EMPTY_GUEST_ACCOUNTS: RestauGuestAccount[] = [];
+
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -41,7 +43,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   serverName,
   discountPercent,
   alreadyPaidAmount = 0,
-  guestAccounts = [],
+  guestAccounts = EMPTY_GUEST_ACCOUNTS,
   isSubmitting = false,
   onConfirmPayment
 }) => {
