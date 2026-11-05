@@ -196,6 +196,8 @@ async function run() {
 
   const revoked = await revokeTableQr(db, 'chez-awa', 'table-4');
   assert(revoked.revoked === 1, 'Révocation immédiate du QR actif');
+  assert(revoked.versionAdvanced === true && db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 2,
+    'La révocation incrémente atomiquement la version de table pour invalider les sessions et sérialiser une rotation concurrente');
   assert(await getActiveTableSession(db, resolved.sessionSecret) === null, 'Session existante invalidée immédiatement après révocation');
   let oldTokenRejected = false;
   try { await resolveTableQr(db, token); } catch { oldTokenRejected = true; }
@@ -208,7 +210,7 @@ async function run() {
   try { await resolveTableQr(db, rotated.token); } catch { deletedRestaurantRejected = true; }
   assert(deletedRestaurantRejected, 'Un QR ne peut pas ouvrir de session pour un restaurant supprimé logiquement');
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'active', deletedAt: undefined });
-  assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 2, 'Rotation incrémente la version de table');
+  assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 3, 'Rotation incrémente la version de table après révocation');
   let inactiveRejected = false;
   db.store.set('restaurants/chez-awa/tables/table-4', { ...db.store.get('restaurants/chez-awa/tables/table-4'), isActive: false });
   try { await resolveTableQr(db, rotated.token); } catch { inactiveRejected = true; }
