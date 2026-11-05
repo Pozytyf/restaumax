@@ -50,7 +50,7 @@ L'écran affichait une durée de service fixe (« 3h 42m ») et une heure de ré
 - RestauMax CI : TypeScript, tests automatisés, build frontend et audit des dépendances — succès.
 - Tests Firestore Emulator & qualité : tests d'intention, tests LOT 1/LOT 2, règles de sécurité et transactions — succès.
 - Owner UID binding emulator, sécurité des rôles, autorisation de remboursement, cycle PayDunya et confidentialité du tableau super-admin — succès.
-- Vercel : contrôle en échec à cause de la limite de déploiements du compte ; aucun déploiement Preview ou Production n'a été lancé dans cette phase.
+- Vercel : contrôle en échec à cause de la limite de déploiements du compte ; aucun déploiement Preview ou Production n'a abouti ; l'intégration Vercel a bloqué la tentative automatique avant déploiement, faute de quota.
 - Le code et les règles Firestore restent sur la branche de travail ; aucune fusion dans `main` ni publication des règles Production.
 
 ## Limites fonctionnelles à ne pas présenter comme terminées
