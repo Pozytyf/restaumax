@@ -107,6 +107,21 @@ async function run() {
   } catch {}
   assert(scopedOwnerAllowed, 'Le propriétaire actif du restaurant conserve la gestion QR');
 
+  db.store.set('managers/owner-spoofed', {
+    uid: 'owner-spoofed', role: 'owner', restaurantSlug: 'chez-awa',
+    active: true, sessionVersion: 0
+  });
+  let mismatchedOwnerRejected = false;
+  try {
+    await authorizeTableManager(
+      db,
+      { verifyIdToken: async () => ({ uid: 'owner-spoofed', role: 'owner', sessionVersion: 0 }) },
+      { headers: { authorization: 'Bearer owner-spoofed-token' } },
+      'chez-awa'
+    );
+  } catch { mismatchedOwnerRejected = true; }
+  assert(mismatchedOwnerRejected, 'Un compte marqué owner mais différent de restaurants.ownerUid ne peut pas gérer les QR');
+
   db.store.set('managers/manager-1', {
     uid: 'manager-1', role: 'manager', restaurantSlug: 'chez-awa',
     active: true, sessionVersion: 0, permissions: ['tables.manage']
