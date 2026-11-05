@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { auth } from '../../lib/firebase';
 
 interface Props {
@@ -13,6 +13,27 @@ export const PayDunyaAccountSettings: React.FC<Props> = ({ restaurantSlug, isOwn
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    async function loadStatus() {
+      const user = auth.currentUser;
+      if (!user || !isOwner || !restaurantSlug) return;
+      try {
+        const idToken = await user.getIdToken();
+        const query = new URLSearchParams({ restaurantSlug, action: 'paydunya_account_status' });
+        const response = await fetch(`/api/payments?${query.toString()}`, {
+          headers: { Authorization: `Bearer ${idToken}` }
+        });
+        const result = await response.json();
+        if (active && response.ok && result.success) setConnected(Boolean(result.connected));
+      } catch {
+        // A status read failure must not expose or alter stored credentials.
+      }
+    }
+    void loadStatus();
+    return () => { active = false; };
+  }, [restaurantSlug, isOwner]);
 
   if (!isOwner || !restaurantSlug) return null;
 
