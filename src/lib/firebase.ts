@@ -308,7 +308,7 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
       data &&
       data.active === true &&
       Number(tokenResult.claims?.sessionVersion || 0) === Number(data.sessionVersion || 0) &&
-      ['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(data.role)
+      ['owner', 'manager', 'cashier', 'server', 'kitchen'].includes(data.role)
     ) {
       return true;
     }
