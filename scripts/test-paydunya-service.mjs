@@ -3,6 +3,7 @@ import {
   getPayDunyaConfig,
   buildPayDunyaCheckoutPayload,
   createPayDunyaCheckoutInvoice,
+  createPayDunyaRedistribution,
   confirmPayDunyaInvoice,
   verifyPayDunyaCallback,
   PAYDUNYA_CI_PAYMENT_CHANNELS
@@ -124,6 +125,43 @@ if (config) {
     'La confirmation utilise le token de facture encodé dans l’endpoint');
   const invalidToken = await confirmPayDunyaInvoice(config, 'bad token', confirmMock);
   assert(invalidToken.success === false, 'Un token de facture mal formé est refusé');
+}
+
+console.log('\n--- Redistribution PER vers un restaurant ---');
+if (config) {
+  const perDisabled = await createPayDunyaRedistribution(config, 'restaurant@example.com', 6500,
+    async () => ({ ok: true, json: async () => ({ response_code: '00', transaction_id: 'TEST000001' }) }));
+  assert(perDisabled.success === false, 'La redistribution reste bloquée tant que PER n’est pas activé');
+
+  const perConfigResult = getPayDunyaConfig({ ...env, PAYDUNYA_PER_ENABLED: 'true' });
+  if (perConfigResult.success) {
+    let perUrl = '';
+    let perBody = null;
+    const perSuccess = await createPayDunyaRedistribution(
+      perConfigResult.data, '+2250700000000', 6500,
+      async (url, options) => {
+        perUrl = String(url);
+        perBody = JSON.parse(options.body);
+        return { ok: true, json: async () => ({
+          response_code: '00',
+          response_text: 'Transaction completed successfully',
+          transaction_id: 'TEST000001'
+        }) };
+      }
+    );
+    assert(perSuccess.success === true && perSuccess.data.transactionId === 'TEST000001',
+      'Une redistribution PER sandbox valide retourne son identifiant de transaction');
+    assert(perUrl.endsWith('/direct-pay/credit-account') &&
+      perBody.account_alias === '+2250700000000' && perBody.amount === 6500,
+      'La redistribution utilise le bon endpoint, destinataire et montant');
+    const invalidAlias = await createPayDunyaRedistribution(perConfigResult.data, 'unknown-alias', 6500);
+    assert(invalidAlias.success === false, 'Un alias de destinataire invalide est refusé');
+    const invalidPayoutAmount = await createPayDunyaRedistribution(perConfigResult.data, 'restaurant@example.com', 0);
+    assert(invalidPayoutAmount.success === false, 'Un montant nul de redistribution est refusé');
+    const failedPayout = await createPayDunyaRedistribution(perConfigResult.data, 'restaurant@example.com', 6500,
+      async () => ({ ok: true, json: async () => ({ response_code: '99', response_text: 'Rejected' }) }));
+    assert(failedPayout.success === false, 'Une redistribution refusée par PayDunya n’est pas déclarée réussie');
+  }
 }
 
 console.log('\n--- Vérification de notification IPN ---');
