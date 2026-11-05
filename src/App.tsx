@@ -847,55 +847,112 @@ export default function App() {
     }
   };
 
-  const handleConfirmPayment = (paymentData: {
+  const handleConfirmPayment = async (paymentData: {
     method: PaymentMethod;
     paidAmount: number;
     changeAmount: number;
     splitGuests: number;
   }) => {
-    // Client-side safeguard only; Firestore also denies direct payment writes.
     if (!canCollectPayment) {
       setIsPaymentModalOpen(false);
       window.alert("Votre rôle ne permet pas d'encaisser un paiement.");
       return;
     }
-    const subtotal = cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
-    const discountAmount = Math.round((subtotal * discountPercent) / 100);
-    const total = Math.max(0, subtotal - discountAmount);
-    const orderId = `#T-${Math.floor(100 + Math.random() * 900)}`;
+    if (paymentData.method !== 'especes') {
+      window.alert("Seuls les paiements en espèces sont actuellement raccordés à un journal serveur. Wave, Orange Money et carte seront activés après intégration des prestataires.");
+      return;
+    }
+    if (discountPercent > 0) {
+      window.alert("Les remises POS ne sont pas encore validées côté serveur. Retirez la remise avant d'encaisser.");
+      return;
+    }
+    if (cart.length === 0 && !pendingPosOrder) return;
+    if (isSubmittingPayment) return;
 
-    const newRecord: PaymentRecord = {
-      id: `tx-${Date.now()}`,
-      orderId,
-      tableNumber: selectedTable ? selectedTable.name : 'Vente Directe',
-      waiter: serverName,
-      timestamp: new Date(),
-      subtotal,
-      discount: discountAmount,
-      tax: 0,
-      total,
-      paidAmount: paymentData.paidAmount,
-      changeAmount: paymentData.changeAmount,
-      paymentMethod: paymentData.method,
-      items: cart.map((item) => ({
-        name: item.menuItem.name,
-        quantity: item.quantity,
-        price: item.menuItem.price
-      }))
-    };
+    setIsSubmittingPayment(true);
+    try {
+      let order = pendingPosOrder;
+      if (!order) {
+        const clientCart: ClientCartItem[] = cart.map((item) => ({
+          id: item.id,
+          menuItemId: item.menuItem.id,
+          name: item.menuItem.name,
+          basePrice: item.menuItem.price,
+          unitPrice: item.menuItem.price,
+          quantity: item.quantity,
+          selectedExtras: [],
+          prepNotes: item.specialInstructions,
+          imageUrl: item.menuItem.imageUrl
+        }));
 
-    setDrawerState((prev) => ({
-      ...prev,
-      totalSales: prev.totalSales + total,
-      currentCash: prev.currentCash + (paymentData.method === 'especes' ? total : 0),
-      cashSales: prev.cashSales + (paymentData.method === 'especes' ? total : 0),
-      transactionCount: prev.transactionCount + 1
-    }));
+        const orderResult = await submitPosOrderWithServerValidation(activeRestaurantSlug, {
+          cart: clientCart,
+          orderMode: selectedTable ? 'sur_place' : 'a_emporter',
+          tableNumber: selectedTable?.number || null,
+          idempotencyKey: posOrderIdempotencyKey,
+          customerNote: `Commande saisie au comptoir par ${serverName}`
+        });
 
-    setTransactions((prev) => [newRecord, ...prev]);
-    setIsPaymentModalOpen(false);
-    setActiveReceiptModal(newRecord);
-    setCart([]);
+        if (!orderResult.success) {
+          window.alert(`Commande non créée : ${orderResult.error}`);
+          return;
+        }
+
+        order = orderResult.order;
+        setPosOrderIdempotencyKey(generateClientOrderIdempotencyKey());
+        setPendingPosOrder(order);
+        setPendingPosPaidAmount(Number(order.paidAmount || 0));
+        const ticket = mapRestauOrderToKitchenTicket(order);
+        setKitchenTickets((previous) => [
+          ticket,
+          ...previous.filter((existing) => existing.id !== ticket.id)
+        ]);
+      }
+
+      const paymentResult = await collectCashPaymentWithServerValidation(
+        activeRestaurantSlug,
+        order.id,
+        paymentData.paidAmount,
+        paymentIdempotencyKey
+      );
+      if (!paymentResult.success) {
+        window.alert(`Encaissement non enregistré : ${paymentResult.error}`);
+        return;
+      }
+
+      const payment = paymentResult.payment;
+      const updatedOrder = { ...order, ...paymentResult.order } as RestauOrder;
+      setPendingPosOrder(updatedOrder);
+      setPendingPosPaidAmount(Number(updatedOrder.paidAmount || 0));
+      setPaymentIdempotencyKey(generateClientOrderIdempotencyKey());
+
+      const newRecord = mapCashPaymentRecord(payment);
+      setTransactions((previous) => [newRecord, ...previous]);
+      setDrawerState((previous) => ({
+        ...previous,
+        totalSales: previous.totalSales + payment.paidAmount,
+        currentCash: previous.currentCash + payment.paidAmount,
+        cashSales: previous.cashSales + payment.paidAmount,
+        transactionCount: previous.transactionCount + 1
+      }));
+      setActiveReceiptModal(newRecord);
+      setIsPaymentModalOpen(false);
+
+      if (payment.paymentStatus === 'paid') {
+        setCart([]);
+        setPendingPosOrder(null);
+        setPendingPosPaidAmount(0);
+        setPosOrderIdempotencyKey(generateClientOrderIdempotencyKey());
+        setDiscountPercent(0);
+      } else {
+        window.alert(`Paiement partiel enregistré. Reste à payer : ${formatFCFA(payment.remainingAfter)}. Vous pourrez reprendre l'encaissement depuis le panier.`);
+      }
+    } catch (err) {
+      console.error('Erreur encaissement POS:', err);
+      window.alert("L'encaissement n'a pas pu être confirmé. Vérifiez le journal avant de réessayer ; le panier a été conservé.");
+    } finally {
+      setIsSubmittingPayment(false);
+    }
   };
 
   const handleToggleKdsItem = (ticketId: string, itemId: string) => {
