@@ -251,12 +251,16 @@ export async function confirmPayDunyaInvoice(
         !Number.isSafeInteger(totalAmount) || totalAmount <= 0) {
       return { success: false, error: 'Réponse de confirmation PayDunya invalide ou signature fournisseur non vérifiée.' };
     }
+    const status = String(data.status || '').toLowerCase();
+    if (!['completed', 'pending', 'cancelled', 'failed'].includes(status)) {
+      return { success: false, error: 'Statut de paiement PayDunya inconnu.' };
+    }
     const customer = data.customer && typeof data.customer === 'object' ? data.customer : undefined;
     return {
       success: true,
       data: {
         token,
-        status: String(data.status || '').toLowerCase(),
+        status,
         totalAmount,
         customData: data.custom_data && typeof data.custom_data === 'object' ? data.custom_data : {},
         receiptUrl: typeof data.receipt_url === 'string' ? data.receipt_url : undefined,
