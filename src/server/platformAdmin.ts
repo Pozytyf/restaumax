@@ -1,4 +1,5 @@
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
+import { validateSubscriptionInput } from './subscriptionService.js';
 
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
@@ -259,23 +260,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       if (action === 'update_subscription') {
         const slug = String(body.slug || '').trim();
-        const subscription = body.subscription || {};
-        const planName = String(subscription.planName || '').trim();
-        const priceFcfa = Number(subscription.priceFcfa);
-        const billingCycle = String(subscription.billingCycle || '');
-        const status = String(subscription.status || '');
-        const startsAt = Number(subscription.startsAt);
-        const endsAt = Number(subscription.endsAt);
-        const notes = String(subscription.notes || '').trim().slice(0, 500);
-        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) ||
-            planName.length < 2 || planName.length > 80 ||
-            !Number.isSafeInteger(priceFcfa) || priceFcfa < 0 || priceFcfa > 1_000_000_000 ||
-            !['monthly', 'yearly', 'custom'].includes(billingCycle) ||
-            !['trial', 'active', 'past_due', 'suspended', 'cancelled'].includes(status) ||
-            !Number.isSafeInteger(startsAt) || startsAt <= 0 ||
-            !Number.isSafeInteger(endsAt) || endsAt <= startsAt) {
-          return json(res, 400, { success: false, error: 'Informations d’abonnement invalides. Vérifiez le plan, le tarif FCFA, la périodicité, le statut et les dates.' });
+        const validation = validateSubscriptionInput(body.subscription);
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) {
+          return json(res, 400, { success: false, error: 'Identifiant de restaurant invalide.' });
         }
+        if (!validation.success) return json(res, 400, { success: false, error: validation.error });
         const restaurantRef = db.collection('restaurants').doc(slug);
         const restaurantSnap = await restaurantRef.get();
         if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) {
@@ -283,13 +272,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
         const now = Date.now();
         const updatedSubscription = {
-          planName, priceFcfa, currency: 'XOF', billingCycle, status,
-          startsAt, endsAt, notes, updatedAt: now, updatedBy: user.uid
+          ...validation.subscription, updatedAt: now, updatedBy: user.uid
         };
         await restaurantRef.set({ subscription: updatedSubscription, updatedAt: now, updatedBy: user.uid }, { merge: true });
         await db.collection('admin_audit_logs').add({
           action: 'update_restaurant_subscription', restaurantSlug: slug, actorUid: user.uid,
-          planName, priceFcfa, billingCycle, subscriptionStatus: status, endsAt, createdAt: now
+          planName: validation.subscription.planName,
+          priceFcfa: validation.subscription.priceFcfa,
+          billingCycle: validation.subscription.billingCycle,
+          subscriptionStatus: validation.subscription.status,
+          endsAt: validation.subscription.endsAt,
+          createdAt: now
         });
         return json(res, 200, { success: true, subscription: updatedSubscription });
       }
