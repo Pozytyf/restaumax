@@ -510,16 +510,15 @@ export default function App() {
       const cashSales = records.filter((record) => record.paymentMethod === 'especes')
         .reduce((sum, record) => sum + record.paidAmount, 0);
       setTransactions(records);
-      setDrawerState({
-        openingBalance: 0,
-        currentCash: cashSales,
+      setDrawerState((previous) => ({
+        ...previous,
         totalSales,
         cashSales,
         mobileMoneySales: 0,
         cardSales: 0,
         discountsTotal: 0,
         transactionCount: records.length
-      });
+      }));
     });
 
     return () => { active = false; };
@@ -974,9 +973,9 @@ export default function App() {
     changeAmount: number;
     splitGuests: number;
   }) => {
-    if (!canCollectPayment) {
+    if (!canManageCash || cashSession?.status !== 'active') {
       setIsPaymentModalOpen(false);
-      window.alert("Votre rôle ne permet pas d'encaisser un paiement.");
+      window.alert("La session de caisse n'est plus active. Ouvrez ou vérifiez votre session avant d'encaisser.");
       return;
     }
     if (paymentData.method !== 'especes') {
