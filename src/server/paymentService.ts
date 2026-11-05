@@ -207,7 +207,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
           shareAmount,
           paidAmount: splitGuests === 1 ? alreadyPaid : 0,
           remainingAmount: shareAmount - (splitGuests === 1 ? alreadyPaid : 0),
-          paymentStatus: splitGuests === 1 && alreadyPaid >= shareAmount ? 'paid' : 'unpaid'
+          paymentStatus: alreadyPaid >= shareAmount ? 'paid' : alreadyPaid > 0 ? 'partial' : 'unpaid'
         };
       });
     }
