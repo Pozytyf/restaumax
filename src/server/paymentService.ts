@@ -357,10 +357,14 @@ export async function closeCashSessionWithDb(db: any, input: CashSessionInput): 
     const sessionRef = restaurantRef.collection('cashSessions').doc(sessionId);
     const sessionSnap = await tx.get(sessionRef);
     const session = sessionSnap.exists ? sessionSnap.data() : null;
+    const closingSignature = sha256(JSON.stringify({ slug, actorUid, sessionId, closingCount }));
     if (activeSnap.data()?.status !== 'active') {
       if (session?.status === 'closed' && session.openedByUid === actorUid &&
-          session.closingIdempotencyKey === key) {
+          session.closingIdempotencyKey === key && session.closingSignature === closingSignature) {
         return { success: true, idempotentReplay: true, session: { ...session, id: sessionId } };
+      }
+      if (session?.status === 'closed' && session.closingIdempotencyKey === key) {
+        return { success: false, conflict: true, error: 'Clé de clôture réutilisée avec un comptage différent.' };
       }
       return { success: false, error: 'Aucune session de caisse active à clôturer.' };
     }
@@ -374,12 +378,13 @@ export async function closeCashSessionWithDb(db: any, input: CashSessionInput): 
     const closed = {
       ...session, status: 'closed', closingCount: Number(closingCount),
       expectedCash, variance, closedAt: now, closedByUid: actorUid,
-      closedByName: String(input.actorName || actorUid), closingIdempotencyKey: key
+      closedByName: String(input.actorName || actorUid), closingIdempotencyKey: key,
+      closingSignature
     };
     tx.update(sessionRef, {
       status: 'closed', closingCount: Number(closingCount), expectedCash, variance,
       closedAt: now, closedByUid: actorUid, closedByName: String(input.actorName || actorUid),
-      closingIdempotencyKey: key
+      closingIdempotencyKey: key, closingSignature
     });
     tx.update(activeRef, { status: 'closed', closedAt: now, sessionId });
     return { success: true, session: closed };
