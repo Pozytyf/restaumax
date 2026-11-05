@@ -4,6 +4,7 @@ export interface CashPaymentInput {
   restaurantSlug: string;
   orderId: string;
   actorUid: string;
+  actorName?: string;
   sessionVersion: number;
   amountTendered: number;
   idempotencyKey: string;
@@ -126,6 +127,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       orderNumber: order.orderNumber || orderId,
       tableNumber: order.tableNumber || null,
       actorUid,
+      actorName: String(input.actorName || actorUid),
       actorRole: member.role,
       method: 'especes',
       currency: order.currency || 'FCFA',
