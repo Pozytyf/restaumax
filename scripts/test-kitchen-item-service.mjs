@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { updateKitchenItemCompletionWithDb } from '../src/server/kitchenService.ts';
 
 class FakeDb {
@@ -86,4 +87,13 @@ completedOrderDb.documents.set('restaurants/chez-awa/orders/order-1', {
 const closedPreparation = await updateKitchenItemCompletionWithDb(completedOrderDb, params);
 assert.equal(closedPreparation.success, false);
 
-console.log('KDS item progress service: 7 scénarios validés.');
+const serverSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const apiSource = fs.readFileSync(new URL('../api/kitchen-item.ts', import.meta.url), 'utf8');
+const firebaseSource = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
+const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+assert(serverSource.includes("app.post('/api/kitchen-item'"), 'Local Express exposes the KDS item endpoint');
+assert(apiSource.includes('handleKitchenItemRequest(req.body, req)'), 'Vercel API exposes the KDS item endpoint');
+assert(firebaseSource.includes("fetch('/api/kitchen-item'"), 'Client persists KDS progress through the trusted API');
+assert(appSource.includes('updateKitchenItemCompletionWithServerValidation('), 'KDS UI uses the trusted persistence helper');
+assert(appSource.includes("completed: order.kitchenItemCompletion?.[String(idx)] === true"), 'Firestore KDS progress is restored when tickets resubscribe');
+console.log('KDS item progress service and API: 12 scénarios validés.');
