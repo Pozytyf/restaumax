@@ -203,6 +203,7 @@ async function run() {
   try { await resolveTableQr(db, token); } catch { oldTokenRejected = true; }
   assert(oldTokenRejected, 'Ancien QR révoqué ne peut plus ouvrir de session');
 
+  const versionBeforeRotation = db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion;
   const rotated = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   assert(rotated.token !== token, 'Rotation émet un nouveau jeton distinct');
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'deleted', deletedAt: Date.now() });
@@ -210,7 +211,7 @@ async function run() {
   try { await resolveTableQr(db, rotated.token); } catch { deletedRestaurantRejected = true; }
   assert(deletedRestaurantRejected, 'Un QR ne peut pas ouvrir de session pour un restaurant supprimé logiquement');
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'active', deletedAt: undefined });
-  assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 3, 'Rotation incrémente la version de table après révocation');
+  assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === versionBeforeRotation + 1, 'Rotation incrémente la version de table après révocation');
   let inactiveRejected = false;
   db.store.set('restaurants/chez-awa/tables/table-4', { ...db.store.get('restaurants/chez-awa/tables/table-4'), isActive: false });
   try { await resolveTableQr(db, rotated.token); } catch { inactiveRejected = true; }
