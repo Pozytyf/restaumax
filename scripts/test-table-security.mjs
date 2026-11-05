@@ -68,7 +68,7 @@ function createDb() {
 async function run() {
   console.log('RESTAUMAX — TESTS SÉCURITÉ QR / SESSION');
   const db = createDb();
-  db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true });
+  db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true, ownerUid: 'owner-1' });
   db.store.set('restaurants/chez-awa/tables/table-4', { id: 'table-4', tableNumber: '4', isActive: true, qrVersion: 0 });
 
   for (const status of ['provisioning', 'suspended', 'deleted']) {
