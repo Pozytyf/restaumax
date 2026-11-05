@@ -955,6 +955,14 @@ export async function createInventoryItemWithServerValidation(
   return inventoryRequest(restaurantSlug, { action: 'create', ...item, idempotencyKey });
 }
 
+export async function updateInventoryItemWithServerValidation(
+  restaurantSlug: string,
+  itemId: string,
+  item: { name: string; unit: string; minQuantity: number; unitCost: number; supplier: string }
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'update', itemId, ...item });
+}
+
 export async function moveInventoryStockWithServerValidation(
   restaurantSlug: string,
   itemId: string,
