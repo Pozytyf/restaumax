@@ -278,9 +278,10 @@ export async function processPayDunyaInvoiceCallbackWithDb(
       return { success: false, conflict: true, error: 'Le solde de commande a changé depuis la création de la facture. Paiement reçu à rapprocher manuellement.' };
     }
     const payerPhone = normalizePhone(invoice.customer?.phone);
-    const possibleChannel = clean(invoice.customer?.payment_method || invoice.customer?.channel ||
-      (invoice.customer as any)?.payment_channel, 40).toLowerCase();
-    const providerChannel = CI_CHANNELS.has(possibleChannel as PayDunyaCiWithdrawMode) ? possibleChannel : null;
+    // The invoice was restricted server-side to exactly one CI channel; this is
+    // stronger evidence than a client-supplied channel or an undocumented callback field.
+    const providerChannel = CI_CHANNELS.has(intent.channel as PayDunyaCiWithdrawMode)
+      ? intent.channel as PayDunyaCiWithdrawMode : null;
     const now = Date.now();
     const paidAmount = alreadyPaid + Number(intent.amount);
     const remainingAmount = total - paidAmount;
