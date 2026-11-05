@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
 import { auth, requestManagerPasswordReset } from '../../lib/firebase';
+import { calculateSubscriptionMetrics } from '../../lib/subscriptionMetrics';
 import { Building2, ShieldCheck, LogOut, Plus, RefreshCw, Ban, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 
 type RestaurantRow = {
@@ -213,6 +214,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
     finally { setLoading(false); }
   };
 
+  const subscriptionMetrics = calculateSubscriptionMetrics(restaurants);
+
   return <div className="min-h-screen bg-slate-950 text-slate-100">
     <header className="border-b border-slate-800 bg-slate-900 px-5 py-4">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
@@ -236,6 +239,21 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Revenu mensuel récurrent</p><p className="mt-2 text-2xl font-black">{Number(summary?.monthlyRecurringRevenueFcfa || 0).toLocaleString('fr-FR')} <span className="text-sm">FCFA</span></p></div>
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Compte connecté</p><p className="mt-2 truncate text-sm font-bold">{user.email}</p></div>
       </section>
+      <section className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">Abonnements actifs valides</p>
+          <p className="mt-2 text-2xl font-black text-emerald-300">{subscriptionMetrics.activeSubscriptionCount}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">Périodes d’essai en cours</p>
+          <p className="mt-2 text-2xl font-black text-sky-300">{subscriptionMetrics.trialSubscriptionCount}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">À régulariser / expirés</p>
+          <p className="mt-2 text-2xl font-black text-amber-300">{subscriptionMetrics.attentionSubscriptionCount}</p>
+        </div>
+      </section>
+      <p className="text-xs text-slate-500">Les essais et abonnements expirés sont exclus des indicateurs valides. Le MRR affiché reste une estimation contractuelle, pas un encaissement constaté.</p>
       <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
         <p className="mb-2 text-sm font-bold text-slate-300">Abonnements par plan</p>
         <div className="flex flex-wrap gap-2">{Object.entries(summary?.subscriptionsByPlan || {}).map(([plan, count]) =>
