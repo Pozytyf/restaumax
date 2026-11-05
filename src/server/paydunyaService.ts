@@ -54,6 +54,8 @@ export interface PayDunyaConfirmedInvoice {
   customData: Record<string, unknown>;
   receiptUrl?: string;
   customer?: Record<string, unknown>;
+  transactionId?: string;
+  providerChannel?: string;
 }
 
 const PAYDUNYA_CI_CHANNELS = [
@@ -242,12 +244,14 @@ export async function confirmPayDunyaInvoice(
     );
     if (!response.ok) return { success: false, error: 'PayDunya ne permet pas de confirmer cette facture.' };
     const data = await response.json() as Record<string, any>;
+    const signature = verifyPayDunyaCallback(config.masterKey, data);
     const confirmedToken = cleanText(data.invoice?.token || data.token, 128);
     const totalAmount = Number(data.invoice?.total_amount);
-    if (data.response_code !== '00' || confirmedToken !== token ||
+    if (data.response_code !== '00' || !signature.success || confirmedToken !== token ||
         !Number.isSafeInteger(totalAmount) || totalAmount <= 0) {
-      return { success: false, error: 'Réponse de confirmation PayDunya invalide.' };
+      return { success: false, error: 'Réponse de confirmation PayDunya invalide ou signature fournisseur non vérifiée.' };
     }
+    const customer = data.customer && typeof data.customer === 'object' ? data.customer : undefined;
     return {
       success: true,
       data: {
@@ -256,7 +260,9 @@ export async function confirmPayDunyaInvoice(
         totalAmount,
         customData: data.custom_data && typeof data.custom_data === 'object' ? data.custom_data : {},
         receiptUrl: typeof data.receipt_url === 'string' ? data.receipt_url : undefined,
-        customer: data.customer && typeof data.customer === 'object' ? data.customer : undefined
+        customer,
+        transactionId: cleanText(data.transaction_id, 128) || undefined,
+        providerChannel: cleanText(customer?.payment_method || customer?.channel || customer?.payment_channel, 40) || undefined
       }
     };
   } catch {
