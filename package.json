@@ -17,14 +17,15 @@
     "test:intent": "tsx scripts/test-client-intent.mjs",
     "test:subscriptions": "tsx scripts/test-subscription-validation.mjs",
     "test:paydunya": "node scripts/test-paydunya-service.mjs && tsx scripts/test-paydunya-payment-flow.mjs && tsx scripts/test-paydunya-merchant-config.mjs",
-    "test": "npm run test:kitchen && npm run test:inventory && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation",
+    "test": "npm run test:kitchen && npm run test:inventory && npm run test:roles && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation",
     "seed:local": "node scripts/seed-catalog.mjs",
     "test:refund-client": "node scripts/test-refund-client-routing.mjs",
     "test:onboarding": "node scripts/test-onboarding-reset-email.mjs",
     "test:partial-mobile-money": "node scripts/test-partial-mobile-money-ui.mjs",
     "test:admin-navigation": "node scripts/test-admin-navigation.mjs",
     "test:kitchen": "tsx scripts/test-kitchen-item-service.mjs",
-    "test:inventory": "tsx scripts/test-inventory-service.mjs"
+    "test:inventory": "tsx scripts/test-inventory-service.mjs",
+    "test:roles": "tsx scripts/test-role-authorization.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
