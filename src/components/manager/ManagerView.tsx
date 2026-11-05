@@ -45,7 +45,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               Supervision de Shift & Gestion de Caisse
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
-              Audit temps réel des encaissements, répartition des modes de paiement et clôture.
+              Journal des encaissements persistés, répartition des modes de paiement et clôture.
             </p>
           </div>
 
@@ -75,7 +75,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </div>
             <div className="text-[11px] text-emerald-600 font-bold mt-1 flex items-center gap-1">
               <ArrowUpRight size={13} />
-              <span>+18.4% vs même shift hier</span>
+              <span>Comparaison historique indisponible</span>
             </div>
           </div>
 
@@ -90,7 +90,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               {drawerState.transactionCount} tickets
             </div>
             <div className="text-[11px] text-slate-500 font-medium mt-1">
-              Moyenne: ~14.2 tickets / heure
+              Historique des 100 derniers encaissements au maximum
             </div>
           </div>
 
@@ -117,10 +117,10 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </div>
             </div>
             <div className="text-2xl font-black text-[#101d2d] tnum">
-              13 min 40s
+              Non calculée
             </div>
             <div className="text-[11px] text-emerald-600 font-bold mt-1">
-              94% des plats sous 15 min
+              Le suivi des temps de préparation sera disponible avec les horodatages cuisine.
             </div>
           </div>
         </div>
@@ -136,7 +136,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
             <div className="space-y-3 text-xs">
               <div className="flex justify-between py-2 border-b border-slate-100">
-                <span className="text-slate-600">Fond de caisse ouverture:</span>
+                <span className="text-slate-600">Fond de caisse d’ouverture (non configuré):</span>
                 <span className="font-bold text-slate-900 tnum">{formatFCFA(drawerState.openingBalance)}</span>
               </div>
               <div className="flex justify-between py-2 border-b border-slate-100">
@@ -157,7 +157,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
             <div className="mt-5 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 flex items-center gap-2">
               <ShieldCheck size={16} className="text-emerald-600 shrink-0" />
-              <span>Caisse équilibrée. Aucun écart de fond de caisse détecté.</span>
+              <span>Fond de caisse d’ouverture non configuré. Effectuez le rapprochement physique avant toute clôture.</span>
             </div>
           </div>
 
@@ -191,7 +191,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   {formatFCFA(drawerState.mobileMoneySales)}
                 </div>
                 <div className="text-[11px] text-blue-600 mt-1 font-semibold">
-                  {drawerState.totalSales > 0 ? Math.round((drawerState.mobileMoneySales / drawerState.totalSales) * 100) : 0}% du total (Canal n°1)
+                  {drawerState.totalSales > 0 ? Math.round((drawerState.mobileMoneySales / drawerState.totalSales) * 100) : 0}% des encaissements enregistrés
                 </div>
               </div>
 
