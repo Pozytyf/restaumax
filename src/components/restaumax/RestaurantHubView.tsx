@@ -292,7 +292,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   }
 
   if (activeTab === 'customers' || activeTab === 'inventory' || activeTab === 'reports' || activeTab === 'settings') {
-    return <RestaurantAdminModuleView module={activeTab} restaurant={restaurant} permissions={permissions} onBack={() => setActiveTab('overview')} />;
+    return <RestaurantAdminModuleView module={activeTab} restaurant={restaurant} permissions={permissions} canManagePaymentProvider={canManageStaff} onBack={() => setActiveTab('overview')} />;
   }
 
   if (activeTab === 'staff' && canManageStaff) {
