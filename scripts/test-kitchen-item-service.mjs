@@ -55,6 +55,24 @@ const replay = await updateKitchenItemCompletionWithDb(db, params);
 assert.equal(replay.success, true);
 assert.equal(replay.idempotentReplay, true);
 
+const managerDb = base();
+managerDb.documents.set('managers/manager-1', {
+  active: true, restaurantSlug: 'chez-awa', role: 'manager', permissions: ['orders.manage'], sessionVersion: 3
+});
+const manager = await updateKitchenItemCompletionWithDb(managerDb, {
+  ...params, actorUid: 'manager-1'
+});
+assert.equal(manager.success, true, 'manager with orders.manage can update KDS progress');
+
+const kitchenDb = base();
+kitchenDb.documents.set('managers/kitchen-1', {
+  active: true, restaurantSlug: 'chez-awa', role: 'kitchen', permissions: ['kitchen.access'], sessionVersion: 3
+});
+const kitchen = await updateKitchenItemCompletionWithDb(kitchenDb, {
+  ...params, actorUid: 'kitchen-1'
+});
+assert.equal(kitchen.success, true, 'kitchen role with kitchen.access can update KDS progress');
+
 const cashierDb = base();
 cashierDb.documents.set('managers/cashier-1', {
   active: true, restaurantSlug: 'chez-awa', role: 'cashier', permissions: ['cash.manage'], sessionVersion: 3
@@ -98,4 +116,4 @@ assert(firebaseSource.includes("fetch('/api/kitchen-item'"), 'Client persists KD
 assert(appSource.includes('updateKitchenItemCompletionWithServerValidation('), 'KDS UI uses the trusted persistence helper');
 assert(appSource.includes("completed: order.kitchenItemCompletion?.[String(idx)] === true"), 'Firestore KDS progress is restored when tickets resubscribe');
 assert(kdsView.includes("if (ticket.status !== 'in_prep') return;"), 'KDS item progress is locked after the ticket is ready');
-console.log('KDS item progress service and API: 12 scénarios validés.');
+console.log('KDS item progress service and API: 14 assertions validées.');
