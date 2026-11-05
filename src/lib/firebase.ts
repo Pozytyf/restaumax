@@ -859,7 +859,8 @@ export async function refundCashPaymentWithServerValidation(
   paymentId: string,
   amount: number,
   reason: string,
-  idempotencyKey: string
+  idempotencyKey: string,
+  cashDisbursementConfirmed: boolean
 ): Promise<{ success: true; payment: Record<string, unknown>; status: string; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
     const user = auth.currentUser;
@@ -871,7 +872,7 @@ export async function refundCashPaymentWithServerValidation(
       credentials: 'same-origin',
       cache: 'no-store',
       body: JSON.stringify({
-        action: 'refund_cash_payment', restaurantSlug, paymentId, amount, reason, idempotencyKey
+        action: 'refund_cash_payment', restaurantSlug, paymentId, amount, reason, idempotencyKey, cashDisbursementConfirmed
       })
     });
     const data = await response.json();
