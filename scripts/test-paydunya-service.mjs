@@ -138,7 +138,7 @@ if (config) {
     let perUrl = '';
     let perBody = null;
     const perSuccess = await createPayDunyaRedistribution(
-      perConfigResult.data, '+2250700000000', 6500,
+      perConfigResult.data, '0700000000', 6500,
       async (url, options) => {
         perUrl = String(url);
         perBody = JSON.parse(options.body);
@@ -152,10 +152,15 @@ if (config) {
     assert(perSuccess.success === true && perSuccess.data.transactionId === 'TEST000001',
       'Une redistribution PER sandbox valide retourne son identifiant de transaction');
     assert(perUrl.endsWith('/direct-pay/credit-account') &&
-      perBody.account_alias === '+2250700000000' && perBody.amount === 6500,
+      perBody.account_alias === '0700000000' && perBody.amount === 6500,
       'La redistribution utilise le bon endpoint, destinataire et montant');
+    const accountIdPayout = await createPayDunyaRedistribution(perConfigResult.data, 'BBJ1234567890', 6500,
+      async () => ({ ok: true, json: async () => ({ response_code: '00', transaction_id: 'TEST000002' }) }));
+    assert(accountIdPayout.success === true, 'Un identifiant de compte PayDunya est accepté');
     const invalidAlias = await createPayDunyaRedistribution(perConfigResult.data, 'unknown-alias', 6500);
     assert(invalidAlias.success === false, 'Un alias de destinataire invalide est refusé');
+    const countryCodePhone = await createPayDunyaRedistribution(perConfigResult.data, '+2250700000000', 6500);
+    assert(countryCodePhone.success === false, 'Le numéro de wallet doit être fourni sans indicatif pays');
     const invalidPayoutAmount = await createPayDunyaRedistribution(perConfigResult.data, 'restaurant@example.com', 0);
     assert(invalidPayoutAmount.success === false, 'Un montant nul de redistribution est refusé');
     const failedPayout = await createPayDunyaRedistribution(perConfigResult.data, 'restaurant@example.com', 6500,
