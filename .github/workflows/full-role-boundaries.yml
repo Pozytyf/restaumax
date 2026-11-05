@@ -1,0 +1,17 @@
+name: Full role boundary tests
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  role-boundaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsx scripts/test-full-role-boundaries.mjs
