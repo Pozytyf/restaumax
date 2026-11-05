@@ -208,7 +208,10 @@ export default function App() {
     discountsTotal: 0,
     transactionCount: 0
   });
-  const [transactions, setTransactions] = useState<PaymentRecord[]>([]);\n  const [cashSession, setCashSession] = useState<CashSessionApiRecord | null>(null);\n  const [cashSessionLoading, setCashSessionLoading] = useState(false);\n  const [cashSessionActionLoading, setCashSessionActionLoading] = useState(false);
+  const [transactions, setTransactions] = useState<PaymentRecord[]>([]);
+  const [cashSession, setCashSession] = useState<CashSessionApiRecord | null>(null);
+  const [cashSessionLoading, setCashSessionLoading] = useState(false);
+  const [cashSessionActionLoading, setCashSessionActionLoading] = useState(false);
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isSubmittingPosOrder, setIsSubmittingPosOrder] = useState(false);
