@@ -37,6 +37,11 @@ assert(staffView.includes('Autorisations supplémentaires accordées par le prop
 assert(platformAdmin.includes("const sessionVersion = currentSessionVersion + 1") &&
   platformAdmin.includes("await getAuth().revokeRefreshTokens(staffUid)"),
   'role and permission changes invalidate prior staff sessions and require reauthentication');
+assert(platformAdmin.includes("await db.runTransaction(async (tx: any) =>") &&
+  platformAdmin.includes("tx.set(memberRef, { role, permissions, sessionVersion") &&
+  platformAdmin.includes("tx.set(managerRef, { role, permissions, sessionVersion"),
+  'role updates atomically synchronize both staff membership records before Auth claims are refreshed');
+
 assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
   hubView.includes("status: permissions.includes('tables.manage') ? 'active' : 'unavailable'"),
   'QR administration entry points are restricted to members with tables.manage');
