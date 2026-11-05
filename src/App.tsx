@@ -1516,7 +1516,7 @@ export default function App() {
             serverName={serverName}
             discountPercent={discountPercent}
             alreadyPaidAmount={pendingPosPaidAmount}
-            guestAccounts={pendingPosOrder?.guestAccounts || []}
+            guestAccounts={pendingPosOrder?.guestAccounts}
             isSubmitting={isSubmittingPayment}
             onConfirmPayment={handleConfirmPayment}
           />
