@@ -340,3 +340,202 @@ export function verifyPayDunyaCallback(
 }
 
 export const PAYDUNYA_CI_PAYMENT_CHANNELS = [...PAYDUNYA_CI_CHANNELS];
+
+
+/**
+ * PayDunya PUSH (v2) — décaissement vers un wallet ivoirien.
+ * La documentation ne publie pas d'endpoint sandbox PUSH : cet adaptateur
+ * reste donc désactivé en configuration test et exige deux garde-fous live.
+ * Aucun retry automatique n'est effectué après une réponse réseau ambiguë.
+ */
+export type PayDunyaCiWithdrawMode =
+  | 'orange-money-ci'
+  | 'wave-ci'
+  | 'mtn-ci'
+  | 'moov-ci'
+  | 'djamo-ci';
+
+export type PayDunyaDisbursementStatus = 'created' | 'pending' | 'success' | 'failed';
+
+export interface PayDunyaDisbursementConfig extends PayDunyaConfig {
+  pushEnabled: boolean;
+}
+
+export interface PayDunyaDisbursementInput {
+  accountAlias: string;
+  amount: number;
+  withdrawMode: PayDunyaCiWithdrawMode;
+  callbackUrl: string;
+  disburseId: string;
+}
+
+export interface PayDunyaDisbursement {
+  token: string;
+  status: PayDunyaDisbursementStatus;
+  transactionId?: string;
+  providerReference?: string;
+  amount?: number;
+  withdrawMode?: string;
+}
+
+const PAYDUNYA_CI_WITHDRAW_MODES: readonly PayDunyaCiWithdrawMode[] = [
+  'orange-money-ci', 'wave-ci', 'mtn-ci', 'moov-ci', 'djamo-ci'
+];
+
+export function getPayDunyaDisbursementConfig(
+  env: Record<string, string | undefined>
+): PayDunyaResult<PayDunyaDisbursementConfig> {
+  const base = getPayDunyaConfig(env);
+  if (!base.success) return base;
+  return {
+    success: true,
+    data: {
+      ...base.data,
+      pushEnabled: base.data.mode === 'live' &&
+        env.PAYDUNYA_LIVE_ENABLED === 'true' &&
+        env.PAYDUNYA_PUSH_ENABLED === 'true'
+    }
+  };
+}
+
+function validDisbursementToken(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{5,128}$/.test(value.trim());
+}
+
+function validateDisbursementInput(input: PayDunyaDisbursementInput): string | null {
+  const alias = cleanText(input.accountAlias, 32);
+  const isPhone = /^[0-9]{8,15}$/.test(alias);
+  const isPayDunyaAccount = /^BBJ[A-Z0-9]{8,20}$/i.test(alias);
+  let callback: URL | null = null;
+  try { callback = new URL(input.callbackUrl); } catch { /* invalid URL */ }
+  if ((!isPhone && !isPayDunyaAccount) ||
+      !Number.isSafeInteger(input.amount) || input.amount <= 0 || input.amount > 100_000_000 ||
+      !PAYDUNYA_CI_WITHDRAW_MODES.includes(input.withdrawMode) ||
+      !callback || callback.protocol !== 'https:' ||
+      !/^[A-Za-z0-9_-]{8,100}$/.test(input.disburseId)) {
+    return 'Paramètres de déboursement PayDunya invalides.';
+  }
+  return null;
+}
+
+function disbursementHeaders(config: PayDunyaConfig): Record<string, string> {
+  return payDunyaHeaders(config);
+}
+
+async function postPayDunyaDisbursement(
+  config: PayDunyaDisbursementConfig,
+  endpoint: 'get-invoice' | 'submit-invoice' | 'check-status',
+  body: Record<string, unknown>,
+  fetchImpl: typeof fetch
+): Promise<PayDunyaResult<Record<string, any>>> {
+  if (!config.pushEnabled) {
+    return { success: false, error: 'Les décaissements PayDunya PUSH sont désactivés. Activation live explicite requise.' };
+  }
+  try {
+    const response = await fetchImpl(`https://app.paydunya.com/api/v2/disburse/${endpoint}`, {
+      method: 'POST',
+      headers: disbursementHeaders(config),
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) return { success: false, error: 'PayDunya PUSH est temporairement indisponible.' };
+    const data = await response.json() as Record<string, any>;
+    if (String(data.response_code) !== '00') {
+      return { success: false, error: cleanText(data.response_text, 250) || 'PayDunya a refusé la demande de décaissement.' };
+    }
+    return { success: true, data };
+  } catch {
+    return { success: false, error: 'Réponse réseau PayDunya incertaine. Vérifiez le statut avec le même token avant toute nouvelle soumission.' };
+  }
+}
+
+/** Crée seulement le jeton de déboursement (statut created), sans envoyer l'argent. */
+export async function createPayDunyaDisbursementInvoice(
+  config: PayDunyaDisbursementConfig,
+  input: PayDunyaDisbursementInput,
+  fetchImpl: typeof fetch = fetch
+): Promise<PayDunyaResult<{ token: string; status: 'created' }>> {
+  const invalid = validateDisbursementInput(input);
+  if (invalid) return { success: false, error: invalid };
+  const result = await postPayDunyaDisbursement(config, 'get-invoice', {
+    account_alias: cleanText(input.accountAlias, 32),
+    amount: input.amount,
+    withdraw_mode: input.withdrawMode,
+    callback_url: input.callbackUrl
+  }, fetchImpl);
+  if (!result.success) return result;
+  const token = result.data.disburse_token;
+  if (!validDisbursementToken(token)) {
+    return { success: false, error: 'PayDunya n’a pas retourné de token de déboursement valide.' };
+  }
+  return { success: true, data: { token: token.trim(), status: 'created' } };
+}
+
+/**
+ * Soumet un token déjà créé. Ne jamais appeler automatiquement cette fonction
+ * après un timeout : interroger d'abord check-status avec le même token.
+ */
+export async function submitPayDunyaDisbursement(
+  config: PayDunyaDisbursementConfig,
+  token: string,
+  disburseId: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<PayDunyaResult<PayDunyaDisbursement>> {
+  if (!validDisbursementToken(token) || !/^[A-Za-z0-9_-]{8,100}$/.test(disburseId)) {
+    return { success: false, error: 'Références de soumission PayDunya invalides.' };
+  }
+  const result = await postPayDunyaDisbursement(config, 'submit-invoice', {
+    disburse_invoice: token.trim(),
+    disburse_id: disburseId
+  }, fetchImpl);
+  if (!result.success) return result;
+  const status = String(result.data.status || '').toLowerCase();
+  if (status !== 'success' && status !== 'pending') {
+    return { success: false, error: 'Statut de soumission PayDunya absent ou non reconnu. Vérification obligatoire.' };
+  }
+  return {
+    success: true,
+    data: {
+      token: token.trim(),
+      status,
+      transactionId: cleanText(result.data.transaction_id, 128) || undefined,
+      providerReference: cleanText(result.data.provider_ref || result.data.disburse_tx_id, 128) || undefined
+    }
+  };
+}
+
+/** Vérifie l'état réel auprès de PayDunya ; pending ne vaut jamais succès. */
+export async function checkPayDunyaDisbursementStatus(
+  config: PayDunyaDisbursementConfig,
+  token: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<PayDunyaResult<PayDunyaDisbursement>> {
+  if (!validDisbursementToken(token)) {
+    return { success: false, error: 'Token de vérification PayDunya invalide.' };
+  }
+  const result = await postPayDunyaDisbursement(config, 'check-status', {
+    disburse_invoice: token.trim()
+  }, fetchImpl);
+  if (!result.success) return result;
+  const status = String(result.data.status || '').toLowerCase();
+  if (!['created', 'pending', 'success', 'failed'].includes(status)) {
+    return { success: false, error: 'PayDunya a retourné un statut de déboursement inconnu.' };
+  }
+  const amountRaw = result.data.amount;
+  const amount = amountRaw === undefined ? undefined : Number(amountRaw);
+  if (amount !== undefined && (!Number.isSafeInteger(amount) || amount < 0)) {
+    return { success: false, error: 'Le montant confirmé par PayDunya est invalide.' };
+  }
+  return {
+    success: true,
+    data: {
+      token: token.trim(),
+      status: status as PayDunyaDisbursementStatus,
+      transactionId: cleanText(result.data.transaction_id, 128) || undefined,
+      providerReference: cleanText(result.data.provider_ref || result.data.disburse_tx_id, 128) || undefined,
+      amount,
+      withdrawMode: cleanText(result.data.withdraw_mode, 64) || undefined
+    }
+  };
+}
+
+export const PAYDUNYA_CI_WITHDRAW_MODES_SUPPORTED = [...PAYDUNYA_CI_WITHDRAW_MODES];
