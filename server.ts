@@ -936,10 +936,25 @@ export async function handleCustomerPayDunyaReconcileRequest(payload: unknown, r
         slug !== session.restaurantSlug) {
       return { statusCode: 401, body: { success: false, error: 'Session QR invalide ou révoquée.' } };
     }
+    const paymentIntentId = String(input.paymentIntentId || '');
+    const intentRef = adminDb.collection('restaurants').doc(slug).collection('paymentIntents').doc(paymentIntentId);
+    const intentSnap = await intentRef.get();
+    if (!intentSnap.exists) return { statusCode: 404, body: { success: false, error: 'Intention de paiement introuvable.' } };
+    const intent = intentSnap.data();
+    const orderRef = adminDb.collection('restaurants').doc(slug).collection('orders').doc(String(intent.orderId || ''));
+    const orderSnap = await orderRef.get();
+    const order = orderSnap.exists ? orderSnap.data() : null;
+    const binding = order?.tableSession || {};
+    if (!order || order.orderMode !== 'sur_place' ||
+        String(order.tableNumber || '') !== String(session.tableNumber) ||
+        binding.sessionHash !== session.sessionHash || binding.qrTokenHash !== session.qrTokenHash ||
+        Number(binding.qrVersion) !== Number(session.qrVersion) || binding.tableId !== session.tableId) {
+      return { statusCode: 403, body: { success: false, error: 'Cette commande ne correspond pas à la session QR de votre table.' } };
+    }
     const config = getPayDunyaConfig(process.env);
     if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
     const result = await reconcilePayDunyaInvoiceIntentWithDb(
-      adminDb, config.data, slug, String(input.paymentIntentId || '')
+      adminDb, config.data, slug, paymentIntentId
     );
     if (result.success) return { statusCode: 200, body: result };
     return { statusCode: result.conflict ? 409 : 400, body: result };
