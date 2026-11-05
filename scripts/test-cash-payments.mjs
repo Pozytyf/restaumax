@@ -146,6 +146,12 @@ async function run() {
     assert(recent.length === 3, 'Le journal retourne les trois encaissements réellement persistés');
 
     console.log('\n--- Sorties de caisse et rapprochement ---');
+    const overspend = await recordCashMovementWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, movementType: 'withdrawal', amount: 20000,
+      category: 'retrait', note: 'Retrait supérieur au disponible', idempotencyKey: 'cash-overspend-01'
+    });
+    assert(overspend.success === false, 'Une sortie supérieure au solde théorique disponible est refusée');
     const expense = await recordCashMovementWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
       sessionVersion: 3, movementType: 'expense', amount: 500,
