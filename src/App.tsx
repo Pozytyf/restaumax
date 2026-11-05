@@ -766,6 +766,30 @@ export default function App() {
   };
 
   // POS Handlers
+  const handleSelectPosTable = (table: Table | null) => {
+    if (pendingPosOrder) {
+      window.alert('Terminez le règlement de la commande en cours avant de changer de table.');
+      return;
+    }
+    setSelectedTable(table);
+  };
+
+  const handleSetDiscountPercent = (value: number) => {
+    if (pendingPosOrder) {
+      window.alert('La remise ne peut pas être modifiée tant que le solde de la commande reste dû.');
+      return;
+    }
+    setDiscountPercent(value);
+  };
+
+  const handleClearPosCart = () => {
+    if (pendingPosOrder) {
+      window.alert('Le panier est verrouillé jusqu’au règlement complet de la commande en cours.');
+      return;
+    }
+    setCart([]);
+  };
+
   const handleAddToCart = (dish: MenuItem) => {
     if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
     setCart((prev) => {
@@ -1177,14 +1201,14 @@ export default function App() {
                 cart={cart}
                 selectedTable={selectedTable}
                 tables={tables}
-                onSelectTable={setSelectedTable}
+                onSelectTable={handleSelectPosTable}
                 onAddToCart={handleAddToCart}
                 onUpdateQuantity={handleUpdateQuantity}
                 onRemoveItem={handleRemoveItem}
                 onUpdateItemNotes={handleUpdateItemNotes}
-                onClearCart={() => setCart([])}
+                onClearCart={handleClearPosCart}
                 discountPercent={discountPercent}
-                onSetDiscountPercent={setDiscountPercent}
+                onSetDiscountPercent={handleSetDiscountPercent}
                 onSendToKitchen={handleSendToKitchen}
                 isSendingOrder={isSubmittingPosOrder}
                 onOpenPayment={() => {
