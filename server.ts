@@ -46,6 +46,7 @@ import {
   OrderProbeResult,
   IdempotencyReservationResult
 } from './src/server/orderService.js';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb } from './src/server/paymentService.js';
 import {
   authorizeTableManager,
   buildCsrfCookie,
@@ -854,6 +855,80 @@ export async function handleTableQrManagement(req: any) {
   }
 }
 
+export async function handlePaymentsRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) {
+    return { statusCode: 503, body: { success: false, error: 'Service de caisse indisponible : Firebase Admin non configuré.' } };
+  }
+  const method = String(req?.method || '').toUpperCase();
+  if (!['GET', 'POST'].includes(method)) {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (method === 'POST' && (!req || !requestHasValidOrigin(req))) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
+    const rawSlug = method === 'GET' ? req.query?.restaurantSlug : input.restaurantSlug;
+    const slug = typeof rawSlug === 'string' ? rawSlug.trim() : '';
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) {
+      return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+    }
+
+    const restaurantRef = adminDb.collection('restaurants').doc(slug);
+    const memberRef = adminDb.collection('managers').doc(decoded.uid);
+    const [restaurantSnap, memberSnap] = await Promise.all([restaurantRef.get(), memberRef.get()]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = memberSnap.exists ? memberSnap.data() : null;
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(decoded.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return { statusCode: 403, body: { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' } };
+    }
+
+    const isOwner = member.role === 'owner' && restaurant.ownerUid === decoded.uid;
+    const canManageCash = isOwner || member.role === 'manager' ||
+      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
+    const canViewCash = isOwner || member.role === 'manager' ||
+      (member.role === 'cashier' && Array.isArray(member.permissions) &&
+        (member.permissions.includes('cash.view') || member.permissions.includes('reports.cash.view')));
+
+    if (method === 'GET') {
+      if (!canViewCash) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les encaissements.' } };
+      const payments = await listRecentCashPaymentsWithDb(adminDb, slug, 100);
+      return { statusCode: 200, body: { success: true, payments } };
+    }
+
+    if (!canManageCash) {
+      return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas d’encaisser des paiements.' } };
+    }
+
+    const result = await recordCashPaymentWithDb(adminDb, {
+      restaurantSlug: slug,
+      orderId: String(input.orderId || ''),
+      actorUid: decoded.uid,
+      sessionVersion: Number(decoded.sessionVersion || 0),
+      amountTendered: input.amountTendered,
+      idempotencyKey: String(input.idempotencyKey || '')
+    });
+    if (result.success) return { statusCode: 200, body: result };
+    if (result.conflict) return { statusCode: 409, body: result };
+    return { statusCode: 400, body: result };
+  } catch (err: any) {
+    const message = String(err?.message || '');
+    if (/auth|token|revoked|expired/i.test(message)) {
+      return { statusCode: 401, body: { success: false, error: 'Session du personnel invalide. Reconnectez-vous.' } };
+    }
+    console.error('Erreur API paiements:', message || String(err));
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne lors du traitement du paiement.' } };
+  }
+}
+
 export async function handlePosOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) {
     return { statusCode: 503, body: { success: false, error: 'Service POS indisponible : Firebase Admin non configuré.' } };
@@ -976,6 +1051,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any = adminDb)
 // Local Express routes. Vercel uses the equivalent files in /api.
 app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
+});
+
+app.all('/api/payments', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handlePaymentsRequest(req.method === 'GET' ? undefined : req.body, req);
+  return res.status(result.statusCode).json(result.body);
 });
 
 app.post('/api/pos-orders', async (req, res) => {
