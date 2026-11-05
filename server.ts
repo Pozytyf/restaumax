@@ -1006,8 +1006,10 @@ export async function handlePayDunyaDisbursementCallbackRequest(payload: unknown
   }
   if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
   const callbackSlug = String(req?.query?.restaurantSlug || '');
-  const merchantConfig = await loadRestaurantPayDunyaConfig(adminDb, callbackSlug, process.env);
-  const config = merchantConfig.success ? { success: true as const, data: { ...merchantConfig.data, pushEnabled: merchantConfig.data.mode === 'live' && process.env.PAYDUNYA_LIVE_ENABLED === 'true' && process.env.PAYDUNYA_PUSH_ENABLED === 'true' } } : merchantConfig;
+  const merchantConfig = await loadRestaurantPayDunyaConfig(adminDb, callbackSlug, process.env, true);
+  // A callback may only reconcile an existing disbursement. Enabling status checks here
+  // does not expose the initiation path, which remains guarded by both live flags.
+  const config = merchantConfig.success ? { success: true as const, data: { ...merchantConfig.data, pushEnabled: merchantConfig.data.mode === 'live' } } : merchantConfig;
   if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
   try {
     const result = await processPayDunyaDisbursementCallbackWithDb(adminDb, config.data, payload);
