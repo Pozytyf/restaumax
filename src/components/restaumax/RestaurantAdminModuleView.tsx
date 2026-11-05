@@ -6,6 +6,7 @@ import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Package, Users, Bar
 import { auth, db, persistRestaurant } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
+import { PaymentSettingsView } from './PaymentSettingsView';
 
 type ModuleId = 'customers' | 'inventory' | 'reports' | 'settings';
 type Customer = { id: string; name: string; phone: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
@@ -23,7 +24,8 @@ export const RestaurantAdminModuleView: React.FC<{
   restaurant: RestaurantInfo;
   permissions: string[];
   onBack: () => void;
-}> = ({ module, restaurant, permissions, onBack }) => {
+  canManagePaymentProvider?: boolean;
+}> = ({ module, restaurant, permissions, onBack, canManagePaymentProvider = false }) => {
   const canManage = permissions.includes(module === 'customers' ? 'customers.manage' : module === 'inventory' ? 'inventory.manage' : 'settings.manage');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -234,6 +236,9 @@ export const RestaurantAdminModuleView: React.FC<{
         <label className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm font-bold md:col-span-2"><input type="checkbox" checked={settings.isOpen} onChange={e=>setSettings({...settings,isOpen:e.target.checked})}/> Restaurant ouvert aux commandes client</label>
         {canManage && <button disabled={loading} className="flex items-center justify-center gap-2 rounded-lg bg-slate-900 p-3 font-bold text-white md:col-span-2"><Save size={16}/> Enregistrer les paramètres</button>}
       </form>}
+      {module === 'settings' && (
+        <PaymentSettingsView restaurantSlug={restaurant.slug} canManage={canManagePaymentProvider} />
+      )}
     </div>
   </div>;
 };
