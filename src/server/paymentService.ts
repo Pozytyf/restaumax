@@ -268,7 +268,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       splitGuests,
       guestAccountId: updatedGuestAccount.id,
       guestNumber,
-      guestName: updatedGuestAccount.guestName,
+      guestName: splitGuests > 1 || guestName ? updatedGuestAccount.guestName : '',
       guestShareAmount,
       guestPreviouslyPaidAmount,
       guestRemainingBefore,
