@@ -247,6 +247,17 @@ const qrBinding = {
   sessionHash: 'session-hash-qr-4', qrTokenHash: 'qr-token-hash-4',
   qrVersion: 2, tableId: 'table-4'
 };
+db.seed('restaurants/maquis-awa/table_sessions/session-hash-qr-4', {
+  status: 'active', expiresAt: Date.now() + 60_000,
+  restaurantSlug: 'maquis-awa', ...qrBinding, restaurantSessionVersion: 0
+});
+db.seed('restaurants/maquis-awa/table_qr_tokens/qr-token-hash-4', {
+  status: 'active', tokenHash: 'qr-token-hash-4', restaurantSlug: 'maquis-awa',
+  tableId: 'table-4', version: 2
+});
+db.seed('restaurants/maquis-awa/tables/table-4', {
+  id: 'table-4', isActive: true, qrVersion: 2, tableNumber: '4'
+});
 db.seed('restaurants/maquis-awa/orders/order-qr', {
   id: 'order-qr', restaurantSlug: 'maquis-awa', orderNumber: 'CMD-QR-4',
   orderMode: 'sur_place', tableNumber: '4', status: 'pending',
