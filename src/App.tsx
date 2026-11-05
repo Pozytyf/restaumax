@@ -1534,7 +1534,7 @@ export default function App() {
             onUpdateDish={handleUpdateDish}
             onDeleteDish={handleDeleteDish}
             currentUserEmail={authUser?.email}
-            canManageStaff={isRestaurantOwner || authIsSuperAdmin}
+            canManageStaff={isRestaurantOwner || (authRestaurantRole === 'manager' && userPermissions.includes('staff.manage'))}
             permissions={userPermissions}
             onSignOut={handleManagerSignOut}
           />
