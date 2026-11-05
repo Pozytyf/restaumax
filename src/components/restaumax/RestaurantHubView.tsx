@@ -188,14 +188,14 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       title: 'Salle, tables et QR codes',
       subtitle: 'Chevalets de table & Affectations',
       description: 'Génération et impression des QR codes de tables, gestion des zones (salle, terrasse, bar) et couverts.',
-      status: 'active',
-      statusLabel: 'Actif',
+      status: permissions.includes('tables.manage') ? 'active' : 'unavailable',
+      statusLabel: permissions.includes('tables.manage') ? 'Gestion des tables' : 'Réservé au propriétaire / manager autorisé',
       icon: QrCode,
-      actionLabel: 'Générateur QR Codes des Tables',
-      onAction: () => {
+      actionLabel: permissions.includes('tables.manage') ? 'Générateur QR Codes des Tables' : undefined,
+      onAction: permissions.includes('tables.manage') ? () => {
         sounds.playTap();
         setActiveTab('qr_tables');
-      }
+      } : undefined
     },
     {
       id: 'cash-register',
@@ -281,6 +281,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
         menuItems={menuItems}
         catalogLoading={menuCatalogLoading}
         catalogError={menuCatalogError}
+        canManageCatalog={permissions.includes('menu.manage')}
         onToggleAvailability={onToggleDishAvailability}
         onCreateDish={onCreateDish}
         onUpdateDish={onUpdateDish}
@@ -356,7 +357,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
           </div>
 
           <div className="flex items-center gap-3 text-xs text-slate-300">
-            <button
+            {permissions.includes('tables.manage') && <button
               onClick={() => {
                 sounds.playTap();
                 setActiveTab('qr_tables');
@@ -366,7 +367,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             >
               <QrCode size={13} className="text-emerald-400" />
               <span>QR Tables</span>
-            </button>
+            </button>}
 
             <div className="hidden lg:flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-700/60">
               <Calendar size={14} className="text-[#ff6500]" />
