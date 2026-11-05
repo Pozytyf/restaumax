@@ -187,8 +187,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${
                     method === 'wave'
                       ? 'bg-[#1ba8f0] text-white border-[#1ba8f0] shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                   opacity-50 cursor-not-allowed}`}
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'} opacity-50 cursor-not-allowed`}
                 >
                   <Smartphone size={16} />
                   Wave Money · bientôt
