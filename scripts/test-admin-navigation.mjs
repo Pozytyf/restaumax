@@ -28,6 +28,8 @@ assert(dishForm.includes('disabled={isSaving}'), 'dish form prevents duplicate s
 assert(menuView.includes('await onCreateDish(dish)') && menuView.includes('await onUpdateDish(dish)'), 'catalogue view awaits create and update operations');
 assert(dishForm.includes('optionGroups.length >= 20') && dishForm.includes('group.options.length >= 50') &&
   dishForm.includes('extras.length >= 50'),
+assert(dishForm.includes('uniqueTags.length <= 30') && dishForm.includes('30 tags maximum'),
+  'catalogue editor enforces the Firestore tag limit');
   'catalogue editor prevents option data from exceeding Firestore limits');
 
 assert(firebase.includes('transaction.delete(recipeRef)') && firebase.includes('transaction.delete(menuItemRef)'),
