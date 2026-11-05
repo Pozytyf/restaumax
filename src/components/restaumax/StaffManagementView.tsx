@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { auth, requestManagerPasswordReset } from '../../lib/firebase';
-import { ArrowLeft, UserPlus, Shield, UserX, UserCheck, Trash2, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, UserPlus, Shield, UserX, UserCheck, Trash2, RefreshCw } from 'lucide-react';
 
 const PERMISSIONS = [
   ['menu.view', 'Consulter le menu'], ['menu.manage', 'Modifier le menu'],
@@ -41,8 +41,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [editRole, setEditRole] = useState<EditableStaffRole>('cashier');
   const [editPermissions, setEditPermissions] = useState<string[]>([]);
-  const [showPassword, setShowPassword] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'cashier' as EditableStaffRole, permissions: ROLE_DEFAULTS.cashier });
+  const [form, setForm] = useState({ name: '', email: '', role: 'cashier' as EditableStaffRole, permissions: ROLE_DEFAULTS.cashier });
 
   const request = useCallback(async (body?: Record<string, unknown>) => {
     if (!auth.currentUser) throw new Error('Session expirée.');
@@ -75,7 +74,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
       setNotice(reset.success
         ? 'Compte créé. Un e-mail sécurisé de réinitialisation a été envoyé au membre pour qu’il définisse son propre mot de passe.'
         : 'Compte créé, mais l’e-mail automatique n’a pas pu être envoyé. Utilisez « Mot de passe oublié ? » sur l’écran de connexion.');
-      setForm({ name: '', email: '', password: '', role: 'cashier', permissions: ROLE_DEFAULTS.cashier });
+      setForm({ name: '', email: '', role: 'cashier', permissions: ROLE_DEFAULTS.cashier });
       await refresh();
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
@@ -140,14 +139,13 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
         <div className="grid gap-3 md:grid-cols-2">
           <input required placeholder="Nom complet" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="rounded-lg border border-slate-300 p-3"/>
           <input required type="email" placeholder="Adresse e-mail" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} className="rounded-lg border border-slate-300 p-3"/>
-          <div className="relative"><input required minLength={10} type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="Mot de passe initial (10 caractères min.)" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} className="w-full rounded-lg border border-slate-300 p-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div>
           <select value={form.role} onChange={e=>{const role=e.target.value as EditableStaffRole;setForm({...form,role,permissions:ROLE_DEFAULTS[role]});}} className="rounded-lg border border-slate-300 p-3">
             {actorRole === 'owner' && <option value="manager">Manager</option>}
             <option value="cashier">Caissier</option><option value="server">Serveur</option><option value="kitchen">Cuisine / Bar</option>
           </select>
         </div>
         <div><p className="mb-2 text-sm font-bold">Autorisations accordées</p><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{PERMISSIONS.filter(([id])=>(actorRole === 'owner' ? ROLE_CEILINGS[form.role] : ROLE_DEFAULTS[form.role]).includes(id)).map(([id,label])=><label key={id} className="flex items-center gap-2 rounded-lg bg-slate-50 p-2 text-sm"><input type="checkbox" checked={form.permissions.includes(id)} onChange={()=>togglePermission(id)}/>{label}</label>)}</div></div>
-        <p className="text-xs text-amber-700">Les autorisations sont appliquées côté serveur et dans les règles Firestore. Ne partagez pas les mots de passe par un canal public.</p>
+        <p className="text-xs text-emerald-700">Un e-mail Firebase sécurisé est envoyé au membre après création pour qu’il définisse lui-même son mot de passe. Aucun mot de passe temporaire n’est demandé.</p>
         <button disabled={loading} className="rounded-lg bg-slate-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">Créer le compte</button>
       </form>
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
