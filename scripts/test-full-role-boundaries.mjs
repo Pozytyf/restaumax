@@ -22,6 +22,7 @@ const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManage
 const hubView = fs.readFileSync(new URL('../src/components/restaumax/RestaurantHubView.tsx', import.meta.url), 'utf8');
 const platformAdmin = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
 const staffView = fs.readFileSync(new URL('../src/components/restaumax/StaffManagementView.tsx', import.meta.url), 'utf8');
+const qrView = fs.readFileSync(new URL('../src/components/restaumax/TableQrGeneratorView.tsx', import.meta.url), 'utf8');
 assert(menuView.includes("canManageCatalog = false") && menuView.includes("if (!canManageCatalog) return"),
   'catalogue mutation handlers are denied by default without menu.manage');
 assert(menuView.includes("{canManageCatalog && <button") && menuView.includes("{canManageCatalog && <>"),
@@ -42,6 +43,9 @@ assert(platformAdmin.includes("await db.runTransaction(async (tx: any) =>") &&
   platformAdmin.includes("tx.set(managerRef, { role, permissions, sessionVersion"),
   'role updates atomically synchronize both staff membership records before Auth claims are refreshed');
 
+assert(qrView.includes('window.confirm') && qrView.includes('setIsRevoking(true)') &&
+  qrView.includes('disabled={isGenerating || isRevoking}'),
+  'QR revocation requires confirmation and prevents duplicate requests');
 assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
   hubView.includes("status: permissions.includes('tables.manage') ? 'active' : 'unavailable'"),
   'QR administration entry points are restricted to members with tables.manage');
