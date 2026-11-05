@@ -426,6 +426,7 @@ export default function App() {
     guestPreviouslyPaidAmount: payment.guestPreviouslyPaidAmount !== undefined ? Number(payment.guestPreviouslyPaidAmount) : undefined,
     guestRemainingAfter: payment.guestRemainingAfter !== undefined ? Number(payment.guestRemainingAfter) : undefined,
     refundedAmount: Number(payment.refundedAmount || 0),
+    refundPendingAmount: Number(payment.refundPendingAmount || 0),
     refundStatus: String(payment.refundStatus || ''),
     refundEligible: payment.refundEligible === true,
     providerChannel: String(payment.providerChannel || ''),
