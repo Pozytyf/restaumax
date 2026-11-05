@@ -25,6 +25,9 @@ assert(menuView.includes("canManageCatalog = false") && menuView.includes("if (!
 assert(menuView.includes("{canManageCatalog && <button") && menuView.includes("{canManageCatalog && <>"),
   'create, edit, delete and availability actions are hidden without menu.manage');
 assert(hubView.includes("canManageCatalog={permissions.includes('menu.manage')}"),
+assert(hubView.includes("const canViewCatalog = permissions.includes('menu.view') || permissions.includes('menu.manage')") &&
+  hubView.includes("status: canViewCatalog ? 'active' : 'unavailable'"),
+  'catalogue consultation is hidden from roles without menu.view');
   'catalogue edit access is driven by the verified role permission set');
 assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
   hubView.includes("status: permissions.includes('tables.manage') ? 'active' : 'unavailable'"),
