@@ -50,6 +50,15 @@ assert.equal(first.success, true);
 assert.equal(first.completed, true);
 assert.equal(first.idempotentReplay, false);
 assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemCompletion['0'], true);
+assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount, 1);
+const secondLine = await updateKitchenItemCompletionWithDb(db, {
+  ...params, itemId: 'ki-order-1-1', itemIndex: 1
+});
+assert.equal(secondLine.success, true);
+assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount, 2);
+const uncheckLine = await updateKitchenItemCompletionWithDb(db, params);
+assert.equal(uncheckLine.success, true);
+assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount, 1);
 assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount, 1, 'completed line count is updated transactionally');
 
 const secondLine = await updateKitchenItemCompletionWithDb(db, {
