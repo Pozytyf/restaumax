@@ -155,6 +155,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
 
   const handleGenerateQr = async () => {
     if (!currentTable || isGenerating || isRevoking) return;
+    if (!window.confirm(`Générer un nouveau QR pour la table ${currentTable.tableNumber} ? Tout QR précédemment émis pour cette table sera invalidé ; remplacez l’ancien QR imprimé.`)) return;
     await generateQrForTable(currentTable);
   };
 
