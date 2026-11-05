@@ -232,7 +232,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <div className="space-y-3 text-xs">
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-600">Fond de caisse d’ouverture:</span>
-                <span className="font-bold text-amber-700">Non configuré</span>
+                <span className="font-bold text-amber-700 tnum">{formatFCFA(drawerState.openingBalance)}</span>
               </div>
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-600">Encaissements Espèces:</span>
@@ -243,7 +243,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 <span className="font-bold text-rose-600 tnum">-{formatFCFA(drawerState.discountsTotal)}</span>
               </div>
               <div className="flex justify-between py-2.5 bg-slate-50 px-3 rounded-xl border border-slate-200 mt-2">
-                <span className="font-extrabold text-slate-900">Encaissements espèces enregistrés:</span>
+                <span className="font-extrabold text-slate-900">Solde théorique du tiroir:</span>
                 <span className="text-base font-black text-[#ff6500] tnum">
                   {formatFCFA(drawerState.currentCash)}
                 </span>
@@ -252,7 +252,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
             <div className="mt-5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 flex items-center gap-2">
               <ShieldCheck size={16} className="text-amber-600 shrink-0" />
-              <span>Fond de caisse d’ouverture non configuré. Effectuez le rapprochement physique avant toute clôture.</span>
+              <span>Solde théorique = fond d’ouverture + encaissements de la session. Les dépenses, sorties de caisse et remboursements ne sont pas encore intégrés.</span>
             </div>
           </div>
 
@@ -460,7 +460,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
               <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 font-sans font-medium">
                 <CheckCircle size={18} className="text-emerald-600 shrink-0" />
-                <span>Aperçu indicatif uniquement : le fond d’ouverture, les dépenses, les sessions de caisse et le rapprochement physique ne sont pas encore enregistrés.</span>
+                <span>Aperçu indicatif : les sessions et comptages physiques sont enregistrés. Les dépenses, sorties, remboursements et le rapprochement comptable complet restent à intégrer.</span>
               </div>
 
               <div className="pt-2 flex items-center gap-2 font-sans">
