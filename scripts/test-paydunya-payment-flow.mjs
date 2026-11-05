@@ -100,6 +100,16 @@ const checkout = await startPayDunyaOrderPaymentWithDb(db, config, {
 });
 assert(checkout.success && checkout.amount === 7500 && checkout.checkoutUrl.includes('sandbox-checkout'),
   'Le checkout retourne un montant exact et une URL PayDunya validée');
+const duplicateInvoice = await startPayDunyaOrderPaymentWithDb(db, config, {
+  restaurantSlug: 'maquis-awa', orderId: 'order-100', actorUid: 'manager-1',
+  actorName: 'Manager', sessionVersion: 3, idempotencyKey: 'mobile_pay_100_second',
+  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-callback',
+  returnUrl: 'https://restaumax.vercel.app/payments/return',
+  cancelUrl: 'https://restaumax.vercel.app/payments/cancel',
+  channel: 'wave-ci'
+}, async () => { throw new Error('must not create second invoice'); });
+assert(!duplicateInvoice.success && duplicateInvoice.conflict === true,
+  'Une commande ne peut pas avoir deux factures Mobile Money actives en parallèle');
 
 const signedHash = createHash('sha512').update(masterKey).digest('hex');
 const callback = { data: JSON.stringify({
