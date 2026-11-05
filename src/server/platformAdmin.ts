@@ -18,7 +18,7 @@ const ROLE_PERMISSION_CEILINGS: Record<RestaurantRole, readonly Permission[]> = 
   manager: [
     'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
     'tables.view', 'tables.manage', 'pos.access', 'kitchen.access', 'cash.view',
-    'cash.manage', 'reports.view', 'customers.view', 'customers.manage',
+    'cash.manage', 'payments.refund', 'reports.view', 'customers.view', 'customers.manage',
     'inventory.view', 'inventory.manage', 'staff.view', 'staff.manage', 'settings.view'
   ],
   cashier: [
