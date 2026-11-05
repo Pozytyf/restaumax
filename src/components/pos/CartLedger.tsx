@@ -29,6 +29,8 @@ interface CartLedgerProps {
   isSendingOrder: boolean;
   onOpenPayment: () => void;
   serverName: string;
+  alreadyPaidAmount?: number;
+  isExistingOrder?: boolean;
 }
 
 export const CartLedger: React.FC<CartLedgerProps> = ({
@@ -45,7 +47,9 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
   onSendToKitchen,
   isSendingOrder,
   onOpenPayment,
-  serverName
+  serverName,
+  alreadyPaidAmount = 0,
+  isExistingOrder = false
 }) => {
   const [editingNotesItemId, setEditingNotesItemId] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState('');
@@ -56,6 +60,7 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
   const discountAmount = Math.round((subtotal * discountPercent) / 100);
   const taxAmount = 0; // Tax included or 0% in standard restaurant display
   const grandTotal = Math.max(0, subtotal - discountAmount + taxAmount);
+  const remainingDue = Math.max(0, grandTotal - alreadyPaidAmount);
   const totalItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   const handleOpenNoteModal = (item: CartItem) => {
@@ -296,12 +301,18 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
               <span className="font-bold tnum">-{formatFCFA(discountAmount)}</span>
             </div>
           )}
+          {alreadyPaidAmount > 0 && (
+            <div className="flex justify-between text-emerald-300 font-semibold">
+              <span>Déjà réglé</span>
+              <span className="tnum">{formatFCFA(alreadyPaidAmount)}</span>
+            </div>
+          )}
           <div className="pt-2 border-t border-slate-700/80 flex items-baseline justify-between">
             <span className="text-xs uppercase font-extrabold tracking-wider text-slate-300">
-              Total Net à Payer
+              {alreadyPaidAmount > 0 ? 'Solde restant' : 'Total Net à Payer'}
             </span>
             <span className="text-xl sm:text-2xl font-black text-white tracking-tight tnum">
-              {formatFCFA(grandTotal)}
+              {formatFCFA(remainingDue)}
             </span>
           </div>
         </div>
@@ -310,7 +321,7 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
         <div className="flex flex-col gap-2 pt-1">
           <button
             type="button"
-            disabled={cart.length === 0 || isSendingOrder}
+            disabled={cart.length === 0 || isSendingOrder || isExistingOrder}
             aria-busy={isSendingOrder}
             onClick={() => {
               sounds.playKitchenBell();
@@ -319,7 +330,7 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
             className="w-full h-11 bg-white/10 hover:bg-white/15 active:bg-white/20 disabled:opacity-40 disabled:pointer-events-none text-white text-xs sm:text-sm font-bold rounded-lg border border-white/20 transition-all flex items-center justify-center gap-2"
           >
             <ChefHat size={16} />
-            <span>{isSendingOrder ? 'Envoi en cours…' : 'Envoyer en Cuisine'}</span>
+            <span>{isExistingOrder ? 'Commande déjà envoyée' : isSendingOrder ? 'Envoi en cours…' : 'Envoyer en Cuisine'}</span>
           </button>
 
           <button

@@ -81,7 +81,7 @@ export function mapRestauOrderToKitchenTicket(
     ticketNumber: order.orderNumber,
     tableNumber: order.tableNumber ? `Table ${order.tableNumber}` : 'À emporter',
     orderType: order.orderMode === 'sur_place' ? 'sur_place' : 'emporter',
-    waiter: 'QR Menu Client',
+    waiter: order.customerNote?.startsWith('Commande saisie au comptoir par ') ? 'Personnel POS' : 'QR Menu Client',
     createdAt: new Date(order.createdAt),
     status: ticketStatus,
     items: order.items.map((it, idx) => {
@@ -193,6 +193,7 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>([]);
+  const [restauOrders, setRestauOrders] = useState<RestauOrder[]>([]);
   const [drawerState, setDrawerState] = useState<CashDrawerState>({
     openingBalance: 0,
     currentCash: 0,
@@ -416,29 +417,42 @@ export default function App() {
     };
   }, [isAuthorizedManager, isRestaurantHubRoute, activeRestaurantSlug]);
 
-  // Correction C: Subscribe to Orders subcollection for persistent KDS stream
+  // Subscribe to the active restaurant's orders for KDS and unpaid POS recovery.
   useEffect(() => {
-    if (!isAuthorizedManager || (!userPermissions.includes('orders.view') && !userPermissions.includes('orders.manage') && !userPermissions.includes('kitchen.access'))) return;
+    const canViewOrders = !!authUser && (
+      isRestaurantOwner ||
+      userPermissions.includes('orders.view') ||
+      userPermissions.includes('orders.manage') ||
+      userPermissions.includes('kitchen.access')
+    );
+
+    if (!canViewOrders) {
+      setRestauOrders([]);
+      setKitchenTickets((previous) => previous.filter((ticket) => !ticket.id.startsWith('ord-')));
+      return;
+    }
 
     let isMounted = true;
+    setRestauOrders([]);
+    setKitchenTickets((previous) => previous.filter((ticket) => !ticket.id.startsWith('ord-')));
+
     const unsubOrders = subscribeToOrders(
       activeRestaurantSlug,
       (firestoreOrders) => {
         if (!isMounted) return;
-        setKitchenTickets((prev) => {
-          const existingMap = new Map<string, KitchenTicket>(prev.map((t) => [t.id, t]));
-          const nonFirestoreTickets = prev.filter((t) => !t.id.startsWith('ord-'));
-
-          const mappedTickets = firestoreOrders.map((ord) => {
-            const existing = existingMap.get(`ord-${ord.id}`);
-            return mapRestauOrderToKitchenTicket(ord, existing);
+        setRestauOrders(firestoreOrders);
+        setKitchenTickets((previous) => {
+          const existingMap = new Map<string, KitchenTicket>(previous.map((ticket) => [ticket.id, ticket]));
+          const nonFirestoreTickets = previous.filter((ticket) => !ticket.id.startsWith('ord-'));
+          const mappedTickets = firestoreOrders.map((order) => {
+            const existing = existingMap.get(`ord-${order.id}`);
+            return mapRestauOrderToKitchenTicket(order, existing);
           });
-
           return [...mappedTickets, ...nonFirestoreTickets];
         });
       },
       (err) => {
-        console.warn('Flux KDS Firestore en attente ou restreint:', err);
+        console.warn('Flux des commandes Firestore en attente ou restreint:', err);
       }
     );
 
@@ -446,7 +460,8 @@ export default function App() {
       isMounted = false;
       unsubOrders();
     };
-  }, [isAuthorizedManager, isStaffRoute, userPermissions]);
+  }, [authUser, activeRestaurantSlug, isRestaurantOwner, userPermissions]);
+
 
   useEffect(() => {
     const canViewCash = isRestaurantOwner || authRestaurantRole === 'manager' ||
@@ -863,7 +878,7 @@ export default function App() {
         cart: clientCart,
         orderMode: selectedTable ? 'sur_place' : 'a_emporter',
         tableNumber: selectedTable?.number || null,
-        idempotencyKey: generateClientOrderIdempotencyKey(),
+        idempotencyKey: posOrderIdempotencyKey,
         customerNote: `Commande saisie au comptoir par ${serverName}`
       });
 
@@ -877,6 +892,7 @@ export default function App() {
         ticket,
         ...previous.filter((existing) => existing.id !== ticket.id)
       ]);
+      setPosOrderIdempotencyKey(generateClientOrderIdempotencyKey());
       setCart([]);
       window.alert(`Commande enregistrée et envoyée en cuisine : ${result.order.orderNumber}`);
     } catch (err) {
@@ -1082,6 +1098,67 @@ export default function App() {
   };
 
 
+  const unpaidPosOrders = useMemo(() => restauOrders
+    .filter((order) => {
+      if (order.status === 'cancelled' || order.paymentStatus === 'paid') return false;
+      const remaining = Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0)));
+      return Number.isFinite(remaining) && remaining > 0;
+    })
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 8), [restauOrders]);
+
+  const handleCollectExistingOrder = (order: RestauOrder) => {
+    if (!canCollectPayment) {
+      window.alert("Votre rôle ne permet pas d'encaisser cette commande.");
+      return;
+    }
+    if (isSubmittingPayment || isSubmittingPosOrder) return;
+    if (pendingPosOrder && pendingPosOrder.id !== order.id) {
+      window.alert("Un autre règlement partiel est déjà ouvert. Terminez-le avant d'en sélectionner un autre.");
+      return;
+    }
+    if (cart.length > 0 && (!pendingPosOrder || pendingPosOrder.id !== order.id)) {
+      const confirmed = window.confirm("Le panier non enregistré sera remplacé par cette commande. Continuer ?");
+      if (!confirmed) return;
+    }
+
+    const restoredCart: CartItem[] = order.items.map((item) => {
+      const existing = menuItems.find((menuItem) => menuItem.id === item.menuItemId);
+      const menuItem: MenuItem = {
+        id: item.menuItemId || item.id,
+        name: item.name,
+        category: existing?.category || 'plats',
+        price: Number(item.unitPrice),
+        description: existing?.description || '',
+        imageUrl: existing?.imageUrl || '',
+        available: existing?.available ?? false,
+        prepTimeMinutes: existing?.prepTimeMinutes || 0,
+        course: existing?.course || 'plat',
+        tags: existing?.tags
+      };
+      const notes = [
+        item.selectedOption?.optionName,
+        item.selectedExtras?.map((extra) => extra.name).join(', '),
+        item.prepNotes
+      ].filter(Boolean).join(' · ');
+      return {
+        id: item.id,
+        menuItem,
+        quantity: item.quantity,
+        specialInstructions: notes,
+        course: menuItem.course
+      };
+    });
+
+    setCart(restoredCart);
+    setPendingPosOrder(order);
+    setPendingPosPaidAmount(Number(order.paidAmount || 0));
+    setSelectedTable(order.tableNumber ? tables.find((table) => table.number === order.tableNumber) || null : null);
+    setDiscountPercent(0);
+    setCurrentRole('pos');
+    setIsPaymentModalOpen(true);
+  };
+
   const activeTicketsCount = kitchenTickets.filter((t) => t.status === 'in_prep' || t.status === 'ready').length;
 
   return (
@@ -1197,6 +1274,10 @@ export default function App() {
             audioEnabled={audioEnabled}
             onToggleAudio={handleToggleAudio}
             onQuickNewOrder={() => {
+              if (pendingPosOrder) {
+                window.alert('Terminez le règlement de la commande en cours avant de démarrer une nouvelle vente.');
+                return;
+              }
               setSelectedTable(null);
               setCart([]);
               setCurrentRole('pos');
@@ -1230,6 +1311,10 @@ export default function App() {
                   setIsPaymentModalOpen(true);
                 }}
                 serverName={serverName}
+                unpaidOrders={canCollectPayment ? unpaidPosOrders : []}
+                onCollectOrder={handleCollectExistingOrder}
+                alreadyPaidAmount={pendingPosPaidAmount}
+                isExistingOrder={pendingPosOrder !== null}
               />
             )}
 
