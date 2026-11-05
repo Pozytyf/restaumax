@@ -82,14 +82,20 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   const dateInputFromTimestamp = (value?: number) =>
     value && Number.isFinite(value) ? new Date(value).toISOString().slice(0, 10) : '';
 
-  const subscriptionStatusLabel = (status?: string) => ({
-    trial: 'Essai', active: 'Actif', past_due: 'Paiement en retard',
-    suspended: 'Suspendu', cancelled: 'Résilié'
-  }[status || ''] || 'Non défini');
+  const subscriptionStatusLabel = (status?: string) => {
+    const labels: Record<string, string> = {
+      trial: 'Essai', active: 'Actif', past_due: 'Paiement en retard',
+      suspended: 'Suspendu', cancelled: 'Résilié'
+    };
+    return labels[status || ''] || 'Non défini';
+  };
 
-  const billingCycleLabel = (cycle?: string) => ({
-    monthly: 'mensuel', yearly: 'annuel', custom: 'personnalisé'
-  }[cycle || ''] || 'période non définie');
+  const billingCycleLabel = (cycle?: string) => {
+    const labels: Record<string, string> = {
+      monthly: 'mensuel', yearly: 'annuel', custom: 'personnalisé'
+    };
+    return labels[cycle || ''] || 'période non définie';
+  };
 
   const editSubscription = (restaurant: RestaurantRow) => {
     const subscription = restaurant.subscription || {};
