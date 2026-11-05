@@ -69,7 +69,7 @@ export interface KitchenTicket {
   urgent?: boolean;
 }
 
-export type PaymentMethod = 'especes' | 'wave' | 'orange_money' | 'carte';
+export type PaymentMethod = 'especes' | 'wave' | 'orange_money' | 'mtn_money' | 'moov_money' | 'djamo' | 'carte';
 
 export interface PaymentRecord {
   id: string;
