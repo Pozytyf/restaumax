@@ -86,12 +86,15 @@ export async function updateKitchenItemCompletionWithDb(
       }
 
       currentStates[key] = completed;
+      const completedCount = order.items.reduce((count: number, _item: any, index: number) =>
+        count + (currentStates[String(index)] === true ? 1 : 0), 0);
       tx.update(orderRef, {
         kitchenItemCompletion: currentStates,
+        kitchenItemsCompletedCount: completedCount,
         kitchenItemUpdatedAt: Date.now(),
         kitchenItemUpdatedBy: actorUid
       });
-      return { success: true, completed, idempotentReplay: false };
+      return { success: true, completed, completedCount, idempotentReplay: false };
     });
   } catch (error: any) {
     // Keep internal Firestore details out of the API response.
