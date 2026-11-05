@@ -635,3 +635,42 @@ export async function processPayDunyaDisbursementCallbackWithDb(
   if (status.data.token !== token) return { success: false, error: 'Token de statut fournisseur incohérent.' };
   return finalizePayDunyaRefund(db, mapping.restaurantSlug, mapping.refundId, status.data);
 }
+
+
+/**
+ * Authenticated staff reconciliation for a customer return when the IPN is delayed.
+ * The synthetic local envelope is never exposed to the browser; the actual provider
+ * confirmation response must still carry a valid SHA-512 MasterKey hash.
+ */
+export async function reconcilePayDunyaInvoiceIntentWithDb(
+  db: any,
+  config: PayDunyaConfig,
+  restaurantSlug: string,
+  paymentIntentId: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<PayDunyaCallbackResult> {
+  const slug = clean(restaurantSlug, 100);
+  const intentId = clean(paymentIntentId, 128);
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^pdi_[a-f0-9]{32}$/.test(intentId)) {
+    return { success: false, error: 'Référence de rapprochement PayDunya invalide.' };
+  }
+  const intentRef = db.collection('restaurants').doc(slug).collection('paymentIntents').doc(intentId);
+  const intentSnap = await intentRef.get();
+  if (!intentSnap.exists) return { success: false, error: 'Intention de paiement PayDunya introuvable.' };
+  const intent = intentSnap.data();
+  if (!intent.invoiceToken || !['pending', 'creating', 'creation_unknown'].includes(intent.status)) {
+    if (intent.status === 'completed') {
+      return { success: true, status: 'completed', paymentId: intent.paymentId, idempotentReplay: true };
+    }
+    return { success: false, error: 'Cette intention ne peut pas être rapprochée automatiquement.' };
+  }
+  const token = clean(intent.invoiceToken, 128);
+  if (!/^[A-Za-z0-9_-]{5,128}$/.test(token)) {
+    return { success: false, error: 'Token PayDunya absent ; rapprochement manuel requis.' };
+  }
+  const localEnvelope = {
+    hash: crypto.createHash('sha512').update(config.masterKey).digest('hex'),
+    invoice: { token }
+  };
+  return processPayDunyaInvoiceCallbackWithDb(db, config, localEnvelope, fetchImpl);
+}
