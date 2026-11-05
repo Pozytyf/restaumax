@@ -1525,14 +1525,6 @@ app.post('/api/inventory', async (req, res) => {
   return res.status(result.statusCode).json(result.body);
 });
 
-app.post('/api/kitchen-item', async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  const result = await handleKitchenItemRequest(req.body, req);
-  return res.status(result.statusCode).json(result.body);
-});
-
 app.post('/api/pos-orders', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
