@@ -233,11 +233,14 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
     const paymentStatus = remainingAmount === 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
     const guestPaidAmount = guestPreviouslyPaidAmount + acceptedAmount;
     const guestRemainingAfter = guestShareAmount - guestPaidAmount;
-    const updatedGuestAccount = {
+    const updatedGuestAccount: Record<string, any> = {
       ...selectedGuest,
+      id: String(selectedGuest.id || `guest_${guestNumber}`),
+      guestNumber,
       guestName: selectedGuest.guestName && selectedGuest.guestName !== `Convive ${guestNumber}`
         ? selectedGuest.guestName
         : guestName || selectedGuest.guestName || `Convive ${guestNumber}`,
+      shareAmount: guestShareAmount,
       paidAmount: guestPaidAmount,
       remainingAmount: guestRemainingAfter,
       paymentStatus: guestRemainingAfter === 0 ? 'paid' : 'partial'
