@@ -779,14 +779,15 @@ export default function App() {
   // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation & atomic idempotency)
   const handleStartClientPayDunya = async (
     order: RestauOrder,
-    channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci'
+    channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci',
+    amount: number
   ): Promise<void> => {
     if (!tableSession || tableSession.restaurantSlug !== activeRestaurantSlug) {
       window.alert('Pour payer par Mobile Money, scannez à nouveau le QR code de votre table afin de sécuriser la session.');
       return;
     }
     const result = await createCustomerPayDunyaPaymentWithServerValidation(
-      activeRestaurantSlug, order.id, channel, generateClientOrderIdempotencyKey(), tableSession.csrfToken
+      activeRestaurantSlug, order.id, channel, generateClientOrderIdempotencyKey(), tableSession.csrfToken, amount
     );
     if (!result.success) {
       window.alert(`Facture PayDunya non créée : ${result.error}`);
