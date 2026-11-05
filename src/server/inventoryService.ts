@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+import { createHash } from 'node:crypto';
 
 export interface InventoryRequestParams {
   action: 'create' | 'move' | 'archive';
@@ -22,7 +22,7 @@ const validAmount = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100000000;
 
 function digest(value: string) {
-  return crypto.createHash('sha256').update(value).digest('hex').slice(0, 32);
+  return createHash('sha256').update(value).digest('hex').slice(0, 32);
 }
 
 async function authorizeInventoryTransaction(tx: any, db: any, slug: string, uid: string, version: number) {
