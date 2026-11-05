@@ -11,6 +11,7 @@ export interface UpdateKitchenItemCompletionParams {
 export interface UpdateKitchenItemCompletionResult {
   success: boolean;
   completed?: boolean;
+  completedCount?: number;
   idempotentReplay?: boolean;
   error?: string;
 }
