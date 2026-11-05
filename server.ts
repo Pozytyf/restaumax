@@ -970,7 +970,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         idempotencyKey: String(input.idempotencyKey || ''),
         channel,
         callbackUrl: `${parsedAppOrigin.origin}/api/payments/paydunya-callback`,
-        returnUrl: `${parsedAppOrigin.origin}/payments/return`,
+        returnUrl: `${parsedAppOrigin.origin}/payments/return?restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
         cancelUrl: `${parsedAppOrigin.origin}/payments/cancel`
       });
       if (result.success) return { statusCode: 200, body: result };
