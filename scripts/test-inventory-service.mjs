@@ -23,11 +23,12 @@ class FakeDb {
         return { exists: value !== undefined, data: () => value };
       },
       create: (ref, value) => writes.push(['create', ref.path, value]),
-      update: (ref, value) => writes.push(['update', ref.path, value])
+      update: (ref, value) => writes.push(['update', ref.path, value]),
+      set: (ref, value) => writes.push(['set', ref.path, value])
     });
     for (const [kind, path, value] of writes) {
       if (kind === 'create' && this.documents.has(path)) throw new Error('already exists');
-      this.documents.set(path, { ...(kind === 'update' ? this.documents.get(path) : {}), ...value });
+      this.documents.set(path, { ...(kind === 'update' || kind === 'set' ? this.documents.get(path) : {}), ...value });
     }
     return result;
   }
@@ -41,6 +42,14 @@ const seed = () => new FakeDb({
   }
 });
 const common = { restaurantSlug: 'chez-awa', actorUid: 'owner-1', sessionVersion: 2 };
+const recipeSeed = () => {
+  const db = seed();
+  db.documents.set('restaurants/chez-awa/menuItems/grill-1', {
+    id: 'grill-1', name: 'Poulet braisé', restaurantSlug: 'chez-awa'
+  });
+  return db;
+};
+
 
 const createDb = seed();
 const create = await manageInventoryWithDb(createDb, {
@@ -138,6 +147,29 @@ assert.equal(archive.success, true);
 assert.equal(archiveDb.documents.get('restaurants/chez-awa/inventoryItems/rice').active, false);
 const archiveReplay = await manageInventoryWithDb(archiveDb, { ...common, action: 'archive', itemId: 'rice' });
 assert.equal(archiveReplay.idempotentReplay, true);
+
+const recipeDb = recipeSeed();
+const recipe = await manageInventoryWithDb(recipeDb, {
+  ...common, action: 'save_recipe', menuItemId: 'grill-1',
+  recipeLines: [{ inventoryItemId: 'rice', quantityPerDish: 0.25 }]
+});
+assert.equal(recipe.success, true);
+assert.equal(recipe.lineCount, 1);
+assert.equal(recipeDb.documents.get('restaurants/chez-awa/menuRecipes/grill-1').lines[0].unit, 'kg');
+assert.equal(recipeDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10, 'saving a recipe must never change stock');
+const duplicateRecipeIngredient = await manageInventoryWithDb(recipeSeed(), {
+  ...common, action: 'save_recipe', menuItemId: 'grill-1',
+  recipeLines: [
+    { inventoryItemId: 'rice', quantityPerDish: 0.25 },
+    { inventoryItemId: 'rice', quantityPerDish: 0.1 }
+  ]
+});
+assert.equal(duplicateRecipeIngredient.success, false);
+const forbiddenRecipe = await manageInventoryWithDb(recipeSeed(), {
+  ...common, actorUid: 'cashier-1', action: 'save_recipe', menuItemId: 'grill-1',
+  recipeLines: [{ inventoryItemId: 'rice', quantityPerDish: 0.25 }]
+});
+assert.equal(forbiddenRecipe.success, false);
 
 const inventoryUi = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
 const firebaseSource = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
