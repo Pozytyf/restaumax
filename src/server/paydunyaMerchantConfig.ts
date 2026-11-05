@@ -73,7 +73,8 @@ export function decryptRestaurantPayDunyaCredentials(
 export async function loadRestaurantPayDunyaConfig(
   db: any,
   restaurantSlug: string,
-  env: Record<string, string | undefined>
+  env: Record<string, string | undefined>,
+  allowDisabledForSettlement = false
 ): Promise<{ success: true; data: PayDunyaConfig } | { success: false; error: string }> {
   if (!db || !/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
     return { success: false, error: 'Restaurant PayDunya invalide.' };
@@ -83,7 +84,7 @@ export async function loadRestaurantPayDunyaConfig(
       .collection('_private').doc('paydunya').get();
     if (!snapshot.exists) return { success: false, error: 'Ce restaurant n’a pas encore connecté son compte PayDunya.' };
     const stored = snapshot.data() || {};
-    if (stored.enabled !== true) return { success: false, error: 'Le compte PayDunya de ce restaurant est désactivé.' };
+    if (stored.enabled !== true && !allowDisabledForSettlement) return { success: false, error: 'Le compte PayDunya de ce restaurant est désactivé.' };
     const credentials = decryptRestaurantPayDunyaCredentials(stored.credentials, env);
     if (credentials.mode === 'live' && env.PAYDUNYA_LIVE_ENABLED !== 'true') {
       return { success: false, error: 'Les paiements PayDunya Production sont désactivés sur RestauMax.' };
