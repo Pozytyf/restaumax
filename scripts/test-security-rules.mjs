@@ -81,6 +81,11 @@ try {
     await setDoc(doc(db,'restaurants/rest-a/staff/manager-b'),{
       uid:'manager-b',role:'manager',active:true,restaurantSlug:'rest-a'
     });
+    await setDoc(doc(db, 'restaurantSubscriptions/rest-a'), {
+      planName: 'Pro', priceFcfa: 15000, currency: 'XOF',
+      billingCycle: 'monthly', status: 'active',
+      startsAt: 1793836800000, endsAt: 1795046400000
+    });
   });
 
   const a = uid => env.authenticatedContext(uid).firestore();
@@ -96,7 +101,13 @@ try {
   await denies(setDoc(table(a('manager-a'),'rest-b'),{id:'table-1',tableNumber:'X',capacity:2,isActive:true}), 'Restaurant A ne peut pas écrire dans B');
   await denies(deleteDoc(table(a('manager-a'),'rest-b')), 'Restaurant A ne peut pas supprimer dans B');
 
-  // 2. A server cannot collect payment or cancel an order.
+  // 2. Subscription metadata is private and never readable through the client SDK.
+  await denies(getDoc(doc(anonymous, 'restaurantSubscriptions/rest-a')), 'Un client QR anonyme ne peut pas lire les données privées d’abonnement');
+  await denies(getDoc(doc(a('owner-a'), 'restaurantSubscriptions/rest-a')), 'Même le propriétaire ne lit pas les données privées d’abonnement via Firestore client');
+  await denies(getDocs(collection(anonymous, 'restaurantSubscriptions')), 'Un client ne peut pas lister les abonnements de la plateforme');
+  await denies(setDoc(doc(a('owner-a'), 'restaurantSubscriptions/rest-a'), { status: 'cancelled' }), 'Un propriétaire ne peut pas modifier son abonnement directement');
+
+  // 3. A server cannot collect payment or cancel an order.
   await denies(setDoc(doc(a('server-a'),'restaurants/rest-a/payments/payment-1'),{amount:1000}), 'Un serveur ne peut pas créer un paiement');
   await denies(updateDoc(order(a('server-a'),'rest-a'),{status:'cancelled'}), 'Un serveur ne peut pas annuler une commande');
 
