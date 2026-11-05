@@ -55,6 +55,13 @@ async function run() {
     console.log('\n--- Ouverture et contrôle de session de caisse ---');
     const noSession = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-no-session-01'));
     assert(noSession.success === false, 'Un encaissement est refusé tant que le caissier ne possède pas de session ouverte');
+    await memberRef.update({ permissions: [] });
+    const deniedOpen = await openCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, openingBalance: 2000, idempotencyKey: 'open-cash-no-perm-01'
+    });
+    assert(deniedOpen.success === false, 'Un caissier sans cash.manage ne peut pas ouvrir une session');
+    await memberRef.update({ permissions: ['cash.manage', 'cash.view'] });
     const opened = await openCashSessionWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
       sessionVersion: 3, openingBalance: 2000, idempotencyKey: 'open-cash-session-001'
@@ -146,6 +153,12 @@ async function run() {
     assert(closed.success === true && closed.session?.status === 'closed' &&
       closed.session?.expectedCash === 14500 && closed.session?.variance === -500,
       'La clôture calcule le montant théorique et l’écart avec le comptage physique');
+    const closeReplay = await closeCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
+      sessionVersion: 3, closingCount: 14000, idempotencyKey: 'close-cash-session-001'
+    });
+    assert(closeReplay.success === true && closeReplay.idempotentReplay === true,
+      'Le rejeu de la même clôture retourne le même rapport sans nouvelle écriture');
     const afterClose = await getCashSessionWithDb(db, slug, uid);
     assert(afterClose === null, 'Une session clôturée n’est plus considérée comme active');
     const paymentAfterClose = await recordCashPaymentWithDb(db, input('order-concurrent', 1000, 'cash-after-close-01'));
