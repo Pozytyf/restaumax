@@ -19,6 +19,24 @@ export interface CashPaymentResult {
   order?: Record<string, any>;
 }
 
+export interface CashSessionInput {
+  restaurantSlug: string;
+  actorUid: string;
+  actorName?: string;
+  sessionVersion: number;
+  openingBalance?: number;
+  closingCount?: number;
+  idempotencyKey: string;
+}
+
+export interface CashSessionResult {
+  success: boolean;
+  conflict?: boolean;
+  idempotentReplay?: boolean;
+  error?: string;
+  session?: Record<string, any> | null;
+}
+
 function sha256(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
@@ -97,6 +115,20 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       };
     }
 
+    const activeSessionRef = restaurantRef.collection('cashSessionActive').doc(actorUid);
+    const activeSessionSnap = await tx.get(activeSessionRef);
+    const activeSessionId = activeSessionSnap.exists ? String(activeSessionSnap.data()?.sessionId || '') : '';
+    if (!activeSessionId || activeSessionSnap.data()?.status !== 'active') {
+      return { success: false, error: 'Ouvrez une session de caisse avant tout encaissement.' };
+    }
+    const cashSessionRef = restaurantRef.collection('cashSessions').doc(activeSessionId);
+    const cashSessionSnap = await tx.get(cashSessionRef);
+    const cashSession = cashSessionSnap.exists ? cashSessionSnap.data() : null;
+    if (!cashSession || cashSession.status !== 'active' || cashSession.openedByUid !== actorUid ||
+        Number(cashSession.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
+      return { success: false, error: 'La session de caisse est invalide, clôturée ou rattachée à une autre session du personnel.' };
+    }
+
     if (!order || order.restaurantSlug !== slug || order.status === 'cancelled') {
       return { success: false, error: 'Commande introuvable, annulée ou rattachée à un autre restaurant.' };
     }
@@ -130,6 +162,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       actorName: String(input.actorName || actorUid),
       actorRole: member.role,
       method: 'especes',
+      cashSessionId: activeSessionId,
       currency: order.currency || 'FCFA',
       amountTendered,
       paidAmount: acceptedAmount,
@@ -168,6 +201,11 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       lastPaymentAt: now,
       lastPaymentId: paymentId
     });
+    tx.update(cashSessionRef, {
+      cashCollected: Number(cashSession.cashCollected || 0) + acceptedAmount,
+      paymentCount: Number(cashSession.paymentCount || 0) + 1,
+      lastPaymentAt: now
+    });
 
     return { success: true, payment, order: updatedOrder, idempotentReplay: false };
   });
@@ -181,4 +219,147 @@ export async function listRecentCashPaymentsWithDb(db: any, restaurantSlug: stri
   const snapshot = await db.collection('restaurants').doc(slug)
     .collection('payments').orderBy('createdAt', 'desc').limit(safeLimit).get();
   return snapshot.docs.map((doc: any) => ({ ...doc.data(), id: doc.id }));
+}
+
+function canManageCashSession(member: any, restaurant: any, actorUid: string): boolean {
+  return (member?.role === 'owner' && restaurant?.ownerUid === actorUid) ||
+    member?.role === 'manager' ||
+    (member?.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
+}
+
+export async function getCashSessionWithDb(db: any, restaurantSlug: string, actorUid: string): Promise<Record<string, any> | null> {
+  if (!db) throw new Error('Firestore indisponible.');
+  const slug = String(restaurantSlug || '').trim();
+  const uid = String(actorUid || '').trim();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !uid) throw new Error('Restaurant ou utilisateur invalide.');
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const activeSnap = await restaurantRef.collection('cashSessionActive').doc(uid).get();
+  if (!activeSnap.exists || activeSnap.data()?.status !== 'active') return null;
+  const sessionId = String(activeSnap.data()?.sessionId || '');
+  if (!sessionId) return null;
+  const sessionSnap = await restaurantRef.collection('cashSessions').doc(sessionId).get();
+  if (!sessionSnap.exists || sessionSnap.data()?.status !== 'active' || sessionSnap.data()?.openedByUid !== uid) return null;
+  return { ...sessionSnap.data(), id: sessionSnap.id };
+}
+
+export async function openCashSessionWithDb(db: any, input: CashSessionInput): Promise<CashSessionResult> {
+  if (!db) return { success: false, error: 'Firestore indisponible.' };
+  const slug = String(input.restaurantSlug || '').trim();
+  const actorUid = String(input.actorUid || '').trim();
+  const key = String(input.idempotencyKey || '').trim();
+  const openingBalance = input.openingBalance;
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !actorUid ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(key) ||
+      !Number.isSafeInteger(openingBalance) || Number(openingBalance) < 0 || Number(openingBalance) > 100_000_000) {
+    return { success: false, error: 'Paramètres d’ouverture de caisse invalides.' };
+  }
+
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const memberRef = db.collection('managers').doc(actorUid);
+  const activeRef = restaurantRef.collection('cashSessionActive').doc(actorUid);
+  const sessionId = `cash_${sha256(`${slug}::${actorUid}::${key}`).slice(0, 32)}`;
+  const sessionRef = restaurantRef.collection('cashSessions').doc(sessionId);
+  const signature = sha256(JSON.stringify({ slug, actorUid, openingBalance }));
+  return db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, memberSnap, activeSnap, sessionSnap] = await Promise.all([
+      tx.get(restaurantRef), tx.get(memberRef), tx.get(activeRef), tx.get(sessionRef)
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = memberSnap.exists ? memberSnap.data() : null;
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return { success: false, error: 'Compte inactif, session du personnel révoquée ou accès au restaurant refusé.' };
+    }
+    if (!canManageCashSession(member, restaurant, actorUid)) {
+      return { success: false, error: 'Votre rôle ne permet pas d’ouvrir une session de caisse.' };
+    }
+    if (sessionSnap.exists) {
+      const previous = sessionSnap.data();
+      if (previous.openingSignature !== signature || previous.openedByUid !== actorUid) {
+        return { success: false, conflict: true, error: 'Clé d’ouverture déjà utilisée pour une autre session.' };
+      }
+      if (previous.status !== 'active' || activeSnap.data()?.sessionId !== sessionId || activeSnap.data()?.status !== 'active') {
+        return { success: false, conflict: true, error: 'Cette session a déjà été clôturée. Utilisez une nouvelle clé pour ouvrir une nouvelle session.' };
+      }
+      return { success: true, idempotentReplay: true, session: { ...previous, id: sessionId } };
+    }
+    if (activeSnap.exists && activeSnap.data()?.status === 'active') {
+      return { success: false, conflict: true, error: 'Une session de caisse est déjà ouverte pour ce compte.' };
+    }
+    const now = Date.now();
+    const session = {
+      id: sessionId, restaurantSlug: slug, openedByUid: actorUid,
+      openedByName: String(input.actorName || actorUid), role: member.role,
+      sessionVersion: Number(input.sessionVersion || 0),
+      openingBalance: Number(openingBalance), cashCollected: 0, paymentCount: 0,
+      status: 'active', openedAt: now, openingSignature: signature
+    };
+    tx.create(sessionRef, session);
+    tx.set(activeRef, { sessionId, status: 'active', openedByUid: actorUid, openedAt: now });
+    return { success: true, session };
+  });
+}
+
+export async function closeCashSessionWithDb(db: any, input: CashSessionInput): Promise<CashSessionResult> {
+  if (!db) return { success: false, error: 'Firestore indisponible.' };
+  const slug = String(input.restaurantSlug || '').trim();
+  const actorUid = String(input.actorUid || '').trim();
+  const key = String(input.idempotencyKey || '').trim();
+  const closingCount = input.closingCount;
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !actorUid ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(key) ||
+      !Number.isSafeInteger(closingCount) || Number(closingCount) < 0 || Number(closingCount) > 100_000_000) {
+    return { success: false, error: 'Paramètres de clôture de caisse invalides.' };
+  }
+
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const memberRef = db.collection('managers').doc(actorUid);
+  const activeRef = restaurantRef.collection('cashSessionActive').doc(actorUid);
+  return db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, memberSnap, activeSnap] = await Promise.all([
+      tx.get(restaurantRef), tx.get(memberRef), tx.get(activeRef)
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = memberSnap.exists ? memberSnap.data() : null;
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return { success: false, error: 'Compte inactif, session du personnel révoquée ou accès au restaurant refusé.' };
+    }
+    if (!canManageCashSession(member, restaurant, actorUid)) {
+      return { success: false, error: 'Votre rôle ne permet pas de clôturer une session de caisse.' };
+    }
+    const sessionId = activeSnap.exists ? String(activeSnap.data()?.sessionId || '') : '';
+    if (!sessionId) return { success: false, error: 'Aucune session de caisse à clôturer.' };
+    const sessionRef = restaurantRef.collection('cashSessions').doc(sessionId);
+    const sessionSnap = await tx.get(sessionRef);
+    const session = sessionSnap.exists ? sessionSnap.data() : null;
+    if (activeSnap.data()?.status !== 'active') {
+      if (session?.status === 'closed' && session.openedByUid === actorUid &&
+          session.closingIdempotencyKey === key) {
+        return { success: true, idempotentReplay: true, session: { ...session, id: sessionId } };
+      }
+      return { success: false, error: 'Aucune session de caisse active à clôturer.' };
+    }
+    if (!session || session.status !== 'active' || session.openedByUid !== actorUid ||
+        Number(session.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
+      return { success: false, error: 'La session active est invalide ou ne vous appartient pas.' };
+    }
+    const expectedCash = Number(session.openingBalance || 0) + Number(session.cashCollected || 0);
+    const variance = Number(closingCount) - expectedCash;
+    const now = Date.now();
+    const closed = {
+      ...session, status: 'closed', closingCount: Number(closingCount),
+      expectedCash, variance, closedAt: now, closedByUid: actorUid,
+      closedByName: String(input.actorName || actorUid), closingIdempotencyKey: key
+    };
+    tx.update(sessionRef, {
+      status: 'closed', closingCount: Number(closingCount), expectedCash, variance,
+      closedAt: now, closedByUid: actorUid, closedByName: String(input.actorName || actorUid),
+      closingIdempotencyKey: key
+    });
+    tx.update(activeRef, { status: 'closed', closedAt: now, sessionId });
+    return { success: true, session: closed };
+  });
 }
