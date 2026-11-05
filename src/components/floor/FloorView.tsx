@@ -94,7 +94,7 @@ export const FloorView: React.FC<FloorViewProps> = ({
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1 font-medium">
                   <Clock size={11} />
-                  Service en cours · 3h 42m
+                  Vue opérationnelle des tables
                 </div>
               </div>
             </div>
@@ -240,7 +240,7 @@ export const FloorView: React.FC<FloorViewProps> = ({
                       <div className="py-6 flex flex-col items-center justify-center text-center text-slate-400">
                         <Clock size={28} strokeWidth={1.5} className="mb-2 text-slate-300" />
                         <span className="text-xs font-semibold text-slate-500">
-                          Réservation prévue à 20h00
+                          Table réservée
                         </span>
                       </div>
                     )}
