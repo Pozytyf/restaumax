@@ -12,6 +12,9 @@ interface ReceiptModalProps {
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, restaurant }) => {
   if (!receipt) return null;
+  const receiptIsPartial = receipt.guestName
+    ? Number(receipt.guestRemainingAfter || 0) > 0
+    : receipt.paymentStatus === 'partial';
 
   const handlePrint = () => {
     window.print();
@@ -61,11 +64,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-2xs flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto animate-in zoom-in-95 duration-200">
         {/* Top Banner */}
-        <div className={`${receipt.paymentStatus === 'partial' ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-4 py-3 flex items-center justify-between`}>
+        <div className={`${receiptIsPartial ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-4 py-3 flex items-center justify-between`}>
           <div className="flex items-center gap-2">
             <CheckCircle size={18} />
             <span className="text-xs font-bold uppercase tracking-wider">
-              {receipt.paymentStatus === 'partial' ? 'Paiement partiel enregistré' : 'Paiement validé avec succès'}
+              {receiptIsPartial ? 'Paiement partiel enregistré' : 'Part individuelle réglée'}
             </span>
           </div>
           <button
