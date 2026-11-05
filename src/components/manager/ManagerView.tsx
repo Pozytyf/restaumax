@@ -17,18 +17,43 @@ import {
   Eye
 } from 'lucide-react';
 
+interface CashSessionSummary {
+  id: string;
+  openingBalance: number;
+  cashCollected: number;
+  paymentCount: number;
+  status: 'active' | 'closed';
+  openedAt: number;
+  expectedCash?: number;
+  variance?: number;
+}
+
 interface ManagerViewProps {
   drawerState: CashDrawerState;
   transactions: PaymentRecord[];
+  cashSession: CashSessionSummary | null;
+  cashSessionLoading: boolean;
+  cashSessionActionLoading: boolean;
+  canManageCash: boolean;
+  onOpenCashSession: (openingBalance: number) => Promise<void>;
+  onCloseCashSession: (closingCount: number) => Promise<void>;
   onViewReceipt: (receipt: PaymentRecord) => void;
 }
 
 export const ManagerView: React.FC<ManagerViewProps> = ({
   drawerState,
   transactions,
+  cashSession,
+  cashSessionLoading,
+  cashSessionActionLoading,
+  canManageCash,
+  onOpenCashSession,
+  onCloseCashSession,
   onViewReceipt
 }) => {
   const [showZReportModal, setShowZReportModal] = useState(false);
+  const [openingBalanceInput, setOpeningBalanceInput] = useState('0');
+  const [closingCountInput, setClosingCountInput] = useState('');
 
   const averageTicket = drawerState.transactionCount > 0 
     ? Math.round(drawerState.totalSales / drawerState.transactionCount) 
@@ -44,7 +69,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               Supervision du journal de caisse
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
-              Journal des encaissements persistés. Les sessions de caisse et la clôture officielle restent à configurer.
+              Journal des encaissements persistés et sessions de caisse avec rapprochement du comptage physique.
             </p>
           </div>
 
@@ -59,6 +84,78 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <span>Consulter le rapport des encaissements</span>
           </button>
         </div>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-black text-[#101d2d]">Session de caisse</h2>
+              <p className="mt-1 text-xs text-slate-500">Fond initial, encaissements de la session et rapprochement physique</p>
+            </div>
+            {cashSession && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Session ouverte</span>}
+          </div>
+
+          {cashSessionLoading ? (
+            <p className="mt-4 text-sm text-slate-500">Chargement de la session de caisse…</p>
+          ) : cashSession ? (
+            <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr]">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-xs font-semibold text-slate-500">Fond d’ouverture</p>
+                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.openingBalance)}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-xs font-semibold text-slate-500">Espèces encaissées</p>
+                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.cashCollected)}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-xs font-semibold text-slate-500">Espèces théoriques</p>
+                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.openingBalance + cashSession.cashCollected)}</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-xs font-semibold text-slate-500">Nombre d’encaissements</p>
+                  <p className="mt-1 text-lg font-black">{cashSession.paymentCount}</p>
+                </div>
+              </div>
+              {canManageCash ? (
+                <form onSubmit={(event) => {
+                  event.preventDefault();
+                  const amount = Number(closingCountInput);
+                  if (!Number.isSafeInteger(amount) || amount < 0) return;
+                  void onCloseCashSession(amount);
+                  setClosingCountInput('');
+                }} className="flex flex-col justify-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+                  <label className="text-sm font-bold text-slate-800">Comptage physique en caisse (FCFA)
+                    <input required type="number" min="0" max="100000000" step="1" value={closingCountInput}
+                      onChange={(event) => setClosingCountInput(event.target.value)}
+                      placeholder="Saisir le montant réellement compté"
+                      className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
+                  </label>
+                  <button type="submit" disabled={cashSessionActionLoading || closingCountInput === ''}
+                    className="rounded-lg bg-[#101d2d] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
+                    {cashSessionActionLoading ? 'Clôture en cours…' : 'Clôturer la session et rapprocher'}
+                  </button>
+                </form>
+              ) : <p className="self-center text-sm text-slate-500">Session active. La clôture est réservée au personnel autorisé à gérer la caisse.</p>}
+            </div>
+          ) : canManageCash ? (
+            <form onSubmit={(event) => {
+              event.preventDefault();
+              const amount = Number(openingBalanceInput);
+              if (!Number.isSafeInteger(amount) || amount < 0) return;
+              void onOpenCashSession(amount);
+            }} className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+              <label className="text-sm font-bold text-slate-700">Fond de caisse initial (FCFA)
+                <input required type="number" min="0" max="100000000" step="1" value={openingBalanceInput}
+                  onChange={(event) => setOpeningBalanceInput(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-slate-300 p-3 text-sm"/>
+              </label>
+              <button type="submit" disabled={cashSessionActionLoading}
+                className="rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
+                {cashSessionActionLoading ? 'Ouverture…' : 'Ouvrir la session'}
+              </button>
+            </form>
+          ) : <p className="mt-4 text-sm text-slate-500">Aucune session active. Demandez à un responsable d’ouvrir la caisse.</p>}
+        </section>
 
         {/* 4 Primary Operational KPIs */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
