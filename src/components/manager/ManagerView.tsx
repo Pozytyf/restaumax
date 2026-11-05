@@ -42,10 +42,10 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl sm:text-2xl font-extrabold text-[#101d2d] tracking-tight">
-              Supervision de Shift & Gestion de Caisse
+              Supervision du journal de caisse
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
-              Journal des encaissements persistés, répartition des modes de paiement et clôture.
+              Journal des encaissements persistés. Les sessions de caisse et la clôture officielle restent à configurer.
             </p>
           </div>
 
@@ -57,7 +57,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             className="px-4 py-2.5 bg-[#101d2d] hover:bg-[#1a2c42] text-white text-xs sm:text-sm font-bold rounded-xl shadow-sm flex items-center gap-2 self-start sm:self-auto transition-colors"
           >
             <FileText size={16} />
-            <span>Générer Clôture Z (Rapport du Jour)</span>
+            <span>Consulter le rapport des encaissements</span>
           </button>
         </div>
 
@@ -73,9 +73,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <div className="text-2xl font-black text-[#101d2d] tnum">
               {formatFCFA(drawerState.totalSales)}
             </div>
-            <div className="text-[11px] text-emerald-600 font-bold mt-1 flex items-center gap-1">
-              <ArrowUpRight size={13} />
-              <span>Comparaison historique indisponible</span>
+            <div className="text-[11px] text-slate-500 font-medium mt-1">
+              Comparaison historique indisponible
             </div>
           </div>
 
@@ -136,8 +135,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
             <div className="space-y-3 text-xs">
               <div className="flex justify-between py-2 border-b border-slate-100">
-                <span className="text-slate-600">Fond de caisse d’ouverture (non configuré):</span>
-                <span className="font-bold text-slate-900 tnum">{formatFCFA(drawerState.openingBalance)}</span>
+                <span className="text-slate-600">Fond de caisse d’ouverture:</span>
+                <span className="font-bold text-amber-700">Non configuré</span>
               </div>
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-600">Encaissements Espèces:</span>
@@ -148,15 +147,15 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 <span className="font-bold text-rose-600 tnum">-{formatFCFA(drawerState.discountsTotal)}</span>
               </div>
               <div className="flex justify-between py-2.5 bg-slate-50 px-3 rounded-xl border border-slate-200 mt-2">
-                <span className="font-extrabold text-slate-900">Total Espèces Théorique:</span>
+                <span className="font-extrabold text-slate-900">Encaissements espèces enregistrés:</span>
                 <span className="text-base font-black text-[#ff6500] tnum">
                   {formatFCFA(drawerState.currentCash)}
                 </span>
               </div>
             </div>
 
-            <div className="mt-5 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 flex items-center gap-2">
-              <ShieldCheck size={16} className="text-emerald-600 shrink-0" />
+            <div className="mt-5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 flex items-center gap-2">
+              <ShieldCheck size={16} className="text-amber-600 shrink-0" />
               <span>Fond de caisse d’ouverture non configuré. Effectuez le rapprochement physique avant toute clôture.</span>
             </div>
           </div>
