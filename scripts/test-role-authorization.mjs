@@ -26,6 +26,10 @@ assert(resolveManagerPermissionUpdate('cashier', 'server', cashierOwnerGrant) ==
 assert(resolveManagerPermissionUpdate('server', 'cashier', ['orders.view','tables.view','pos.access','orders.serve'])?.includes('cash.manage') === true,
   'Un manager peut changer un rôle lorsque cela ne retire aucun droit supplémentaire du propriétaire');
 
+assert(resolveManagerPermissionUpdate('staff', 'server', ['orders.view','tables.view','pos.access','orders.cancel']) === null,
+  'Un manager ne peut pas supprimer un droit supplémentaire d’un ancien compte staff en le reclassant');
+
+
 
 assert(canManageStaffMember('manager', 'cashier'), 'Le manager peut administrer un caissier');
 assert(canManageStaffMember('manager', 'server'), 'Le manager peut administrer un serveur');
