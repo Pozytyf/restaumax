@@ -191,4 +191,28 @@ const refundReplay = await startPayDunyaRefundWithDb(db, payoutConfig, {
 assert(refundReplay.success && refundReplay.idempotentReplay === true,
   'La répétition de la même demande ne déclenche pas un second décaissement');
 
+const disbursementCallback = await processPayDunyaDisbursementCallbackWithDb(db, payoutConfig, {
+  data: JSON.stringify({ hash: signedHash, token: 'PUSH_FLOW123', status: 'success' })
+}, async () => ({ ok: true, json: async () => ({
+  response_code: '00', status: 'success', token: 'PUSH_FLOW123',
+  amount: '2500', withdraw_mode: 'orange-money-ci',
+  transaction_id: 'REFUND-TX-1', disburse_tx_id: 'OM-REF-1'
+}) }));
+assert(disbursementCallback.success && disbursementCallback.idempotentReplay === true,
+  'Le callback de décaissement signé est rapproché sans doubler le remboursement');
+
+db.seed('managers/cashier-no-refund', {
+  active: true, restaurantSlug: 'maquis-awa', role: 'cashier',
+  sessionVersion: 3, permissions: ['cash.manage']
+});
+const unauthorizedRefund = await startPayDunyaRefundWithDb(db, payoutConfig, {
+  restaurantSlug: 'maquis-awa', paymentId: storedPayment.id,
+  actorUid: 'cashier-no-refund', actorName: 'Cashier', sessionVersion: 3,
+  amount: 1000, reason: 'Test permission',
+  idempotencyKey: 'unauthorized_refund_1',
+  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-disbursement-callback'
+});
+assert(!unauthorizedRefund.success && unauthorizedRefund.error?.includes('payments.refund'),
+  'Un caissier sans permission payments.refund ne peut pas initier un décaissement');
+
 console.log(`Résultats PayDunya end-to-end : ${passed}/${passed} réussis.`);
