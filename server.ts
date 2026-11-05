@@ -1323,7 +1323,11 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       delete input.tableSession;
     }
     const result = await processOrderSubmission(input, serverFirestoreProvider);
-    if (result.success) return { statusCode: 200, body: result };
+    if (result.success) {
+      const safeOrder = result.order ? { ...result.order } as any : undefined;
+      if (safeOrder) delete safeOrder.tableSession;
+      return { statusCode: 200, body: { ...result, order: safeOrder } };
+    }
     if (result.conflict) return { statusCode: 409, body: result };
     return { statusCode: 400, body: result };
   } catch (err: any) {
