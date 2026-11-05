@@ -55,6 +55,25 @@ export function resolveRolePermissions(role: RestaurantRole, requested: unknown,
   return [...new Set([...ROLE_BASE_PERMISSIONS[role], ...extras])];
 }
 
+export function resolveManagerPermissionUpdate(
+  currentRoleValue: unknown,
+  nextRole: Exclude<RestaurantRole, 'owner'>,
+  currentPermissions: unknown
+): Permission[] | null {
+  const currentRole = parseRestaurantRole(currentRoleValue);
+  const previousBase = currentRole ? ROLE_BASE_PERMISSIONS[currentRole] : [];
+  const previousCeiling = currentRole ? ROLE_PERMISSION_CEILINGS[currentRole] : [];
+  const currentExtras = Array.isArray(currentPermissions)
+    ? [...new Set(currentPermissions.filter((permission): permission is Permission =>
+        typeof permission === 'string' &&
+        previousCeiling.includes(permission as Permission) &&
+        !previousBase.includes(permission as Permission)))]
+    : [];
+  const nextCeiling = ROLE_PERMISSION_CEILINGS[nextRole];
+  if (currentExtras.some(permission => !nextCeiling.includes(permission))) return null;
+  return [...ROLE_BASE_PERMISSIONS[nextRole], ...currentExtras];
+}
+
 function json(res: any, status: number, body: unknown) {
   return res.status(status).json(body);
 }
@@ -548,22 +567,22 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (actor.role === 'owner') {
           permissions = resolveRolePermissions(role, body.permissions, true);
         } else {
-          // Managers may maintain a member's base role permissions, but cannot
-          // add or revoke owner-granted extras on an unchanged role.
+          // Managers may maintain base role permissions but may neither add nor
+          // silently remove owner-granted extras by changing the member's role.
+          const expectedPermissions = resolveManagerPermissionUpdate(member.role, role, member.permissions);
+          if (!expectedPermissions) {
+            return json(res, 403, { success: false, error: 'Seul le propriétaire peut retirer une autorisation supplémentaire ou changer de rôle si elle ne peut pas être conservée.' });
+          }
           const base = ROLE_BASE_PERMISSIONS[role];
-          const ceiling = ROLE_PERMISSION_CEILINGS[role];
-          const currentExtras = member.role === role && Array.isArray(member.permissions)
-            ? member.permissions.filter((p: unknown): p is Permission =>
-                typeof p === 'string' && ceiling.includes(p as Permission) && !base.includes(p as Permission))
-            : [];
+          const expectedExtras = expectedPermissions.filter(permission => !base.includes(permission));
           const requestedExtras = Array.isArray(body.permissions)
             ? [...new Set(body.permissions.filter((p: unknown): p is Permission =>
-                typeof p === 'string' && ceiling.includes(p as Permission) && !base.includes(p as Permission)))]
+                typeof p === 'string' && ROLE_PERMISSION_CEILINGS[role].includes(p as Permission) && !base.includes(p as Permission)))]
             : [];
-          if (currentExtras.slice().sort().join('|') !== requestedExtras.slice().sort().join('|')) {
+          if (expectedExtras.slice().sort().join('|') !== requestedExtras.slice().sort().join('|')) {
             return json(res, 403, { success: false, error: 'Seul le propriétaire peut modifier les autorisations supplémentaires.' });
           }
-          permissions = resolveRolePermissions(role, [...base, ...currentExtras], true);
+          permissions = resolveRolePermissions(role, expectedPermissions, true);
         }
         if (!permissions) return json(res, 400, { success: false, error: 'Permissions incompatibles avec le plafond du rôle.' });
         const currentAuthUser = await getAuth().getUser(staffUid);
