@@ -276,6 +276,9 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   if (!['owner', 'manager'].includes(managerRole)) {
     throw new Error('Seul le propriétaire ou un manager du restaurant peut administrer les QR de table.');
   }
+  if (managerRole === 'owner' && restaurantSnap.data()?.ownerUid !== decoded.uid) {
+    throw new Error('Le compte propriétaire ne correspond pas au propriétaire enregistré du restaurant.');
+  }
   if (managerRole === 'manager' &&
       (!Array.isArray(manager.permissions) || !manager.permissions.includes('tables.manage'))) {
     throw new Error('Permission de gestion des tables requise.');
