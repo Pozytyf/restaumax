@@ -21,6 +21,7 @@ interface PaymentModalProps {
   serverName: string;
   discountPercent: number;
   alreadyPaidAmount?: number;
+  isSubmitting?: boolean;
   onConfirmPayment: (paymentData: {
     method: PaymentMethod;
     paidAmount: number;
@@ -37,6 +38,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   serverName,
   discountPercent,
   alreadyPaidAmount = 0,
+  isSubmitting = false,
   onConfirmPayment
 }) => {
   const [method, setMethod] = useState<PaymentMethod>('especes');
@@ -336,11 +338,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               <button
                 type="button"
                 onClick={handleValidate}
-                disabled={tenderedAmount <= 0 || method !== 'especes'}
+                disabled={isSubmitting || tenderedAmount <= 0 || method !== 'especes'}
                 className="w-full h-14 bg-[#ff6500] hover:bg-[#e05800] active:scale-[0.99] disabled:opacity-40 disabled:pointer-events-none text-white text-base font-extrabold rounded-xl shadow-lg shadow-orange-600/30 transition-all flex items-center justify-center gap-2"
               >
                 <CheckCircle2 size={20} />
-                <span>Confirmer le Règlement</span>
+                <span>{isSubmitting ? 'Enregistrement…' : 'Confirmer le Règlement'}</span>
               </button>
             </div>
           </div>
