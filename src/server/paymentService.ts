@@ -261,6 +261,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       actorName: String(input.actorName || actorUid),
       actorRole: member.role,
       method: 'especes',
+      refundEligible: true,
       cashSessionId: activeSessionId,
       currency: order.currency || 'FCFA',
       amountTendered,
