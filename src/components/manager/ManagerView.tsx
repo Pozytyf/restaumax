@@ -24,6 +24,15 @@ interface CashSessionSummary {
   paymentCount: number;
   cashOut: number;
   cashMovementCount: number;
+  cashMovements?: Array<{
+    id: string;
+    movementType: 'expense' | 'withdrawal';
+    amount: number;
+    category: string;
+    note?: string;
+    actorName: string;
+    createdAt: number;
+  }>;
   status: 'active' | 'closed';
   openedAt: number;
   expectedCash?: number;
@@ -130,6 +139,32 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.cashOut)}</p>
                   <p className="text-[10px] text-slate-500">{cashSession.cashMovementCount} mouvement(s)</p>
                 </div>
+              </div>
+              <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-black text-slate-800">Journal des sorties</h3>
+                  <span className="text-[10px] font-semibold text-slate-500">Session en cours</span>
+                </div>
+                {!cashSession.cashMovements?.length ? (
+                  <p className="text-xs text-slate-500">Aucune dépense ou aucun retrait enregistré pour cette session.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {cashSession.cashMovements.slice(0, 8).map((movement) => (
+                      <div key={movement.id} className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-bold text-slate-800">
+                            {movement.movementType === 'expense' ? 'Dépense' : 'Retrait'} · {movement.category}
+                          </p>
+                          {movement.note && <p className="truncate text-[11px] text-slate-500">{movement.note}</p>}
+                          <p className="text-[10px] text-slate-400">
+                            {movement.actorName} · {new Date(movement.createdAt).toLocaleString('fr-FR')}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-xs font-black text-rose-700">-{formatFCFA(movement.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               {canManageCash ? (
                 <div className="space-y-3">
