@@ -86,7 +86,7 @@ export async function loadRestaurantPayDunyaConfig(
     const stored = snapshot.data() || {};
     if (stored.enabled !== true && !allowDisabledForSettlement) return { success: false, error: 'Le compte PayDunya de ce restaurant est désactivé.' };
     const credentials = decryptRestaurantPayDunyaCredentials(stored.credentials, env);
-    if (credentials.mode === 'live' && env.PAYDUNYA_LIVE_ENABLED !== 'true') {
+    if (credentials.mode === 'live' && env.PAYDUNYA_LIVE_ENABLED !== 'true' && !allowDisabledForSettlement) {
       return { success: false, error: 'Les paiements PayDunya Production sont désactivés sur RestauMax.' };
     }
     const base = credentials.mode === 'test'
