@@ -3,6 +3,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { computeOrderSignature, deriveIdempotencyIdentifiers } from '../src/server/orderService.ts';
 import { executeOrderTransactionWithDb } from '../server.ts';
+import { issueTableQr, resolveTableQr, getActiveTableSession, revokeTableQr } from '../src/server/tableSecurityService.ts';
 
 let passed = 0;
 let failed = 0;
@@ -22,6 +23,8 @@ async function run() {
   const db = getFirestore(app, config.firestoreDatabaseId);
   const slug = 'qr-security-' + Date.now();
   const tableId = 'table-4';
+  const qrLifecycleTableId = 'qr-lifecycle';
+  const qrLifecycleTableRef = restaurantRef.collection('tables').doc(qrLifecycleTableId);
   const sessionHash = 'session-hash-' + Date.now();
   const qrTokenHash = 'qr-token-hash-' + Date.now();
   const restaurantRef = db.collection('restaurants').doc(slug);
@@ -64,6 +67,34 @@ async function run() {
       qrVersion: 1, csrfHash: 'a'.repeat(64), restaurantSessionVersion: 0, status: 'active',
       createdAt: Date.now(), lastSeenAt: Date.now(), expiresAt: Date.now() + 60 * 60 * 1000
     });
+
+    // Real Firestore Emulator lifecycle: issue, resolve, revoke and concurrent rotation.
+    await qrLifecycleTableRef.set({ id: qrLifecycleTableId, tableNumber: 'QR-Lifecycle', isActive: true, qrVersion: 0 });
+    const issuedQr = await issueTableQr(db, slug, qrLifecycleTableId, 'https://restaumax.example');
+    const resolvedQr = await resolveTableQr(db, issuedQr.token);
+    assert((await getActiveTableSession(db, resolvedQr.sessionSecret))?.tableId === qrLifecycleTableId,
+      'Le QR émis ouvre une session réelle liée à la bonne table dans Firestore Emulator');
+    const revokedQr = await revokeTableQr(db, slug, qrLifecycleTableId);
+    assert(revokedQr.versionAdvanced === true && revokedQr.revoked === 1,
+      'La révocation transactionnelle invalide le QR et avance la version de table');
+    assert(await getActiveTableSession(db, resolvedQr.sessionSecret) === null,
+      'La révocation transactionnelle invalide immédiatement la session QR existante');
+    let revokedTokenRejected = false;
+    try { await resolveTableQr(db, issuedQr.token); } catch { revokedTokenRejected = true; }
+    assert(revokedTokenRejected, 'Un jeton QR révoqué ne peut plus créer de session');
+
+    const concurrentResults = await Promise.all([
+      issueTableQr(db, slug, qrLifecycleTableId, 'https://restaumax.example'),
+      revokeTableQr(db, slug, qrLifecycleTableId)
+    ]);
+    const lifecycleTokens = await restaurantRef.collection('table_qr_tokens').where('tableId', '==', qrLifecycleTableId).get();
+    const activeLifecycleTokens = lifecycleTokens.docs.filter((doc) => doc.data()?.status === 'active');
+    const lifecycleTable = await qrLifecycleTableRef.get();
+    assert(activeLifecycleTokens.length <= 1,
+      'Une émission et une révocation concurrentes ne peuvent jamais laisser plusieurs QR actifs');
+    assert(activeLifecycleTokens.every((doc) => Number(doc.data()?.version) === Number(lifecycleTable.data()?.qrVersion)),
+      'Tout QR restant actif correspond exactement à la version courante de la table');
+    assert(concurrentResults.length === 2, 'Les opérations concurrentes d’émission et de révocation se terminent');
 
     const valid = await executeOrderTransactionWithDb(db, buildParams('valid-session-' + Date.now()));
     assert(valid.success === true, 'Une session QR valide autorise la commande sur place dans la transaction');
@@ -166,6 +197,13 @@ async function run() {
     for (const ref of createdRefs) { try { await ref.delete(); } catch {} }
     try { await sessionRef.delete(); } catch {}
     try { await qrRef.delete(); } catch {}
+    try {
+      const qrTokens = await restaurantRef.collection('table_qr_tokens').where('tableId', '==', qrLifecycleTableId).get();
+      await Promise.all(qrTokens.docs.map((doc) => doc.ref.delete()));
+      const qrSessions = await restaurantRef.collection('table_sessions').where('tableId', '==', qrLifecycleTableId).get();
+      await Promise.all(qrSessions.docs.map((doc) => doc.ref.delete()));
+    } catch {}
+    try { await qrLifecycleTableRef.delete(); } catch {}
     try { await tableRef.delete(); } catch {}
     try { await staffRef.delete(); } catch {}
     try { await restaurantRef.delete(); } catch {}
