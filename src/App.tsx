@@ -951,6 +951,7 @@ export default function App() {
       }
 
       const payment = paymentResult.payment;
+      sounds.playCashRegister();
       const updatedOrder = { ...order, ...paymentResult.order } as RestauOrder;
       setPendingPosOrder(updatedOrder);
       setPendingPosPaidAmount(Number(updatedOrder.paidAmount || 0));
