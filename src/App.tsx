@@ -1226,6 +1226,8 @@ export default function App() {
             selectedTable={selectedTable}
             serverName={serverName}
             discountPercent={discountPercent}
+            alreadyPaidAmount={pendingPosPaidAmount}
+            isSubmitting={isSubmittingPayment}
             onConfirmPayment={handleConfirmPayment}
           />
 
