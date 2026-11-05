@@ -41,7 +41,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       !/^[a-zA-Z0-9_-]{1,128}$/.test(orderId) ||
       !actorUid ||
       !/^[a-zA-Z0-9_-]{8,128}$/.test(key) ||
-      !Number.isSafeInteger(amountTendered) || amountTendered <= 0) {
+      !Number.isSafeInteger(amountTendered) || amountTendered <= 0 || amountTendered > 100_000_000) {
     return { success: false, error: 'Paramètres de paiement invalides.' };
   }
 
@@ -135,6 +135,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       paidAmount: acceptedAmount,
       changeAmount,
       totalAmount,
+      previouslyPaidAmount: alreadyPaid,
       remainingBefore,
       remainingAfter: remainingAmount,
       paymentStatus,
