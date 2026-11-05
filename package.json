@@ -16,7 +16,8 @@
     "test:emulator": "tsx scripts/test-firestore-emulator-ambiguous.mjs && tsx scripts/test-qr-order-transaction.mjs",
     "test:intent": "tsx scripts/test-client-intent.mjs",
     "test:subscriptions": "tsx scripts/test-subscription-validation.mjs",
-    "test": "npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:emulator && npm run test:intent && npm run test:subscriptions",
+    "test:paydunya": "tsx scripts/test-paydunya-service.mjs",
+    "test": "npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:paydunya",
     "seed:local": "node scripts/seed-catalog.mjs"
   },
   "dependencies": {
