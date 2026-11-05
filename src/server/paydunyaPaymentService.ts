@@ -557,7 +557,7 @@ export async function startPayDunyaRefundWithDb(
       phone: payment.payerPhone, channel: payment.providerChannel
     };
   });
-  if (!reservation.ok) return { success: false, conflict: reservation.conflict, error: reservation.error };
+  if (!reservation.ok) return { success: false, conflict: 'conflict' in reservation ? reservation.conflict : false, error: reservation.error };
   if (reservation.replay) return { success: true, refundId, status: reservation.status, idempotentReplay: true };
 
   const created = await createPayDunyaDisbursementInvoice(config, {
