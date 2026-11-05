@@ -921,7 +921,7 @@ export function subscribeToOrders(
   );
 }
 
-type InventoryApiResult = { success: true; itemId?: string; quantityBefore?: number; quantityAfter?: number; idempotentReplay?: boolean } | { success: false; error: string };
+type InventoryApiResult = { success: true; itemId?: string; quantityBefore?: number; quantityAfter?: number; idempotentReplay?: boolean } | { success: false; error: string; retryable?: boolean };
 
 async function inventoryRequest(
   restaurantSlug: string,
@@ -939,11 +939,11 @@ async function inventoryRequest(
       body: JSON.stringify({ restaurantSlug, ...payload })
     });
     const data = await response.json();
-    if (!response.ok || !data.success) return { success: false, error: data.error || 'Opération de stock refusée.' };
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Opération de stock refusée.', retryable: false };
     return data as InventoryApiResult;
   } catch (error: any) {
     console.error('Erreur appel /api/inventory:', error);
-    return { success: false, error: error?.message || 'Erreur réseau pendant la gestion du stock.' };
+    return { success: false, error: error?.message || 'Erreur réseau pendant la gestion du stock.', retryable: true };
   }
 }
 
