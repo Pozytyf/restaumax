@@ -1313,6 +1313,8 @@ export default function App() {
                 serverName={serverName}
                 unpaidOrders={canCollectPayment ? unpaidPosOrders : []}
                 onCollectOrder={handleCollectExistingOrder}
+                alreadyPaidAmount={pendingPosPaidAmount}
+                isExistingOrder={pendingPosOrder !== null}
               />
             )}
 
