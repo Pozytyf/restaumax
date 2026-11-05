@@ -59,6 +59,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const discountAmount = Math.round((subtotal * discountPercent) / 100);
   const total = Math.max(0, orderTotalAmount ?? (subtotal - discountAmount));
 
+  const maxSplitGuests = Math.min(20, Math.max(1, total));
   const baseGuestShare = Math.floor(total / splitGuests);
   const remainderGuestShare = total % splitGuests;
   const calculatedGuestShare = baseGuestShare + (guestNumber <= remainderGuestShare ? 1 : 0);
@@ -277,11 +278,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <label className="text-[11px] font-bold text-slate-700">Nombre de convives
-                  <input type="number" min="1" max={Math.min(20, Math.max(1, total))} step="1"
+                  <input type="number" min="1" max={maxSplitGuests} step="1"
                     disabled={splitLocked}
                     value={splitGuests}
                     onChange={(event) => {
-                      const next = Math.min(20, Math.max(1, Number.parseInt(event.target.value || '1', 10) || 1));
+                      const next = Math.min(maxSplitGuests, Math.max(1, Number.parseInt(event.target.value || '1', 10) || 1));
                       setSplitGuests(next);
                       setGuestNumber(1);
                       setGuestName('');
