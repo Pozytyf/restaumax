@@ -67,6 +67,20 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
     const member = memberSnap.exists ? memberSnap.data() : null;
     const order = orderSnap.exists ? orderSnap.data() : null;
 
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
+    }
+
+    const isOwner = member.role === 'owner' && restaurant.ownerUid === actorUid;
+    const canManageCash = isOwner ||
+      member.role === 'manager' ||
+      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
+    if (!canManageCash) {
+      return { success: false, error: 'Votre rôle ne permet pas d’encaisser des paiements en espèces.' };
+    }
+
     if (idempotencySnap.exists) {
       const previous = idempotencySnap.data();
       if (previous.signature !== signature || previous.orderId !== orderId || previous.actorUid !== actorUid) {
@@ -81,20 +95,6 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
         payment: paymentSnap.data(),
         order
       };
-    }
-
-    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
-        !member || member.active !== true || member.restaurantSlug !== slug ||
-        Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
-      return { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
-    }
-
-    const isOwner = member.role === 'owner' && restaurant.ownerUid === actorUid;
-    const canManageCash = isOwner ||
-      member.role === 'manager' ||
-      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
-    if (!canManageCash) {
-      return { success: false, error: 'Votre rôle ne permet pas d’encaisser des paiements en espèces.' };
     }
 
     if (!order || order.restaurantSlug !== slug || order.status === 'cancelled') {
