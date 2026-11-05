@@ -23,4 +23,6 @@ assert(dishForm.includes('await onSave(savedDish)'), 'dish form closes only afte
 assert(dishForm.includes('setSaveError(message)'), 'dish form preserves the form and displays persistence errors');
 assert(dishForm.includes('disabled={isSaving}'), 'dish form prevents duplicate submissions and closing while saving');
 assert(menuView.includes('await onCreateDish(dish)') && menuView.includes('await onUpdateDish(dish)'), 'catalogue view awaits create and update operations');
+assert(hub.includes('Catalogue actif · {restaurant.name}'), 'catalogue metrics use the current restaurant name in multi-tenant mode');
+assert(!dishForm.includes("restaurant.slug || 'chez-awa'"), 'dish creation never falls back to a hardcoded demo tenant');
 console.log('Restaurant management navigation checks passed.');
