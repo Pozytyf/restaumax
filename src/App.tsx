@@ -1274,6 +1274,10 @@ export default function App() {
             audioEnabled={audioEnabled}
             onToggleAudio={handleToggleAudio}
             onQuickNewOrder={() => {
+              if (pendingPosOrder) {
+                window.alert('Terminez le règlement de la commande en cours avant de démarrer une nouvelle vente.');
+                return;
+              }
               setSelectedTable(null);
               setCart([]);
               setCurrentRole('pos');
