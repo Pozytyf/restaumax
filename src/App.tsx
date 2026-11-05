@@ -1198,7 +1198,7 @@ export default function App() {
           return;
         }
         const checkout = await createPayDunyaPaymentWithServerValidation(
-          activeRestaurantSlug, order.id, channel, paymentIdempotencyKey
+          activeRestaurantSlug, order.id, channel, paymentIdempotencyKey, paymentData.paidAmount
         );
         if (!checkout.success) {
           window.alert(`Facture Mobile Money non créée : ${checkout.error}`);
