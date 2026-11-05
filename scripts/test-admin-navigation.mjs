@@ -6,7 +6,7 @@ const app = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const firebase = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 const dishForm = fs.readFileSync(new URL('../src/components/restaumax/DishFormModal.tsx', import.meta.url), 'utf8');
 const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
-assert(hub.includes("actionLabel: 'Gérer les options, suppléments et prix'"), 'module 3 is clearly labelled as catalogue management');
+assert(hub.includes("actionLabel: canViewCatalog ? 'Gérer les options, suppléments et prix'"), 'module 3 is clearly labelled and permission-gated as catalogue management');
 assert(hub.includes("id: 'options-prices'") && hub.includes("setActiveTab('menu_catalog')"), 'module 3 opens the administrative catalogue instead of the public client menu');
 assert(hub.includes('Carte bancaire non activée en V1'), 'the cash register module does not advertise an unavailable card payment method');
 assert(app.includes("canManageStaff={isRestaurantOwner || (authRestaurantRole === 'manager' && userPermissions.includes('staff.manage'))}"), 'authorized managers can manage subordinate staff');
