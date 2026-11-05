@@ -1675,6 +1675,8 @@ export default function App() {
 
             {currentRole === 'manager' && (userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')) && (
               <ManagerView
+                restaurantSlug={activeRestaurantSlug}
+                isOwner={isRestaurantOwner}
                 drawerState={drawerState}
                 transactions={transactions}
                 cashSession={cashSession}
