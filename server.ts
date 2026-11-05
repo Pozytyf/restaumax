@@ -47,8 +47,8 @@ import {
   IdempotencyReservationResult
 } from './src/server/orderService.js';
 import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
-import { getPayDunyaConfig, type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
-import { startPayDunyaOrderPaymentWithDb, processPayDunyaInvoiceCallbackWithDb } from './src/server/paydunyaPaymentService.js';
+import { getPayDunyaConfig, getPayDunyaDisbursementConfig, type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
+import { startPayDunyaOrderPaymentWithDb, processPayDunyaInvoiceCallbackWithDb, startPayDunyaRefundWithDb, processPayDunyaDisbursementCallbackWithDb } from './src/server/paydunyaPaymentService.js';
 import {
   authorizeTableManager,
   buildCsrfCookie,
@@ -874,6 +874,23 @@ export async function handlePayDunyaCallbackRequest(payload: unknown, req?: any)
   }
 }
 
+export async function handlePayDunyaDisbursementCallbackRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  const config = getPayDunyaDisbursementConfig(process.env);
+  if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+  try {
+    const result = await processPayDunyaDisbursementCallbackWithDb(adminDb, config.data, payload);
+    if (!result.success) return { statusCode: result.conflict ? 409 : 400, body: result };
+    return { statusCode: 200, body: result };
+  } catch (error: any) {
+    console.error('Erreur callback décaissement PayDunya:', String(error?.message || error));
+    return { statusCode: 500, body: { success: false, error: 'Notification de décaissement à retraiter.' } };
+  }
+}
+
 export async function handlePaymentsRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) {
     return { statusCode: 503, body: { success: false, error: 'Service de caisse indisponible : Firebase Admin non configuré.' } };
@@ -954,6 +971,36 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         callbackUrl: `${parsedAppOrigin.origin}/api/payments/paydunya-callback`,
         returnUrl: `${parsedAppOrigin.origin}/payments/return`,
         cancelUrl: `${parsedAppOrigin.origin}/payments/cancel`
+      });
+      if (result.success) return { statusCode: 200, body: result };
+      return { statusCode: result.conflict ? 409 : 400, body: result };
+    }
+
+    if (input.action === 'refund_paydunya_payment') {
+      const canRefund = isOwner || member.role === 'manager' ||
+        (member.role === 'cashier' && Array.isArray(member.permissions) &&
+          member.permissions.includes('payments.refund'));
+      if (!canRefund) return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };
+      const payoutConfig = getPayDunyaDisbursementConfig(process.env);
+      if (!payoutConfig.success) return { statusCode: 503, body: { success: false, error: payoutConfig.error } };
+      const appOrigin = String(process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\\/$/, '');
+      let parsedOrigin: URL;
+      try { parsedOrigin = new URL(appOrigin); } catch {
+        return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya invalide.' } };
+      }
+      if (parsedOrigin.protocol !== 'https:' || parsedOrigin.hostname !== 'restaumax.vercel.app' || parsedOrigin.pathname !== '/') {
+        return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN doit être https://restaumax.vercel.app.' } };
+      }
+      const result = await startPayDunyaRefundWithDb(adminDb, payoutConfig.data, {
+        restaurantSlug: slug,
+        paymentId: String(input.paymentId || ''),
+        actorUid: decoded.uid,
+        actorName: String(decoded.name || decoded.email || decoded.uid),
+        sessionVersion: Number(decoded.sessionVersion || 0),
+        amount: input.amount,
+        reason: String(input.reason || ''),
+        idempotencyKey: String(input.idempotencyKey || ''),
+        callbackUrl: `${parsedOrigin.origin}/api/payments/paydunya-disbursement-callback`
       });
       if (result.success) return { statusCode: 200, body: result };
       return { statusCode: result.conflict ? 409 : 400, body: result };
@@ -1166,6 +1213,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any = adminDb)
 // Local Express routes. Vercel uses the equivalent files in /api.
 app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
+});
+
+app.post('/api/payments/paydunya-disbursement-callback', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handlePayDunyaDisbursementCallbackRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
 });
 
 app.post('/api/payments/paydunya-callback', async (req, res) => {
