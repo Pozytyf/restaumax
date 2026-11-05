@@ -47,10 +47,12 @@ interface ManagerViewProps {
   cashSessionActionLoading: boolean;
   cashMovementActionLoading: boolean;
   canManageCash: boolean;
+  canRefundPayments: boolean;
   onOpenCashSession: (openingBalance: number) => Promise<void>;
   onCloseCashSession: (closingCount: number) => Promise<void>;
   onRecordCashMovement: (movementType: 'expense' | 'withdrawal', amount: number, category: string, note: string) => Promise<void>;
   onViewReceipt: (receipt: PaymentRecord) => void;
+  onRefundPayment: (payment: PaymentRecord, amount: number, reason: string) => Promise<void>;
 }
 
 export const ManagerView: React.FC<ManagerViewProps> = ({
@@ -61,10 +63,12 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   cashSessionActionLoading,
   cashMovementActionLoading,
   canManageCash,
+  canRefundPayments,
   onOpenCashSession,
   onCloseCashSession,
   onRecordCashMovement,
-  onViewReceipt
+  onViewReceipt,
+  onRefundPayment
 }) => {
   const [showZReportModal, setShowZReportModal] = useState(false);
   const [openingBalanceInput, setOpeningBalanceInput] = useState('0');
@@ -474,12 +478,12 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                       </td>
                       <td className="py-3 px-4">
                         <span className="capitalize font-semibold text-slate-700">
-                          {tx.paymentMethod === 'especes'
-                            ? 'Espèces'
-                            : tx.paymentMethod === 'wave'
-                            ? 'Wave'
-                            : tx.paymentMethod === 'orange_money'
-                            ? 'Orange Money'
+                          {tx.paymentMethod === 'especes' ? 'Espèces'
+                            : tx.paymentMethod === 'wave' ? 'Wave'
+                            : tx.paymentMethod === 'orange_money' ? 'Orange Money'
+                            : tx.paymentMethod === 'mtn_money' ? 'MTN MoMo'
+                            : tx.paymentMethod === 'moov_money' ? 'Moov Money'
+                            : tx.paymentMethod === 'djamo' ? 'Djamo'
                             : 'Carte Bancaire'}
                         </span>
                       </td>
@@ -492,13 +496,42 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                         )}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <button
-                          onClick={() => onViewReceipt(tx)}
-                          className="p-1.5 rounded-lg bg-slate-100 hover:bg-[#ff6500] hover:text-white text-slate-600 transition-colors"
-                          title="Voir le reçu"
-                        >
-                          <Eye size={14} />
-                        </button>
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => onViewReceipt(tx)}
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-[#ff6500] hover:text-white text-slate-600 transition-colors"
+                            title="Voir le reçu"
+                          >
+                            <Eye size={14} />
+                          </button>
+                          {canRefundPayments && tx.refundEligible && tx.paymentMethod !== 'especes' &&
+                            (tx.paidAmount - Number(tx.refundedAmount || 0)) > 0 && (
+                            <button
+                              onClick={() => {
+                                const remaining = tx.paidAmount - Number(tx.refundedAmount || 0);
+                                const rawAmount = window.prompt(`Montant à rembourser (maximum ${remaining} FCFA)`, String(remaining));
+                                if (rawAmount === null) return;
+                                const amount = Number(rawAmount);
+                                if (!Number.isSafeInteger(amount) || amount <= 0 || amount > remaining) {
+                                  window.alert('Montant de remboursement invalide.');
+                                  return;
+                                }
+                                const reason = window.prompt('Motif obligatoire du remboursement :');
+                                if (!reason || reason.trim().length < 3) {
+                                  window.alert('Veuillez saisir un motif de trois caractères minimum.');
+                                  return;
+                                }
+                                if (window.confirm(`Confirmer le remboursement de ${formatFCFA(amount)} vers le wallet d’origine ?`)) {
+                                  void onRefundPayment(tx, amount, reason.trim());
+                                }
+                              }}
+                              className="rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] font-bold text-amber-800 hover:bg-amber-100"
+                              title="Rembourser via PayDunya"
+                            >
+                              Rembourser
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
