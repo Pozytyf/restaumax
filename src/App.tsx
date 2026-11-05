@@ -691,7 +691,7 @@ export default function App() {
       setRestauMenuItems((prev) => [newDish, ...prev]);
     } catch (err) {
       console.error('Erreur de persistance du nouveau plat dans Firestore:', err);
-      window.alert("Le plat n'a pas été enregistré. Vérifiez les champs et vos droits, puis réessayez.");
+      throw new Error("Le plat n'a pas été enregistré. Vérifiez les champs, vos droits et votre connexion, puis réessayez.");
     }
   };
 
@@ -703,7 +703,7 @@ export default function App() {
       ));
     } catch (err) {
       console.error('Erreur de mise à jour du plat dans Firestore:', err);
-      window.alert("Les modifications du plat n'ont pas été enregistrées. Réessayez.");
+      throw new Error("Les modifications du plat n'ont pas été enregistrées. Vérifiez votre connexion et vos droits, puis réessayez.");
     }
   };
 
