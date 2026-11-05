@@ -243,4 +243,62 @@ const unauthorizedRefund = await startPayDunyaRefundWithDb(db, payoutConfig, {
 assert(!unauthorizedRefund.success && unauthorizedRefund.error?.includes('payments.refund'),
   'Un caissier sans permission payments.refund ne peut pas initier un décaissement');
 
+const qrBinding = {
+  sessionHash: 'session-hash-qr-4', qrTokenHash: 'qr-token-hash-4',
+  qrVersion: 2, tableId: 'table-4'
+};
+db.seed('restaurants/maquis-awa/orders/order-qr', {
+  id: 'order-qr', restaurantSlug: 'maquis-awa', orderNumber: 'CMD-QR-4',
+  orderMode: 'sur_place', tableNumber: '4', status: 'pending',
+  totalAmount: 4500, paidAmount: 0, items: [],
+  tableSession: qrBinding
+});
+const qrCheckout = await startPayDunyaOrderPaymentWithDb(db, config, {
+  restaurantSlug: 'maquis-awa', orderId: 'order-qr',
+  actorUid: 'table_session-hash-qr-4', actorName: 'Client QR', sessionVersion: 2,
+  idempotencyKey: 'qr_mobile_pay_001',
+  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-callback',
+  returnUrl: 'https://restaumax.vercel.app/payments/return?restaurantSlug=maquis-awa&orderId=order-qr',
+  cancelUrl: 'https://restaumax.vercel.app/payments/return?cancelled=1&restaurantSlug=maquis-awa&orderId=order-qr',
+  channel: 'wave-ci',
+  customerTableSession: { ...qrBinding, tableNumber: '4' }
+}, async (url, options) => {
+  const body = JSON.parse(options.body);
+  assert(body.invoice.total_amount === 4500 && body.invoice.channels[0] === 'wave-ci',
+    'Le paiement QR utilise le solde exact et le canal Wave choisi');
+  return { ok: true, json: async () => ({
+    response_code: '00', token: 'test_QR123',
+    response_text: 'https://app.paydunya.com/sandbox-checkout/invoice/test_QR123'
+  }) };
+});
+assert(qrCheckout.success, 'Une session QR de table valide peut initier son paiement Mobile Money');
+const qrMismatch = await startPayDunyaOrderPaymentWithDb(db, config, {
+  restaurantSlug: 'maquis-awa', orderId: 'order-qr',
+  actorUid: 'table_session-hash-other', actorName: 'Client QR', sessionVersion: 2,
+  idempotencyKey: 'qr_mobile_pay_bad',
+  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-callback',
+  returnUrl: 'https://restaumax.vercel.app/payments/return',
+  cancelUrl: 'https://restaumax.vercel.app/payments/return',
+  channel: 'wave-ci',
+  customerTableSession: { ...qrBinding, sessionHash: 'different-session', tableNumber: '4' }
+}, async () => { throw new Error('must not create invoice'); });
+assert(!qrMismatch.success, 'Une autre session QR ne peut pas payer la commande d’une table');
+
+const qrReconciliation = await reconcilePayDunyaInvoiceIntentWithDb(
+  db, config, 'maquis-awa', qrCheckout.paymentIntentId, async () => ({
+    ok: true, json: async () => ({
+      response_code: '00', hash: signedHash,
+      invoice: { token: 'test_QR123', total_amount: '4500' },
+      status: 'completed',
+      custom_data: {
+        restaurant_slug: 'maquis-awa', order_id: 'order-qr',
+        payment_intent_id: qrCheckout.paymentIntentId
+      },
+      customer: { phone: '0700000000' }, transaction_id: 'PAY-QR-4'
+    })
+  })
+);
+assert(qrReconciliation.success && qrReconciliation.status === 'completed',
+  'Le paiement QR est rapproché par confirmation PayDunya côté serveur');
+
 console.log(`Résultats PayDunya end-to-end : ${passed}/${passed} réussis.`);
