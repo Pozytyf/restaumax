@@ -138,6 +138,9 @@ export async function startPayDunyaOrderPaymentWithDb(
     if (!Number.isSafeInteger(total) || total <= 0 || !Number.isSafeInteger(paid) || paid < 0 || paid >= total) {
       return { ok: false, error: 'Le solde de la commande est nul ou incohérent.' };
     }
+    if (order.pendingPayDunyaIntentId && order.pendingPayDunyaIntentId !== intentId) {
+      return { ok: false, conflict: true, error: 'Une autre facture PayDunya est déjà ouverte pour cette commande. Attendez sa confirmation ou son annulation.' };
+    }
     const amount = total - paid;
     const now = Date.now();
     tx.create(intentRef, {
@@ -146,6 +149,7 @@ export async function startPayDunyaOrderPaymentWithDb(
       signature, amount, currency: 'XOF', channel: input.channel,
       status: 'creating', createdAt: now, updatedAt: now
     });
+    tx.update(orderRef, { pendingPayDunyaIntentId: intentId, pendingPayDunyaAmount: amount });
     return { ok: true, replay: false, intentId, amount, order, restaurant };
   });
   if (!reservation.ok) return { success: false, conflict: reservation.conflict, error: reservation.error };
@@ -242,9 +246,22 @@ export async function processPayDunyaInvoiceCallbackWithDb(
     const mappingSnap = await db.collection('paydunya_invoice_tokens').doc(tokenHash).get();
     if (mappingSnap.exists) {
       const map = mappingSnap.data();
-      await db.collection('restaurants').doc(map.restaurantSlug)
-        .collection('paymentIntents').doc(map.intentId)
-        .update({ status: invoice.status === 'cancelled' ? 'cancelled' : invoice.status === 'failed' ? 'failed' : 'pending', updatedAt: Date.now() });
+      const restaurantRef = db.collection('restaurants').doc(map.restaurantSlug);
+      const intentRef = restaurantRef.collection('paymentIntents').doc(map.intentId);
+      const orderId = clean((await intentRef.get()).data()?.orderId, 128);
+      const orderRef = restaurantRef.collection('orders').doc(orderId);
+      await db.runTransaction(async (tx: any) => {
+        const [intentSnap, orderSnap] = await Promise.all([tx.get(intentRef), tx.get(orderRef)]);
+        if (!intentSnap.exists) return;
+        const terminal = invoice.status === 'cancelled' || invoice.status === 'failed';
+        tx.update(intentRef, {
+          status: invoice.status === 'cancelled' ? 'cancelled' : invoice.status === 'failed' ? 'failed' : 'pending',
+          updatedAt: Date.now()
+        });
+        if (terminal && orderSnap.exists && orderSnap.data()?.pendingPayDunyaIntentId === map.intentId) {
+          tx.update(orderRef, { pendingPayDunyaIntentId: null, pendingPayDunyaAmount: null });
+        }
+      });
     }
     return { success: true, status: invoice.status };
   }
@@ -317,7 +334,8 @@ export async function processPayDunyaInvoiceCallbackWithDb(
     tx.update(orderRef, {
       paidAmount, remainingAmount,
       paymentStatus: remainingAmount === 0 ? 'paid' : 'partial',
-      lastPaymentAt: now, lastPaymentId: paymentId
+      lastPaymentAt: now, lastPaymentId: paymentId,
+      pendingPayDunyaIntentId: null, pendingPayDunyaAmount: null
     });
     tx.update(intentRef, {
       status: 'completed', paymentId, completedAt: now, updatedAt: now,
