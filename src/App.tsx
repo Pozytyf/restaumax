@@ -1049,17 +1049,10 @@ export default function App() {
 
       const payment = paymentResult.payment;
       const refreshedSession = await getCashSessionWithServerValidation(activeRestaurantSlug);
-      if (refreshedSession.success) {
-        setCashSession(refreshedSession.session);
-        if (refreshedSession.session) {
-          setDrawerState((previous) => ({
-            ...previous,
-            openingBalance: Number(refreshedSession.session?.openingBalance || 0),
-            currentCash: Number(refreshedSession.session?.openingBalance || 0) +
-              Number(refreshedSession.session?.cashCollected || 0)
-          }));
-        }
-      }
+      if (refreshedSession.success) setCashSession(refreshedSession.session);
+      const refreshedCashTotal = refreshedSession.success && refreshedSession.session
+        ? Number(refreshedSession.session.openingBalance || 0) + Number(refreshedSession.session.cashCollected || 0)
+        : null;
       sounds.playCashRegister();
       const updatedOrder = { ...order, ...paymentResult.order } as RestauOrder;
       setPendingPosOrder(updatedOrder);
@@ -1074,9 +1067,15 @@ export default function App() {
         setDrawerState((previous) => ({
           ...previous,
           totalSales: previous.totalSales + payment.paidAmount,
-          currentCash: previous.currentCash + payment.paidAmount,
+          currentCash: refreshedCashTotal ?? previous.currentCash + payment.paidAmount,
           cashSales: previous.cashSales + payment.paidAmount,
           transactionCount: previous.transactionCount + 1
+        }));
+      } else if (refreshedCashTotal !== null && refreshedSession.session) {
+        setDrawerState((previous) => ({
+          ...previous,
+          openingBalance: Number(refreshedSession.session?.openingBalance || 0),
+          currentCash: refreshedCashTotal
         }));
       }
       setActiveReceiptModal(newRecord);
