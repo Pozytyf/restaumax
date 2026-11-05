@@ -268,9 +268,9 @@ const qrCheckout = await startPayDunyaOrderPaymentWithDb(db, config, {
   restaurantSlug: 'maquis-awa', orderId: 'order-qr',
   actorUid: 'table_session-hash-qr-4', actorName: 'Client QR', sessionVersion: 2,
   idempotencyKey: 'qr_mobile_pay_001',
-  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-callback',
-  returnUrl: 'https://restaumax.vercel.app/payments/return?restaurantSlug=maquis-awa&orderId=order-qr',
-  cancelUrl: 'https://restaumax.vercel.app/payments/return?cancelled=1&restaurantSlug=maquis-awa&orderId=order-qr',
+  callbackUrl: 'https://restaumax-git-preview-test.vercel.app/api/payments/paydunya-callback',
+  returnUrl: 'https://restaumax-git-preview-test.vercel.app/payments/return?restaurantSlug=maquis-awa&orderId=order-qr',
+  cancelUrl: 'https://restaumax-git-preview-test.vercel.app/payments/return?cancelled=1&restaurantSlug=maquis-awa&orderId=order-qr',
   channel: 'wave-ci',
   customerTableSession: { ...qrBinding, tableNumber: '4' }
 }, async (url, options) => {
