@@ -56,6 +56,12 @@ const createReplay = await manageInventoryWithDb(createDb, {
 });
 assert.equal(createReplay.success, true);
 assert.equal(createReplay.idempotentReplay, true);
+const createConflict = await manageInventoryWithDb(createDb, {
+  ...common, action: 'create', idempotencyKey: 'create-key-00000001',
+  name: 'Huile modifiée', unit: 'L', quantity: 5, minQuantity: 1, unitCost: 1200, supplier: 'Fournisseur A'
+});
+assert.equal(createConflict.success, false);
+
 
 const moveDb = seed();
 const moveParams = { ...common, action: 'move', itemId: 'rice', delta: -2.5, reason: 'Préparation service', idempotencyKey: 'movement-key-000001' };
@@ -69,6 +75,11 @@ const replay = await manageInventoryWithDb(moveDb, moveParams);
 assert.equal(replay.success, true);
 assert.equal(replay.idempotentReplay, true);
 assert.equal(moveDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 7.5);
+const movementConflict = await manageInventoryWithDb(moveDb, {
+  ...moveParams, delta: -3
+});
+assert.equal(movementConflict.success, false);
+
 
 const overdraw = await manageInventoryWithDb(moveDb, {
   ...common, action: 'move', itemId: 'rice', delta: -100, reason: 'Sortie', idempotencyKey: 'movement-key-000002'
