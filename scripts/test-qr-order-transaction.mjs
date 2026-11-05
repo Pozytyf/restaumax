@@ -25,6 +25,8 @@ async function run() {
   const sessionHash = 'session-hash-' + Date.now();
   const qrTokenHash = 'qr-token-hash-' + Date.now();
   const restaurantRef = db.collection('restaurants').doc(slug);
+  const staffRef = db.collection('managers').doc('staff-cashier-' + Date.now());
+  const staffUid = staffRef.id;
   const tableRef = restaurantRef.collection('tables').doc(tableId);
   const sessionRef = restaurantRef.collection('table_sessions').doc(sessionHash);
   const qrRef = restaurantRef.collection('table_qr_tokens').doc(qrTokenHash);
@@ -53,7 +55,8 @@ async function run() {
   }
 
   try {
-    await restaurantRef.set({ slug, status: 'active', isActive: true, isOpen: true, tableSessionVersion: 0 });
+    await restaurantRef.set({ slug, status: 'active', isActive: true, isOpen: true, tableSessionVersion: 0, ownerUid: 'owner-test' });
+    await staffRef.set({ uid: staffUid, role: 'cashier', restaurantSlug: slug, permissions: ['pos.access'], active: true, sessionVersion: 0 });
     await tableRef.set({ tableNumber: '4', isActive: true, qrVersion: 1 });
     await qrRef.set({ tokenHash: qrTokenHash, restaurantSlug: slug, tableId, version: 1, status: 'active' });
     await sessionRef.set({
@@ -101,9 +104,24 @@ async function run() {
       ...staffOrderParams,
       tableSession: undefined,
       staffOrder: true,
+      staffActorUid: staffUid,
+      staffSessionVersion: 0,
       staffTableId: tableId
     });
     assert(staffOrder.success === true, 'Une commande sur place du personnel authentifié peut être enregistrée sans session QR');
+
+    await staffRef.update({ permissions: [] });
+    const deniedStaffParams = buildParams('staff-no-pos-permission-' + Date.now());
+    const deniedStaffOrder = await executeOrderTransactionWithDb(db, {
+      ...deniedStaffParams,
+      tableSession: undefined,
+      staffOrder: true,
+      staffActorUid: staffUid,
+      staffSessionVersion: 0,
+      staffTableId: tableId
+    });
+    assert(deniedStaffOrder.success === false, 'Une commande POS est refusée si la permission pos.access a été retirée');
+    await staffRef.update({ permissions: ['pos.access'] });
 
     const wrongStaffTableParams = buildParams('staff-wrong-table-' + Date.now());
     wrongStaffTableParams.orderToCreate.tableNumber = '999';
@@ -111,6 +129,8 @@ async function run() {
       ...wrongStaffTableParams,
       tableSession: undefined,
       staffOrder: true,
+      staffActorUid: staffUid,
+      staffSessionVersion: 0,
       staffTableId: tableId
     });
     assert(wrongStaffTable.success === false, 'Une commande POS est refusée si le numéro de table ne correspond pas à la table validée');
@@ -121,6 +141,8 @@ async function run() {
       ...inactiveStaffTableParams,
       tableSession: undefined,
       staffOrder: true,
+      staffActorUid: staffUid,
+      staffSessionVersion: 0,
       staffTableId: tableId
     });
     assert(inactiveStaffTable.success === false, 'Une commande POS est refusée si la table devient inactive avant la transaction');
@@ -145,6 +167,7 @@ async function run() {
     try { await sessionRef.delete(); } catch {}
     try { await qrRef.delete(); } catch {}
     try { await tableRef.delete(); } catch {}
+    try { await staffRef.delete(); } catch {}
     try { await restaurantRef.delete(); } catch {}
     try { await app.delete(); } catch {}
   }
