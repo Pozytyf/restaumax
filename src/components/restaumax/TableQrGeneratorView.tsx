@@ -157,6 +157,8 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     // Hide the old QR immediately: a network failure can happen after the
     // server has committed the revocation, so retaining it would be misleading.
     setQrUrl('');
+    setQrDataUrl('');
+    setQrSvgString('');
     setQrForTableId(null);
     try {
       const user = auth.currentUser;
