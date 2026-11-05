@@ -78,6 +78,9 @@ async function run() {
     const staleSession = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-stale-session-1', 2));
     assert(staleSession.success === false, 'Une ancienne version de session du personnel est refusée');
 
+    const excessiveTender = await recordCashPaymentWithDb(db, input('order-main', 100_000_001, 'cash-excessive-01'));
+    assert(excessiveTender.success === false, 'Un montant remis hors limite est rejeté avant transaction');
+
     await memberRef.update({ active: false });
     const suspended = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-suspended-001'));
     assert(suspended.success === false, 'Un compte personnel suspendu ne peut pas encaisser');
