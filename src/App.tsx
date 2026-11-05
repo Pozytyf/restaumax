@@ -1180,16 +1180,21 @@ export default function App() {
           return;
         }
 
-        order = orderResult.order;
+        const createdOrder = orderResult.order;
+        if (!createdOrder) {
+          window.alert("La commande a été acceptée sans document retourné. Vérifiez l'historique avant toute nouvelle tentative.");
+          return;
+        }
+        order = createdOrder;
         setPosOrderIdempotencyKey(generateClientOrderIdempotencyKey());
-        setPendingPosOrder(order);
-        setPendingPosPaidAmount(Number(order.paidAmount || 0));
-        const ticket = mapRestauOrderToKitchenTicket(order);
+        setPendingPosOrder(createdOrder);
+        setPendingPosPaidAmount(Number(createdOrder.paidAmount || 0));
+        const ticket = mapRestauOrderToKitchenTicket(createdOrder);
         setKitchenTickets((previous) => [
           ticket,
           ...previous.filter((existing) => existing.id !== ticket.id)
         ]);
-        setRestauOrders(previous => [order, ...previous.filter(existing => existing.id !== order.id)]);
+        setRestauOrders(previous => [createdOrder, ...previous.filter(existing => existing.id !== createdOrder.id)]);
       }
 
       if (!isCashPayment) {
