@@ -590,8 +590,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const permissionSignature = (value: unknown) => Array.isArray(value)
           ? value.map(permission => String(permission)).sort().join('|')
           : '';
-        if (!managerRecord || managerRecord.restaurantSlug !== slug ||
-            managerRecord.uid !== staffUid || managerRecord.role !== member.role ||
+        if (!managerRecord || managerRecord.restaurantSlug !== slug || member.restaurantSlug !== slug ||
+            managerRecord.uid !== staffUid || managerRecord.active !== member.active || managerRecord.role !== member.role ||
             Number(managerRecord.sessionVersion || 0) !== Number(member.sessionVersion || 0) ||
             permissionSignature(managerRecord.permissions) !== permissionSignature(member.permissions)) {
           return json(res, 409, { success: false, error: 'Les références d’accès du membre sont incohérentes. Actualisez la liste ou demandez une réparation du compte.' });
@@ -612,7 +612,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           const freshMember = freshMemberSnap.data();
           const freshManager = freshManagerSnap.data();
           if (freshMember.role !== member.role || freshManager.role !== member.role ||
-              freshManager.restaurantSlug !== slug ||
+              freshManager.restaurantSlug !== slug || freshMember.restaurantSlug !== slug ||
+              freshManager.active !== freshMember.active ||
               Number(freshMember.sessionVersion || 0) !== currentSessionVersion ||
               Number(freshManager.sessionVersion || 0) !== currentSessionVersion ||
               permissionSignature(freshMember.permissions) !== permissionSignature(member.permissions) ||
