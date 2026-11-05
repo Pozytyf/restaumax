@@ -883,6 +883,7 @@ export default function App() {
       if (prev.some(t => t.id === newKitchenTicket.id)) return prev;
       return [newKitchenTicket, ...prev];
     });
+    setRestauOrders(previous => [confirmedOrder, ...previous.filter(order => order.id !== confirmedOrder.id)]);
 
     // Clear client cart strictly only upon confirmed write
     setClientCart([]);
@@ -1019,6 +1020,7 @@ export default function App() {
         ticket,
         ...previous.filter((existing) => existing.id !== ticket.id)
       ]);
+      setRestauOrders(previous => [result.order, ...previous.filter(order => order.id !== result.order.id)]);
       setPosOrderIdempotencyKey(generateClientOrderIdempotencyKey());
       setCart([]);
       window.alert(`Commande enregistrée et envoyée en cuisine : ${result.order.orderNumber}`);
@@ -1187,6 +1189,7 @@ export default function App() {
           ticket,
           ...previous.filter((existing) => existing.id !== ticket.id)
         ]);
+        setRestauOrders(previous => [order, ...previous.filter(existing => existing.id !== order.id)]);
       }
 
       if (!isCashPayment) {
