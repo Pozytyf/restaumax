@@ -1,0 +1,291 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
+
+export type PayDunyaMode = 'test' | 'live';
+
+export interface PayDunyaConfig {
+  mode: PayDunyaMode;
+  masterKey: string;
+  privateKey: string;
+  token: string;
+  createInvoiceUrl: string;
+  confirmInvoiceBaseUrl: string;
+}
+
+export interface PayDunyaInvoiceItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  description?: string;
+}
+
+export interface PayDunyaCheckoutInput {
+  amount: number;
+  description: string;
+  restaurantSlug: string;
+  restaurantName: string;
+  orderId: string;
+  paymentIntentId: string;
+  guestNumber?: number;
+  guestAccountId?: string;
+  customer?: { name?: string; email?: string; phone?: string };
+  items?: PayDunyaInvoiceItem[];
+  callbackUrl: string;
+  returnUrl: string;
+  cancelUrl: string;
+  channels?: string[];
+}
+
+export type PayDunyaResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: string };
+
+export interface PayDunyaCreatedInvoice {
+  token: string;
+  checkoutUrl: string;
+  responseText: string;
+}
+
+export interface PayDunyaConfirmedInvoice {
+  token: string;
+  status: 'completed' | 'pending' | 'cancelled' | 'failed' | string;
+  totalAmount: number;
+  customData: Record<string, unknown>;
+  receiptUrl?: string;
+  customer?: Record<string, unknown>;
+}
+
+const PAYDUNYA_CI_CHANNELS = [
+  'orange-money-ci',
+  'wave-ci',
+  'mtn-ci',
+  'moov-ci',
+  'djamo-ci'
+] as const;
+
+export function getPayDunyaConfig(
+  env: Record<string, string | undefined>
+): PayDunyaResult<PayDunyaConfig> {
+  if (env.PAYDUNYA_ENABLED !== 'true') {
+    return { success: false, error: 'Le paiement PayDunya est désactivé.' };
+  }
+
+  const mode = (env.PAYDUNYA_MODE || 'test').trim().toLowerCase();
+  if (mode !== 'test' && mode !== 'live') {
+    return { success: false, error: 'Mode PayDunya invalide.' };
+  }
+  if (mode === 'live' && env.PAYDUNYA_LIVE_ENABLED !== 'true') {
+    return { success: false, error: 'Le mode PayDunya Production exige PAYDUNYA_LIVE_ENABLED=true.' };
+  }
+
+  const masterKey = String(env.PAYDUNYA_MASTER_KEY || '').trim();
+  const privateKey = String(env.PAYDUNYA_PRIVATE_KEY || '').trim();
+  const token = String(env.PAYDUNYA_TOKEN || '').trim();
+  if (!masterKey || !privateKey || !token) {
+    return { success: false, error: 'Les clés PayDunya serveur ne sont pas configurées.' };
+  }
+
+  const base = mode === 'test'
+    ? 'https://app.paydunya.com/sandbox-api/v1'
+    : 'https://app.paydunya.com/api/v1';
+
+  return {
+    success: true,
+    data: {
+      mode,
+      masterKey,
+      privateKey,
+      token,
+      createInvoiceUrl: `${base}/checkout-invoice/create`,
+      confirmInvoiceBaseUrl: `${base}/checkout-invoice/confirm`
+    }
+  };
+}
+
+function cleanText(value: unknown, maxLength: number): string {
+  return String(value || '').trim().slice(0, maxLength);
+}
+
+export function buildPayDunyaCheckoutPayload(input: PayDunyaCheckoutInput): Record<string, unknown> {
+  if (!Number.isSafeInteger(input.amount) || input.amount <= 0 || input.amount > 100_000_000) {
+    throw new Error('Montant PayDunya invalide.');
+  }
+  if (!cleanText(input.restaurantSlug, 100) || !cleanText(input.orderId, 128) ||
+      !cleanText(input.paymentIntentId, 128)) {
+    throw new Error('Références de paiement PayDunya invalides.');
+  }
+
+  const items: Record<string, Record<string, unknown>> = {};
+  (input.items || []).slice(0, 50).forEach((item, index) => {
+    if (!Number.isSafeInteger(item.quantity) || item.quantity < 1 ||
+        !Number.isSafeInteger(item.unitPrice) || item.unitPrice < 0 ||
+        !Number.isSafeInteger(item.totalPrice) || item.totalPrice < 0) {
+      throw new Error('Article de facture PayDunya invalide.');
+    }
+    items[`item_${index}`] = {
+      name: cleanText(item.name, 100),
+      quantity: item.quantity,
+      unit_price: String(item.unitPrice),
+      total_price: String(item.totalPrice),
+      description: cleanText(item.description, 200)
+    };
+  });
+
+  const customer = input.customer ? {
+    name: cleanText(input.customer.name, 100),
+    email: cleanText(input.customer.email, 160),
+    phone: cleanText(input.customer.phone, 32)
+  } : undefined;
+
+  const customData = {
+    provider: 'paydunya',
+    restaurant_slug: cleanText(input.restaurantSlug, 100),
+    order_id: cleanText(input.orderId, 128),
+    payment_intent_id: cleanText(input.paymentIntentId, 128),
+    guest_number: Number.isSafeInteger(input.guestNumber) ? input.guestNumber : 1,
+    guest_account_id: cleanText(input.guestAccountId, 64)
+  };
+
+  return {
+    invoice: {
+      items,
+      customer,
+      channels: [...(input.channels?.length ? input.channels : PAYDUNYA_CI_CHANNELS)],
+      total_amount: input.amount,
+      description: cleanText(input.description, 250)
+    },
+    store: {
+      name: cleanText(input.restaurantName, 100) || 'RestauMax',
+      tagline: 'Paiement sécurisé avec RestauMax',
+      website_url: 'https://restaumax.vercel.app'
+    },
+    custom_data: customData,
+    actions: {
+      callback_url: input.callbackUrl,
+      return_url: input.returnUrl,
+      cancel_url: input.cancelUrl
+    }
+  };
+}
+
+function isTrustedCheckoutUrl(value: unknown, mode: PayDunyaMode): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    const expectedPath = mode === 'test' ? '/sandbox-checkout/invoice/' : '/checkout/invoice/';
+    return url.protocol === 'https:' && url.hostname === 'app.paydunya.com' &&
+      url.pathname.startsWith(expectedPath);
+  } catch {
+    return false;
+  }
+}
+
+function payDunyaHeaders(config: PayDunyaConfig): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'PAYDUNYA-MASTER-KEY': config.masterKey,
+    'PAYDUNYA-PRIVATE-KEY': config.privateKey,
+    'PAYDUNYA-TOKEN': config.token
+  };
+}
+
+export async function createPayDunyaCheckoutInvoice(
+  config: PayDunyaConfig,
+  input: PayDunyaCheckoutInput,
+  fetchImpl: typeof fetch = fetch
+): Promise<PayDunyaResult<PayDunyaCreatedInvoice>> {
+  let payload: Record<string, unknown>;
+  try {
+    payload = buildPayDunyaCheckoutPayload(input);
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Données de facture PayDunya invalides.' };
+  }
+
+  try {
+    const response = await fetchImpl(config.createInvoiceUrl, {
+      method: 'POST',
+      headers: payDunyaHeaders(config),
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) return { success: false, error: 'PayDunya ne répond pas correctement à la création de facture.' };
+    const data = await response.json() as Record<string, unknown>;
+    const token = cleanText(data.token, 128);
+    const checkoutUrl = data.response_text;
+    if (data.response_code !== '00' || !token || !isTrustedCheckoutUrl(checkoutUrl, config.mode)) {
+      return { success: false, error: cleanText(data.description || data.response_text, 250) || 'Facture PayDunya non créée.' };
+    }
+    return {
+      success: true,
+      data: { token, checkoutUrl, responseText: cleanText(data.description, 250) }
+    };
+  } catch {
+    return { success: false, error: 'Impossible de joindre PayDunya. Réessayez plus tard.' };
+  }
+}
+
+export async function confirmPayDunyaInvoice(
+  config: PayDunyaConfig,
+  invoiceToken: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<PayDunyaResult<PayDunyaConfirmedInvoice>> {
+  const token = cleanText(invoiceToken, 128);
+  if (!/^[A-Za-z0-9_-]{5,128}$/.test(token)) {
+    return { success: false, error: 'Token de facture PayDunya invalide.' };
+  }
+
+  try {
+    const response = await fetchImpl(
+      `${config.confirmInvoiceBaseUrl}/${encodeURIComponent(token)}`,
+      { method: 'GET', headers: payDunyaHeaders(config) }
+    );
+    if (!response.ok) return { success: false, error: 'PayDunya ne permet pas de confirmer cette facture.' };
+    const data = await response.json() as Record<string, any>;
+    const confirmedToken = cleanText(data.invoice?.token || data.token, 128);
+    const totalAmount = Number(data.invoice?.total_amount);
+    if (data.response_code !== '00' || confirmedToken !== token ||
+        !Number.isSafeInteger(totalAmount) || totalAmount <= 0) {
+      return { success: false, error: 'Réponse de confirmation PayDunya invalide.' };
+    }
+    return {
+      success: true,
+      data: {
+        token,
+        status: String(data.status || '').toLowerCase(),
+        totalAmount,
+        customData: data.custom_data && typeof data.custom_data === 'object' ? data.custom_data : {},
+        receiptUrl: typeof data.receipt_url === 'string' ? data.receipt_url : undefined,
+        customer: data.customer && typeof data.customer === 'object' ? data.customer : undefined
+      }
+    };
+  } catch {
+    return { success: false, error: 'Impossible de vérifier le statut PayDunya.' };
+  }
+}
+
+export function verifyPayDunyaCallback(
+  masterKey: string,
+  callbackData: unknown
+): PayDunyaResult<Record<string, any>> {
+  let data: Record<string, any>;
+  try {
+    const candidate = typeof callbackData === 'string' ? JSON.parse(callbackData) : callbackData;
+    if (!candidate || typeof candidate !== 'object') throw new Error('Invalid callback payload');
+    data = candidate as Record<string, any>;
+  } catch {
+    return { success: false, error: 'Notification PayDunya invalide.' };
+  }
+
+  const receivedHash = cleanText(data.hash, 128).toLowerCase();
+  if (!masterKey || !/^[a-f0-9]{128}$/.test(receivedHash)) {
+    return { success: false, error: 'Signature PayDunya absente ou invalide.' };
+  }
+  const expectedHash = createHash('sha512').update(masterKey).digest('hex');
+  const expectedBuffer = Buffer.from(expectedHash, 'hex');
+  const receivedBuffer = Buffer.from(receivedHash, 'hex');
+  if (expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
+    return { success: false, error: 'Signature de notification PayDunya non valide.' };
+  }
+  return { success: true, data };
+}
+
+export const PAYDUNYA_CI_PAYMENT_CHANNELS = [...PAYDUNYA_CI_CHANNELS];
