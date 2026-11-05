@@ -68,7 +68,10 @@ try {
       totalAmount:1000, status:'pending'
     };
     await setDoc(doc(db,'restaurants/rest-a/orders/order-1'),orderData);
-    await setDoc(doc(db,'restaurants/rest-a/orders/order-kitchen'),{...orderData,id:'order-kitchen',orderNumber:'#CMD-002'});
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-kitchen'),{...orderData,id:'order-kitchen',orderNumber:'#CMD-002',kitchenItemsCompletedCount:1});
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-kitchen-incomplete'),{...orderData,id:'order-kitchen-incomplete',orderNumber:'#CMD-005',status:'in_prep',kitchenItemsCompletedCount:0});
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-manager-incomplete'),{...orderData,id:'order-manager-incomplete',orderNumber:'#CMD-006',status:'in_prep',kitchenItemsCompletedCount:0});
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-owner-incomplete'),{...orderData,id:'order-owner-incomplete',orderNumber:'#CMD-007',status:'in_prep',kitchenItemsCompletedCount:0});
     await setDoc(doc(db,'restaurants/rest-a/orders/order-server'),{...orderData,id:'order-server',orderNumber:'#CMD-003',status:'ready'});
     await setDoc(doc(db,'restaurants/rest-a/orders/order-cashier'),{...orderData,id:'order-cashier',orderNumber:'#CMD-004'});
     await setDoc(doc(db,'restaurants/rest-b/orders/order-1'),{...orderData,restaurantSlug:'rest-b'});
@@ -144,6 +147,10 @@ try {
   await denies(updateDoc(order(a('kitchen-a'),'rest-a'),{status:'cancelled'}), 'Cuisine/Bar ne peut pas annuler une commande');
   await allows(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'in_prep'}), 'Cuisine/Bar peut démarrer la préparation');
   await allows(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'ready'}), 'Cuisine/Bar peut marquer une commande prête');
+  await denies(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen-incomplete'),{status:'ready'}), 'Cuisine/Bar ne peut pas déclarer prête une commande avec des lignes non terminées');
+  await denies(updateDoc(order(a('manager-a'),'rest-a','order-manager-incomplete'),{status:'ready'}), 'Le manager ne peut pas contourner le pointage des lignes cuisine');
+  await denies(updateDoc(order(a('owner-a'),'rest-a','order-owner-incomplete'),{status:'ready'}), 'Le propriétaire ne peut pas contourner le pointage des lignes cuisine');
+  await denies(updateDoc(order(a('owner-a'),'rest-a','order-owner-incomplete'),{kitchenItemsCompletedCount:1}), 'Le compteur de lignes terminées est modifiable uniquement par le backend');
   await denies(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'completed'}), 'Cuisine/Bar ne peut pas déclarer une commande servie');
   await allows(updateDoc(order(a('server-a'),'rest-a','order-server'),{status:'completed'}), 'Le serveur peut confirmer la remise d’une commande prête');
   await denies(setDoc(doc(a('kitchen-a'),'restaurants/rest-a/payments/payment-2'),{amount:1000}), 'Cuisine/Bar ne peut pas encaisser');
