@@ -13,6 +13,7 @@ assert(app.includes("canManageStaff={isRestaurantOwner || (authRestaurantRole ==
 assert(!app.includes('canManageStaff={isRestaurantOwner || authIsSuperAdmin}'), 'super-admin is not granted restaurant staff operations');
 assert(firebase.includes("['owner', 'manager', 'cashier', 'server', 'kitchen'].includes(data.role)"), 'only restaurant roles may enter operational workspaces');
 assert(firebase.includes("restaurantSnap.data()?.ownerUid === user.uid"), 'owner workspace access is bound to the restaurant owner UID');
+assert(firebase.includes("restaurantSnap.data()?.deletedAt"), 'logically deleted restaurants cannot authenticate operational staff');
 assert(app.includes("token.claims.role === 'super_admin' || token.claims.role === 'admin'\n          ? []"), 'super-admin receives no restaurant operational permissions in the login flow');
 assert(app.includes("const canViewTables = !!authUser && (\n      isRestaurantOwner || userPermissions.includes('tables.view')"), 'table subscriptions require an explicit tables.view permission');
 assert(app.includes("authUser && authIsSuperAdmin"), 'super-admins are redirected away from restaurant operations');
