@@ -66,8 +66,9 @@ export function resolveManagerPermissionUpdate(
   const currentExtras = Array.isArray(currentPermissions)
     ? [...new Set(currentPermissions.filter((permission): permission is Permission =>
         typeof permission === 'string' &&
-        previousCeiling.includes(permission as Permission) &&
-        !previousBase.includes(permission as Permission)))]
+        (currentRole
+          ? previousCeiling.includes(permission as Permission) && !previousBase.includes(permission as Permission)
+          : (PERMISSIONS as readonly string[]).includes(permission) && !ROLE_BASE_PERMISSIONS[nextRole].includes(permission as Permission))))]
     : [];
   const nextCeiling = ROLE_PERMISSION_CEILINGS[nextRole];
   if (currentExtras.some(permission => !nextCeiling.includes(permission))) return null;
