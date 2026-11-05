@@ -37,9 +37,9 @@ const ROLE_BASE_PERMISSIONS: Record<RestaurantRole, readonly Permission[]> = {
   kitchen: ROLE_PERMISSION_CEILINGS.kitchen
 };
 
-function parseRestaurantRole(value: unknown): RestaurantRole | null {
+function parseRestaurantRole(value: unknown): Exclude<RestaurantRole, 'owner'> | null {
   return ['manager', 'cashier', 'server', 'kitchen'].includes(String(value))
-    ? value as RestaurantRole
+    ? value as Exclude<RestaurantRole, 'owner'>
     : null;
 }
 
