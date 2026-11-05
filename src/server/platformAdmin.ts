@@ -232,9 +232,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const slug = slugify(String(body.slug || name));
         const ownerName = String(body.ownerName || '').trim();
         const ownerEmail = String(body.ownerEmail || '').trim().toLowerCase();
-        const ownerPassword = String(body.ownerPassword || '');
-        if (!name || name.length > 200 || !slug || !ownerName || !validEmail(ownerEmail) || ownerPassword.length < 10) {
-          return json(res, 400, { success: false, error: 'Renseignez le restaurant, le propriétaire, un e-mail valide et un mot de passe temporaire de 10 caractères minimum.' });
+        if (!name || name.length > 200 || !slug || !ownerName || !validEmail(ownerEmail)) {
+          return json(res, 400, { success: false, error: 'Renseignez le restaurant, le propriétaire et une adresse e-mail valide.' });
         }
         const restaurantRef = db.collection('restaurants').doc(slug);
         let reservationCreated = false;
@@ -252,7 +251,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         let ownerUser: any = null;
         try {
           ownerUser = await auth.createUser({
-            email: ownerEmail, password: ownerPassword, displayName: ownerName, disabled: false
+            email: ownerEmail, displayName: ownerName, disabled: false
           });
           await auth.setCustomUserClaims(ownerUser.uid, { role: 'owner', restaurantSlug: slug });
           const now = Date.now();
@@ -424,18 +423,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (action === 'create_staff') {
         const name = String(body.name || '').trim();
         const email = String(body.email || '').trim().toLowerCase();
-        const password = String(body.password || '');
         const role = parseRestaurantRole(body.role);
         if (!role) return json(res, 400, { success: false, error: 'Rôle invalide. Choisissez manager, cashier, server ou kitchen.' });
         if (actor.role === 'manager' && role === 'manager') return json(res, 403, { success: false, error: 'Un manager ne peut pas créer un autre manager.' });
         const permissions = resolveRolePermissions(role, body.permissions, actor.role === 'owner');
-        if (!name || !validEmail(email) || password.length < 10 || !permissions) {
-          return json(res, 400, { success: false, error: 'Nom, e-mail, mot de passe (10 caractères minimum) ou permissions hors plafond du rôle.' });
+        if (!name || !validEmail(email) || !permissions) {
+          return json(res, 400, { success: false, error: 'Nom, e-mail ou permissions hors plafond du rôle.' });
         }
         const auth = getAuth();
         let newUser: any = null;
         try {
-          newUser = await auth.createUser({ email, password, displayName: name, disabled: false });
+          newUser = await auth.createUser({ email, displayName: name, disabled: false });
           await auth.setCustomUserClaims(newUser.uid, { role, restaurantSlug: slug, permissions });
           const record = {
             uid: newUser.uid, email, displayName: name, role, restaurantSlug: slug,
