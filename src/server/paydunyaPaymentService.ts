@@ -94,7 +94,7 @@ export async function startPayDunyaOrderPaymentWithDb(
   for (const urlValue of [input.callbackUrl, input.returnUrl, input.cancelUrl]) {
     try {
       const url = new URL(urlValue);
-      if (url.protocol !== 'https:' || url.hostname !== 'restaumax.vercel.app') {
+      if (url.protocol !== 'https:' || !(url.hostname === 'restaumax.vercel.app' || (url.hostname.startsWith('restaumax-') && url.hostname.endsWith('.vercel.app')))) {
         return { success: false, error: 'Les URL de retour PayDunya doivent appartenir au domaine HTTPS RestauMax.' };
       }
     } catch { return { success: false, error: 'URL de paiement PayDunya invalide.' }; }
@@ -539,7 +539,7 @@ export async function startPayDunyaRefundWithDb(
   }
   let callback: URL;
   try { callback = new URL(input.callbackUrl); } catch { return { success: false, error: 'URL callback de remboursement invalide.' }; }
-  if (callback.protocol !== 'https:' || callback.hostname !== 'restaumax.vercel.app') {
+  if (callback.protocol !== 'https:' || !(callback.hostname === 'restaumax.vercel.app' || (callback.hostname.startsWith('restaumax-') && callback.hostname.endsWith('.vercel.app')))) {
     return { success: false, error: 'Le callback de remboursement doit appartenir au domaine HTTPS RestauMax.' };
   }
 
