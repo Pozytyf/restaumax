@@ -458,7 +458,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                 {menuItemsCount}
               </div>
               <span className="text-[11px] text-slate-500 font-medium mt-0.5 block">
-                Catalogue actif Chez Awa
+                Catalogue actif · {restaurant.name}
               </span>
             </div>
 
