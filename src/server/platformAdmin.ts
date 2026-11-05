@@ -166,6 +166,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           if (!subscriptionSnap.exists && data.subscription && typeof data.subscription === 'object') {
             await subscriptionRef.set(data.subscription);
             await d.ref.update({ subscription: FieldValue.delete() });
+            await db.collection('admin_audit_logs').add({
+              action: 'migrate_restaurant_subscription_private',
+              restaurantSlug: d.id, actorUid: user.uid, createdAt: Date.now()
+            });
             subscriptionSnap = await subscriptionRef.get();
           } else if (subscriptionSnap.exists && data.subscription !== undefined) {
             await d.ref.update({ subscription: FieldValue.delete() });
