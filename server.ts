@@ -46,7 +46,7 @@ import {
   OrderProbeResult,
   IdempotencyReservationResult
 } from './src/server/orderService.js';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb } from './src/server/paymentService.js';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
 import {
   authorizeTableManager,
   buildCsrfCookie,
@@ -897,6 +897,8 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     const canViewCash = isOwner || member.role === 'manager' ||
       (member.role === 'cashier' && Array.isArray(member.permissions) &&
         (member.permissions.includes('cash.view') || member.permissions.includes('cash.manage') || member.permissions.includes('reports.cash.view')));
+    const canRefundPayments = isOwner || member.role === 'manager' ||
+      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('payments.refund'));
 
     if (method === 'GET') {
       if (!canViewCash) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les encaissements.' } };
@@ -933,6 +935,25 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       if (result.conflict) return { statusCode: 409, body: result };
       return { statusCode: 400, body: result };
     }
+    if (input.action === 'refund_cash_payment') {
+      if (!canRefundPayments) {
+        return { statusCode: 403, body: { success: false, error: 'Votre rôle ne possède pas la permission de remboursement.' } };
+      }
+      const result = await refundCashPaymentWithDb(adminDb, {
+        restaurantSlug: slug,
+        paymentId: String(input.paymentId || ''),
+        actorUid: decoded.uid,
+        actorName: String(decoded.name || decoded.email || decoded.uid),
+        sessionVersion: Number(decoded.sessionVersion || 0),
+        amount: input.amount,
+        reason: String(input.reason || ''),
+        idempotencyKey: String(input.idempotencyKey || '')
+      });
+      if (result.success) return { statusCode: 200, body: result };
+      if (result.conflict) return { statusCode: 409, body: result };
+      return { statusCode: 400, body: result };
+    }
+
     if (input.action === 'record_cash_movement') {
       const result = await recordCashMovementWithDb(adminDb, {
         restaurantSlug: slug,
