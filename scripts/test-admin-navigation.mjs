@@ -6,6 +6,7 @@ const app = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const firebase = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 const dishForm = fs.readFileSync(new URL('../src/components/restaumax/DishFormModal.tsx', import.meta.url), 'utf8');
 const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
+const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 assert(hub.includes("actionLabel: canViewCatalog ? 'Gérer les options, suppléments et prix'"), 'module 3 is clearly labelled and permission-gated as catalogue management');
 assert(hub.includes("id: 'options-prices'") && hub.includes("setActiveTab('menu_catalog')"), 'module 3 opens the administrative catalogue instead of the public client menu');
 assert(hub.includes('Carte bancaire non activée en V1'), 'the cash register module does not advertise an unavailable card payment method');
@@ -24,6 +25,12 @@ assert(dishForm.includes('await onSave(savedDish)'), 'dish form closes only afte
 assert(dishForm.includes('setSaveError(message)'), 'dish form preserves the form and displays persistence errors');
 assert(dishForm.includes('disabled={isSaving}'), 'dish form prevents duplicate submissions and closing while saving');
 assert(menuView.includes('await onCreateDish(dish)') && menuView.includes('await onUpdateDish(dish)'), 'catalogue view awaits create and update operations');
+assert(firebase.includes('transaction.delete(recipeRef)') && firebase.includes('transaction.delete(menuItemRef)'),
+  'deleting a catalogue item also removes its linked recipe in one transaction');
+assert(firestoreRules.includes('!existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuRecipes/$(dishId))') &&
+  firestoreRules.includes('!existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuItems/$(menuItemId))'),
+  'Firestore prevents orphaned recipes and requires linked catalogue deletion to be atomic');
+
 assert(app.includes('subscribeToMenuItems(') && app.includes('activeRestaurantSlug'),
   'the customer menu and management workspace subscribe to the selected restaurant catalogue');
 assert(app.includes('setMenuItems(activeMenuItems.map((dish) => ({'),
