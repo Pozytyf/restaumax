@@ -18,8 +18,10 @@ function clean(value: unknown, max = 160): string {
   return String(value ?? '').trim().slice(0, max);
 }
 function normalizePhone(value: unknown): string | null {
-  const phone = clean(value, 32).replace(/[\s().-]/g, '');
-  return /^[0-9]{8,15}$/.test(phone) ? phone : null;
+  const digits = clean(value, 32).replace(/\D/g, '');
+  const localPhone = digits.startsWith('225') && digits.length === 13 ? digits.slice(3) : digits;
+  // Côte d’Ivoire mobile aliases are stored without the +225 country prefix.
+  return /^[0-9]{10}$/.test(localPhone) ? localPhone : null;
 }
 function asObject(value: unknown): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
