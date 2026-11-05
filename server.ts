@@ -48,6 +48,11 @@ import {
 } from './src/server/orderService.js';
 import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb } from './src/server/paymentService.js';
 import {
+  saveJekoPaymentConfigWithDb,
+  getJekoPaymentConfigStatusWithDb,
+  deleteJekoPaymentConfigWithDb
+} from './src/server/paymentProviderConfigService.js';
+import {
   authorizeTableManager,
   buildCsrfCookie,
   buildSessionCookie,
@@ -855,6 +860,70 @@ export async function handleTableQrManagement(req: any) {
   }
 }
 
+export async function handleJekoPaymentConfigRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) {
+    return { statusCode: 503, body: { success: false, error: 'Service de configuration des paiements indisponible.' } };
+  }
+  const method = String(req?.method || '').toUpperCase();
+  if (!['GET', 'POST', 'DELETE'].includes(method)) {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (method !== 'GET' && (!req || !requestHasValidOrigin(req))) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion propriétaire requise.' } };
+
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
+    const rawSlug = method === 'GET' ? req.query?.restaurantSlug : input.restaurantSlug;
+    const slug = typeof rawSlug === 'string' ? rawSlug.trim() : '';
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) {
+      return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+    }
+
+    const [restaurantSnap, memberSnap] = await Promise.all([
+      adminDb.collection('restaurants').doc(slug).get(),
+      adminDb.collection('managers').doc(decoded.uid).get()
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = memberSnap.exists ? memberSnap.data() : null;
+    const isOwner = member?.role === 'owner' && restaurant?.ownerUid === decoded.uid;
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(decoded.sessionVersion || 0) !== Number(member.sessionVersion || 0) || !isOwner) {
+      return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire actif de ce restaurant peut configurer le prestataire.' } };
+    }
+
+    if (method === 'GET') {
+      const status = await getJekoPaymentConfigStatusWithDb(adminDb, slug);
+      return { statusCode: 200, body: { success: true, status } };
+    }
+    if (method === 'DELETE') {
+      const result = await deleteJekoPaymentConfigWithDb(adminDb, slug, decoded.uid, Number(decoded.sessionVersion || 0));
+      return { statusCode: result.success ? 200 : 400, body: result };
+    }
+
+    const result = await saveJekoPaymentConfigWithDb(adminDb, slug, decoded.uid, Number(decoded.sessionVersion || 0), {
+      apiKey: String(input.apiKey || ''),
+      apiKeyId: String(input.apiKeyId || ''),
+      storeId: String(input.storeId || ''),
+      webhookSecret: String(input.webhookSecret || '')
+    });
+    return { statusCode: result.success ? 200 : 400, body: result };
+  } catch (err: any) {
+    const message = String(err?.message || '');
+    if (/auth|token|revoked|expired/i.test(message)) {
+      return { statusCode: 401, body: { success: false, error: 'Session invalide. Reconnectez-vous.' } };
+    }
+    console.error('Erreur API configuration Jèko:', message || String(err));
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne de configuration du prestataire.' } };
+  }
+}
+
 export async function handlePaymentsRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) {
     return { statusCode: 503, body: { success: false, error: 'Service de caisse indisponible : Firebase Admin non configuré.' } };
@@ -1052,6 +1121,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any = adminDb)
 // Local Express routes. Vercel uses the equivalent files in /api.
 app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
+});
+
+app.all('/api/payment-provider-config', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleJekoPaymentConfigRequest(req.method === 'GET' ? undefined : req.body, req);
+  return res.status(result.statusCode).json(result.body);
 });
 
 app.all('/api/payments', async (req, res) => {
