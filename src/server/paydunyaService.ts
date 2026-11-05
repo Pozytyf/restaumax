@@ -7,6 +7,7 @@ export interface PayDunyaConfig {
   masterKey: string;
   privateKey: string;
   token: string;
+  perEnabled: boolean;
   createInvoiceUrl: string;
   confirmInvoiceBaseUrl: string;
 }
@@ -96,6 +97,7 @@ export function getPayDunyaConfig(
       masterKey,
       privateKey,
       token,
+      perEnabled: env.PAYDUNYA_PER_ENABLED === 'true',
       createInvoiceUrl: `${base}/checkout-invoice/create`,
       confirmInvoiceBaseUrl: `${base}/checkout-invoice/confirm`
     }
@@ -259,6 +261,55 @@ export async function confirmPayDunyaInvoice(
     };
   } catch {
     return { success: false, error: 'Impossible de vérifier le statut PayDunya.' };
+  }
+}
+
+export interface PayDunyaRedistributionResult {
+  transactionId: string;
+  description: string;
+}
+
+export async function createPayDunyaRedistribution(
+  config: PayDunyaConfig,
+  accountAlias: string,
+  amount: number,
+  fetchImpl: typeof fetch = fetch
+): Promise<PayDunyaResult<PayDunyaRedistributionResult>> {
+  if (!config.perEnabled) {
+    return { success: false, error: 'La redistribution PER PayDunya n’est pas activée côté serveur.' };
+  }
+  const alias = cleanText(accountAlias, 160);
+  const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(alias);
+  const isPhone = /^[0-9]{8,15}$/.test(alias);
+  const isPayDunyaAccountId = /^BBJ[A-Z0-9]{8,20}$/i.test(alias);
+  if ((!isEmail && !isPhone && !isPayDunyaAccountId) ||
+      !Number.isSafeInteger(amount) || amount <= 0 || amount > 100_000_000) {
+    return { success: false, error: 'Destinataire PayDunya ou montant de redistribution invalide.' };
+  }
+
+  const baseUrl = config.createInvoiceUrl.replace('/checkout-invoice/create', '');
+  const endpoint = `${baseUrl}/direct-pay/credit-account`;
+  try {
+    const response = await fetchImpl(endpoint, {
+      method: 'POST',
+      headers: payDunyaHeaders(config),
+      body: JSON.stringify({ account_alias: alias, amount })
+    });
+    if (!response.ok) return { success: false, error: 'PayDunya ne répond pas correctement à la demande de redistribution.' };
+    const data = await response.json() as Record<string, unknown>;
+    const transactionId = cleanText(data.transaction_id, 128);
+    if (data.response_code !== '00' || !transactionId) {
+      return { success: false, error: cleanText(data.description || data.response_text, 250) || 'Redistribution PayDunya refusée.' };
+    }
+    return {
+      success: true,
+      data: {
+        transactionId,
+        description: cleanText(data.description || data.response_text, 250)
+      }
+    };
+  } catch {
+    return { success: false, error: 'Impossible de confirmer la redistribution PayDunya. Vérifiez le tableau de bord avant toute nouvelle tentative.' };
   }
 }
 
