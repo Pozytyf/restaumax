@@ -152,7 +152,7 @@ export const RestaurantAdminModuleView: React.FC<{
   };
 
   const removeInventoryItem = async (id: string) => {
-    if (!canManage || !window.confirm('Supprimer cet article du stock ?')) return;
+    if (!canManage || !window.confirm('Archiver cet article du stock ? L’historique de ses mouvements sera conservé.')) return;
     setLoading(true);
     try {
       const result = await archiveInventoryItemWithServerValidation(restaurant.slug, id);
