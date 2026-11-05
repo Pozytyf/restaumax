@@ -896,7 +896,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
     const canViewCash = isOwner || member.role === 'manager' ||
       (member.role === 'cashier' && Array.isArray(member.permissions) &&
-        (member.permissions.includes('cash.view') || member.permissions.includes('reports.cash.view')));
+        (member.permissions.includes('cash.view') || member.permissions.includes('cash.manage') || member.permissions.includes('reports.cash.view')));
 
     if (method === 'GET') {
       if (!canViewCash) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les encaissements.' } };
