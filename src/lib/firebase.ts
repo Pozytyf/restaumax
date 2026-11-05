@@ -541,6 +541,7 @@ export async function submitPosOrderWithServerValidation(
 export interface CashPaymentApiRecord {
   id: string;
   restaurantSlug: string;
+  cashSessionId?: string;
   orderId: string;
   orderNumber: string;
   tableNumber: string | null;
@@ -559,6 +560,72 @@ export interface CashPaymentApiRecord {
   paymentStatus: 'partial' | 'paid';
   items: any[];
   createdAt: number;
+}
+
+export interface CashSessionApiRecord {
+  id: string;
+  restaurantSlug: string;
+  openedByUid: string;
+  openedByName: string;
+  openingBalance: number;
+  cashCollected: number;
+  paymentCount: number;
+  status: 'active' | 'closed';
+  openedAt: number;
+  closedAt?: number;
+  closingCount?: number;
+  expectedCash?: number;
+  variance?: number;
+}
+
+async function cashSessionRequest(
+  restaurantSlug: string,
+  body?: Record<string, unknown>,
+  action = 'session_status'
+): Promise<{ success: true; session: CashSessionApiRecord | null; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch(
+      body ? '/api/payments' : `/api/payments?restaurantSlug=${encodeURIComponent(restaurantSlug)}&action=${encodeURIComponent(action)}`,
+      {
+        method: body ? 'POST' : 'GET',
+        headers: {
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+          Authorization: `Bearer ${idToken}`,
+        },
+        credentials: 'same-origin',
+        cache: 'no-store',
+        ...(body ? { body: JSON.stringify({ restaurantSlug, ...body }) } : {}),
+      }
+    );
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'Opération de caisse refusée.' };
+    }
+    return { success: true, session: data.session || null, idempotentReplay: data.idempotentReplay === true };
+  } catch (err: any) {
+    console.error('Erreur API session de caisse:', err);
+    return { success: false, error: err?.message || 'Erreur réseau pendant la gestion de caisse.' };
+  }
+}
+
+export async function getCashSessionWithServerValidation(restaurantSlug: string) {
+  return cashSessionRequest(restaurantSlug);
+}
+
+export async function openCashSessionWithServerValidation(
+  restaurantSlug: string, openingBalance: number, idempotencyKey: string
+) {
+  return cashSessionRequest(restaurantSlug, { action: 'open_session', openingBalance, idempotencyKey });
+}
+
+export async function closeCashSessionWithServerValidation(
+  restaurantSlug: string, closingCount: number, idempotencyKey: string
+) {
+  return cashSessionRequest(restaurantSlug, { action: 'close_session', closingCount, idempotencyKey });
 }
 
 export async function collectCashPaymentWithServerValidation(
