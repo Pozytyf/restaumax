@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
+import { calculateSubscriptionMetrics } from '../../lib/subscriptionMetrics';
 import { Building2, ShieldCheck, LogOut, Plus, RefreshCw, Ban, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 
 type RestaurantRow = {
@@ -96,6 +97,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
     };
     return labels[cycle || ''] || 'période non définie';
   };
+
+  const subscriptionMetrics = calculateSubscriptionMetrics(restaurants);
 
   const editSubscription = (restaurant: RestaurantRow) => {
     const subscription = restaurant.subscription || {};
@@ -218,11 +221,15 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <label className="block text-sm">Adresse e-mail<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/></label>
         <label className="block text-sm">Mot de passe<div className="relative mt-1"><input required type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
         <button disabled={loading} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white disabled:opacity-50">{loading ? 'Connexion…' : 'Se connecter'}</button>
-      </form> : <><section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Restaurants enregistrés</p><p className="mt-2 text-3xl font-black">{restaurants.length}</p></div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements actifs</p><p className="mt-2 text-3xl font-black">{restaurants.filter(r=>r.status !== 'suspended' && r.status !== 'deleted' && !r.deletedAt).length}</p></div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Compte connecté</p><p className="mt-2 truncate text-sm font-bold">{user.email}</p></div>
+      </form> : <><section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-400">Restaurants enregistrés</p><p className="mt-2 text-2xl font-black">{subscriptionMetrics.restaurantCount}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-400">Établissements actifs</p><p className="mt-2 text-2xl font-black">{subscriptionMetrics.activeRestaurantCount}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-400">Abonnements actifs</p><p className="mt-2 text-2xl font-black text-emerald-300">{subscriptionMetrics.activeSubscriptionCount}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-400">Périodes d’essai</p><p className="mt-2 text-2xl font-black text-sky-300">{subscriptionMetrics.trialSubscriptionCount}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-400">À régulariser / expirés</p><p className="mt-2 text-2xl font-black text-amber-300">{subscriptionMetrics.attentionSubscriptionCount}</p></div>
+        <div className="rounded-2xl border border-violet-900 bg-violet-950/30 p-4"><p className="text-xs text-violet-200">MRR contractuel estimé</p><p className="mt-2 text-xl font-black text-white">{subscriptionMetrics.estimatedMonthlyRevenue.toLocaleString('fr-FR')} FCFA</p><p className="mt-1 text-[10px] text-violet-300">Mensuel + annuel / 12 · hors personnalisés · non encaissé</p></div>
       </section>
+      <p className="text-xs text-slate-500">Session super-administrateur : {user.email}</p>
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-black">Gestion des restaurants</h2><p className="text-sm text-slate-400">Création, attribution du propriétaire et activation des établissements.</p></div><div className="flex gap-2"><button onClick={refresh} disabled={loading} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm"><RefreshCw size={15}/> Actualiser</button><button onClick={()=>setShowCreate(v=>!v)} className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-bold"><Plus size={16}/> Nouveau restaurant</button></div></div>
       {showCreate && <form onSubmit={createRestaurant} className="grid gap-3 rounded-2xl border border-slate-700 bg-slate-900 p-5 md:grid-cols-2">
         <h3 className="md:col-span-2 text-lg font-bold">Enregistrer un restaurant et son propriétaire</h3>
