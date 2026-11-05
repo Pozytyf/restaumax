@@ -65,6 +65,32 @@ const createConflict = await manageInventoryWithDb(createDb, {
 assert.equal(createConflict.success, false);
 
 
+const updateDb = seed();
+const update = await manageInventoryWithDb(updateDb, {
+  ...common, action: 'update', itemId: 'rice', name: 'Riz parfumé', unit: 'kg',
+  minQuantity: 3, unitCost: 650, supplier: 'Fournisseur B'
+});
+assert.equal(update.success, true);
+assert.equal(updateDb.documents.get('restaurants/chez-awa/inventoryItems/rice').name, 'Riz parfumé');
+assert.equal(updateDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
+assert.equal(updateDb.documents.get('restaurants/chez-awa/inventoryItems/rice').unitCost, 650);
+
+const unitChangeBlocked = await manageInventoryWithDb(seed(), {
+  ...common, action: 'update', itemId: 'rice', name: 'Riz', unit: 'g',
+  minQuantity: 2, unitCost: 500, supplier: ''
+});
+assert.equal(unitChangeBlocked.success, false);
+const zeroStockDb = seed();
+zeroStockDb.documents.set('restaurants/chez-awa/inventoryItems/rice', {
+  ...zeroStockDb.documents.get('restaurants/chez-awa/inventoryItems/rice'), quantity: 0
+});
+const unitChangeAllowed = await manageInventoryWithDb(zeroStockDb, {
+  ...common, action: 'update', itemId: 'rice', name: 'Riz', unit: 'g',
+  minQuantity: 2000, unitCost: 500, supplier: ''
+});
+assert.equal(unitChangeAllowed.success, true);
+assert.equal(zeroStockDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 0);
+
 const moveDb = seed();
 const moveParams = { ...common, action: 'move', itemId: 'rice', delta: -2.5, reason: 'Préparation service', idempotencyKey: 'movement-key-000001' };
 const move = await manageInventoryWithDb(moveDb, moveParams);
@@ -119,5 +145,7 @@ assert(inventoryUi.includes('sessionStorage.getItem(storageKey)'), 'the UI reuse
 assert(inventoryUi.includes('pendingMove?.idempotencyKey'), 'the UI reuses the exact idempotency key for an uncertain movement');
 assert(inventoryUi.includes('pending-create:${restaurant.slug}') && inventoryUi.includes('sessionStorage.setItem(storageKey, inventoryCreateKey)'), 'create idempotency keys survive refreshes after ambiguous responses');
 assert(inventoryUi.includes('!result.retryable'), 'definitive stock errors clear the pending retry key');
+assert(inventoryUi.includes('updateInventoryItemWithServerValidation') && inventoryUi.includes('startEditInventoryItem(item)'), 'inventory metadata can be edited through the trusted API');
+assert(firebaseSource.includes("action: 'update'"), 'the client helper routes metadata changes through the backend action');
 assert(firebaseSource.includes('retryable: true'), 'network failures are distinguished from definitive stock rejections');
 console.log('Inventory service and retry-safe UI: tests passed.');
