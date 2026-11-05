@@ -56,6 +56,7 @@ export interface StartPayDunyaOrderPaymentInput {
   returnUrl: string;
   cancelUrl: string;
   channel: PayDunyaCiWithdrawMode;
+  amount?: number;
   customerTableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string; tableNumber: string };
 }
 
@@ -102,7 +103,7 @@ export async function startPayDunyaOrderPaymentWithDb(
 
   const namespace = `${slug}::${orderId}::${key}`;
   const intentId = `pdi_${sha256(namespace).slice(0, 32)}`;
-  const signature = sha256(JSON.stringify({ slug, orderId, channel: input.channel }));
+  const signature = sha256(JSON.stringify({ slug, orderId, channel: input.channel, requestedAmount: input.amount ?? null }));
   const restaurantRef = db.collection('restaurants').doc(slug);
   const memberRef = db.collection('managers').doc(actorUid);
   const orderRef = restaurantRef.collection('orders').doc(orderId);
@@ -191,10 +192,14 @@ export async function startPayDunyaOrderPaymentWithDb(
     if (!Number.isSafeInteger(total) || total <= 0 || !Number.isSafeInteger(paid) || paid < 0 || paid >= total) {
       return { ok: false, error: 'Le solde de la commande est nul ou incohérent.' };
     }
+    const remainingAmount = total - paid;
+    const amount = input.amount === undefined ? remainingAmount : Number(input.amount);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > remainingAmount) {
+      return { ok: false, error: 'Le montant Mobile Money doit être un entier positif et ne peut pas dépasser le solde restant.' };
+    }
     if (order.pendingPayDunyaIntentId && order.pendingPayDunyaIntentId !== intentId) {
       return { ok: false, conflict: true, error: 'Une autre facture PayDunya est déjà ouverte pour cette commande. Attendez sa confirmation ou son annulation.' };
     }
-    const amount = total - paid;
     const now = Date.now();
     tx.create(intentRef, {
       id: intentId, restaurantSlug: slug, orderId, actorUid,
