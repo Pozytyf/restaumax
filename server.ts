@@ -971,7 +971,7 @@ export async function handleCustomerPayDunyaReconcileRequest(payload: unknown, r
         Number(binding.qrVersion) !== Number(session.qrVersion) || binding.tableId !== session.tableId) {
       return { statusCode: 403, body: { success: false, error: 'Cette commande ne correspond pas à la session QR de votre table.' } };
     }
-    const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
+    const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env, true);
     if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
     const result = await reconcilePayDunyaInvoiceIntentWithDb(
       adminDb, config.data, slug, paymentIntentId
@@ -1114,7 +1114,8 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     }
 
     if (input.action === 'reconcile_paydunya_payment') {
-      const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
+      // Settlement-only access: allow reconciling an existing invoice after merchant disconnect.
+      const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env, true);
       if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
       const result = await reconcilePayDunyaInvoiceIntentWithDb(
         adminDb, config.data, slug, String(input.paymentIntentId || '')
