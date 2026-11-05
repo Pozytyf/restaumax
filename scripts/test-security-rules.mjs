@@ -137,6 +137,20 @@ try {
   await denies(setDoc(doc(a('server-a'),'restaurants/rest-a/payments/payment-1'),{amount:1000}), 'Un serveur ne peut pas créer un paiement');
   await denies(updateDoc(order(a('server-a'),'rest-a'),{status:'cancelled'}), 'Un serveur ne peut pas annuler une commande');
 
+  // 2b. Catalogue writes are tenant-scoped and require the menu.manage role ceiling.
+  const managerDish = doc(a('manager-a'), 'restaurants/rest-a/menuItems/dish-manager-created');
+  await allows(setDoc(managerDish, {
+    id:'dish-manager-created', restaurantSlug:'rest-a', name:'Plat manager',
+    category:'plats', price:2500, available:true, description:'Test', imageUrl:'',
+    prepTimeMinutes:15
+  }), 'Un manager autorisé peut créer un plat dans le catalogue de son restaurant');
+  await allows(updateDoc(managerDish, { price:2750 }), 'Un manager autorisé peut modifier le prix d’un plat');
+  await denies(updateDoc(managerDish, { restaurantSlug:'rest-b' }), 'Un manager ne peut pas déplacer un plat vers un autre restaurant');
+  await allows(deleteDoc(managerDish), 'Un manager autorisé peut supprimer un plat du catalogue');
+  await denies(deleteDoc(doc(a('cashier-a'),'restaurants/rest-a/menuItems/dish-1')), 'Un caissier ne peut pas supprimer un plat du catalogue');
+  await denies(deleteDoc(doc(a('cashier-escalated'),'restaurants/rest-a/menuItems/dish-1')), 'Un droit menu.manage falsifié ne permet pas de supprimer un plat hors plafond de rôle');
+  await denies(updateDoc(doc(a('server-a'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un serveur sans menu.manage ne peut pas modifier le catalogue');
+
   // 3. A cashier cannot change menu prices or staff permissions.
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un caissier ne peut pas modifier le prix du menu');
   await denies(updateDoc(doc(a('cashier-escalated'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un droit menu.manage falsifié ne dépasse pas le plafond du caissier');
