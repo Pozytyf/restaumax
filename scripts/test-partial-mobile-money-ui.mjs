@@ -13,4 +13,6 @@ assert(app.includes('paymentIdempotencyKey, paymentData.paidAmount'), 'POS sends
 assert(firebase.includes('idempotencyKey, amount'), 'Client request transmits the amount to the backend');
 assert(qrModal.includes('requestedPaymentAmount'), 'Customer QR checkout lets the customer choose a partial payment amount');
 assert(qrModal.includes('onStartPayDunyaPayment(order, selectedChannel, requestedPaymentAmount)'), 'Customer QR sends the chosen amount to the payment handler');
+assert(app.includes("authUser ? '/gestion' : `/r/${activeRestaurantSlug}?table_session=1`"), 'QR customers return to the table menu after hosted checkout');
+assert(app.includes("disabled={paydunyaReturnStatus === 'checking' || !paymentReturnIntentId}"), 'QR customers can retry secure reconciliation without staff authentication');
 console.log('Partial Mobile Money UI checks passed.');
