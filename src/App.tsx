@@ -23,6 +23,8 @@ import {
   submitPosOrderWithServerValidation,
   collectCashPaymentWithServerValidation,
   createPayDunyaPaymentWithServerValidation,
+  createCustomerPayDunyaPaymentWithServerValidation,
+  reconcileCustomerPayDunyaPaymentWithServerValidation,
   refundPayDunyaPaymentWithServerValidation,
   reconcilePayDunyaPaymentWithServerValidation,
   listRecentCashPaymentsWithServerValidation,
@@ -142,7 +144,7 @@ export default function App() {
   const [authIsSuperAdmin, setAuthIsSuperAdmin] = useState<boolean>(false);
   const routeRestaurantSlug = activePathname.startsWith('/r/') ? activePathname.split('/')[2] : '';
   const queryRestaurantSlug = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('restaurant') || new URL(currentPath, 'http://localhost').searchParams.get('restaurantSlug') || ''; } catch { return ''; } })();
-  const activeRestaurantSlug = routeRestaurantSlug || (authIsSuperAdmin ? queryRestaurantSlug : authRestaurantSlug) || authRestaurantSlug || 'chez-awa';
+  const activeRestaurantSlug = routeRestaurantSlug || (authUser ? (authIsSuperAdmin ? queryRestaurantSlug : authRestaurantSlug) : queryRestaurantSlug) || authRestaurantSlug || 'chez-awa';
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
   const isStaffRoute = activePathname === '/staff';
@@ -351,14 +353,31 @@ export default function App() {
   const serverName = authUser?.displayName || authUser?.email?.split('@')[0] || 'Personnel';
 
   const reconcilePayDunyaReturn = async () => {
-    if (!authUser || !paymentReturnIntentId) {
+    if (!paymentReturnIntentId) {
       setPaydunyaReturnStatus('error');
-      setPaydunyaReturnError('Reconnectez-vous au compte du restaurant pour vérifier cette commande.');
+      setPaydunyaReturnError('Référence de paiement absente de l’URL de retour.');
       return;
     }
     setPaydunyaReturnStatus('checking');
     setPaydunyaReturnError('');
-    const result = await reconcilePayDunyaPaymentWithServerValidation(activeRestaurantSlug, paymentReturnIntentId);
+    let result:
+      | { success: true; status: string }
+      | { success: false; error: string };
+    try {
+      const tableResponse = await fetch('/api/table-session', { credentials: 'same-origin', cache: 'no-store' });
+      const tableData = tableResponse.ok ? await tableResponse.json() : null;
+      if (tableData?.success && tableData.restaurantSlug === activeRestaurantSlug && tableData.csrfToken) {
+        result = await reconcileCustomerPayDunyaPaymentWithServerValidation(
+          activeRestaurantSlug, paymentReturnIntentId, tableData.csrfToken
+        );
+      } else if (authUser) {
+        result = await reconcilePayDunyaPaymentWithServerValidation(activeRestaurantSlug, paymentReturnIntentId);
+      } else {
+        result = { success: false, error: 'Session QR expirée. Le paiement sera tout de même rapproché par la notification PayDunya ; reconnectez-vous ou rescanez le QR pour consulter son statut.' };
+      }
+    } catch {
+      result = { success: false, error: 'Impossible de récupérer la session de paiement. Le callback PayDunya reste la source de confirmation.' };
+    }
     if (!result.success) {
       setPaydunyaReturnStatus('error');
       setPaydunyaReturnError(result.error);
@@ -371,7 +390,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (isPaymentReturnRoute && authUser && paymentReturnIntentId) {
+    if (isPaymentReturnRoute && paymentReturnIntentId) {
       void reconcilePayDunyaReturn();
     }
   }, [isPaymentReturnRoute, authUser, activeRestaurantSlug, paymentReturnIntentId]);
@@ -756,6 +775,24 @@ export default function App() {
   };
 
   // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation & atomic idempotency)
+  const handleStartClientPayDunya = async (
+    order: RestauOrder,
+    channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci'
+  ): Promise<void> => {
+    if (!tableSession || tableSession.restaurantSlug !== activeRestaurantSlug) {
+      window.alert('Pour payer par Mobile Money, scannez à nouveau le QR code de votre table afin de sécuriser la session.');
+      return;
+    }
+    const result = await createCustomerPayDunyaPaymentWithServerValidation(
+      activeRestaurantSlug, order.id, channel, generateClientOrderIdempotencyKey(), tableSession.csrfToken
+    );
+    if (!result.success) {
+      window.alert(`Facture PayDunya non créée : ${result.error}`);
+      return;
+    }
+    window.location.assign(result.checkoutUrl);
+  };
+
   const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
     if (tableSessionExpected && !tableSession) {
       return { success: false, error: 'La session de cette table est indisponible ou a été révoquée. Scannez à nouveau le QR code physique.' };
@@ -1435,6 +1472,7 @@ export default function App() {
           onRemoveItem={handleRemoveClientCartItem}
           onClearCart={handleClearClientCart}
           onConfirmOrder={handleClientOrderConfirm}
+          onStartPayDunyaPayment={handleStartClientPayDunya}
           isUncertain={isOrderUncertain}
           tableSessionUnavailable={tableSessionExpected && !tableSessionChecking && !tableSession}
           catalogLoading={activeMenuLoading}
