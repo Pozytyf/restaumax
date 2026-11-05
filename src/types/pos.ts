@@ -83,6 +83,7 @@ export interface PaymentRecord {
   total: number;
   paidAmount: number;
   tenderedAmount?: number;
+  previouslyPaidAmount?: number;
   changeAmount: number;
   remainingAmount?: number;
   paymentStatus?: 'partial' | 'paid';
