@@ -127,11 +127,11 @@ service cloud.firestore {
         && data.restaurantSlug is string && data.restaurantSlug.size() > 0 && data.restaurantSlug.size() <= 100
         && data.name is string && data.name.size() > 0 && data.name.size() <= 200
         && data.category in ['grillades', 'plats', 'entrees', 'accompagnements', 'boissons', 'desserts']
-        && data.price is int && data.price >= 0
+        && data.price is int && data.price > 0
         && data.available is bool
         && (!data.keys().hasAny(['description']) || (data.description is string && data.description.size() <= 2000))
         && (!data.keys().hasAny(['imageUrl']) || (data.imageUrl is string && data.imageUrl.size() <= 2048))
-        && (!data.keys().hasAny(['prepTimeMinutes']) || (data.prepTimeMinutes is int && data.prepTimeMinutes >= 0 && data.prepTimeMinutes <= 1440))
+        && (!data.keys().hasAny(['prepTimeMinutes']) || (data.prepTimeMinutes is int && data.prepTimeMinutes >= 1 && data.prepTimeMinutes <= 1440))
         && (!data.keys().hasAny(['optionGroups']) || (data.optionGroups is list && data.optionGroups.size() <= 20))
         && (!data.keys().hasAny(['availableExtras']) || (data.availableExtras is list && data.availableExtras.size() <= 50))
         && (!data.keys().hasAny(['tags']) || (data.tags is list && data.tags.size() <= 30));
