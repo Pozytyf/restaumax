@@ -117,6 +117,7 @@ const inventoryUi = fs.readFileSync(new URL('../src/components/restaumax/Restaur
 const firebaseSource = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 assert(inventoryUi.includes('sessionStorage.getItem(storageKey)'), 'the UI reuses a pending movement key after a page reload');
 assert(inventoryUi.includes('pendingMove?.idempotencyKey'), 'the UI reuses the exact idempotency key for an uncertain movement');
+assert(inventoryUi.includes('pending-create:${restaurant.slug}') && inventoryUi.includes('sessionStorage.setItem(storageKey, inventoryCreateKey)'), 'create idempotency keys survive refreshes after ambiguous responses');
 assert(inventoryUi.includes('!result.retryable'), 'definitive stock errors clear the pending retry key');
 assert(firebaseSource.includes('retryable: true'), 'network failures are distinguished from definitive stock rejections');
 console.log('Inventory service and retry-safe UI: tests passed.');
