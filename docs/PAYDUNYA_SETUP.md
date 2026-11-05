@@ -6,7 +6,7 @@
 2. Dans le tableau de bord, créer une application d'intégration.
 3. Commencer en **mode Test** et récupérer les trois clés serveur : Master Key, Private Key et Token.
 4. Pour les redistributions aux restaurants, demander/activer explicitement le service **PER (Paiement et Redistribution)** dans la configuration de l'application PayDunya.
-5. Chaque restaurant bénéficiaire doit disposer d'un compte PayDunya et fournir un alias de réception vérifié (email ou numéro de téléphone).
+5. Chaque restaurant bénéficiaire doit disposer d'un compte PayDunya et fournir un alias de réception vérifié (email, numéro local sans indicatif pays ou identifiant de compte PayDunya).
 
 Ne jamais placer les clés dans Git, dans Firestore, dans le code frontend ou dans un message. Elles doivent être enregistrées uniquement dans les variables d'environnement Vercel.
 
