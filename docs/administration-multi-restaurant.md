@@ -46,4 +46,4 @@ Les éléments suivants ne doivent pas être présentés comme livrés tant que 
 - facturation/encaissement des abonnements RestauMax ;
 - migration assistée et auditée des anciens comptes `staff`.
 
-Les comptes créés avec un mot de passe initial nécessitent une transmission par canal privé et une procédure de changement dès la première connexion. L'absence de ces fonctions est une limite produit à traiter avant une commercialisation complète.
+Les comptes créés avec un mot de passe initial nécessitent une transmission par canal privé. Le formulaire de connexion propose déjà « Mot de passe oublié ? » via Firebase Authentication ; le membre peut demander un lien de réinitialisation. L'envoi automatique d'une invitation personnalisée à la création du compte et le transfert de propriété restent à traiter avant une commercialisation complète.
