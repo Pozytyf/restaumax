@@ -131,7 +131,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   const handleValidate = () => {
-    if (method !== 'especes' || tenderedAmount <= 0) {
+    const isMobileMoney = method !== 'especes' && method !== 'carte';
+    if (tenderedAmount <= 0 || (isMobileMoney && (tenderedAmount !== balanceDue || splitGuests > 1 || guestAccounts.length > 1))) {
+      sounds.playAlert();
+      return;
+    }
+    if (method === 'carte') {
       sounds.playAlert();
       return;
     }
@@ -139,7 +144,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     onConfirmPayment({
       method,
       paidAmount: tenderedAmount,
-      changeAmount,
+      changeAmount: isMobileMoney ? 0 : changeAmount,
       splitGuests,
       guestNumber,
       guestName: guestName.trim()
@@ -202,73 +207,38 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 Mode de Paiement
               </label>
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    sounds.playTap();
-                    setMethod('especes');
-                  }}
-                  className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${
-                    method === 'especes'
-                      ? 'bg-[#101d2d] text-white border-[#101d2d] shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
+                <button type="button" onClick={() => { sounds.playTap(); setMethod('especes'); }}
+                  className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${method === 'especes' ? 'bg-[#101d2d] text-white border-[#101d2d] shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}>
                   <Coins size={16} className={method === 'especes' ? 'text-amber-400' : 'text-slate-500'} />
                   Espèces FCFA
                 </button>
-
-                <button
-                  type="button"
-                  disabled
-                  onClick={() => {
-                    sounds.playTap();
-                    setMethod('wave');
-                    setTenderedStr(total.toString());
-                  }}
-                  className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${
-                    method === 'wave'
-                      ? 'bg-[#1ba8f0] text-white border-[#1ba8f0] shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'} opacity-50 cursor-not-allowed`}
-                >
-                  <Smartphone size={16} />
-                  Wave Money · bientôt
-                </button>
-
-                <button
-                  type="button"
-                  disabled
-                  onClick={() => {
-                    sounds.playTap();
-                    setMethod('orange_money');
-                    setTenderedStr(total.toString());
-                  }}
-                  className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${
-                    method === 'orange_money'
-                      ? 'bg-[#ff6500] text-white border-[#ff6500] shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'} opacity-50 cursor-not-allowed`}
-                >
-                  <Smartphone size={16} />
-                  Orange Money · bientôt
-                </button>
-
-                <button
-                  type="button"
-                  disabled
-                  onClick={() => {
-                    sounds.playTap();
-                    setMethod('carte');
-                    setTenderedStr(total.toString());
-                  }}
-                  className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${
-                    method === 'carte'
-                      ? 'bg-[#101d2d] text-white border-[#101d2d] shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'} opacity-50 cursor-not-allowed`}
-                >
-                  <CreditCard size={16} className={method === 'carte' ? 'text-emerald-400' : 'text-slate-500'} />
+                {([
+                  { value: 'wave', label: 'Wave', color: 'bg-[#1ba8f0] text-white border-[#1ba8f0]' },
+                  { value: 'orange_money', label: 'Orange Money', color: 'bg-[#ff6500] text-white border-[#ff6500]' },
+                  { value: 'mtn_money', label: 'MTN MoMo', color: 'bg-amber-500 text-white border-amber-500' },
+                  { value: 'moov_money', label: 'Moov Money', color: 'bg-blue-700 text-white border-blue-700' },
+                  { value: 'djamo', label: 'Djamo', color: 'bg-violet-700 text-white border-violet-700' }
+                ] as const).map((provider) => (
+                  <button key={provider.value} type="button"
+                    disabled={splitGuests > 1 || guestAccounts.length > 1}
+                    onClick={() => { sounds.playTap(); setMethod(provider.value); setTenderedStr(balanceDue.toString()); }}
+                    className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${method === provider.value ? provider.color + ' shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'} ${splitGuests > 1 || guestAccounts.length > 1 ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                    <Smartphone size={16} />
+                    {provider.label}
+                  </button>
+                ))}
+                <button type="button" disabled onClick={() => setMethod('carte')}
+                  className="h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs border bg-white text-slate-500 border-slate-200 opacity-40 cursor-not-allowed">
+                  <CreditCard size={16} />
                   Carte bancaire · bientôt
                 </button>
               </div>
+              {(splitGuests > 1 || guestAccounts.length > 1) && (
+                <p className="mt-2 text-[10px] text-amber-700">Les paiements Mobile Money des factures partagées seront activés après validation du rapprochement par convive.</p>
+              )}
+              {method !== 'especes' && method !== 'carte' && (
+                <p className="mt-2 text-[10px] text-slate-500">Le montant Mobile Money doit correspondre exactement au solde restant. Vous serez redirigé vers la page sécurisée PayDunya.</p>
+              )}
             </div>
 
             <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-3">
