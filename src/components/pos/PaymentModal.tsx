@@ -211,8 +211,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${
                     method === 'orange_money'
                       ? 'bg-[#ff6500] text-white border-[#ff6500] shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                   opacity-50 cursor-not-allowed}`}
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'} opacity-50 cursor-not-allowed`}
                 >
                   <Smartphone size={16} />
                   Orange Money · bientôt
@@ -229,8 +228,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   className={`h-12 rounded-xl flex items-center justify-center gap-2 font-bold text-xs transition-all border ${
                     method === 'carte'
                       ? 'bg-[#101d2d] text-white border-[#101d2d] shadow-sm'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                   opacity-50 cursor-not-allowed}`}
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'} opacity-50 cursor-not-allowed`}
                 >
                   <CreditCard size={16} className={method === 'carte' ? 'text-emerald-400' : 'text-slate-500'} />
                   Carte bancaire · bientôt
