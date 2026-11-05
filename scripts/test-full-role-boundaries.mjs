@@ -46,6 +46,9 @@ assert(platformAdmin.includes("await db.runTransaction(async (tx: any) =>") &&
 assert(qrView.includes('window.confirm') && qrView.includes('setIsRevoking(true)') &&
   qrView.includes('disabled={isGenerating || isRevoking}') &&
   qrView.includes("setQrDataUrl('')") && qrView.includes("setQrSvgString('')") && qrView.includes("setQrUrl('')"),
+assert(qrView.includes('const hasCurrentQr = Boolean(currentTable && qrForTableId === currentTable.id') &&
+  qrView.includes('qrForTableId !== currentTable.id') && qrView.includes('disabled={isGenerating || isRevoking || !hasCurrentQr}'),
+  'QR assets and downloads are bound to the selected table only');
   'QR revocation requires confirmation, prevents duplicate requests and clears all stale QR representations');
 assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
   hubView.includes("status: permissions.includes('tables.manage') ? 'active' : 'unavailable'"),
