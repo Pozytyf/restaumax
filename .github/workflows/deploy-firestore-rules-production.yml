@@ -1,3 +1,4 @@
+
 name: Deploy Firestore Rules — Production
 
 on:
@@ -21,13 +22,13 @@ concurrency:
 jobs:
   deploy-firestore-rules:
     name: Publish Firestore rules to the approved Production project
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      inputs.confirm_production == 'DEPLOY_FIRESTORE_RULES_TO_PRODUCTION'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     environment:
       name: firebase-production
+
     permissions:
       contents: read
       id-token: write
@@ -36,6 +37,18 @@ jobs:
       FIREBASE_PROJECT_ID: gen-lang-client-0138815290
 
     steps:
+      - name: Validate explicit Production confirmation
+        shell: bash
+        env:
+          CONFIRM_PRODUCTION: ${{ github.event.inputs.confirm_production }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" || "$CONFIRM_PRODUCTION" != "DEPLOY_FIRESTORE_RULES_TO_PRODUCTION" ]]; then
+            echo "::error::Explicit Production confirmation missing or invalid, or branch is not main. No deployment performed."
+            exit 1
+          fi
+          echo "Explicit Production confirmation accepted."
+
       - name: Checkout main
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
