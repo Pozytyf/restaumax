@@ -295,12 +295,9 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
 
   try {
     const tokenResult = await getIdTokenResult(user);
-    if (tokenResult.claims?.role === 'admin' || tokenResult.claims?.role === 'super_admin') {
-      return true;
-    }
 
-    // Restaurant owner, manager and staff privileges must also exist in the trusted
-    // server-provisioned membership document. This allows immediate account revocation.
+    // Restaurant operational access requires a trusted tenant membership.
+    // Platform super-admins must use /admin and never inherit restaurant operations.
     const managerDocRef = doc(db, 'managers', user.uid);
     const managerDoc = await getDoc(managerDocRef);
     const data = managerDoc.exists() ? managerDoc.data() : null;
@@ -313,26 +310,7 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
       return true;
     }
 
-    // A recreated super-admin account can be allowlisted server-side before its
-    // Firebase token has the corresponding custom claim. Only the trusted API
-    // may verify the private allowlist and issue that claim; never promote in-browser.
-    if (!user.email) return false;
-    try {
-      const idToken = await user.getIdToken();
-      const response = await fetch('/api/platform-admin', {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${idToken}` },
-        cache: 'no-store',
-      });
-      if (!response.ok) return false;
-
-      const refreshedToken = await getIdTokenResult(user, true);
-      return refreshedToken.claims?.role === 'admin' ||
-        refreshedToken.claims?.role === 'super_admin';
-    } catch (bootstrapError) {
-      console.warn('Initialisation du rôle super-administrateur impossible:', bootstrapError);
-      return false;
-    }
+    return false;
   } catch (err) {
     console.warn('Erreur lors de la vérification des privilèges gestionnaire:', err);
     return false;
