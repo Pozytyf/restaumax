@@ -201,10 +201,12 @@ async function run() {
     const paymentAfterClose = await recordCashPaymentWithDb(db, input('order-concurrent', 1000, 'cash-after-close-01'));
     assert(paymentAfterClose.success === false, 'Aucun nouvel encaissement n’est accepté après clôture');
     const cashSessions = await restaurantRef.collection('cashSessions').get();
+    const cashMovements = await restaurantRef.collection('cashMovements').get();
     assert(cashSessions.size === 1 && cashSessions.docs[0].data().paymentCount === 3 &&
       cashSessions.docs[0].data().cashOut === 500 &&
-      cashSessions.docs[0].data().cashMovementCount === 1,
-      'L’historique de session conserve encaissements et sorties de caisse');
+      cashSessions.docs[0].data().cashMovementCount === 1 &&
+      cashMovements.size === 1 && cashMovements.docs[0].data().amount === 500,
+      'L’historique de session conserve encaissements et mouvements de caisse exacts');
 
     console.log('\nRésultats paiements espèces : ' + passed + '/' + (passed + failed) + ' réussis (' + failed + ' échec(s)).');
     if (failed) process.exitCode = 1;
@@ -215,6 +217,8 @@ async function run() {
     if (idem) for (const doc of idem.docs) { try { await doc.ref.delete(); } catch {} }
     const sessions = await restaurantRef.collection('cashSessions').get().catch(() => null);
     if (sessions) for (const doc of sessions.docs) { try { await doc.ref.delete(); } catch {} }
+    const movements = await restaurantRef.collection('cashMovements').get().catch(() => null);
+    if (movements) for (const doc of movements.docs) { try { await doc.ref.delete(); } catch {} }
     const activeSessions = await restaurantRef.collection('cashSessionActive').get().catch(() => null);
     if (activeSessions) for (const doc of activeSessions.docs) { try { await doc.ref.delete(); } catch {} }
     for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, memberRef, restaurantRef]) {
