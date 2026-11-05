@@ -69,6 +69,8 @@ async function run() {
 
     console.log('\n--- Contrôles de permission et de session ---');
     await memberRef.update({ permissions: [] });
+    const replayDenied = await recordCashPaymentWithDb(db, input('order-main', 3000, 'cash-partial-0001'));
+    assert(replayDenied.success === false, 'Un paiement rejoué ne révèle pas le reçu si la permission a été retirée');
     const deniedPermission = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-no-perm-0001'));
     assert(deniedPermission.success === false, 'Un caissier sans cash.manage ne peut pas encaisser');
     await memberRef.update({ permissions: ['cash.manage', 'cash.view'] });
