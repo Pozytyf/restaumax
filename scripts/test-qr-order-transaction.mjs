@@ -95,6 +95,37 @@ async function run() {
     });
     assert(missingSession.success === false, 'Une commande sur place sans contexte de session est refusée');
 
+    await restaurantRef.update({ isOpen: true });
+    const staffOrderParams = buildParams('staff-order-' + Date.now());
+    const staffOrder = await executeOrderTransactionWithDb(db, {
+      ...staffOrderParams,
+      tableSession: undefined,
+      staffOrder: true,
+      staffTableId: tableId
+    });
+    assert(staffOrder.success === true, 'Une commande sur place du personnel authentifié peut être enregistrée sans session QR');
+
+    const wrongStaffTableParams = buildParams('staff-wrong-table-' + Date.now());
+    wrongStaffTableParams.orderToCreate.tableNumber = '999';
+    const wrongStaffTable = await executeOrderTransactionWithDb(db, {
+      ...wrongStaffTableParams,
+      tableSession: undefined,
+      staffOrder: true,
+      staffTableId: tableId
+    });
+    assert(wrongStaffTable.success === false, 'Une commande POS est refusée si le numéro de table ne correspond pas à la table validée');
+
+    await tableRef.update({ isActive: false });
+    const inactiveStaffTableParams = buildParams('staff-inactive-table-' + Date.now());
+    const inactiveStaffTable = await executeOrderTransactionWithDb(db, {
+      ...inactiveStaffTableParams,
+      tableSession: undefined,
+      staffOrder: true,
+      staffTableId: tableId
+    });
+    assert(inactiveStaffTable.success === false, 'Une commande POS est refusée si la table devient inactive avant la transaction');
+    await tableRef.update({ isActive: true });
+
     await restaurantRef.update({ isOpen: true, status: 'deleted', deletedAt: Date.now() });
     const deletedRestaurant = await executeOrderTransactionWithDb(db, buildParams('deleted-restaurant-' + Date.now()));
     assert(deletedRestaurant.success === false, 'Un restaurant supprimé logiquement ne peut plus recevoir de commande');
