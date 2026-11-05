@@ -368,6 +368,7 @@ export default function App() {
     guestNumber: Number(payment.guestNumber || 1),
     guestName: String(payment.guestName || ''),
     guestShareAmount: Number(payment.guestShareAmount || 0),
+    guestPreviouslyPaidAmount: Number(payment.guestPreviouslyPaidAmount || 0),
     guestRemainingAfter: Number(payment.guestRemainingAfter || 0),
     paymentMethod: 'especes',
     items: Array.isArray(payment.items) ? payment.items.map((item: any) => ({
