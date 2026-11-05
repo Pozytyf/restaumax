@@ -414,7 +414,7 @@ function validDisbursementToken(value: unknown): value is string {
 
 function validateDisbursementInput(input: PayDunyaDisbursementInput): string | null {
   const alias = cleanText(input.accountAlias, 32);
-  const isPhone = /^[0-9]{8,15}$/.test(alias);
+  const isPhone = /^[0-9]{10}$/.test(alias);
   const isPayDunyaAccount = /^BBJ[A-Z0-9]{8,20}$/i.test(alias);
   let callback: URL | null = null;
   try { callback = new URL(input.callbackUrl); } catch { /* invalid URL */ }
