@@ -4,7 +4,7 @@ import { auth } from '../../lib/firebase';
 import { Building2, ShieldCheck, LogOut, Plus, RefreshCw, Ban, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 
 type RestaurantRow = {
-  slug: string; name: string; ownerName?: string; ownerEmail?: string;
+  slug: string; name: string;
   status?: string; isOpen?: boolean; deletedAt?: number;
   subscription?: {
     planName?: string; priceFcfa?: number; currency?: string;
@@ -283,7 +283,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
           <button type="button" onClick={()=>setSubscriptionRestaurant(null)} className="rounded-lg border border-slate-700 px-4 py-2">Annuler</button>
         </div>
       </form>}
-      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-4 font-bold">Établissements ({restaurants.length})</div>{restaurants.length === 0 ? <p className="p-8 text-center text-sm text-slate-400">Aucun restaurant enregistré.</p> : restaurants.map(r=><React.Fragment key={r.slug}><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4"><div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3"><Building2 size={20}/></div><div><p className="font-bold">{r.name}</p><p className="text-xs text-slate-400">{r.slug} · {r.ownerName || r.ownerEmail || 'Propriétaire non renseigné'}</p>
+      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-4 font-bold">Établissements ({restaurants.length})</div>{restaurants.length === 0 ? <p className="p-8 text-center text-sm text-slate-400">Aucun restaurant enregistré.</p> : restaurants.map(r=><React.Fragment key={r.slug}><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4"><div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3"><Building2 size={20}/></div><div><p className="font-bold">{r.name}</p><p className="text-xs text-slate-400">{r.slug} · Identité du propriétaire protégée dans la vue synthèse</p>
                       <p className="text-[11px] text-violet-300">
                         {r.subscription?.planName
                           ? `${r.subscription.planName} · ${Number(r.subscription.priceFcfa || 0).toLocaleString('fr-FR')} FCFA · ${billingCycleLabel(r.subscription.billingCycle)} · ${subscriptionStatusLabel(r.subscription.status)}`
