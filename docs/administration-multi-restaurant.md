@@ -2,49 +2,48 @@
 
 ## Espaces et rôles
 
-- **Super-administrateur** : accès global à `/admin`. Il enregistre les restaurants, crée le compte du propriétaire et peut suspendre/réactiver un établissement.
-- **Propriétaire** : accès à `/gestion` sur son restaurant. Il dispose de tous les droits métier et gère les comptes du personnel.
-- **Gérant / personnel** : accès au seul restaurant auquel le compte est rattaché. Le propriétaire choisit les autorisations métier accordées.
+RestauMax distingue six rôles métier :
 
-Les rôles et permissions sont stockés dans les Firebase Custom Claims et dans les documents de confiance `/managers/{uid}`. Les règles Firestore vérifient le restaurant ciblé, le rôle, l'autorisation et l'état actif du compte. Les API d'administration vérifient le Firebase ID token côté serveur et ne font jamais confiance à un rôle fourni par le navigateur.
+- **Super-admin** : administration globale de la plateforme, création/suspension des restaurants et consultation d'indicateurs agrégés. Aucun accès opérationnel aux commandes, à la caisse ou aux données financières détaillées d'un restaurant.
+- **Propriétaire** : contrôle complet de son restaurant et gestion de son personnel.
+- **Manager** : gestion opérationnelle dans les limites de sa matrice fondamentale, y compris menu, commandes, caisse, rapports et remboursements.
+- **Caissier** : encaissements et opérations de caisse. Les droits supplémentaires d'annulation (`orders.cancel`) et de remboursement (`payments.refund`) sont distincts et doivent être accordés explicitement par le propriétaire, dans les limites du rôle.
+- **Serveur** : prise en charge des opérations de service et des commandes autorisées.
+- **Cuisine/Bar** : préparation des commandes uniquement ; aucun accès aux rapports financiers.
 
-## Configuration initiale du super-administrateur
+Un droit individuel ne peut jamais dépasser le plafond du rôle. Un manager ne peut pas gérer les propriétaires ni les autres managers. Un super-admin ne reçoit pas de permissions opérationnelles d'un restaurant.
 
-1. Créer ou choisir un compte utilisateur dans Firebase Authentication (e-mail et mot de passe).
-2. Dans Vercel, ouvrir le projet RestauMax puis **Settings → Environment Variables**.
-3. Ajouter `RESTAUMAX_SUPER_ADMIN_EMAILS` avec l'adresse e-mail exacte du compte, en cible **Production**. Plusieurs adresses sont possibles, séparées par des virgules.
-4. Redéployer Production pour charger la variable.
-5. Ouvrir `https://restaumax.vercel.app/admin` et se connecter avec ce compte Firebase.
+Les règles Firestore et les API vérifient l'identité Firebase, l'appartenance au restaurant, l'état du compte, la version de session et les permissions côté serveur. Le navigateur ne constitue jamais une source d'autorité.
 
-Ne jamais ajouter cette variable avec le préfixe `VITE_` : elle doit rester côté serveur.
+## Configuration du super-admin
+
+Le super-admin est identifié côté serveur par la configuration protégée `RESTAUMAX_SUPER_ADMIN_EMAILS`. Cette variable ne doit jamais être préfixée par `VITE_` ni exposée au navigateur. Toute modification de configuration doit être suivie d'un déploiement contrôlé.
 
 ## Enregistrer un restaurant
 
-Depuis `/admin`, utiliser **Nouveau restaurant**. Le super-administrateur renseigne le nom du restaurant, le nom et l'e-mail du propriétaire, ainsi qu'un mot de passe initial d'au moins 10 caractères. RestauMax crée le compte Firebase, attribue le rôle propriétaire, crée le document restaurant et rattache le compte à ce restaurant.
+Depuis `/admin`, le super-admin utilise **Nouveau restaurant** pour créer l'établissement et son compte propriétaire. Le propriétaire se connecte ensuite à `/gestion`, où le contexte du restaurant est déterminé à partir de son compte et de son rattachement vérifié.
 
-Le propriétaire se connecte ensuite sur `/gestion`. Le contexte restaurant est résolu depuis son compte Firebase. Il peut créer son personnel dans **Personnel et rôles**.
+Le restaurant historique de démonstration `chez-awa` reste un enregistrement préexistant ; il ne doit pas être considéré comme un nouveau compte client sans vérification et attribution de propriété.
 
-## Permissions du personnel
+## Personnel et permissions
 
-Le propriétaire peut attribuer et modifier les droits suivants :
-- consultation et gestion du menu ;
-- consultation et gestion des commandes ;
-- consultation et gestion des tables ;
-- accès au terminal POS ;
-- accès à l'écran cuisine ;
-- consultation et gestion de la caisse ;
-- consultation des rapports ;
-- consultation et gestion du personnel ;
-- consultation et gestion des paramètres.
+Le propriétaire gère les membres de son restaurant. Les droits personnalisés doivent rester dans le plafond du rôle. Les comptes désactivés doivent être bloqués et leurs sessions révoquées. Les anciens comptes utilisant le rôle historique `staff` doivent être reclassés explicitement ; aucune conversion automatique ne doit deviner leur fonction.
 
-Un compte désactivé est bloqué côté Auth et ses sessions sont révoquées. Les règles Firestore consultent aussi l'état du document de confiance pour empêcher la poursuite des accès avec un ancien jeton.
+Les droits d'annulation et de remboursement sont deux permissions distinctes. Le fait de pouvoir annuler une commande ne donne pas automatiquement le droit de rembourser un paiement.
 
 ## Isolation et suspension
 
-Chaque compte de gestion possède un `restaurantSlug`. Les lectures et écritures privées sont limitées à ce restaurant. Un restaurant suspendu ne permet plus les opérations de gestion ni l'enregistrement de nouvelles commandes. Sa suspension ferme également le service ; la réactivation ne rouvre pas automatiquement le restaurant.
+Chaque membre est rattaché à un restaurant précis. Les lectures et écritures privées sont limitées à ce restaurant. Un restaurant suspendu ne doit plus permettre les opérations métier ni l'enregistrement de nouvelles commandes. Sa réactivation ne rouvre pas automatiquement le service.
 
-## Limites actuelles
+Les indicateurs de la plateforme sont agrégés et expurgés des informations personnelles du propriétaire. Les données financières détaillées restent dans l'espace du restaurant.
 
-- Les comptes sont créés avec un mot de passe initial saisi par l'administrateur ou le propriétaire. Il faut le transmettre par un canal privé et organiser son changement dès la première connexion.
-- Le module d'abonnement/facturation, l'envoi automatique d'invitations e-mail et le transfert de propriété ne sont pas encore implémentés.
-- Le restaurant de démonstration historique `chez-awa` reste un enregistrement de démonstration préexistant ; son propriétaire doit être attribué séparément si ce restaurant doit devenir un compte client réel.
+## État des fonctions complémentaires
+
+Les éléments suivants ne doivent pas être présentés comme livrés tant que leur implémentation et leurs tests ne sont pas disponibles :
+
+- invitations automatiques par e-mail et parcours sécurisé de première connexion ;
+- changement autonome du mot de passe initial et transfert de propriété ;
+- facturation/encaissement des abonnements RestauMax ;
+- migration assistée et auditée des anciens comptes `staff`.
+
+Les comptes créés avec un mot de passe initial nécessitent une transmission par canal privé et une procédure de changement dès la première connexion. L'absence de ces fonctions est une limite produit à traiter avant une commercialisation complète.
