@@ -921,6 +921,57 @@ export function subscribeToOrders(
   );
 }
 
+type InventoryApiResult = { success: true; itemId?: string; quantityBefore?: number; quantityAfter?: number; idempotentReplay?: boolean } | { success: false; error: string };
+
+async function inventoryRequest(
+  restaurantSlug: string,
+  payload: Record<string, unknown>
+): Promise<InventoryApiResult> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/inventory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, ...payload })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Opération de stock refusée.' };
+    return data as InventoryApiResult;
+  } catch (error: any) {
+    console.error('Erreur appel /api/inventory:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant la gestion du stock.' };
+  }
+}
+
+export async function createInventoryItemWithServerValidation(
+  restaurantSlug: string,
+  item: { name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier: string },
+  idempotencyKey: string
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'create', ...item, idempotencyKey });
+}
+
+export async function moveInventoryStockWithServerValidation(
+  restaurantSlug: string,
+  itemId: string,
+  delta: number,
+  reason: string,
+  idempotencyKey: string
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'move', itemId, delta, reason, idempotencyKey });
+}
+
+export async function archiveInventoryItemWithServerValidation(
+  restaurantSlug: string,
+  itemId: string
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'archive', itemId });
+}
+
 /**
  * Persists a kitchen line completion state through the trusted backend.
  * The client never writes KDS progress directly to Firestore.
