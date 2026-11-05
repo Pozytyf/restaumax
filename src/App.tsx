@@ -346,6 +346,7 @@ export default function App() {
     total: Number(payment.totalAmount || 0),
     paidAmount: Number(payment.paidAmount || 0),
     tenderedAmount: Number(payment.amountTendered || payment.paidAmount || 0),
+    previouslyPaidAmount: Number(payment.previouslyPaidAmount || 0),
     changeAmount: Number(payment.changeAmount || 0),
     remainingAmount: Number(payment.remainingAfter || 0),
     paymentStatus: payment.paymentStatus === 'partial' ? 'partial' : 'paid',
