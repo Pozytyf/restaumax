@@ -290,7 +290,7 @@ export async function createPayDunyaRedistribution(
   }
   const alias = cleanText(accountAlias, 160);
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(alias);
-  const isPhone = /^[0-9]{8,15}$/.test(alias);
+  const isPhone = /^[0-9]{10}$/.test(alias);
   const isPayDunyaAccountId = /^BBJ[A-Z0-9]{8,20}$/i.test(alias);
   if ((!isEmail && !isPhone && !isPayDunyaAccountId) ||
       !Number.isSafeInteger(amount) || amount <= 0 || amount > 100_000_000) {
