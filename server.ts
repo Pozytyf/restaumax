@@ -1145,6 +1145,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         sessionVersion: Number(decoded.sessionVersion || 0),
         idempotencyKey: String(input.idempotencyKey || ''),
         channel,
+        amount: input.amount,
         callbackUrl: `${parsedAppOrigin.origin}/api/payments/paydunya-callback?restaurantSlug=${encodeURIComponent(slug)}`,
         returnUrl: `${parsedAppOrigin.origin}/payments/return?restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
         cancelUrl: `${parsedAppOrigin.origin}/payments/return?cancelled=1&restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`
