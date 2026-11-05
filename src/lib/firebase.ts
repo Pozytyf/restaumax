@@ -465,6 +465,58 @@ export async function submitOrderWithServerValidation(
 }
 
 /**
+ * Soumet une commande POS après authentification du personnel.
+ * Contrairement au parcours QR client, les commandes sur place sont autorisées
+ * via le contrôle serveur du rôle, du restaurant et de la table active.
+ */
+export async function submitPosOrderWithServerValidation(
+  restaurantSlug: string,
+  params: {
+    cart: ClientCartItem[];
+    orderMode: OrderMode;
+    tableNumber: string | null;
+    idempotencyKey: string;
+    customerNote?: string;
+  }
+): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/pos-orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({
+        restaurantSlug,
+        orderMode: params.orderMode,
+        tableNumber: params.tableNumber,
+        customerNote: params.customerNote,
+        idempotencyKey: params.idempotencyKey,
+        cart: params.cart,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return {
+        success: false,
+        conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'Erreur lors de la validation serveur de la commande POS.',
+      };
+    }
+    return { success: true, order: data.order, idempotentReplay: data.idempotentReplay === true };
+  } catch (err: any) {
+    console.error('Erreur appel /api/pos-orders:', err);
+    return { success: false, error: err?.message || 'Erreur réseau lors de la communication avec le serveur RestauMax.' };
+  }
+}
+
+/**
  * Souscrit en temps réel au flux des commandes (réservé aux gestionnaires)
  */
 export function subscribeToOrders(
