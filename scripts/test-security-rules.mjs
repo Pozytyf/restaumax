@@ -43,7 +43,7 @@ try {
     }
     const members = [
       ['owner-a','rest-a','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage']],
-      ['manager-a','rest-a','manager',['menu.manage','orders.manage','orders.view','tables.view','tables.manage','pos.access','cash.view','cash.manage','reports.view','staff.manage','settings.view']],
+      ['manager-a','rest-a','manager',['menu.manage','orders.manage','orders.view','tables.view','tables.manage','pos.access','cash.view','cash.manage','reports.view','staff.manage','settings.view','inventory.view','inventory.manage']],
       ['cashier-a','rest-a','cashier',['pos.access','cash.view','cash.manage','orders.view']],
       ['server-a','rest-a','server',['pos.access','orders.view','tables.view','orders.serve']],
       ['kitchen-a','rest-a','kitchen',['orders.view','kitchen.access']],
@@ -72,6 +72,12 @@ try {
     await setDoc(doc(db,'restaurants/rest-a/orders/order-server'),{...orderData,id:'order-server',orderNumber:'#CMD-003',status:'ready'});
     await setDoc(doc(db,'restaurants/rest-a/orders/order-cashier'),{...orderData,id:'order-cashier',orderNumber:'#CMD-004'});
     await setDoc(doc(db,'restaurants/rest-b/orders/order-1'),{...orderData,restaurantSlug:'rest-b'});
+    await setDoc(doc(db,'restaurants/rest-a/inventoryItems/rice'),{
+      id:'rice',name:'Riz',unit:'kg',quantity:10,minQuantity:2,unitCost:500,active:true
+    });
+    await setDoc(doc(db,'restaurants/rest-a/stockMovements/initial-rice'),{
+      itemId:'rice',itemName:'Riz',unit:'kg',quantityBefore:0,delta:10,quantityAfter:10,reason:'Stock initial'
+    });
     await setDoc(doc(db,'restaurants/rest-a/menuItems/dish-1'),{
       id:'dish-1',restaurantSlug:'rest-a',name:'Plat',category:'plats',price:1000,available:true
     });
@@ -103,6 +109,20 @@ try {
   await denies(getDoc(table(a('manager-a'),'rest-b')), 'Restaurant A ne peut pas lire les tables de B');
   await denies(setDoc(table(a('manager-a'),'rest-b'),{id:'table-1',tableNumber:'X',capacity:2,isActive:true}), 'Restaurant A ne peut pas écrire dans B');
   await denies(deleteDoc(table(a('manager-a'),'rest-b')), 'Restaurant A ne peut pas supprimer dans B');
+
+  // 1b. Inventory is readable by authorized staff, but every mutation is backend-only.
+  await allows(getDocs(collection(a('owner-a'),'restaurants/rest-a/inventoryItems')), 'Le propriétaire peut consulter le catalogue de stock');
+  await allows(getDocs(collection(a('manager-a'),'restaurants/rest-a/inventoryItems')), 'Le manager avec inventory.view peut consulter le stock');
+  await denies(setDoc(doc(a('owner-a'),'restaurants/rest-a/inventoryItems/rice-forged'),{
+    id:'rice-forged',name:'Riz falsifié',unit:'kg',quantity:999,minQuantity:0,unitCost:1,active:true
+  }), 'Même le propriétaire ne peut pas créer directement un article de stock via le SDK client');
+  await denies(updateDoc(doc(a('manager-a'),'restaurants/rest-a/inventoryItems/rice'),{quantity:1}), 'Le manager ne peut pas modifier directement une quantité de stock');
+  await denies(deleteDoc(doc(a('manager-a'),'restaurants/rest-a/inventoryItems/rice')), 'Le manager ne peut pas supprimer directement un article de stock');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/stockMovements/forged'),{
+    itemId:'rice',delta:999,quantityAfter:1009
+  }), 'Le manager ne peut pas fabriquer une entrée dans le journal des mouvements');
+  await denies(updateDoc(doc(a('manager-a'),'restaurants/rest-a/stockMovements/initial-rice'),{quantityAfter:0}), 'Le journal des mouvements est immuable');
+  await denies(deleteDoc(doc(a('manager-a'),'restaurants/rest-a/stockMovements/initial-rice')), 'Le journal des mouvements ne peut pas être supprimé');
 
   // 2. Subscription metadata is private and never readable through the client SDK.
   await denies(getDoc(doc(anonymous, 'restaurantSubscriptions/rest-a')), 'Un client QR anonyme ne peut pas lire les données privées d’abonnement');
