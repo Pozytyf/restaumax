@@ -25,6 +25,20 @@ function asObject(value: unknown): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
 }
 
+function unwrapPayDunyaCallback(value: unknown): Record<string, any> {
+  if (typeof value === 'string') {
+    try { return asObject(JSON.parse(value)); } catch {
+      const form = new URLSearchParams(value);
+      const data = form.get('data');
+      return data ? { data } : {};
+    }
+  }
+  if (value instanceof Uint8Array) {
+    return unwrapPayDunyaCallback(new TextDecoder().decode(value));
+  }
+  return asObject(value);
+}
+
 export interface StartPayDunyaOrderPaymentInput {
   restaurantSlug: string;
   orderId: string;
@@ -208,7 +222,7 @@ export async function processPayDunyaInvoiceCallbackWithDb(
   fetchImpl: typeof fetch = fetch
 ): Promise<PayDunyaCallbackResult> {
   if (!db) return { success: false, error: 'Firestore indisponible.' };
-  const envelope = asObject(callbackEnvelope);
+  const envelope = unwrapPayDunyaCallback(callbackEnvelope);
   let callbackData: any = envelope.data ?? envelope;
   if (typeof callbackData === 'string') {
     try { callbackData = JSON.parse(callbackData); } catch {
@@ -567,7 +581,7 @@ export async function processPayDunyaDisbursementCallbackWithDb(
   fetchImpl: typeof fetch = fetch
 ): Promise<PayDunyaRefundResult> {
   if (!db) return { success: false, error: 'Firestore indisponible.' };
-  const envelope = asObject(callbackEnvelope);
+  const envelope = unwrapPayDunyaCallback(callbackEnvelope);
   let callbackData: any = envelope.data ?? envelope;
   if (typeof callbackData === 'string') {
     try { callbackData = JSON.parse(callbackData); } catch {
