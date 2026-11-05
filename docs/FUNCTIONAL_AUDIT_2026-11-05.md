@@ -12,7 +12,7 @@ Portée : audit statique du code et des règles Firestore. Les tests automatisé
 | Commandes / POS | Parcours persisté côté serveur | Vérifier tous les cas d'annulation, transferts de table et paiements partiels |
 | Cuisine / KDS | Progression individuelle désormais persistée par endpoint transactionnel | CI et parcours multi-postes Preview encore à valider |
 | Menu & catalogue | Catalogue Firestore live : création, édition, suppression, disponibilité ; partagé avec QR client et POS | Validation UI Preview encore nécessaire |
-| Stocks | Création, mouvements et archivage manuels sécurisés côté serveur ; historique visible | Édition des métadonnées, recettes et déduction automatique des ventes non implémentées |
+| Stocks | Création, édition des métadonnées, mouvements et archivage sécurisés côté serveur ; historique visible | Recettes et déduction automatique des ventes non implémentées |
 | Abonnements | Gestion manuelle, données privées | Pas de facturation automatique ni suspension automatique à échéance |
 | QR Code | Génération serveur et sessions sécurisées | Parcours scan réel, expiration/révocation et reprise à éprouver |
 | Paiements | PayDunya PAR et orchestration PUSH préparées | Fournisseur TEST et décaissements réels non validés ; factures partagées non compatibles Mobile Money |
@@ -28,7 +28,7 @@ Les tests CI couvrent la navigation, la persistance asynchrone et l'isolation du
 ### Cuisine — pointage individuel : correction implémentée, validation en attente
 Le pointage de chaque ligne est maintenant stocké dans `RestauOrder.kitchenItemCompletion`. Le navigateur appelle `POST /api/kitchen-item` ; le backend vérifie l'identité Firebase, la session, le restaurant, le rôle (propriétaire, manager autorisé ou cuisine) et l'appartenance de la ligne à la commande, puis écrit dans une transaction Admin SDK idempotente. Le KDS reconstruit ses coches depuis Firestore et interdit de déclarer le ticket prêt tant que toutes les lignes ne sont pas terminées. Le backend maintient `kitchenItemsCompletedCount` dans la même transaction que chaque coche ; les règles Firestore refusent toute transition vers `ready` tant que ce compteur n'est pas égal au nombre de lignes, et interdisent au SDK client de le modifier. La transition `pending → in_prep → ready` est ainsi protégée côté interface et côté règles.
 
-Un test de service couvre les permissions, l'isolation, la session révoquée, la ligne invalide, les commandes déjà prêtes et le rejeu. Le test LOT 2 vérifie désormais la restauration depuis les données persistées. **CI complète et Firestore Emulator réussis sur le SHA `12277cd1c2862c12b524829311faa5847cf79861`** ; le parcours multi-postes en Preview reste à vérifier avant de considérer le module comme terminé.
+Un test de service couvre les permissions, l'isolation, la session révoquée, la ligne invalide, les commandes déjà prêtes et le rejeu. Le test LOT 2 vérifie désormais la restauration depuis les données persistées. **CI complète et Firestore Emulator réussis sur le SHA `dc348f2aa53414d4e86576ca14462bf1e852afcf`** ; le parcours multi-postes en Preview reste à vérifier avant de considérer le module comme terminé.
 
 ### Stocks — inventaire non relié aux ventes
 Les entrées/sorties manuelles sont enregistrées, mais aucune nomenclature/recette ne relie les articles vendus aux matières premières. Les ventes ne décrémentent donc pas automatiquement le stock et les seuils ne peuvent pas refléter une consommation réelle.
@@ -36,7 +36,7 @@ Les entrées/sorties manuelles sont enregistrées, mais aucune nomenclature/rece
 **Correction requise :** modèle de recettes et unités, conversion contrôlée, déduction atomique lors de la validation d'une commande, annulation/restauration idempotente et journal immuable. Prévoir les produits sans recette et les corrections manuelles avec motif.
 
 ### Stocks — mutations manuelles : sécurisation implémentée, validation en attente
-Les créations, entrées/sorties et archivages passent désormais par `POST /api/inventory` et le service Admin SDK transactionnel. Les clés d'idempotence sont liées à la signature des données ; chaque mouvement conserve quantité avant, delta, quantité après, motif et acteur. Les sorties négatives sont refusées, les articles avec stock restant ne peuvent pas être archivés et l'historique reste consultable. Les règles Firestore interdisent toutes les écritures du SDK client sur `inventoryItems` et `stockMovements`.
+Les créations, entrées/sorties et archivages passent désormais par `POST /api/inventory` et le service Admin SDK transactionnel. Les clés d'idempotence sont liées à la signature des données ; chaque mouvement conserve quantité avant, delta, quantité après, motif et acteur. Les sorties négatives sont refusées, les articles avec stock restant ne peuvent pas être archivés et l'historique reste consultable. Les métadonnées peuvent être modifiées sans toucher à la quantité ; le changement d'unité est interdit tant que le stock n'est pas nul. Les règles Firestore interdisent toutes les écritures du SDK client sur `inventoryItems` et `stockMovements`.
 
 Les tests de service couvrent création, rejeu, conflit de clé, mouvements, sortie excessive, rôle non autorisé, session périmée et archivage. Les clés des mouvements en attente sont conservées pendant les erreurs réseau pour qu'une nouvelle tentative réutilise la même opération au lieu de doubler le stock. Les tests des règles Firestore vérifient le refus des écritures directes. **CI complète et Firestore Emulator réussis sur le SHA `12277cd1c2862c12b524829311faa5847cf79861`** ; le parcours UI en Preview reste à valider.
 
@@ -46,7 +46,7 @@ Aucune nomenclature/recette ne relie encore les plats aux matières premières. 
 ### Salle — libellés fictifs supprimés
 L'écran affichait une durée de service fixe (« 3h 42m ») et une heure de réservation fixe (« 20h00 »), sans source métier correspondante. Ces valeurs ont été remplacées par des libellés neutres dans ce commit.
 
-## Dernière validation GitHub — SHA `12277cd1c2862c12b524829311faa5847cf79861`
+## Dernière validation GitHub — SHA `dc348f2aa53414d4e86576ca14462bf1e852afcf`
 - RestauMax CI : TypeScript, tests automatisés, build frontend et audit des dépendances — succès.
 - Tests Firestore Emulator & qualité : tests d'intention, tests LOT 1/LOT 2, règles de sécurité et transactions — succès.
 - Owner UID binding emulator, sécurité des rôles, autorisation de remboursement, cycle PayDunya et confidentialité du tableau super-admin — succès.
