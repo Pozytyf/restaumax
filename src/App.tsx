@@ -364,6 +364,7 @@ export default function App() {
     changeAmount: Number(payment.changeAmount || 0),
     remainingAmount: Number(payment.remainingAfter || 0),
     paymentStatus: payment.paymentStatus === 'partial' ? 'partial' : 'paid',
+    splitGuests: Number(payment.splitGuests || 1),
     guestNumber: Number(payment.guestNumber || 1),
     guestName: String(payment.guestName || ''),
     guestShareAmount: Number(payment.guestShareAmount || 0),
