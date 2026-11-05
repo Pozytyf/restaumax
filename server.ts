@@ -535,8 +535,19 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       };
     }
 
-    // CREATE_NOMINAL : Première soumission nominale ou reprise après échec
-    t.set(docRefOrder, orderToCreate);
+    // CREATE_NOMINAL : Première soumission nominale ou reprise après échec.
+    // Persist only the non-secret QR session binding so later customer payments
+    // can prove that the order originated from this exact table session.
+    const orderToStore = tableSession ? {
+      ...orderToCreate,
+      tableSession: {
+        sessionHash: tableSession.sessionHash,
+        qrTokenHash: tableSession.qrTokenHash,
+        qrVersion: Number(tableSession.qrVersion),
+        tableId: tableSession.tableId
+      }
+    } : orderToCreate;
+    t.set(docRefOrder, orderToStore);
     t.set(docRefKey, {
       id: keyDocId,
       namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
