@@ -146,8 +146,10 @@ export default function App() {
   const isClientMenuRoute = activePathname.startsWith('/r/');
   const isStaffRoute = activePathname === '/staff';
   const isPlatformAdminRoute = activePathname === '/admin';
+  const isPaymentReturnRoute = activePathname === '/payments/return';
   const isRestaurantHubRoute = activePathname.startsWith('/gestion');
-  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute && !isPlatformAdminRoute;
+  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute && !isPlatformAdminRoute && !isPaymentReturnRoute;
+  const paymentReturnOrderId = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('orderId') || ''; } catch { return ''; } })();
 
   // Recover the HttpOnly table session after the opaque QR resolver redirects to the menu.
   useEffect(() => {
@@ -1457,6 +1459,32 @@ export default function App() {
 
       {/* 3. Central platform administration: /admin */}
       {isPlatformAdminRoute && <PlatformAdminView onBack={() => navigateTo('/')} onOpenRestaurant={(slug) => navigateTo(`/gestion?restaurant=${encodeURIComponent(slug)}`)} />}
+
+      {/* PayDunya hosted checkout return: provider callback remains the payment source of truth */}
+      {isPaymentReturnRoute && (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 text-amber-700">
+              <Smartphone size={26} />
+            </div>
+            <h1 className="text-xl font-black text-slate-900">Retour du paiement PayDunya</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Votre retour depuis PayDunya a bien été reçu. RestauMax attend la confirmation serveur sécurisée du fournisseur.
+              Ne relancez pas le paiement pendant cette vérification.
+            </p>
+            {paymentReturnOrderId && (
+              <p className="mt-3 text-xs font-semibold text-slate-500">Commande : {paymentReturnOrderId}</p>
+            )}
+            <p className="mt-3 text-xs text-slate-500">
+              Une page de retour ne constitue pas une preuve de paiement. Le journal sera mis à jour uniquement après confirmation PayDunya.
+            </p>
+            <button onClick={() => navigateTo('/gestion')}
+              className="mt-6 rounded-xl bg-[#101d2d] px-5 py-3 text-sm font-bold text-white">
+              Retour à la gestion du restaurant
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 4. RestauMax Home Landing Page: / */}
       {isHomePageRoute && (
