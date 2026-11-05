@@ -516,6 +516,91 @@ export async function submitPosOrderWithServerValidation(
   }
 }
 
+export interface CashPaymentApiRecord {
+  id: string;
+  restaurantSlug: string;
+  orderId: string;
+  orderNumber: string;
+  tableNumber: string | null;
+  actorUid: string;
+  actorRole: string;
+  method: 'especes';
+  currency: string;
+  amountTendered: number;
+  paidAmount: number;
+  changeAmount: number;
+  totalAmount: number;
+  remainingBefore: number;
+  remainingAfter: number;
+  paymentStatus: 'partial' | 'paid';
+  items: any[];
+  createdAt: number;
+}
+
+export async function collectCashPaymentWithServerValidation(
+  restaurantSlug: string,
+  orderId: string,
+  amountTendered: number,
+  idempotencyKey: string
+): Promise<{ success: true; payment: CashPaymentApiRecord; order: any; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/payments', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, orderId, amountTendered, idempotencyKey }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return {
+        success: false,
+        conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'Le serveur a refusé cet encaissement.',
+      };
+    }
+    return {
+      success: true,
+      payment: data.payment as CashPaymentApiRecord,
+      order: data.order,
+      idempotentReplay: data.idempotentReplay === true,
+    };
+  } catch (err: any) {
+    console.error('Erreur appel /api/payments POST:', err);
+    return { success: false, error: err?.message || 'Erreur réseau pendant l’encaissement.' };
+  }
+}
+
+export async function listRecentCashPaymentsWithServerValidation(
+  restaurantSlug: string
+): Promise<{ success: true; payments: CashPaymentApiRecord[] } | { success: false; error: string }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch(`/api/payments?restaurantSlug=${encodeURIComponent(restaurantSlug)}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, error: data.error || 'Impossible de charger le journal de caisse.' };
+    }
+    return { success: true, payments: Array.isArray(data.payments) ? data.payments : [] };
+  } catch (err: any) {
+    console.error('Erreur appel /api/payments GET:', err);
+    return { success: false, error: err?.message || 'Erreur réseau pendant le chargement du journal de caisse.' };
+  }
+}
+
 /**
  * Souscrit en temps réel au flux des commandes (réservé aux gestionnaires)
  */
