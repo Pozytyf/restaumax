@@ -81,7 +81,7 @@ export function mapRestauOrderToKitchenTicket(
     ticketNumber: order.orderNumber,
     tableNumber: order.tableNumber ? `Table ${order.tableNumber}` : 'À emporter',
     orderType: order.orderMode === 'sur_place' ? 'sur_place' : 'emporter',
-    waiter: 'QR Menu Client',
+    waiter: order.customerNote?.startsWith('Commande saisie au comptoir par ') ? 'Personnel POS' : 'QR Menu Client',
     createdAt: new Date(order.createdAt),
     status: ticketStatus,
     items: order.items.map((it, idx) => {
@@ -193,6 +193,7 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>([]);
+  const [restauOrders, setRestauOrders] = useState<RestauOrder[]>([]);
   const [drawerState, setDrawerState] = useState<CashDrawerState>({
     openingBalance: 0,
     currentCash: 0,
@@ -416,29 +417,42 @@ export default function App() {
     };
   }, [isAuthorizedManager, isRestaurantHubRoute, activeRestaurantSlug]);
 
-  // Correction C: Subscribe to Orders subcollection for persistent KDS stream
+  // Subscribe to the active restaurant's orders for KDS and unpaid POS recovery.
   useEffect(() => {
-    if (!isAuthorizedManager || (!userPermissions.includes('orders.view') && !userPermissions.includes('orders.manage') && !userPermissions.includes('kitchen.access'))) return;
+    const canViewOrders = !!authUser && (
+      isRestaurantOwner ||
+      userPermissions.includes('orders.view') ||
+      userPermissions.includes('orders.manage') ||
+      userPermissions.includes('kitchen.access')
+    );
+
+    if (!canViewOrders) {
+      setRestauOrders([]);
+      setKitchenTickets((previous) => previous.filter((ticket) => !ticket.id.startsWith('ord-')));
+      return;
+    }
 
     let isMounted = true;
+    setRestauOrders([]);
+    setKitchenTickets((previous) => previous.filter((ticket) => !ticket.id.startsWith('ord-')));
+
     const unsubOrders = subscribeToOrders(
       activeRestaurantSlug,
       (firestoreOrders) => {
         if (!isMounted) return;
-        setKitchenTickets((prev) => {
-          const existingMap = new Map<string, KitchenTicket>(prev.map((t) => [t.id, t]));
-          const nonFirestoreTickets = prev.filter((t) => !t.id.startsWith('ord-'));
-
-          const mappedTickets = firestoreOrders.map((ord) => {
-            const existing = existingMap.get(`ord-${ord.id}`);
-            return mapRestauOrderToKitchenTicket(ord, existing);
+        setRestauOrders(firestoreOrders);
+        setKitchenTickets((previous) => {
+          const existingMap = new Map<string, KitchenTicket>(previous.map((ticket) => [ticket.id, ticket]));
+          const nonFirestoreTickets = previous.filter((ticket) => !ticket.id.startsWith('ord-'));
+          const mappedTickets = firestoreOrders.map((order) => {
+            const existing = existingMap.get(`ord-${order.id}`);
+            return mapRestauOrderToKitchenTicket(order, existing);
           });
-
           return [...mappedTickets, ...nonFirestoreTickets];
         });
       },
       (err) => {
-        console.warn('Flux KDS Firestore en attente ou restreint:', err);
+        console.warn('Flux des commandes Firestore en attente ou restreint:', err);
       }
     );
 
@@ -446,7 +460,8 @@ export default function App() {
       isMounted = false;
       unsubOrders();
     };
-  }, [isAuthorizedManager, isStaffRoute, userPermissions]);
+  }, [authUser, activeRestaurantSlug, isRestaurantOwner, userPermissions]);
+
 
   useEffect(() => {
     const canViewCash = isRestaurantOwner || authRestaurantRole === 'manager' ||
@@ -863,7 +878,7 @@ export default function App() {
         cart: clientCart,
         orderMode: selectedTable ? 'sur_place' : 'a_emporter',
         tableNumber: selectedTable?.number || null,
-        idempotencyKey: generateClientOrderIdempotencyKey(),
+        idempotencyKey: posOrderIdempotencyKey,
         customerNote: `Commande saisie au comptoir par ${serverName}`
       });
 
@@ -877,6 +892,7 @@ export default function App() {
         ticket,
         ...previous.filter((existing) => existing.id !== ticket.id)
       ]);
+      setPosOrderIdempotencyKey(generateClientOrderIdempotencyKey());
       setCart([]);
       window.alert(`Commande enregistrée et envoyée en cuisine : ${result.order.orderNumber}`);
     } catch (err) {
