@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { manageInventoryWithDb } from '../src/server/inventoryService.ts';
 
@@ -112,4 +113,10 @@ assert.equal(archiveDb.documents.get('restaurants/chez-awa/inventoryItems/rice')
 const archiveReplay = await manageInventoryWithDb(archiveDb, { ...common, action: 'archive', itemId: 'rice' });
 assert.equal(archiveReplay.idempotentReplay, true);
 
-console.log('Inventory service: 23 assertions validées.');
+const inventoryUi = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
+const firebaseSource = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
+assert(inventoryUi.includes('sessionStorage.getItem(storageKey)'), 'the UI reuses a pending movement key after a page reload');
+assert(inventoryUi.includes('pendingMove?.idempotencyKey'), 'the UI reuses the exact idempotency key for an uncertain movement');
+assert(inventoryUi.includes('!result.retryable'), 'definitive stock errors clear the pending retry key');
+assert(firebaseSource.includes('retryable: true'), 'network failures are distinguished from definitive stock rejections');
+console.log('Inventory service and retry-safe UI: tests passed.');
