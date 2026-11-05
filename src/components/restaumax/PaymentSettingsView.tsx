@@ -21,15 +21,21 @@ export const PaymentSettingsView: React.FC<PaymentSettingsViewProps> = ({ restau
   const [notice, setNotice] = useState('');
   const [form, setForm] = useState({ apiKeyId: '', apiKey: '', storeId: '', webhookSecret: '' });
 
-  const loadStatus = async () => {
+  useEffect(() => {
+    if (!canManage) {
+      setLoadingStatus(false);
+      return;
+    }
+    let active = true;
     setLoadingStatus(true);
-    const result = await getJekoPaymentConfigStatusWithServerValidation(restaurantSlug);
-    if (result.success) setStatus(result.status || null);
-    else setError(result.error || 'Impossible de lire la configuration.');
-    setLoadingStatus(false);
-  };
-
-  useEffect(() => { void loadStatus(); }, [restaurantSlug]);
+    getJekoPaymentConfigStatusWithServerValidation(restaurantSlug).then((result) => {
+      if (!active) return;
+      if (result.success) setStatus(result.status || null);
+      else setError(result.error || 'Impossible de lire la configuration.');
+      setLoadingStatus(false);
+    });
+    return () => { active = false; };
+  }, [restaurantSlug, canManage]);
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
