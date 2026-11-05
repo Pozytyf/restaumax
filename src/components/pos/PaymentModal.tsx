@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PaymentMethod, CartItem, Table } from '../../types/pos';
+import type { RestauGuestAccount } from '../../types/restaumax';
 import { formatFCFA, formatFCFANumberOnly } from '../../utils/format';
 import { sounds } from '../../utils/audio';
 import { 
@@ -20,12 +21,15 @@ interface PaymentModalProps {
   serverName: string;
   discountPercent: number;
   alreadyPaidAmount?: number;
+  guestAccounts?: RestauGuestAccount[];
   isSubmitting?: boolean;
   onConfirmPayment: (paymentData: {
     method: PaymentMethod;
     paidAmount: number;
     changeAmount: number;
     splitGuests: number;
+    guestNumber: number;
+    guestName: string;
   }) => void;
 }
 
@@ -37,19 +41,44 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   serverName,
   discountPercent,
   alreadyPaidAmount = 0,
+  guestAccounts = [],
   isSubmitting = false,
   onConfirmPayment
 }) => {
   const [method, setMethod] = useState<PaymentMethod>('especes');
   const [tenderedStr, setTenderedStr] = useState<string>('');
+  const [splitGuests, setSplitGuests] = useState(1);
+  const [guestNumber, setGuestNumber] = useState(1);
+  const [guestName, setGuestName] = useState('');
 
   const subtotal = cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
   const discountAmount = Math.round((subtotal * discountPercent) / 100);
   const total = Math.max(0, subtotal - discountAmount);
 
-  const balanceDue = Math.max(0, total - alreadyPaidAmount);
+  const baseGuestShare = Math.floor(total / splitGuests);
+  const remainderGuestShare = total % splitGuests;
+  const calculatedGuestShare = baseGuestShare + (guestNumber <= remainderGuestShare ? 1 : 0);
+  const selectedGuestAccount = guestAccounts.find((account) => account.guestNumber === guestNumber);
+  const guestShareAmount = selectedGuestAccount?.shareAmount ?? calculatedGuestShare;
+  const guestPaidAmount = selectedGuestAccount?.paidAmount ?? (splitGuests === 1 ? alreadyPaidAmount : 0);
+  const balanceDue = Math.max(0, guestShareAmount - guestPaidAmount);
+  const splitLocked = guestAccounts.length > 0 || alreadyPaidAmount > 0;
 
-  // Initialize tendered amount when the modal opens or the remaining balance changes.
+  useEffect(() => {
+    if (!isOpen) return;
+    if (guestAccounts.length > 0) {
+      setSplitGuests(guestAccounts.length);
+      const nextGuest = guestAccounts.find((account) => account.paymentStatus !== 'paid') || guestAccounts[0];
+      setGuestNumber(nextGuest.guestNumber);
+      setGuestName(nextGuest.guestName || '');
+    } else {
+      setSplitGuests(1);
+      setGuestNumber(1);
+      setGuestName('');
+    }
+  }, [isOpen, guestAccounts]);
+
+  // Initialize tendered amount when the modal opens or the remaining guest balance changes.
   useEffect(() => {
     if (isOpen) {
       setTenderedStr(balanceDue.toString());
@@ -106,7 +135,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       method,
       paidAmount: tenderedAmount,
       changeAmount,
-      splitGuests: 1
+      splitGuests,
+      guestNumber,
+      guestName: guestName.trim()
     });
   };
 
@@ -143,14 +174,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             {/* Amount Due Card */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                Net à Payer
+                {splitGuests > 1 ? 'Part du convive à régler' : 'Net à Payer'}
               </span>
               <div className="text-2xl sm:text-3xl font-black text-[#101d2d] tnum">
                 {formatFCFA(balanceDue)}
               </div>
-              {alreadyPaidAmount > 0 && (
+              {guestPaidAmount > 0 && (
                 <div className="text-xs font-semibold text-emerald-700 mt-1">
-                  Déjà réglé : {formatFCFA(alreadyPaidAmount)}
+                  Déjà réglé par ce convive : {formatFCFA(guestPaidAmount)}
                 </div>
               )}
               {discountPercent > 0 && (
@@ -235,7 +266,56 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               </div>
             </div>
 
-            {/* Individual bill splitting is intentionally hidden until sub-account settlement is connected. */}
+            <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-3">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wide text-violet-950">Factures individuelles par convive</h3>
+                <p className="mt-1 text-[10px] text-violet-800">Chaque convive dispose de sa part et de son suivi de règlement.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-[11px] font-bold text-slate-700">Nombre de convives
+                  <input type="number" min="1" max={Math.min(20, Math.max(1, total))} step="1"
+                    disabled={splitLocked}
+                    value={splitGuests}
+                    onChange={(event) => {
+                      const next = Math.min(20, Math.max(1, Number.parseInt(event.target.value || '1', 10) || 1));
+                      setSplitGuests(next);
+                      setGuestNumber(1);
+                      setGuestName('');
+                    }}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm disabled:bg-slate-100"/>
+                </label>
+                <label className="text-[11px] font-bold text-slate-700">Convive à encaisser
+                  <select value={guestNumber} onChange={(event) => {
+                    const next = Number(event.target.value);
+                    setGuestNumber(next);
+                    setGuestName(guestAccounts.find((account) => account.guestNumber === next)?.guestName || '');
+                  }}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm">
+                    {Array.from({ length: splitGuests }, (_, index) => {
+                      const number = index + 1;
+                      const account = guestAccounts.find((item) => item.guestNumber === number);
+                      const share = account?.shareAmount ?? (baseGuestShare + (number <= remainderGuestShare ? 1 : 0));
+                      const paid = account?.paidAmount || (splitGuests === 1 ? alreadyPaidAmount : 0);
+                      return <option key={number} value={number}>
+                        {account?.guestName || `Convive ${number}`} · {paid >= share ? 'Réglé' : formatFCFA(Math.max(0, share - paid))}
+                      </option>;
+                    })}
+                  </select>
+                </label>
+              </div>
+              <label className="block text-[11px] font-bold text-slate-700">Nom du convive (facultatif)
+                <input maxLength={80} value={guestName} onChange={(event) => setGuestName(event.target.value)}
+                  placeholder={`Convive ${guestNumber}`}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm"/>
+              </label>
+              <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs">
+                <span className="font-semibold text-slate-600">Part attribuée</span>
+                <span className="font-black text-violet-950">{formatFCFA(guestShareAmount)}</span>
+              </div>
+              {splitLocked && alreadyPaidAmount > 0 && guestAccounts.length === 0 && (
+                <p className="text-[10px] text-amber-800">La répartition doit être définie avant le premier encaissement.</p>
+              )}
+            </div>
 
             {/* Quick Bill Tender Presets for Cash */}
             {method === 'especes' && (
