@@ -168,6 +168,11 @@ async function run() {
     assert(expenseReplay.success === true && expenseReplay.idempotentReplay === true &&
       expenseReplay.session?.cashOut === 500,
       'Le rejeu idempotent d’une dépense ne double pas la sortie');
+    const sessionWithJournal = await getCashSessionWithDb(db, slug, uid);
+    assert(sessionWithJournal?.cashMovements?.length === 1 &&
+      sessionWithJournal.cashMovements[0].amount === 500 &&
+      sessionWithJournal.cashMovements[0].category === 'achats',
+      'Le serveur restitue le détail du journal des sorties de la session active');
     const expenseConflict = await recordCashMovementWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
       sessionVersion: 3, movementType: 'expense', amount: 700,

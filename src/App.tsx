@@ -1009,14 +1009,20 @@ export default function App() {
         window.alert("La sortie a été enregistrée, mais le serveur n'a pas retourné la session mise à jour. Actualisez la page.");
         return;
       }
-      setCashSession(result.session);
+      const refreshed = await getCashSessionWithServerValidation(activeRestaurantSlug);
+      const updatedSession = refreshed.success === true ? refreshed.session : result.session;
+      setCashSession(updatedSession);
       setCashMovementIdempotencyKey(generateClientOrderIdempotencyKey());
-      setDrawerState((previous) => ({
-        ...previous,
-        openingBalance: Number(result.session?.openingBalance || 0),
-        currentCash: Number(result.session?.openingBalance || 0) +
-          Number(result.session?.cashCollected || 0) - Number(result.session?.cashOut || 0)
-      }));
+      if (updatedSession) {
+        setDrawerState((previous) => ({
+          ...previous,
+          openingBalance: Number(updatedSession.openingBalance || 0),
+          currentCash: Number(updatedSession.openingBalance || 0) +
+            Number(updatedSession.cashCollected || 0) - Number(updatedSession.cashOut || 0)
+        }));
+      } else {
+        setDrawerState((previous) => ({ ...previous, openingBalance: 0, currentCash: 0 }));
+      }
       window.alert("Sortie de caisse enregistrée et rattachée à la session active.");
     } finally {
       setCashMovementActionLoading(false);
