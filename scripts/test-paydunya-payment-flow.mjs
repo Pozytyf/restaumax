@@ -193,7 +193,7 @@ const partialCheckout = await startPayDunyaOrderPaymentWithDb(db, config, {
   channel: 'wave-ci'
 }, async (url, options) => {
   const body = JSON.parse(options.body);
-  assert(body.invoice.total_amount === 3000, 'La facture Mobile Money partielle utilise le montant demandé, pas tout le solde');
+  assert(body.invoice.total_amount === 3000 && body.invoice.items.item_0.total_price === '3000', 'La facture Mobile Money partielle utilise le montant demandé et des lignes cohérentes avec ce montant');
   return { ok: true, json: async () => ({
     response_code: '00', token: 'test_PARTIAL200',
     response_text: 'https://app.paydunya.com/sandbox-checkout/invoice/test_PARTIAL200'
@@ -350,7 +350,7 @@ const qrCheckout = await startPayDunyaOrderPaymentWithDb(db, config, {
   customerTableSession: { ...qrBinding, tableNumber: '4' }
 }, async (url, options) => {
   const body = JSON.parse(options.body);
-  assert(body.invoice.total_amount === 2500 && body.invoice.channels[0] === 'wave-ci',
+  assert(body.invoice.total_amount === 2500 && body.invoice.items.item_0.total_price === '2500' && body.invoice.channels[0] === 'wave-ci',
     'Le paiement QR accepte un montant partiel et le canal Wave choisi');
   return { ok: true, json: async () => ({
     response_code: '00', token: 'test_QR123',
