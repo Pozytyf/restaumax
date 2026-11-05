@@ -34,6 +34,8 @@ interface PosViewProps {
   isSendingOrder: boolean;
   onOpenPayment: () => void;
   serverName: string;
+  unpaidOrders: RestauOrder[];
+  onCollectOrder: (order: RestauOrder) => void;
 }
 
 const CATEGORIES: { id: Category; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
@@ -62,7 +64,9 @@ export const PosView: React.FC<PosViewProps> = ({
   onSendToKitchen,
   isSendingOrder,
   onOpenPayment,
-  serverName
+  serverName,
+  unpaidOrders,
+  onCollectOrder
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<Category>('tous');
   const [searchQuery, setSearchQuery] = useState('');
@@ -176,6 +180,36 @@ export const PosView: React.FC<PosViewProps> = ({
             })}
           </div>
         </div>
+
+        {unpaidOrders.length > 0 && (
+          <div className="shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-2.5">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[11px] font-black uppercase tracking-wide text-amber-900">Commandes à solder</span>
+              <span className="text-[10px] font-bold text-amber-800 bg-amber-100 rounded-full px-2 py-0.5">{unpaidOrders.length}</span>
+              <span className="text-[10px] text-amber-800">Reprenez un encaissement en attente</span>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {unpaidOrders.map((order) => {
+                const remaining = Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))));
+                return (
+                  <button
+                    key={order.id}
+                    type="button"
+                    onClick={() => onCollectOrder(order)}
+                    className="shrink-0 min-w-[170px] rounded-lg border border-amber-200 bg-white px-3 py-2 text-left hover:border-amber-400 hover:shadow-sm transition-all"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-black text-slate-900">{order.orderNumber}</span>
+                      <span className="text-[9px] font-bold uppercase text-amber-800">{order.paymentStatus === 'partial' ? 'Partiel' : 'À régler'}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">{order.tableNumber ? `Table ${order.tableNumber}` : 'À emporter'}</div>
+                    <div className="text-xs font-black text-[#ff6500] tnum mt-1">{formatFCFA(remaining)}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Menu Items Grid */}
         <div className="flex-1 overflow-y-auto p-4 lg:p-5">
