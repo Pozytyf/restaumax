@@ -504,11 +504,16 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                           >
                             <Eye size={14} />
                           </button>
+                          {canRefundPayments && Number(tx.refundPendingAmount || 0) > 0 && (
+                            <span className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-bold text-blue-800" title="Un décaissement PayDunya est en attente">
+                              Remboursement en cours
+                            </span>
+                          )}
                           {canRefundPayments && tx.refundEligible && tx.paymentMethod !== 'especes' &&
-                            (tx.paidAmount - Number(tx.refundedAmount || 0)) > 0 && (
+                            (tx.paidAmount - Number(tx.refundedAmount || 0) - Number(tx.refundPendingAmount || 0)) > 0 && (
                             <button
                               onClick={() => {
-                                const remaining = tx.paidAmount - Number(tx.refundedAmount || 0);
+                                const remaining = tx.paidAmount - Number(tx.refundedAmount || 0) - Number(tx.refundPendingAmount || 0);
                                 const rawAmount = window.prompt(`Montant à rembourser (maximum ${remaining} FCFA)`, String(remaining));
                                 if (rawAmount === null) return;
                                 const amount = Number(rawAmount);
