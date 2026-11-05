@@ -24,10 +24,10 @@ async function run() {
   const slug = 'qr-security-' + Date.now();
   const tableId = 'table-4';
   const qrLifecycleTableId = 'qr-lifecycle';
-  const qrLifecycleTableRef = restaurantRef.collection('tables').doc(qrLifecycleTableId);
   const sessionHash = 'session-hash-' + Date.now();
   const qrTokenHash = 'qr-token-hash-' + Date.now();
   const restaurantRef = db.collection('restaurants').doc(slug);
+  const qrLifecycleTableRef = restaurantRef.collection('tables').doc(qrLifecycleTableId);
   const staffRef = db.collection('managers').doc('staff-cashier-' + Date.now());
   const staffUid = staffRef.id;
   const tableRef = restaurantRef.collection('tables').doc(tableId);
