@@ -69,7 +69,7 @@ export async function updateKitchenItemCompletionWithDb(
       if (!order || order.id !== orderId || order.restaurantSlug !== restaurantSlug) {
         return { success: false, error: 'Commande introuvable dans ce restaurant.' };
       }
-      if (order.status !== 'in_prep') {
+      if (!['pending', 'in_prep'].includes(order.status)) {
         return { success: false, error: 'La préparation de cette commande n’est plus modifiable.' };
       }
       if (!Array.isArray(order.items) || itemIndex >= order.items.length ||
