@@ -957,6 +957,9 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       actorName: String(decoded.name || decoded.email || decoded.uid),
       sessionVersion: Number(decoded.sessionVersion || 0),
       amountTendered: input.amountTendered,
+      splitGuests: input.splitGuests === undefined ? 1 : Number(input.splitGuests),
+      guestNumber: input.guestNumber === undefined ? 1 : Number(input.guestNumber),
+      guestName: String(input.guestName || ''),
       idempotencyKey: String(input.idempotencyKey || '')
     });
     if (result.success) return { statusCode: 200, body: result };
