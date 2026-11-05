@@ -988,7 +988,7 @@ export async function handlePayDunyaCallbackRequest(payload: unknown, req?: any)
     return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
   }
   if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
-  const config = getPayDunyaConfig(process.env);
+  const config = await loadRestaurantPayDunyaConfig(adminDb, String(req?.query?.restaurantSlug || ''), process.env);
   if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
   try {
     const result = await processPayDunyaInvoiceCallbackWithDb(adminDb, config.data, payload);
@@ -1101,7 +1101,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     }
 
     if (input.action === 'reconcile_paydunya_payment') {
-      const config = getPayDunyaConfig(process.env);
+      const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
       if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
       const result = await reconcilePayDunyaInvoiceIntentWithDb(
         adminDb, config.data, slug, String(input.paymentIntentId || '')
@@ -1111,7 +1111,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     }
 
     if (input.action === 'create_paydunya_invoice') {
-      const config = getPayDunyaConfig(process.env);
+      const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
       if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
       const requestOrigin = String(req?.headers?.origin || '').replace(/\/$/, '');
       const appOrigin = String(process.env.APP_ORIGIN || requestOrigin).replace(/\/$/, '');
