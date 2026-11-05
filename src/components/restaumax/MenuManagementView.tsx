@@ -205,7 +205,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                 {totalDishes}
               </p>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Répertoire complet Chez Awa
+                Répertoire complet de l’établissement
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700">
