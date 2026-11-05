@@ -26,6 +26,7 @@ import {
   createCustomerPayDunyaPaymentWithServerValidation,
   reconcileCustomerPayDunyaPaymentWithServerValidation,
   refundPayDunyaPaymentWithServerValidation,
+  refundCashPaymentWithServerValidation,
   reconcilePayDunyaPaymentWithServerValidation,
   listRecentCashPaymentsWithServerValidation,
   getCashSessionWithServerValidation,
@@ -1282,20 +1283,29 @@ export default function App() {
       window.alert("Votre rôle ne permet pas de rembourser ce paiement.");
       return;
     }
-    const result = await refundPayDunyaPaymentWithServerValidation(
-      activeRestaurantSlug, payment.id, amount, reason, generateClientOrderIdempotencyKey()
-    );
+    const idempotencyKey = generateClientOrderIdempotencyKey();
+    const result = payment.paymentMethod === 'especes'
+      ? await refundCashPaymentWithServerValidation(
+          activeRestaurantSlug, payment.id, amount, reason, idempotencyKey
+        )
+      : await refundPayDunyaPaymentWithServerValidation(
+          activeRestaurantSlug, payment.id, amount, reason, idempotencyKey
+        );
     if (!result.success) {
       window.alert(`Remboursement refusé : ${result.error}`);
       return;
     }
-    window.alert(result.status === 'completed'
-      ? "Remboursement Mobile Money confirmé par PayDunya."
-      : result.status === 'failed'
-        ? "PayDunya a refusé le décaissement. Le montant réservé a été libéré."
-        : result.status === 'created'
-          ? "Le décaissement est créé mais pas encore confirmé comme soumis. Il reste réservé pour rapprochement ; ne relancez pas l'opération."
-          : "Demande de remboursement transmise. Elle reste en attente de confirmation PayDunya ; ne relancez pas l'opération.");
+    if (payment.paymentMethod === 'especes') {
+      window.alert("Remboursement espèces enregistré dans la caisse. Assurez-vous que la remise physique au client a bien été effectuée.");
+    } else {
+      window.alert(result.status === 'completed'
+        ? "Remboursement Mobile Money confirmé par PayDunya."
+        : result.status === 'failed'
+          ? "PayDunya a refusé le décaissement. Le montant réservé a été libéré."
+          : result.status === 'created'
+            ? "Le décaissement est créé mais pas encore confirmé comme soumis. Il reste réservé pour rapprochement ; ne relancez pas l'opération."
+            : "Demande de remboursement transmise. Elle reste en attente de confirmation PayDunya ; ne relancez pas l'opération.");
+    }
     const refreshed = await listRecentCashPaymentsWithServerValidation(activeRestaurantSlug);
     if (refreshed.success) {
       const records = refreshed.payments.map(mapCashPaymentRecord);
