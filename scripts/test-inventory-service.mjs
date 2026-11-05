@@ -148,4 +148,10 @@ assert(inventoryUi.includes('!result.retryable'), 'definitive stock errors clear
 assert(inventoryUi.includes('updateInventoryItemWithServerValidation') && inventoryUi.includes('startEditInventoryItem(item)'), 'inventory metadata can be edited through the trusted API');
 assert(firebaseSource.includes("action: 'update'"), 'the client helper routes metadata changes through the backend action');
 assert(firebaseSource.includes('retryable: true'), 'network failures are distinguished from definitive stock rejections');
+const recipePanel = fs.readFileSync(new URL('../src/components/restaumax/InventoryRecipePanel.tsx', import.meta.url), 'utf8');
+assert(inventoryUi.includes('<InventoryRecipePanel restaurantSlug={restaurant.slug}'), 'stock module mounts the recipe management panel');
+assert(recipePanel.includes('saveInventoryRecipeWithServerValidation'), 'recipe saves use the trusted backend API');
+assert(recipePanel.includes('new Set(normalized.map(line => line.inventoryItemId)).size !== normalized.length'), 'duplicate ingredients are rejected in the UI');
+assert(recipePanel.includes('no conversion'), 'recipe quantities explicitly avoid implicit unit conversion');
+assert(recipePanel.includes('canManage && <form'), 'recipe editing is hidden from staff without inventory management permission');
 console.log('Inventory service and retry-safe UI: tests passed.');
