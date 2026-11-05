@@ -7,6 +7,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Subscription and payout metadata is private server-side data. Platform
+    // administration accesses it only through Firebase Admin SDK endpoints.
+    match /restaurantSubscriptions/{restaurantSlug} {
+      allow read, write: if false;
+    }
+
     // Validation primitives
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');

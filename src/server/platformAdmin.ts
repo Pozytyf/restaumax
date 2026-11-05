@@ -1,4 +1,5 @@
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
+import { FieldValue } from 'firebase-admin/firestore';
 import { validateSubscriptionInput } from './subscriptionService.js';
 
 const PERMISSIONS = [
@@ -156,7 +157,38 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       if (action === 'overview') {
         const snap = await db.collection('restaurants').get();
-        const restaurants = snap.docs.map((d: any) => ({ slug: d.id, ...d.data() }));
+        const restaurants = await Promise.all(snap.docs.map(async (d: any) => {
+          const data = d.data();
+          const subscriptionRef = db.collection('restaurantSubscriptions').doc(d.id);
+          let subscriptionSnap = await subscriptionRef.get();
+
+          // Migrate any legacy subscription out of the publicly readable restaurant document.
+          if (!subscriptionSnap.exists && data.subscription !== undefined) {
+            if (data.subscription && typeof data.subscription === 'object') {
+              await subscriptionRef.set(data.subscription);
+            }
+            await d.ref.update({ subscription: FieldValue.delete() });
+            await db.collection('admin_audit_logs').add({
+              action: 'migrate_restaurant_subscription_private',
+              restaurantSlug: d.id, actorUid: user.uid, createdAt: Date.now()
+            });
+            subscriptionSnap = await subscriptionRef.get();
+          } else if (subscriptionSnap.exists && data.subscription !== undefined) {
+            await d.ref.update({ subscription: FieldValue.delete() });
+            await db.collection('admin_audit_logs').add({
+              action: 'remove_legacy_public_subscription_field',
+              restaurantSlug: d.id, actorUid: user.uid, createdAt: Date.now()
+            });
+          }
+
+          const publicRestaurantData = { ...data };
+          delete publicRestaurantData.subscription;
+          return {
+            slug: d.id,
+            ...publicRestaurantData,
+            subscription: subscriptionSnap.exists ? subscriptionSnap.data() : undefined
+          };
+        }));
         return json(res, 200, { success: true, restaurants, total: restaurants.length });
       }
 
@@ -274,7 +306,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const updatedSubscription = {
           ...validation.subscription, updatedAt: now, updatedBy: user.uid
         };
-        await restaurantRef.set({ subscription: updatedSubscription, updatedAt: now, updatedBy: user.uid }, { merge: true });
+        const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
+        await subscriptionRef.set(updatedSubscription, { merge: true });
+        if (restaurantSnap.data()?.subscription !== undefined) {
+          await restaurantRef.update({ subscription: FieldValue.delete() });
+        }
         await db.collection('admin_audit_logs').add({
           action: 'update_restaurant_subscription', restaurantSlug: slug, actorUid: user.uid,
           planName: validation.subscription.planName,
