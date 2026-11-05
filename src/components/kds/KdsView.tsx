@@ -71,6 +71,10 @@ export const KdsView: React.FC<KdsViewProps> = ({
       onUpdateTicketStatus(ticket.id, 'served');
       setLastBumpedMsg(`Ticket ${ticket.ticketNumber} archivé / servi ${slotNumber ? `[Touche ${slotNumber}]` : ''}`);
     } else {
+      if (!ticket.items.every(item => item.completed)) {
+        setLastBumpedMsg(`Terminez toutes les lignes du ticket ${ticket.ticketNumber} avant de le déclarer prêt.`);
+        return;
+      }
       sounds.playKitchenBell();
       onUpdateTicketStatus(ticket.id, 'ready');
       setLastBumpedMsg(`Ticket ${ticket.ticketNumber} prêt pour expédition ${slotNumber ? `[Touche ${slotNumber}]` : ''}`);
