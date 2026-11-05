@@ -420,8 +420,9 @@ async function finalizePayDunyaRefund(
     }
     const now = Date.now();
     if (providerStatus.status === 'pending' || providerStatus.status === 'created') {
-      tx.update(refundRef, { status: 'pending', providerTransactionId: providerStatus.transactionId || null, updatedAt: now });
-      return { success: true, refundId, status: 'pending' };
+      const nextStatus = providerStatus.status;
+      tx.update(refundRef, { status: nextStatus, providerTransactionId: providerStatus.transactionId || null, updatedAt: now });
+      return { success: true, refundId, status: nextStatus };
     }
     if (providerStatus.status === 'failed') {
       tx.update(refundRef, { status: 'failed', failureAt: now, updatedAt: now });
