@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CashDrawerState, PaymentRecord } from '../../types/pos';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
+import { PayDunyaAccountSettings } from './PayDunyaAccountSettings';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -40,6 +41,8 @@ interface CashSessionSummary {
 }
 
 interface ManagerViewProps {
+  restaurantSlug: string;
+  isOwner: boolean;
   drawerState: CashDrawerState;
   transactions: PaymentRecord[];
   cashSession: CashSessionSummary | null;
@@ -56,6 +59,8 @@ interface ManagerViewProps {
 }
 
 export const ManagerView: React.FC<ManagerViewProps> = ({
+  restaurantSlug,
+  isOwner,
   drawerState,
   transactions,
   cashSession,
@@ -85,6 +90,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   return (
     <div className="flex-1 flex flex-col h-[calc(100vh-60px)] overflow-y-auto bg-[#f4f7fb] p-4 lg:p-8">
       <div className="max-w-7xl mx-auto w-full space-y-6">
+        <PayDunyaAccountSettings restaurantSlug={restaurantSlug} isOwner={isOwner} />
+
         {/* Top Header Summary */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
