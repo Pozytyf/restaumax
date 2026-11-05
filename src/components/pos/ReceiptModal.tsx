@@ -23,14 +23,15 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
       : '';
     const shareAmount = receipt.guestShareAmount ?? receipt.total;
     const guestRemaining = receipt.guestRemainingAfter ?? receipt.remainingAmount ?? 0;
+    const paidOnGuestShare = Number(receipt.guestPreviouslyPaidAmount || 0) + receipt.paidAmount;
     const message = [
       restaurant?.name || 'RestauMax',
       `Ticket : ${receipt.orderId}`,
       receipt.tableNumber,
       guestLabel,
-      `Part à régler : ${formatFCFA(shareAmount)}`,
-      `Payé : ${formatFCFA(receipt.paidAmount)}`,
-      `Reste : ${formatFCFA(guestRemaining)}`
+      `Part attribuée : ${formatFCFA(shareAmount)}`,
+      `Payé sur cette part : ${formatFCFA(paidOnGuestShare)}`,
+      `Reste à régler : ${formatFCFA(guestRemaining)}`
     ].filter(Boolean).join('\n');
     try {
       if (typeof navigator.share === 'function') {
@@ -166,10 +167,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
               <span>MODE RÈGLEMENT:</span>
               <span className="font-bold">{getMethodLabel(receipt.paymentMethod)}</span>
             </div>
-            {receipt.previouslyPaidAmount !== undefined && receipt.previouslyPaidAmount > 0 && (
+            {(receipt.guestName ? receipt.guestPreviouslyPaidAmount : receipt.previouslyPaidAmount) !== undefined &&
+              Number(receipt.guestName ? receipt.guestPreviouslyPaidAmount : receipt.previouslyPaidAmount) > 0 && (
               <div className="flex justify-between">
-                <span>DÉJÀ RÉGLÉ AVANT:</span>
-                <span className="tnum">{formatFCFA(receipt.previouslyPaidAmount)}</span>
+                <span>{receipt.guestName ? 'DÉJÀ RÉGLÉ PAR CE CONVIVE:' : 'DÉJÀ RÉGLÉ AVANT:'}</span>
+                <span className="tnum">{formatFCFA(Number(receipt.guestName ? receipt.guestPreviouslyPaidAmount : receipt.previouslyPaidAmount))}</span>
               </div>
             )}
             {receipt.tenderedAmount !== undefined && (
