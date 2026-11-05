@@ -479,7 +479,7 @@ export default function App() {
         ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
         : superAdmin ? [] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
       setAuthRestaurantRole(typeof token.claims.role === 'string' ? token.claims.role : '');
-      }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setUserPermissions([]); });
+      }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); });
       else { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); }
     });
 
@@ -643,6 +643,7 @@ export default function App() {
     setIsRestaurantOwner(false);
     setAuthIsSuperAdmin(false);
     setAuthRestaurantSlug('');
+    setAuthRestaurantRole('');
     setUserPermissions([]);
   };
 
