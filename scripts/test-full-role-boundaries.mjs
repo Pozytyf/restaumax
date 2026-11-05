@@ -46,6 +46,9 @@ assert(platformAdmin.includes("await db.runTransaction(async (tx: any) =>") &&
 assert(qrView.includes('window.confirm') && qrView.includes('setIsRevoking(true)') &&
   qrView.includes('disabled={isGenerating || isRevoking}') &&
   qrView.includes("setQrDataUrl('')") && qrView.includes("setQrSvgString('')") && qrView.includes("setQrUrl('')"),
+const qrGenerateButton = qrView.slice(qrView.indexOf('const handleGenerateQr'), qrView.indexOf('const handleRevokeQr'));
+assert(qrGenerateButton.includes('window.confirm') && qrGenerateButton.includes('Tout QR précédemment émis'),
+  'QR regeneration warns that previously printed QR codes will be invalidated');
 const qrGenerateStart = qrView.slice(qrView.indexOf('const generateQrForTable'), qrView.indexOf('const handleGenerateQr'));
 assert(qrGenerateStart.includes("setQrDataUrl('')") && qrGenerateStart.includes("setQrSvgString('')") &&
   qrGenerateStart.includes("setQrUrl('')") && qrGenerateStart.includes('setQrForTableId(null)'),
