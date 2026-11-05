@@ -742,6 +742,58 @@ export async function createPayDunyaPaymentWithServerValidation(
   }
 }
 
+export async function createCustomerPayDunyaPaymentWithServerValidation(
+  restaurantSlug: string,
+  orderId: string,
+  channel: PayDunyaClientChannel,
+  idempotencyKey: string,
+  csrfToken: string
+): Promise<{ success: true; checkoutUrl: string; paymentIntentId: string; amount: number } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const response = await fetch('/api/payments/customer-paydunya', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-RM-CSRF-Token': csrfToken },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, orderId, channel, idempotencyKey, csrfToken })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success || typeof data.checkoutUrl !== 'string') {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'PayDunya n’a pas pu créer la facture de cette commande.' };
+    }
+    return { success: true, checkoutUrl: data.checkoutUrl,
+      paymentIntentId: String(data.paymentIntentId || ''), amount: Number(data.amount || 0) };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau lors de la création du paiement QR.' };
+  }
+}
+
+export async function reconcileCustomerPayDunyaPaymentWithServerValidation(
+  restaurantSlug: string,
+  paymentIntentId: string,
+  csrfToken: string
+): Promise<{ success: true; status: string; paymentId?: string } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const response = await fetch('/api/payments/customer-paydunya-reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-RM-CSRF-Token': csrfToken },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, paymentIntentId, csrfToken })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'Le statut du paiement QR ne peut pas être vérifié.' };
+    }
+    return { success: true, status: String(data.status || 'pending'),
+      paymentId: data.paymentId ? String(data.paymentId) : undefined };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau pendant le rapprochement du paiement QR.' };
+  }
+}
+
 export async function reconcilePayDunyaPaymentWithServerValidation(
   restaurantSlug: string,
   paymentIntentId: string
