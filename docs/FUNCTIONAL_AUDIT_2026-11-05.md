@@ -56,6 +56,8 @@ L'écran affichait une durée de service fixe (« 3h 42m ») et une heure de ré
 3. Tests multi-comptes et multi-restaurants pour les permissions et l'isolation.
 4. Scénarios UI complets sur Preview, y compris erreurs réseau, rechargement, double clic et session expirée.
 5. Aucun test fournisseur réel ni déploiement Production sans autorisation distincte.
+6. Dans Vercel, passer la variable Production `FIREBASE_SERVICE_ACCOUNT_JSON` de visibilité `Config` à `Secret/Sensitive`, sans modifier sa valeur. La connexion Vercel disponible ne permet pas d'appliquer ce changement de visibilité de façon sûre.
+7. Après réinitialisation du quota Vercel, reconstruire un déploiement Preview afin qu'il prenne en compte la clé de chiffrement PayDunya Preview déjà configurée.
 
 ## État Git
 
