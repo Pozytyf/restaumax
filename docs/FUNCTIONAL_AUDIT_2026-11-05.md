@@ -12,7 +12,7 @@ Portée : audit statique du code et des règles Firestore. Les tests automatisé
 | Commandes / POS | Parcours persisté côté serveur | Vérifier tous les cas d'annulation, transferts de table et paiements partiels |
 | Cuisine / KDS | Progression individuelle persistée et transition prête protégée par les règles | CI/Emulator verts ; parcours multi-postes Preview à valider |
 | Menu & catalogue | Catalogue Firestore live : création, édition, suppression, disponibilité ; partagé avec QR client et POS | Validation UI Preview encore nécessaire |
-| Stocks | Création, édition des métadonnées, mouvements et archivage sécurisés côté serveur ; historique visible | Recettes et déduction automatique des ventes non implémentées |
+| Stocks | Création, édition des métadonnées, mouvements, archivage et fiches recettes avec panneau de gestion | Déduction automatique des ventes, annulation/restauration et validation transactionnelle non implémentées |
 | Abonnements | Gestion manuelle, données privées | Pas de facturation automatique ni suspension automatique à échéance |
 | QR Code | Génération serveur et sessions sécurisées | Parcours scan réel, expiration/révocation et reprise à éprouver |
 | Paiements | PayDunya PAR et orchestration PUSH préparées | Fournisseur TEST et décaissements réels non validés ; factures partagées non compatibles Mobile Money |
@@ -31,9 +31,15 @@ Le pointage de chaque ligne est maintenant stocké dans `RestauOrder.kitchenItem
 Un test de service couvre les permissions, l'isolation, la session révoquée, la ligne invalide, les commandes déjà prêtes et le rejeu. Le test LOT 2 vérifie désormais la restauration depuis les données persistées. **CI complète et Firestore Emulator réussis sur le SHA `dc348f2aa53414d4e86576ca14462bf1e852afcf`** ; le parcours multi-postes en Preview reste à vérifier avant de considérer le module comme terminé.
 
 ### Stocks — inventaire non relié aux ventes
-Les entrées/sorties manuelles sont enregistrées, mais aucune nomenclature/recette ne relie les articles vendus aux matières premières. Les ventes ne décrémentent donc pas automatiquement le stock et les seuils ne peuvent pas refléter une consommation réelle.
+Les entrées/sorties manuelles sont enregistrées, mais aucune nomenclature/recette ne relie les articles vendus aux matières premières. Les fiches recettes sont maintenant créables, consultables et modifiables depuis le module Stocks. Le panneau vérifie les ingrédients distincts, les quantités positives et affiche l’unité de chaque article. Le service serveur vérifie le restaurant, le plat, les articles actifs et les permissions avant d’écrire dans `menuRecipes`. La sauvegarde d’une recette ne modifie jamais le stock. Les ventes ne décrémentent toujours pas automatiquement le stock et les seuils ne reflètent donc pas encore une consommation réelle.
 
 **Correction requise :** modèle de recettes et unités, conversion contrôlée, déduction atomique lors de la validation d'une commande, annulation/restauration idempotente et journal immuable. Prévoir les produits sans recette et les corrections manuelles avec motif.
+
+### Stocks — gestion des fiches recettes : première tranche implémentée
+
+Le module Stocks affiche les recettes liées aux plats du catalogue et permet au propriétaire/manager autorisé de créer ou modifier une fiche. Chaque ligne associe un article de stock actif à une quantité positive par portion ; les doublons sont refusés. Les unités restent celles des articles de stock et aucune conversion automatique n’est effectuée. Les recettes sont lues depuis la sous-collection privée `menuRecipes` et enregistrées exclusivement par `POST /api/inventory` avec l’action `save_recipe`. Les règles Firestore refusent les écritures directes du navigateur. Le test d’inventaire couvre la persistance, la conservation du stock, le rejet des ingrédients dupliqués et le refus d’un caissier sans permission.
+
+**Limite restante :** aucune déduction automatique n’est encore déclenchée par une commande. Le prochain lot doit lier la transition de commande vers la préparation à une transaction serveur atomique qui déduit les ingrédients, garantit l’idempotence, refuse le stock insuffisant et restaure les quantités en cas d’annulation avec un journal append-only. Aucun stock ne doit être consommé au simple enregistrement d’une commande `pending`.
 
 ### Stocks — mutations manuelles : sécurisation implémentée, CI/Emulator verts
 Les créations, entrées/sorties et archivages passent désormais par `POST /api/inventory` et le service Admin SDK transactionnel. Les clés d'idempotence sont liées à la signature des données ; chaque mouvement conserve quantité avant, delta, quantité après, motif et acteur. Les sorties négatives sont refusées, les articles avec stock restant ne peuvent pas être archivés et l'historique reste consultable. Les métadonnées peuvent être modifiées sans toucher à la quantité ; le changement d'unité est interdit tant que le stock n'est pas nul. Les règles Firestore interdisent toutes les écritures du SDK client sur `inventoryItems` et `stockMovements`.
