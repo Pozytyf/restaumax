@@ -429,6 +429,10 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
 
   // Option Groups Handlers
   const handleAddOptionGroup = () => {
+    if (optionGroups.length >= 20) {
+      setSaveError('Un plat ne peut pas dépasser 20 groupes d’options.');
+      return;
+    }
     sounds.playTap();
     const newGroup: FormOptionGroup = {
       id: `grp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -465,6 +469,10 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   };
 
   const handleAddOptionToGroup = (groupIndex: number) => {
+    if ((optionGroups[groupIndex]?.options.length || 0) >= 50) {
+      setSaveError('Un groupe ne peut pas dépasser 50 options.');
+      return;
+    }
     sounds.playTap();
     const updated = [...optionGroups];
     const newOpt: FormOptionItem = {
@@ -531,6 +539,10 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
 
   // Extras Handlers
   const handleAddExtra = () => {
+    if (extras.length >= 50) {
+      setSaveError('Un plat ne peut pas dépasser 50 suppléments.');
+      return;
+    }
     sounds.playTap();
     const newExtra: FormExtra = {
       id: `ext-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -830,6 +842,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               <button
                 type="button"
                 onClick={handleAddOptionGroup}
+                disabled={optionGroups.length >= 20}
                 className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
               >
                 <Plus size={14} className="text-[#ff6500]" />
@@ -906,6 +919,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleAddOptionToGroup(gIdx)}
+                          disabled={group.options.length >= 50}
                           className="text-[11px] font-bold text-[#ff6500] hover:text-[#e05800] flex items-center gap-1"
                         >
                           <Plus size={12} />
@@ -1012,6 +1026,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               <button
                 type="button"
                 onClick={handleAddExtra}
+                disabled={extras.length >= 50}
                 className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
               >
                 <Plus size={14} className="text-[#ff6500]" />
