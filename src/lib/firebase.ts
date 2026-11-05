@@ -278,8 +278,19 @@ export async function persistDishAvailability(restaurantSlug: string, dishId: st
  */
 export async function deleteMenuItem(restaurantSlug: string, dishId: string): Promise<void> {
   const path = `restaurants/${restaurantSlug}/menuItems/${dishId}`;
+  const menuItemRef = doc(db, 'restaurants', restaurantSlug, 'menuItems', dishId);
+  const recipeRef = doc(db, 'restaurants', restaurantSlug, 'menuRecipes', dishId);
   try {
-    await deleteDoc(doc(db, 'restaurants', restaurantSlug, 'menuItems', dishId));
+    await runTransaction(db, async (transaction) => {
+      const [menuItemSnapshot, recipeSnapshot] = await Promise.all([
+        transaction.get(menuItemRef),
+        transaction.get(recipeRef)
+      ]);
+      // Delete the private recipe and its menu item atomically. Firestore rules
+      // require both documents to be absent after the same transaction.
+      if (recipeSnapshot.exists()) transaction.delete(recipeRef);
+      if (menuItemSnapshot.exists()) transaction.delete(menuItemRef);
+    });
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
   }
