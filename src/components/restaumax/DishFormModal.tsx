@@ -286,6 +286,8 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       errs.prepTimeMinutes = 'Le temps de préparation doit être au minimum de 1 minute.';
     } else if (!Number.isInteger(numPrep)) {
       errs.prepTimeMinutes = 'Le temps de préparation doit être un nombre entier de minutes.';
+    } else if (numPrep > 1440) {
+      errs.prepTimeMinutes = 'Le temps de préparation ne peut pas dépasser 1 440 minutes.';
     }
 
     // 5. URL de l'image (Validation robuste conforme RFC, HTTP/HTTPS, localhost, IPv4, FQDN)
@@ -728,7 +730,9 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 <div className="relative">
                   <input
                     type="number"
-                    step="any"
+                    min={1}
+                    max={1440}
+                    step={1}
                     value={prepTimeMinutes}
                     onChange={(e) => setPrepTimeMinutes(e.target.value)}
                     placeholder="ex. 20"
