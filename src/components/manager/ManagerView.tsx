@@ -516,7 +516,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                               Remboursement en cours
                             </span>
                           )}
-                          {canRefundPayments && tx.refundEligible && tx.paymentMethod !== 'especes' &&
+                          {canRefundPayments && tx.refundEligible &&
                             (tx.paidAmount - Number(tx.refundedAmount || 0) - Number(tx.refundPendingAmount || 0)) > 0 && (
                             <button
                               onClick={() => {
@@ -533,12 +533,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                                   window.alert('Veuillez saisir un motif de trois caractères minimum.');
                                   return;
                                 }
-                                if (window.confirm(`Confirmer le remboursement de ${formatFCFA(amount)} vers le wallet d’origine ?`)) {
-                                  void onRefundPayment(tx, amount, reason.trim());
-                                }
+                                const confirmation = tx.paymentMethod === 'especes'
+                                  ? `Confirmez-vous avoir remis physiquement ${formatFCFA(amount)} en espèces au client ?`
+                                  : `Confirmer le remboursement de ${formatFCFA(amount)} vers le wallet d’origine ?`;
+                                if (window.confirm(confirmation)) void onRefundPayment(tx, amount, reason.trim());
                               }}
                               className="rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] font-bold text-amber-800 hover:bg-amber-100"
-                              title="Rembourser via PayDunya"
+                              title={tx.paymentMethod === 'especes' ? "Rembourser en espèces" : "Rembourser via PayDunya"}
                             >
                               Rembourser
                             </button>
