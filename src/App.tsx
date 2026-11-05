@@ -41,6 +41,7 @@ import {
   clearPendingOrderIntent, 
   updatePendingOrderIntentUncertainty 
 } from './utils/orderIntentStorage';
+import { formatFCFA } from './utils/format';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
