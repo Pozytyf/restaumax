@@ -49,7 +49,6 @@ async function run() {
       restaurantSlug: slug,
       orderMode: 'a_emporter',
       tableNumber: null,
-      customerNote: 'Test transversal POS-KDS-caisse',
       idempotencyKey: 'integration-order-' + suffix,
       declaredTotal: 5000,
       cart: [{
