@@ -1524,7 +1524,7 @@ export default function App() {
         quantity: item.quantity,
         selectedOption: item.selectedOption,
         selectedExtras: item.selectedExtras || [],
-        specialInstructions: item.prepNotes || notes,
+        specialInstructions: item.prepNotes || '',
         course: menuItem.course
       };
     });
