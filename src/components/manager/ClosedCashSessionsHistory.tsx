@@ -103,8 +103,8 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
     };
   }, [sessions]);
 
-  const formatDateRange = (openedAt?: number, closedAt?: number) => {
-    if (!openedAt) return 'Date inconnue';
+  const formatDateRange = (openedAt?: number, closedAt?: number): { date: string; time: string } => {
+    if (!openedAt) return { date: 'Date inconnue', time: '—' };
     const dOpen = new Date(openedAt);
     const dateStr = dOpen.toLocaleDateString('fr-FR', {
       weekday: 'short',
