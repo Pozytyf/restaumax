@@ -2,7 +2,7 @@ name: RestauMax — Tests Firestore Emulator & Qualité
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, fix/authorization-refunds-platform-audit ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
