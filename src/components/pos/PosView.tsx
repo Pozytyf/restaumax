@@ -123,7 +123,7 @@ export const PosView: React.FC<PosViewProps> = ({
       course: 'plat'
     };
 
-    onAddToCart(newItem);
+    window.alert('Les articles libres ne peuvent pas être envoyés en commande tant qu’ils ne sont pas enregistrés dans le catalogue officiel.');
     setCustomName('');
     setCustomPrice('');
     setShowCustomItemModal(false);
