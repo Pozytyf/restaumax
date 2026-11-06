@@ -212,52 +212,59 @@ export function validateAndBuildOrder(params: ValidateOrderParams):
     }
     const qty = rawQty;
 
-    // Vérification des groupes d'options (obligatoires et exclusifs)
+    // Revalider chaque choix de groupe depuis le catalogue officiel.
+    const optionGroups = catalogItem.optionGroups || [];
+    const selectedGroupIds = line.selectedOption?.groupId ? line.selectedOption.groupId.split('+') : [];
+    const selectedOptionIds = line.selectedOption?.optionId ? line.selectedOption.optionId.split('+') : [];
     let verifiedSelectedOption: RestauOrderItem['selectedOption'] = undefined;
     let verifiedOptionExtraPrice = 0;
 
-    if (catalogItem.optionGroups && catalogItem.optionGroups.length > 0) {
-      // Trouver tous les groupes d'options obligatoires
-      for (const group of catalogItem.optionGroups) {
-        if (group.required) {
-          const hasSelection = line.selectedOption && line.selectedOption.groupId === group.id;
-          if (!hasSelection) {
-            return {
-              success: false,
-              error: `Une option est obligatoire pour le groupe "${group.name}" du plat "${catalogItem.name}".`
-            };
-          }
-        }
+    if (selectedGroupIds.length !== selectedOptionIds.length ||
+        selectedGroupIds.some((id, index) => !id || !selectedOptionIds[index]) ||
+        new Set(selectedGroupIds).size !== selectedGroupIds.length) {
+      return { success: false, error: `Les choix d'options de "${catalogItem.name}" sont invalides.` };
+    }
+
+    const selectedPairs = selectedGroupIds.map((groupId, index) => ({ groupId, optionId: selectedOptionIds[index] }));
+    for (const requiredGroup of optionGroups.filter(group => group.required)) {
+      if (!selectedPairs.some(pair => pair.groupId === requiredGroup.id)) {
+        return {
+          success: false,
+          error: `Une option est obligatoire pour le groupe "${requiredGroup.name}" du plat "${catalogItem.name}".`
+        };
       }
     }
 
-    if (line.selectedOption) {
-      // Trouver le groupe dans le catalogue
-      const catalogGroup = (catalogItem.optionGroups || []).find(g => g.id === line.selectedOption?.groupId);
+    const verifiedPairs: Array<{ groupId: string; groupName: string; optionId: string; optionName: string; extraPrice: number }> = [];
+    for (const pair of selectedPairs) {
+      const catalogGroup = optionGroups.find(group => group.id === pair.groupId);
       if (!catalogGroup) {
-        return {
-          success: false,
-          error: `Le groupe d'options spécifié pour "${catalogItem.name}" n'existe pas.`
-        };
+        return { success: false, error: `Le groupe d'options "${pair.groupId}" n'existe pas pour "${catalogItem.name}".` };
       }
-
-      // Trouver l'option dans le groupe du catalogue
-      const catalogOption = catalogGroup.options.find(o => o.id === line.selectedOption?.optionId);
+      const catalogOption = catalogGroup.options.find(option => option.id === pair.optionId);
       if (!catalogOption) {
-        return {
-          success: false,
-          error: `L'option sélectionnée pour "${catalogItem.name}" n'existe pas au catalogue.`
-        };
+        return { success: false, error: `L'option "${pair.optionId}" n'existe pas dans le groupe "${catalogGroup.name}".` };
       }
-
-      // Utiliser impérativement le prix du catalogue, pas celui envoyé par le client !
-      verifiedOptionExtraPrice = Math.max(0, Math.round(Number(catalogOption.extraPrice) || 0));
-
-      verifiedSelectedOption = {
+      const trustedExtraPrice = Number(catalogOption.extraPrice);
+      if (!Number.isFinite(trustedExtraPrice) || trustedExtraPrice < 0) {
+        return { success: false, error: `Le surcoût de l'option "${catalogOption.name}" est invalide dans le catalogue.` };
+      }
+      verifiedOptionExtraPrice += Math.round(trustedExtraPrice);
+      verifiedPairs.push({
         groupId: catalogGroup.id,
         groupName: catalogGroup.name,
         optionId: catalogOption.id,
         optionName: catalogOption.name,
+        extraPrice: Math.round(trustedExtraPrice)
+      });
+    }
+
+    if (verifiedPairs.length > 0) {
+      verifiedSelectedOption = {
+        groupId: verifiedPairs.map(pair => pair.groupId).join('+'),
+        groupName: verifiedPairs.map(pair => pair.groupName).join(' / '),
+        optionId: verifiedPairs.map(pair => pair.optionId).join('+'),
+        optionName: verifiedPairs.map(pair => `${pair.groupName}: ${pair.optionName}`).join(' · '),
         extraPrice: verifiedOptionExtraPrice
       };
     }
