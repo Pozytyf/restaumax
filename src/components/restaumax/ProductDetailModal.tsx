@@ -257,7 +257,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
           {/* Validation Error Alert */}
           {validationError && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
+            <div role="alert" aria-live="assertive" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
               <AlertCircle size={16} className="shrink-0 text-rose-600" />
               <span>{validationError}</span>
             </div>
