@@ -958,12 +958,17 @@ export default function App() {
     const selectedExtras = verifiedExtras.filter((extra): extra is NonNullable<typeof extra> => extra !== null);
     const prepNotes = (configuredItem.prepNotes || '').trim().slice(0, 150);
 
-    const configurationKey = (option?: ClientCartItem['selectedOption'], extras: ClientCartItem['selectedExtras'] = []) =>
-      JSON.stringify({
-        groupId: option?.groupId || '',
-        optionId: option?.optionId || '',
+    const configurationKey = (option?: ClientCartItem['selectedOption'], extras: ClientCartItem['selectedExtras'] = []) => {
+      const groupIds = option?.groupId ? option.groupId.split('+') : [];
+      const optionIds = option?.optionId ? option.optionId.split('+') : [];
+      const optionPairs = groupIds
+        .map((groupId, index) => [groupId, optionIds[index] || ''])
+        .sort(([left], [right]) => left.localeCompare(right));
+      return JSON.stringify({
+        options: optionPairs,
         extras: extras.map((extra) => extra.extraId).sort()
       });
+    };
 
     setCart((prev) => {
       const key = configurationKey(verifiedSelectedOption, selectedExtras);
