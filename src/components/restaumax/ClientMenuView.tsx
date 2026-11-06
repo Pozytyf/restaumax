@@ -468,6 +468,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       {/* Confirmed Order Modal */}
       <OrderConfirmationModal
         order={confirmedOrder}
+        restaurantName={restaurant.name}
         onStartPayDunyaPayment={onStartPayDunyaPayment}
         onClose={() => setConfirmedOrder(null)}
         onNewOrder={() => {
