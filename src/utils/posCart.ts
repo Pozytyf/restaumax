@@ -8,6 +8,22 @@ export function getPosCartLineUnitPrice(item: Pick<CartItem, 'menuItem' | 'selec
     (item.selectedExtras || []).reduce((sum, extra) => sum + extra.price, 0);
 }
 
+/** Signature stable des choix, indépendante de l'ordre dans lequel le personnel clique les groupes. */
+export function getPosCartConfigurationKey(
+  option?: CartItem['selectedOption'],
+  extras: NonNullable<CartItem['selectedExtras']> = []
+): string {
+  const groupIds = option?.groupId ? option.groupId.split('+') : [];
+  const optionIds = option?.optionId ? option.optionId.split('+') : [];
+  const optionPairs = groupIds
+    .map((groupId, index) => [groupId, optionIds[index] || ''])
+    .sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify({
+    options: optionPairs,
+    extras: extras.map((extra) => extra.extraId).sort()
+  });
+}
+
 /** Contrat commun aux deux sorties POS : cuisine et encaissement direct. */
 export function toClientCartItem(item: CartItem): ClientCartItem {
   const prepNotes = (item.specialInstructions || '').trim().slice(0, 150);
