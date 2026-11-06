@@ -94,7 +94,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         {/* Header */}
         <div className="bg-[#101d2d] text-white px-5 py-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#ff6500] flex items-center justify-center text-white shadow-sm">
+            <div className="w-9 h-9 rounded-xl bg-[#c2410c] flex items-center justify-center text-white shadow-sm">
               <ShoppingBag size={18} />
             </div>
             <div>
@@ -131,7 +131,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         {cart.length > 0 && (
           <div className="bg-slate-50 border-b border-slate-200/80 px-4 py-2 flex items-center justify-between text-[11px] text-slate-600 font-semibold shrink-0">
             <div className="flex items-center gap-1.5">
-              <ChefHat size={13} className="shrink-0 text-[#ff6500]" />
+              <ChefHat size={13} className="shrink-0 text-[#c2410c]" />
               <span>Plats préparés à la commande</span>
             </div>
             <button
@@ -200,7 +200,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500">
-              <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-4">
+              <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 mb-4">
                 <ShoppingBag size={36} strokeWidth={1.5} />
               </div>
               <h3 className="text-base font-extrabold text-slate-900 mb-1">Votre panier est vide</h3>
@@ -234,7 +234,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           <div className="text-[11px] text-slate-600 font-medium mt-0.5">
                             Accompagnement : <span className="font-bold text-slate-800">{line.selectedOption.optionName}</span>
                             {line.selectedOption.extraPrice > 0 && (
-                              <span className="text-[#ff6500] font-bold ml-1 tnum">
+                              <span className="text-[#c2410c] font-bold ml-1 tnum">
                                 (+{formatFCFA(line.selectedOption.extraPrice)})
                               </span>
                             )}
@@ -261,10 +261,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       </div>
 
                       <div className="text-right shrink-0">
-                        <div className="text-xs sm:text-sm font-black text-[#ff6500] tnum">
+                        <div className="text-xs sm:text-sm font-black text-[#c2410c] tnum">
                           {formatFCFA(lineTotal)}
                         </div>
-                        <div className="text-[10px] text-slate-400 tnum">
+                        <div className="text-[10px] text-slate-600 tnum">
                           {formatFCFA(line.unitPrice)} / u
                         </div>
                       </div>
@@ -311,7 +311,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           sounds.playTap();
                           onRemoveItem(line.id);
                         }}
-                        className="text-xs text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors flex items-center gap-1 disabled:opacity-50"
+                        className="text-xs text-slate-600 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors flex items-center gap-1 disabled:opacity-50"
                         title="Supprimer cet article"
                       >
                         <Trash2 size={13} />
@@ -336,7 +336,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   onChange={(e) => setCustomerNote(e.target.value)}
                   maxLength={180}
                   disabled={isSubmitting || isUncertain}
-                  className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg placeholder-slate-400 text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#ff6500] disabled:bg-slate-100 disabled:text-slate-500"
+                  className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg placeholder-slate-500 text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#ff6500] disabled:bg-slate-100 disabled:text-slate-500"
                 />
               </div>
             </>
@@ -372,7 +372,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 type="button"
                 disabled={isSubmitting || cart.length === 0}
                 onClick={handleOrderSubmission}
-                className="w-full h-13 bg-[#ff6500] hover:bg-[#e05800] disabled:bg-slate-700 disabled:text-slate-400 text-white font-black text-sm rounded-xl shadow-lg shadow-orange-600/30 flex items-center justify-center gap-2 transition-all active:scale-[0.99] select-none cursor-pointer disabled:cursor-not-allowed"
+                className="w-full h-13 bg-[#c2410c] hover:bg-[#9a3412] disabled:bg-slate-700 disabled:text-slate-300 text-white font-black text-sm rounded-xl shadow-lg shadow-orange-600/30 flex items-center justify-center gap-2 transition-all active:scale-[0.99] select-none cursor-pointer disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   <>
@@ -396,7 +396,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 )}
               </button>
 
-              <div className="flex items-center justify-between text-[10px] text-slate-400 px-1">
+              <div className="flex items-center justify-between text-[10px] text-slate-600 px-1">
                 <span>Paiement en espèces ou Mobile Money au service</span>
                 <span className="text-slate-300 font-semibold">TVA incluse (FCFA)</span>
               </div>
