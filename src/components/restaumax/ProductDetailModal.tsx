@@ -67,7 +67,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   if (!item) return null;
 
   // Price calculations
-  const selectedOptionsList = Object.values(selectedOptionsByGroup);
+  // Keep composite group/option identifiers in catalogue order, not click order.
+  const selectedOptionsList = (item.optionGroups || [])
+    .map((group) => selectedOptionsByGroup[group.id])
+    .filter((option): option is SelectedOption => Boolean(option));
   const optionsCost = selectedOptionsList.reduce((sum, opt) => sum + opt.extraPrice, 0);
   const extrasCost = selectedExtras.reduce((sum, extra) => sum + extra.price, 0);
   const unitPrice = item.price + optionsCost + extrasCost;
