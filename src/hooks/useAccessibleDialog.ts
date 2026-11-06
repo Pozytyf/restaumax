@@ -9,6 +9,8 @@ export function useAccessibleDialog<T extends HTMLElement>(
   onClose: () => void
 ) {
   const dialogRef = useRef<T>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!isOpen || typeof document === 'undefined') return;
@@ -37,7 +39,7 @@ export function useAccessibleDialog<T extends HTMLElement>(
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -65,7 +67,7 @@ export function useAccessibleDialog<T extends HTMLElement>(
       dialog.removeEventListener('keydown', handleKeyDown);
       if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   return dialogRef;
 }
