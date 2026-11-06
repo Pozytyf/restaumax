@@ -2,7 +2,7 @@ name: RestauMax CI
 
 on:
   push:
-    branches: [main, fix/authorization-refunds-platform-audit]
+    branches: [main, fix/authorization-refunds-platform-audit, stabilize/ai-studio-sync-2026-11-06]
   pull_request:
     branches: [main]
 
