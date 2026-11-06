@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { processOrderSubmission } from '../src/server/orderService.ts';
+import { toClientCartItem } from '../src/utils/posCart.ts';
 import { executeOrderTransactionWithDb } from '../server.ts';
 import { updateKitchenItemCompletionWithDb } from '../src/server/kitchenService.ts';
 import { openCashSessionWithDb, recordCashPaymentWithDb } from '../src/server/paymentService.ts';
@@ -64,9 +65,22 @@ async function run() {
       tableNumber: null,
       idempotencyKey: 'integration-order-' + suffix,
       declaredTotal: 6800,
-      cart: [{
-        id: 'cart-line-1', menuItemId: menuItem.id, name: menuItem.name,
-        basePrice: 5000, unitPrice: 6800, quantity: 1,
+      cart: [toClientCartItem({
+        id: 'cart-line-1',
+        menuItem: {
+          id: menuItem.id,
+          name: menuItem.name,
+          category: 'plats',
+          price: 5000,
+          description: menuItem.description,
+          imageUrl: '',
+          available: true,
+          prepTimeMinutes: 15,
+          course: 'plat',
+          optionGroups: menuItem.optionGroups,
+          availableExtras: menuItem.availableExtras
+        },
+        quantity: 1,
         selectedOption: {
           groupId: 'side+cooking',
           groupName: 'Accompagnement / Cuisson',
@@ -77,8 +91,9 @@ async function run() {
         selectedExtras: [
           { extraId: 'sauce', name: 'Sauce maison', price: 1000 }
         ],
-        prepNotes: 'Sauce à part'
-      }]
+        specialInstructions: 'Sauce à part',
+        course: 'plat'
+      })]
     };
     const provider = {
       async getMenuItems() { return [menuItem]; },
