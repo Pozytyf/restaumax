@@ -410,12 +410,6 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       return { success: false, error: 'Commande refusée : restaurant inactif ou indisponible.' };
     }
 
-    // Apply the opening-state gate to every customer order mode in the same transaction.
-    // This prevents takeaway orders bypassing the closure check used by QR table orders.
-    if (restaurantData.isOpen === false && ['sur_place', 'a_emporter'].includes(orderToCreate.orderMode)) {
-      return { success: false, error: 'Commande refusée : le restaurant est actuellement fermé.' };
-    }
-
     if (isTrustedStaffOrder) {
       const memberSnap = snapshots[staffMemberIndex];
       const member = memberSnap?.exists ? memberSnap.data() : null;
@@ -542,6 +536,12 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         order: decision.order,
         idempotentReplay: true
       };
+    }
+
+    // Existing idempotent replays above remain readable even if the restaurant closes
+    // after the original commit. Only a new order creation is blocked while closed.
+    if (restaurantData.isOpen === false && ['sur_place', 'a_emporter'].includes(orderToCreate.orderMode)) {
+      return { success: false, error: 'Commande refusée : le restaurant est actuellement fermé.' };
     }
 
     // CREATE_NOMINAL : Première soumission nominale ou reprise après échec.
