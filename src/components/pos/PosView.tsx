@@ -4,6 +4,8 @@ import { RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
 import { CartLedger } from './CartLedger';
+import { ProductDetailModal } from '../restaumax/ProductDetailModal';
+import type { ClientCartItem, RestauMenuItem } from '../../types/restaumax';
 import { 
   Search, 
   Flame, 
@@ -24,7 +26,8 @@ interface PosViewProps {
   selectedTable: Table | null;
   tables: Table[];
   onSelectTable: (table: Table) => void;
-  onAddToCart: (item: MenuItem) => void;
+  onAddToCart: (item: ClientCartItem) => boolean | void;
+  restaurantSlug: string;
   onUpdateQuantity: (itemId: string, delta: number) => void;
   onRemoveItem: (itemId: string) => void;
   onUpdateItemNotes: (itemId: string, notes: string) => void;
@@ -58,6 +61,7 @@ export const PosView: React.FC<PosViewProps> = ({
   tables,
   onSelectTable,
   onAddToCart,
+  restaurantSlug,
   onUpdateQuantity,
   onRemoveItem,
   onUpdateItemNotes,
@@ -75,6 +79,7 @@ export const PosView: React.FC<PosViewProps> = ({
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<Category>('tous');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState<MenuItem | null>(null);
   const [showCustomItemModal, setShowCustomItemModal] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState('');
@@ -153,7 +158,7 @@ export const PosView: React.FC<PosViewProps> = ({
 
             {/* Quick Action Button for Custom Item */}
             <button
-              onClick={() => setShowCustomItemModal(true)}
+              onClick={() => window.alert('Les articles libres ne sont pas encore pris en charge par la validation sécurisée du catalogue. Utilisez un article enregistré au menu.')}
               className="text-xs font-bold px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg transition-colors flex items-center gap-1.5 self-start sm:self-auto shrink-0"
             >
               <Plus size={14} />
@@ -244,14 +249,14 @@ export const PosView: React.FC<PosViewProps> = ({
                     key={dish.id}
                     onClick={() => {
                       sounds.playTap();
-                      onAddToCart(dish);
+                      setSelectedProduct(dish);
                     }}
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        onAddToCart(dish);
+                        setSelectedProduct(dish);
                       }
                     }}
                     className={`group cursor-pointer select-none relative bg-white border rounded-xl overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col text-left active:scale-[0.98] ${
@@ -341,6 +346,15 @@ export const PosView: React.FC<PosViewProps> = ({
           isExistingOrder={isExistingOrder}
         />
       </div>
+
+      {selectedProduct && (
+        <ProductDetailModal
+          item={{ ...selectedProduct, restaurantSlug } as RestauMenuItem}
+          isAvailable={selectedProduct.available === true}
+          onClose={() => setSelectedProduct(null)}
+          onAddToCart={onAddToCart}
+        />
+      )}
 
       {/* Custom Item Modal */}
       {showCustomItemModal && (
