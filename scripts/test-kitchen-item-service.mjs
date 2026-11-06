@@ -105,14 +105,14 @@ readyDb.documents.set('restaurants/chez-awa/orders/order-1', {
 assert.equal((await updateKitchenItemCompletionWithDb(readyDb, params)).success, false);
 
 const serverSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
-const apiSource = fs.readFileSync(new URL('../api/kitchen-item.ts', import.meta.url), 'utf8');
+const apiSource = fs.readFileSync(new URL('../api/core.ts', import.meta.url), 'utf8');
 const firebaseSource = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const kitchenMapperSource = fs.readFileSync(new URL('../src/utils/kitchenTicket.ts', import.meta.url), 'utf8');
 const kdsView = fs.readFileSync(new URL('../src/components/kds/KdsView.tsx', import.meta.url), 'utf8');
 const rulesSource = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 assert(serverSource.includes("app.post('/api/kitchen-item'"), 'Express exposes the KDS item endpoint');
-assert(apiSource.includes('handleKitchenItemRequest(req.body, req)'), 'Vercel API exposes the KDS item endpoint');
+assert(apiSource.includes("case 'kitchen-item'") && apiSource.includes('handleKitchenItemRequest(req.body, req)'), 'Vercel core dispatcher exposes the KDS item endpoint');
 assert(firebaseSource.includes("fetch('/api/kitchen-item'"), 'Client persists KDS progress through the trusted API');
 assert(appSource.includes('updateKitchenItemCompletionWithServerValidation('), 'KDS UI uses the trusted persistence helper');
 assert(kitchenMapperSource.includes("completed: order.kitchenItemCompletion?.[String(index)] === true"), 'KDS state is restored from Firestore snapshots');
