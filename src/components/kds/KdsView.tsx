@@ -89,9 +89,16 @@ export const KdsView: React.FC<KdsViewProps> = ({
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept if user is typing in an input or textarea
-      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (targetTag === 'input' || targetTag === 'textarea' || targetTag === 'select') {
+      // Preserve native keyboard navigation and activation for all interactive controls.
+      const target = e.target as HTMLElement | null;
+      if (
+        e.defaultPrevented ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.altKey ||
+        target?.isContentEditable ||
+        target?.closest('input, textarea, select, button, a, [role="button"], [contenteditable="true"]')
+      ) {
         return;
       }
 
@@ -111,7 +118,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
       }
 
       // Arrow navigation
-      if (e.key === 'ArrowRight' || e.key === 'l' || e.key === 'Tab' && !e.shiftKey) {
+      if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'l') {
         if (activeTickets.length > 0) {
           e.preventDefault();
           const nextIndex = (selectedTicketIndex + 1) % activeTickets.length;
@@ -122,7 +129,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
         return;
       }
 
-      if (e.key === 'ArrowLeft' || e.key === 'h' || e.key === 'Tab' && e.shiftKey) {
+      if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'h') {
         if (activeTickets.length > 0) {
           e.preventDefault();
           const prevIndex = (selectedTicketIndex - 1 + activeTickets.length) % activeTickets.length;
