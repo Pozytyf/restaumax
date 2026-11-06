@@ -33,6 +33,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   const [selectedChannel, setSelectedChannel] = useState<'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci'>('wave-ci');
   const [isStartingPayment, setIsStartingPayment] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const dialogRef = useAccessibleDialog<HTMLDivElement>(Boolean(order), onClose);
   useEffect(() => {
     if (order) setPaymentAmount(String(Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))))));
@@ -211,15 +212,22 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                 <option value="moov-ci">Moov Money</option>
                 <option value="djamo-ci">Djamo</option>
               </select>
+              {paymentError && <p role="alert" aria-live="assertive" className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs font-semibold text-rose-800">{paymentError}</p>}
               <button type="button" disabled={isStartingPayment || !validPaymentAmount || !onStartPayDunyaPayment}
                 onClick={async () => {
                   if (!validPaymentAmount) return;
                   setIsStartingPayment(true);
-                  try { await onStartPayDunyaPayment(order, selectedChannel, requestedPaymentAmount); }
-                  finally { setIsStartingPayment(false); }
+                  setPaymentError(null);
+                  try {
+                    await onStartPayDunyaPayment(order, selectedChannel, requestedPaymentAmount);
+                  } catch (error: any) {
+                    setPaymentError(error?.message || 'Impossible de préparer le paiement. Votre commande reste confirmée ; réessayez ou réglez auprès du personnel.');
+                  } finally {
+                    setIsStartingPayment(false);
+                  }
                 }}
                 className="w-full rounded-xl bg-[#101d2d] px-4 py-3 text-xs font-black text-white disabled:opacity-50">
-                {isStartingPayment ? 'Préparation du paiement…' : `Payer ${formatFCFA(requestedPaymentAmount)} avec PayDunya`}
+                {isStartingPayment ? <span role="status" aria-live="polite">Préparation du paiement…</span> : `Payer ${formatFCFA(requestedPaymentAmount)} avec PayDunya`}
               </button>
             </div>
           )}
