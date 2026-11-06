@@ -22,6 +22,18 @@ async function run() {
     return;
   }
 
+  const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  const posViewSource = readFileSync(new URL('../src/components/pos/PosView.tsx', import.meta.url), 'utf8');
+  const cartLedgerSource = readFileSync(new URL('../src/components/pos/CartLedger.tsx', import.meta.url), 'utf8');
+  const paymentModalSource = readFileSync(new URL('../src/components/pos/PaymentModal.tsx', import.meta.url), 'utf8');
+  check((appSource.match(/cart\\.map\\(toClientCartItem\\)/g) || []).length === 2,
+    'Envoi cuisine et encaissement direct utilisent le même sérialiseur POS');
+  check(posViewSource.includes('<ProductDetailModal') &&
+    posViewSource.includes('onAddToCart={onAddToCart}'),
+    'Le POS ouvre le configurateur catalogue avant tout ajout au panier');
+  check(cartLedgerSource.includes('getPosCartLineUnitPrice(item)') &&
+    paymentModalSource.includes('getPosCartLineUnitPrice(item)'),
+    'Le panier et la fenêtre de paiement affichent le même prix configuré');
   const config = JSON.parse(readFileSync(new URL('../firebase-applet-config.json', import.meta.url), 'utf8'));
   const app = initializeApp({ projectId: 'demo-restaumax' }, 'restaumax-order-kds-cash-' + Date.now());
   const db = getFirestore(app, config.firestoreDatabaseId);
