@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { SWEET_AND_HOT_TEST_MENU_ITEMS as items } from './sweet-and-hot-test-menu.mjs';
 
-assert.equal(items.length, 28, 'Le menu test doit contenir 28 références.');
+assert.equal(items.length, 29, 'Le menu test doit contenir 28 références.');
 assert.equal(new Set(items.map(item => item.id)).size, items.length, 'Les identifiants doivent être uniques.');
 assert.ok(items.every(item => item.restaurantSlug === 'chez-awa'), 'Tous les plats doivent cibler Chez Awa.');
 assert.ok(items.every(item => item.available === true), 'Tous les plats du jeu de test doivent être disponibles.');
