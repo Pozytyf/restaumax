@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { processOrderSubmission } from '../src/server/orderService.ts';
-import { toClientCartItem } from '../src/utils/posCart.ts';
+import { getPosCartConfigurationKey, toClientCartItem } from '../src/utils/posCart.ts';
 import { mapRestauOrderToKitchenTicket } from '../src/utils/kitchenTicket.ts';
 import { executeOrderTransactionWithDb } from '../server.ts';
 import { updateKitchenItemCompletionWithDb } from '../src/server/kitchenService.ts';
@@ -24,13 +24,20 @@ async function run() {
 
   const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
   const posViewSource = readFileSync(new URL('../src/components/pos/PosView.tsx', import.meta.url), 'utf8');
+  const productModalSource = readFileSync(new URL('../src/components/restaumax/ProductDetailModal.tsx', import.meta.url), 'utf8');
   const cartLedgerSource = readFileSync(new URL('../src/components/pos/CartLedger.tsx', import.meta.url), 'utf8');
   const paymentModalSource = readFileSync(new URL('../src/components/pos/PaymentModal.tsx', import.meta.url), 'utf8');
   check((appSource.match(/cart\\.map\\(toClientCartItem\\)/g) || []).length === 2,
     'Envoi cuisine et encaissement direct utilisent le même sérialiseur POS');
   check(posViewSource.includes('<ProductDetailModal') &&
-    posViewSource.includes('onAddToCart={onAddToCart}'),
-    'Le POS ouvre le configurateur catalogue avant tout ajout au panier');
+    posViewSource.includes('onAddToCart={onAddToCart}') &&
+    productModalSource.includes('map((group) => selectedOptionsByGroup[group.id])'),
+    'Le POS ouvre le configurateur et sérialise les groupes dans l’ordre du catalogue');
+  const optionOrderA = { groupId: 'side+cooking', optionId: 'rice+well' };
+  const optionOrderB = { groupId: 'cooking+side', optionId: 'well+rice' };
+  check(getPosCartConfigurationKey(optionOrderA, [{ extraId: 'sauce' }, { extraId: 'egg' }]) ===
+    getPosCartConfigurationKey(optionOrderB, [{ extraId: 'egg' }, { extraId: 'sauce' }]),
+    'Une configuration identique ne crée pas une ligne doublon selon l’ordre des clics');
   check(cartLedgerSource.includes('getPosCartLineUnitPrice(item)') &&
     paymentModalSource.includes('getPosCartLineUnitPrice(item)'),
     'Le panier et la fenêtre de paiement affichent le même prix configuré');
