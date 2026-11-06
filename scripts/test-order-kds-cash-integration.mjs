@@ -108,6 +108,38 @@ async function run() {
       }
     };
 
+    check(payload.cart[0].unitPrice === 6800 &&
+      payload.cart[0].selectedOption?.optionId === 'rice+well' &&
+      payload.cart[0].selectedExtras?.[0]?.extraId === 'sauce' &&
+      payload.cart[0].prepNotes === 'Sauce à part',
+      'Le sérialiseur POS commun conserve options, suppléments, note et prix indicatif');
+
+    const missingRequiredResult = await processOrderSubmission({
+      ...payload,
+      idempotencyKey: 'integration-missing-required-' + suffix,
+      cart: [{
+        ...payload.cart[0],
+        unitPrice: 6500,
+        selectedOption: {
+          groupId: 'side', groupName: 'Accompagnement',
+          optionId: 'rice', optionName: 'Accompagnement: Riz', extraPrice: 500
+        }
+      }],
+      declaredTotal: 6500
+    }, provider);
+    check(missingRequiredResult.success === false &&
+      String(missingRequiredResult.error || '').includes('obligatoire'),
+      'Le serveur refuse un plat POS si un groupe obligatoire est absent');
+
+    const tamperedPriceResult = await processOrderSubmission({
+      ...payload,
+      idempotencyKey: 'integration-tampered-price-' + suffix,
+      declaredTotal: 1
+    }, provider);
+    check(tamperedPriceResult.success === false &&
+      String(tamperedPriceResult.error || '').includes('recalculé'),
+      'Le serveur refuse un total POS falsifié et recalcule les tarifs du catalogue');
+
     console.log('\n--- Création réelle de la commande POS ---');
     const created = await processOrderSubmission(payload, provider);
     if (!created.success) console.error('Détail du refus de création POS :', created.error || created);
