@@ -1,5 +1,11 @@
 name: Owner refund authorization regression
 on:
+  push:
+    branches: [fix/authorization-refunds-platform-audit]
+    paths:
+      - 'src/server/paymentService.ts'
+      - 'scripts/test-owner-refund-binding.mjs'
+      - '.github/workflows/owner-refund-binding.yml'
   pull_request:
     branches: [main]
     paths:
