@@ -27,7 +27,8 @@
     "test:kitchen": "tsx scripts/test-kitchen-item-service.mjs",
     "test:inventory": "tsx scripts/test-inventory-service.mjs",
     "test:roles": "tsx scripts/test-role-authorization.mjs",
-    "test:sweet-hot-menu": "node scripts/test-sweet-and-hot-menu.mjs"
+    "test:sweet-hot-menu": "node scripts/test-sweet-and-hot-menu.mjs",
+    "test:integration:pos-kds-cash": "tsx scripts/test-order-kds-cash-integration.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
