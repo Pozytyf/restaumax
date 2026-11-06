@@ -6,8 +6,8 @@ const app = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const firebase = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 const dishForm = fs.readFileSync(new URL('../src/components/restaumax/DishFormModal.tsx', import.meta.url), 'utf8');
 const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
-const dishForm = fs.readFileSync(new URL('../src/components/restaumax/DishFormModal.tsx', import.meta.url), 'utf8');
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+
 assert(hub.includes("actionLabel: canViewCatalog ? 'Gérer les options, suppléments et prix'"), 'module 3 is clearly labelled and permission-gated as catalogue management');
 assert(hub.includes("id: 'options-prices'") && hub.includes("setActiveTab('menu_catalog')"), 'module 3 opens the administrative catalogue instead of the public client menu');
 assert(hub.includes('Carte bancaire non activée en V1'), 'the cash register module does not advertise an unavailable card payment method');
@@ -27,12 +27,9 @@ assert(dishForm.includes('setSaveError(message)'), 'dish form preserves the form
 assert(dishForm.includes('disabled={isSaving}'), 'dish form prevents duplicate submissions and closing while saving');
 assert(menuView.includes('await onCreateDish(dish)') && menuView.includes('await onUpdateDish(dish)'), 'catalogue view awaits create and update operations');
 assert(dishForm.includes('optionGroups.length >= 20') && dishForm.includes('group.options.length >= 50') &&
-  dishForm.includes('extras.length >= 50'),
-assert(dishForm.includes('uniqueTags.length <= 30') && dishForm.includes('30 tags maximum'),
-assert(dishForm.includes('numPrep > 1440') && dishForm.includes('max={1440}'),
-  'catalogue editor matches the Firestore preparation-time ceiling');
-  'catalogue editor enforces the Firestore tag limit');
-  'catalogue editor prevents option data from exceeding Firestore limits');
+  dishForm.includes('extras.length >= 50'), 'catalogue editor prevents option data from exceeding Firestore limits');
+assert(dishForm.includes('uniqueTags.length <= 30') && dishForm.includes('30 tags maximum'), 'catalogue editor enforces the Firestore tag limit');
+assert(dishForm.includes('numPrep > 1440') && dishForm.includes('max={1440}'), 'catalogue editor matches the Firestore preparation-time ceiling');
 
 assert(firebase.includes('transaction.delete(recipeRef)') && firebase.includes('transaction.delete(menuItemRef)'),
   'deleting a catalogue item also removes its linked recipe in one transaction');
@@ -48,9 +45,9 @@ const clientMenu = fs.readFileSync(new URL('../src/components/restaumax/ClientMe
 assert(clientMenu.includes('available === false') || clientMenu.includes('available !== false'),
   'unavailable dishes are excluded from the customer ordering flow');
 assert(menuView.includes('canManageCatalog = false') && menuView.includes('if (!canManageCatalog) return'),
+  'catalogue mutation actions are guarded by the menu.manage permission');
 assert(menuView.includes("(item.description || '').toLowerCase().includes(query)"),
   'catalogue search tolerates legacy entries without a description');
-  'catalogue mutation actions are guarded by the menu.manage permission');
 assert(!menuView.includes('Répertoire complet Chez Awa'),
   'catalogue UI contains no hardcoded demo restaurant label');
 
