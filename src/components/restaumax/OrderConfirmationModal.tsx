@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog';
 import { 
   CheckCircle2, 
   Clock, 
@@ -32,6 +33,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   const [selectedChannel, setSelectedChannel] = useState<'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci'>('wave-ci');
   const [isStartingPayment, setIsStartingPayment] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const dialogRef = useAccessibleDialog<HTMLDivElement>(Boolean(order), onClose);
   useEffect(() => {
     if (order) setPaymentAmount(String(Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))))));
   }, [order?.id, order?.remainingAmount, order?.paidAmount, order?.totalAmount]);
@@ -44,6 +46,8 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-in fade-in duration-150">
       <div 
         className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto animate-in zoom-in-95 duration-200"
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="order-confirmed-title"
@@ -65,7 +69,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
             <CheckCircle2 size={36} className="text-emerald-400" />
           </div>
 
-          <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 inline-block mb-1">
+          <span role="status" aria-live="polite" className="text-[10px] font-black uppercase tracking-widest text-emerald-400 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 inline-block mb-1">
             Commande confirmée & transmise
           </span>
 
