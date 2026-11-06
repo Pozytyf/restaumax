@@ -48,6 +48,8 @@ assert(files.product.includes('role="alert"') && files.product.includes('aria-li
   'Les erreurs de validation des options sont annoncées');
 assert(files.cart.includes('role="alert"') && files.cart.includes('aria-live="assertive"'),
   'Les erreurs de soumission de commande sont annoncées');
+assert(files.cart.includes('Transmission incertaine') && files.cart.includes('role="alert" aria-live="assertive" className="mx-4 mt-3 p-3.5'),
+  'Les transmissions réseau incertaines sont annoncées même lorsque le panier est verrouillé');
 assert(files.cart.includes('role="status"') && files.cart.includes('aria-live="polite"'),
   'Le chargement de la commande est annoncé');
 assert(files.cart.includes('catch (err') && files.cart.includes('setSubmitError(err?.message'),
