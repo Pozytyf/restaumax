@@ -72,8 +72,9 @@ async function run() {
 
     console.log('\n--- Création réelle de la commande POS ---');
     const created = await processOrderSubmission(payload, provider);
+    if (!created.success) console.error('Détail du refus de création POS :', created.error || created);
     check(created.success === true && Boolean(created.order?.id),
-      'Le POS crée une commande validée depuis le catalogue officiel');
+      'Le POS crée une commande validée depuis le catalogue officiel' + (created.error ? ' — ' + created.error : ''));
     const orderId = created.order.id;
 
     const replay = await processOrderSubmission(payload, provider);
