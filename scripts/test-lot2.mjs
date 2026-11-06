@@ -25,7 +25,7 @@ import {
   areCartConfigurationsEqual
 } from '../src/components/restaumax/ClientMenuView.js';
 
-import { mapRestauOrderToKitchenTicket } from '../src/App.js';
+import { mapRestauOrderToKitchenTicket } from '../src/utils/kitchenTicket.ts';
 import { 
   processOrderSubmission, 
   clearServerIdempotencyStore,
@@ -538,6 +538,8 @@ async function runTests() {
   assert(ticket1.status === 'in_prep', 'Statut "pending" mappé vers "in_prep" pour la cuisine');
   assert(ticket1.items[0].name === 'Capitaine Braisé au Feu de Bois', 'Ligne plat préservée');
   assert(ticket1.items[0].notes.includes('Alloco'), 'Notes d\'options incluses dans le ticket KDS');
+  assert(ticket1.items[0].notes.includes('Suppléments : Sauce piment maison'), 'Les suppléments sont transmis au ticket KDS');
+  assert(ticket1.items[0].notes.includes('Note : Bien pimenté'), 'Les notes de préparation sont transmises au ticket KDS');
 
   // Test 3.2: Mapping avec statut 'ready' et 'completed'
   const ticketReady = mapRestauOrderToKitchenTicket({ ...mockOrder, status: 'ready' });
