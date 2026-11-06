@@ -159,7 +159,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
         {/* Uncertainty Alert Banner (Cart locked to prevent duplicate submission) */}
         {isUncertain && (
-          <div className="mx-4 mt-3 p-3.5 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs shadow-sm shrink-0 animate-in fade-in space-y-2">
+          <div role="alert" aria-live="assertive" className="mx-4 mt-3 p-3.5 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs shadow-sm shrink-0 animate-in fade-in space-y-2">
             <div className="flex items-start gap-2">
               <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
               <div className="leading-snug">
