@@ -54,7 +54,7 @@ import {
   updatePendingOrderIntentUncertainty 
 } from './utils/orderIntentStorage';
 import { formatFCFA } from './utils/format';
-import { toClientCartItem } from './utils/posCart';
+import { getPosCartConfigurationKey, toClientCartItem } from './utils/posCart';
 import { mapRestauOrderToKitchenTicket } from './utils/kitchenTicket';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
@@ -958,17 +958,7 @@ export default function App() {
     const selectedExtras = verifiedExtras.filter((extra): extra is NonNullable<typeof extra> => extra !== null);
     const prepNotes = (configuredItem.prepNotes || '').trim().slice(0, 150);
 
-    const configurationKey = (option?: ClientCartItem['selectedOption'], extras: ClientCartItem['selectedExtras'] = []) => {
-      const groupIds = option?.groupId ? option.groupId.split('+') : [];
-      const optionIds = option?.optionId ? option.optionId.split('+') : [];
-      const optionPairs = groupIds
-        .map((groupId, index) => [groupId, optionIds[index] || ''])
-        .sort(([left], [right]) => left.localeCompare(right));
-      return JSON.stringify({
-        options: optionPairs,
-        extras: extras.map((extra) => extra.extraId).sort()
-      });
-    };
+    const configurationKey = getPosCartConfigurationKey;
 
     setCart((prev) => {
       const key = configurationKey(verifiedSelectedOption, selectedExtras);
