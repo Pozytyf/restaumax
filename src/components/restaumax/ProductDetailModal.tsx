@@ -221,7 +221,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               {item.prepTimeMinutes} min de préparation
             </span>
             {item.tags && item.tags[0] && (
-              <span className="px-2.5 py-1 rounded-full text-xs font-extrabold bg-[#ff6500] text-white shadow-sm">
+              <span className="px-2.5 py-1 rounded-full text-xs font-extrabold bg-[#c2410c] text-white shadow-sm">
                 {item.tags[0]}
               </span>
             )}
@@ -236,7 +236,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <h2 id="product-modal-title" className="text-lg sm:text-xl font-extrabold text-[#101d2d] leading-tight">
                 {item.name}
               </h2>
-              <span className="text-lg font-black text-[#ff6500] whitespace-nowrap tnum">
+              <span className="text-lg font-black text-[#c2410c] whitespace-nowrap tnum">
                 {formatFCFA(item.price)}
               </span>
             </div>
@@ -290,15 +290,15 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       key={opt.id}
                       aria-pressed={isSelected}
                       onClick={() => handleSelectOption(group, opt)}
-                      className={`w-full text-left flex items-center justify-between p-3 rounded-xl border cursor-pointer select-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6500] ${
+                      className={`w-full text-left flex items-center justify-between p-3 rounded-xl border cursor-pointer select-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c2410c] ${
                         isSelected
-                          ? 'border-[#ff6500] bg-orange-50/50 shadow-2xs ring-1 ring-[#ff6500]/50'
+                          ? 'border-[#c2410c] bg-orange-50/50 shadow-2xs ring-1 ring-[#c2410c]/50'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
                       }`}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${
-                          isSelected ? 'border-[#ff6500] bg-[#ff6500]' : 'border-slate-300 bg-white'
+                          isSelected ? 'border-[#c2410c] bg-[#c2410c]' : 'border-slate-300 bg-white'
                         }`}>
                           {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                         </div>
@@ -307,7 +307,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         </span>
                       </div>
 
-                      <span className={`text-xs font-bold tnum ${isSelected ? 'text-[#ff6500]' : 'text-slate-500'}`}>
+                      <span className={`text-xs font-bold tnum ${isSelected ? 'text-[#c2410c]' : 'text-slate-500'}`}>
                         {opt.extraPrice > 0 ? `+${formatFCFA(opt.extraPrice)}` : 'Inclus'}
                       </span>
                     </button>
@@ -338,15 +338,15 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       key={extra.id}
                       aria-pressed={isChecked}
                       onClick={() => handleToggleExtra(extra)}
-                      className={`w-full text-left flex items-center justify-between p-3 rounded-xl border cursor-pointer select-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6500] ${
+                      className={`w-full text-left flex items-center justify-between p-3 rounded-xl border cursor-pointer select-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c2410c] ${
                         isChecked
-                          ? 'border-[#ff6500] bg-orange-50/40 shadow-2xs'
+                          ? 'border-[#c2410c] bg-orange-50/40 shadow-2xs'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
                       }`}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-4 h-4 rounded-md border flex items-center justify-center transition-colors ${
-                          isChecked ? 'border-[#ff6500] bg-[#ff6500] text-white' : 'border-slate-300 bg-white'
+                          isChecked ? 'border-[#c2410c] bg-[#c2410c] text-white' : 'border-slate-300 bg-white'
                         }`}>
                           {isChecked && <Check size={11} strokeWidth={3} />}
                         </div>
@@ -355,7 +355,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                         </span>
                       </div>
 
-                      <span className="text-xs font-bold text-[#ff6500] tnum">
+                      <span className="text-xs font-bold text-[#c2410c] tnum">
                         +{formatFCFA(extra.price)}
                       </span>
                     </button>
@@ -378,7 +378,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               value={prepNotes}
               onChange={(e) => setPrepNotes(e.target.value)}
               maxLength={120}
-              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#ff6500]"
+              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-900 placeholder:text-slate-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#c2410c]"
             />
             <p className="text-[10px] text-slate-500 mt-1">
               Note transmise directement au bon de préparation en cuisine lors de la commande.
@@ -419,10 +419,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             type="button"
             onClick={handleConfirmAdd}
             disabled={isSubmitting || !isAvailable}
-            className={`flex-1 h-12 active:scale-[0.99] disabled:opacity-60 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center justify-between px-4 ${
+            className={`flex-1 h-12 active:scale-[0.99] disabled:opacity-100 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center justify-between px-4 ${
               !isAvailable
-                ? 'bg-slate-400 cursor-not-allowed shadow-none'
-                : 'bg-[#ff6500] hover:bg-[#e05800] shadow-orange-600/20'
+                ? 'bg-slate-600 cursor-not-allowed shadow-none'
+                : 'bg-[#c2410c] hover:bg-[#9a3412] shadow-orange-600/20'
             }`}
           >
             <span>{isAvailable ? 'Ajouter au panier' : 'Plat indisponible'}</span>
