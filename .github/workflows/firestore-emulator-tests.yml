@@ -51,7 +51,7 @@ jobs:
 
       - name: 4. Tests transactionnels et règles de sécurité sur le véritable Firestore Emulator
         run: |
-          npx --yes firebase-tools@15.34.2 emulators:exec --only firestore --project demo-restaumax "npm run seed:local && FIRESTORE_EMULATOR_STRICT=true npm run test:emulator && node scripts/test-security-rules.mjs && node scripts/test-cash-payments.mjs && node scripts/e2e-client-flow.mjs"
+          npx --yes firebase-tools@15.34.2 emulators:exec --only firestore --project demo-restaumax "npm run seed:local && FIRESTORE_EMULATOR_STRICT=true npm run test:emulator && node scripts/test-security-rules.mjs && node scripts/test-cash-payments.mjs && npm run test:integration:pos-kds-cash && node scripts/e2e-client-flow.mjs"
 
       - name: 5. Validation de la compilation de production (build)
         run: npm run build
