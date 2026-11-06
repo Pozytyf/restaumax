@@ -88,6 +88,28 @@ async function runTests() {
       ]
     },
     {
+      id: 'dish-menu-multi',
+      restaurantSlug: 'chez-awa',
+      name: 'Menu complet à options multiples',
+      category: 'plats',
+      price: 10000,
+      description: 'Plat de test avec deux groupes obligatoires',
+      imageUrl: '',
+      available: true,
+      prepTimeMinutes: 20,
+      optionGroups: [
+        { id: 'grp-accompagnement', name: 'Accompagnement', required: true, options: [
+          { id: 'opt-riz-test', name: 'Riz', extraPrice: 0 },
+          { id: 'opt-alloco-test', name: 'Alloco', extraPrice: 500 }
+        ]},
+        { id: 'grp-cuisson', name: 'Cuisson', required: true, options: [
+          { id: 'opt-normal-test', name: 'Normale', extraPrice: 0 },
+          { id: 'opt-special-test', name: 'Spéciale', extraPrice: 100 }
+        ]}
+      ],
+      availableExtras: []
+    },
+    {
       id: 'dish-poulet',
       restaurantSlug: 'chez-awa',
       name: 'Poulet Bicyclette Braisé Entier',
@@ -605,6 +627,55 @@ async function runTests() {
       return { status: 'not_found' };
     }
   };
+
+  // Régression : un plat avec plusieurs groupes obligatoires doit être accepté et tarifé depuis le catalogue.
+  const multiGroupCartLine = {
+    menuItemId: 'dish-menu-multi',
+    name: 'Menu complet à options multiples',
+    basePrice: 10000,
+    unitPrice: 10600,
+    quantity: 1,
+    selectedOption: {
+      groupId: 'grp-accompagnement+grp-cuisson',
+      groupName: 'Accompagnement / Cuisson',
+      optionId: 'opt-alloco-test+opt-special-test',
+      optionName: 'Accompagnement: Alloco · Cuisson: Spéciale',
+      extraPrice: 600
+    },
+    selectedExtras: [],
+    imageUrl: ''
+  };
+  const localMultiGroup = validateAndBuildOrder({
+    cart: [multiGroupCartLine], catalog: mockCatalog, restaurantSlug: 'chez-awa',
+    orderMode: 'a_emporter', tableNumber: null, declaredTotal: 10600
+  });
+  assert(localMultiGroup.success === true && localMultiGroup.order?.items[0].selectedOption?.extraPrice === 600,
+    'Options multiples : validation locale des deux groupes et addition des surcoûts officiels');
+  const localMissingSecondGroup = validateAndBuildOrder({
+    cart: [{ ...multiGroupCartLine, selectedOption: { ...multiGroupCartLine.selectedOption, groupId: 'grp-accompagnement', optionId: 'opt-alloco-test' } }],
+    catalog: mockCatalog, restaurantSlug: 'chez-awa', orderMode: 'a_emporter', tableNumber: null
+  });
+  assert(localMissingSecondGroup.success === false,
+    'Options multiples : rejet local si un groupe obligatoire est omis');
+
+  clearServerIdempotencyStore();
+  const serverMultiGroup = await processOrderSubmission({
+    restaurantSlug: 'chez-awa', orderMode: 'a_emporter', tableNumber: null,
+    idempotencyKey: 'multi-group-server-001', declaredTotal: 10600,
+    cart: [{ menuItemId: 'dish-menu-multi', quantity: 1, selectedOption: multiGroupCartLine.selectedOption }]
+  }, mockServerProvider);
+  assert(serverMultiGroup.success === true && serverMultiGroup.order?.totalAmount === 10600 &&
+    serverMultiGroup.order?.items[0].selectedOption?.extraPrice === 600,
+    'Options multiples : validation serveur, prix catalogue et total exacts pour deux groupes');
+  clearServerIdempotencyStore();
+  const serverMissingSecondGroup = await processOrderSubmission({
+    restaurantSlug: 'chez-awa', orderMode: 'a_emporter', tableNumber: null,
+    idempotencyKey: 'multi-group-server-002', 
+    cart: [{ menuItemId: 'dish-menu-multi', quantity: 1,
+      selectedOption: { groupId: 'grp-accompagnement', optionId: 'opt-alloco-test' } }]
+  }, mockServerProvider);
+  assert(serverMissingSecondGroup.success === false && serverMissingSecondGroup.error?.includes('obligatoire'),
+    'Options multiples : rejet serveur si un groupe obligatoire est omis');
 
   // Test spécifique : Rejet si clé d'idempotence manquante ou malformée
   const srvResMissingKey = await processOrderSubmission({
