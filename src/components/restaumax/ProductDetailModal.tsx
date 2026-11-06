@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { RestauMenuItem, SelectedOption, SelectedExtra, ClientCartItem } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog';
 import { X, Plus, Minus, Check, Clock, Sparkles, MessageSquare, AlertCircle } from 'lucide-react';
 
 interface ProductDetailModalProps {
@@ -23,6 +24,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [prepNotes, setPrepNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  const dialogRef = useAccessibleDialog<HTMLDivElement>(Boolean(item), onClose);
 
   // Initialize defaults whenever item changes
   useEffect(() => {
@@ -186,6 +189,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-2xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-in fade-in duration-150">
       <div 
         className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto max-h-[90vh] animate-in zoom-in-95 duration-150"
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="product-modal-title"
