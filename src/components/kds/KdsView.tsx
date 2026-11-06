@@ -17,7 +17,7 @@ import {
 interface KdsViewProps {
   tickets: KitchenTicket[];
   canMarkServed?: boolean;
-  onToggleItemComplete: (ticketId: string, itemId: string) => void;
+  onToggleItemComplete: (ticketId: string, itemId: string, completed: boolean) => void;
   onUpdateTicketStatus: (ticketId: string, status: TicketStatus) => void;
 }
 
@@ -71,6 +71,10 @@ export const KdsView: React.FC<KdsViewProps> = ({
       onUpdateTicketStatus(ticket.id, 'served');
       setLastBumpedMsg(`Ticket ${ticket.ticketNumber} archivé / servi ${slotNumber ? `[Touche ${slotNumber}]` : ''}`);
     } else {
+      if (!ticket.items.every(item => item.completed)) {
+        setLastBumpedMsg(`Terminez toutes les lignes du ticket ${ticket.ticketNumber} avant de le déclarer prêt.`);
+        return;
+      }
       sounds.playKitchenBell();
       onUpdateTicketStatus(ticket.id, 'ready');
       setLastBumpedMsg(`Ticket ${ticket.ticketNumber} prêt pour expédition ${slotNumber ? `[Touche ${slotNumber}]` : ''}`);
@@ -419,10 +423,13 @@ export const KdsView: React.FC<KdsViewProps> = ({
                         key={item.id}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (ticket.status !== 'in_prep') return;
                           sounds.playTap();
-                          onToggleItemComplete(ticket.id, item.id);
+                          onToggleItemComplete(ticket.id, item.id, !item.completed);
                         }}
-                        className={`py-2.5 px-2 rounded-lg cursor-pointer transition-colors flex items-start gap-2.5 ${
+                        aria-disabled={ticket.status !== 'in_prep'}
+                        title={ticket.status !== 'in_prep' ? 'La commande est prête : progression verrouillée.' : 'Marquer la ligne comme préparée'}
+                        className={`py-2.5 px-2 rounded-lg ${ticket.status === 'in_prep' ? 'cursor-pointer' : 'cursor-not-allowed'} transition-colors flex items-start gap-2.5 ${
                           item.completed
                             ? 'bg-slate-100 opacity-60'
                             : 'hover:bg-slate-50'

@@ -18,7 +18,7 @@ const ROLE_PERMISSION_CEILINGS: Record<RestaurantRole, readonly Permission[]> = 
   manager: [
     'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
     'tables.view', 'tables.manage', 'pos.access', 'kitchen.access', 'cash.view',
-    'cash.manage', 'reports.view', 'customers.view', 'customers.manage',
+    'cash.manage', 'orders.cancel', 'payments.refund', 'reports.view', 'customers.view', 'customers.manage',
     'inventory.view', 'inventory.manage', 'staff.view', 'staff.manage', 'settings.view'
   ],
   cashier: [
@@ -37,9 +37,9 @@ const ROLE_BASE_PERMISSIONS: Record<RestaurantRole, readonly Permission[]> = {
   kitchen: ROLE_PERMISSION_CEILINGS.kitchen
 };
 
-function parseRestaurantRole(value: unknown): RestaurantRole | null {
+function parseRestaurantRole(value: unknown): Exclude<RestaurantRole, 'owner'> | null {
   return ['manager', 'cashier', 'server', 'kitchen'].includes(String(value))
-    ? value as RestaurantRole
+    ? value as Exclude<RestaurantRole, 'owner'>
     : null;
 }
 
@@ -53,6 +53,26 @@ export function resolveRolePermissions(role: RestaurantRole, requested: unknown,
   if (extras.some(permission => !ceiling.includes(permission))) return null;
   if (!allowExtras && extras.some(permission => !ROLE_BASE_PERMISSIONS[role].includes(permission))) return null;
   return [...new Set([...ROLE_BASE_PERMISSIONS[role], ...extras])];
+}
+
+export function resolveManagerPermissionUpdate(
+  currentRoleValue: unknown,
+  nextRole: Exclude<RestaurantRole, 'owner'>,
+  currentPermissions: unknown
+): Permission[] | null {
+  const currentRole = parseRestaurantRole(currentRoleValue);
+  const previousBase = currentRole ? ROLE_BASE_PERMISSIONS[currentRole] : [];
+  const previousCeiling = currentRole ? ROLE_PERMISSION_CEILINGS[currentRole] : [];
+  const currentExtras = Array.isArray(currentPermissions)
+    ? [...new Set(currentPermissions.filter((permission): permission is Permission =>
+        typeof permission === 'string' &&
+        (currentRole
+          ? previousCeiling.includes(permission as Permission) && !previousBase.includes(permission as Permission)
+          : (PERMISSIONS as readonly string[]).includes(permission) && !ROLE_BASE_PERMISSIONS[nextRole].includes(permission as Permission))))]
+    : [];
+  const nextCeiling = ROLE_PERMISSION_CEILINGS[nextRole];
+  if (currentExtras.some(permission => !nextCeiling.includes(permission))) return null;
+  return [...ROLE_BASE_PERMISSIONS[nextRole], ...currentExtras];
 }
 
 function json(res: any, status: number, body: unknown) {
@@ -158,15 +178,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (action === 'overview') {
         const snap = await db.collection('restaurants').get();
         const restaurants = await Promise.all(snap.docs.map(async (d: any) => {
-          const data = d.data();
+          const data = d.data() || {};
           const subscriptionRef = db.collection('restaurantSubscriptions').doc(d.id);
           let subscriptionSnap = await subscriptionRef.get();
 
-          // Migrate any legacy subscription out of the publicly readable restaurant document.
-          if (!subscriptionSnap.exists && data.subscription !== undefined) {
-            if (data.subscription && typeof data.subscription === 'object') {
-              await subscriptionRef.set(data.subscription);
-            }
+          if (!subscriptionSnap.exists && data.subscription && typeof data.subscription === 'object') {
+            await subscriptionRef.set(data.subscription);
             await d.ref.update({ subscription: FieldValue.delete() });
             await db.collection('admin_audit_logs').add({
               action: 'migrate_restaurant_subscription_private',
@@ -181,15 +198,53 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             });
           }
 
-          const publicRestaurantData = { ...data };
-          delete publicRestaurantData.subscription;
+          const raw = subscriptionSnap.exists ? subscriptionSnap.data() || {} : {};
+          const subscription = {
+            planName: typeof raw.planName === 'string' ? raw.planName : null,
+            status: typeof raw.status === 'string' ? raw.status : 'unknown',
+            billingCycle: typeof raw.billingCycle === 'string' ? raw.billingCycle : null,
+            priceFcfa: Number.isSafeInteger(raw.priceFcfa) ? raw.priceFcfa : null,
+            startsAt: Number.isFinite(raw.startsAt) ? raw.startsAt : null,
+            endsAt: Number.isFinite(raw.endsAt) ? raw.endsAt : null
+          };
           return {
             slug: d.id,
-            ...publicRestaurantData,
-            subscription: subscriptionSnap.exists ? subscriptionSnap.data() : undefined
+            name: typeof data.name === 'string' ? data.name : '',
+            status: typeof data.status === 'string' ? data.status : 'unknown',
+            isOpen: data.isOpen === true,
+            createdAt: Number.isFinite(data.createdAt) ? data.createdAt : null,
+            city: typeof data.city === 'string' ? data.city : '',
+            country: typeof data.country === 'string' ? data.country : '',
+            currency: typeof data.currency === 'string' ? data.currency : 'FCFA',
+            subscription
           };
         }));
-        return json(res, 200, { success: true, restaurants, total: restaurants.length });
+        const aggregationTime = Date.now();
+        const monthlyRecurringRevenueFcfa = restaurants.reduce((sum: number, r: any) => {
+          if (r.status !== 'active' || r.subscription.status !== 'active' ||
+              (Number.isFinite(r.subscription.startsAt) && r.subscription.startsAt > aggregationTime) ||
+              (Number.isFinite(r.subscription.endsAt) && r.subscription.endsAt < aggregationTime)) return sum;
+          const amount = Number(r.subscription.priceFcfa || 0);
+          if (r.subscription.billingCycle === 'monthly') return sum + amount;
+          if (r.subscription.billingCycle === 'yearly') return sum + Math.round(amount / 12);
+          return sum;
+        }, 0);
+        const summary = {
+          totalRestaurants: restaurants.length,
+          activeRestaurants: restaurants.filter((r: any) => r.status === 'active').length,
+          suspendedRestaurants: restaurants.filter((r: any) => r.status === 'suspended').length,
+          deletedRestaurants: restaurants.filter((r: any) => r.status === 'deleted').length,
+          openRestaurants: restaurants.filter((r: any) => r.isOpen && r.status === 'active').length,
+          subscriptionsByStatus: restaurants.reduce((acc: Record<string, number>, r: any) => {
+            const key = r.subscription.status || 'unknown'; acc[key] = (acc[key] || 0) + 1; return acc;
+          }, {}),
+          subscriptionsByPlan: restaurants.reduce((acc: Record<string, number>, r: any) => {
+            const key = r.subscription.planName || 'unassigned'; acc[key] = (acc[key] || 0) + 1; return acc;
+          }, {}),
+          monthlyRecurringRevenueFcfa,
+          recurringRevenueFcfa: monthlyRecurringRevenueFcfa
+        };
+        return json(res, 200, { success: true, restaurants, total: restaurants.length, summary });
       }
 
       if (action === 'create_restaurant') {
@@ -197,9 +252,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const slug = slugify(String(body.slug || name));
         const ownerName = String(body.ownerName || '').trim();
         const ownerEmail = String(body.ownerEmail || '').trim().toLowerCase();
-        const ownerPassword = String(body.ownerPassword || '');
-        if (!name || name.length > 200 || !slug || !ownerName || !validEmail(ownerEmail) || ownerPassword.length < 10) {
-          return json(res, 400, { success: false, error: 'Renseignez le restaurant, le propriétaire, un e-mail valide et un mot de passe temporaire de 10 caractères minimum.' });
+        if (!name || name.length > 200 || !slug || !ownerName || !validEmail(ownerEmail)) {
+          return json(res, 400, { success: false, error: 'Renseignez le restaurant, le propriétaire et une adresse e-mail valide.' });
         }
         const restaurantRef = db.collection('restaurants').doc(slug);
         let reservationCreated = false;
@@ -217,7 +271,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         let ownerUser: any = null;
         try {
           ownerUser = await auth.createUser({
-            email: ownerEmail, password: ownerPassword, displayName: ownerName, disabled: false
+            email: ownerEmail, displayName: ownerName, disabled: false
           });
           await auth.setCustomUserClaims(ownerUser.uid, { role: 'owner', restaurantSlug: slug });
           const now = Date.now();
@@ -303,10 +357,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 404, { success: false, error: 'Restaurant introuvable ou supprimé.' });
         }
         const now = Date.now();
-        const updatedSubscription = {
-          ...validation.subscription, updatedAt: now, updatedBy: user.uid
-        };
         const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
+        const currentSubscriptionSnap = await subscriptionRef.get();
+        const requestedNotes = typeof body.subscription?.notes === 'string'
+          ? body.subscription.notes.trim().slice(0, 500) : '';
+        const preservedNotes = requestedNotes || String(currentSubscriptionSnap.data()?.notes || '');
+        const updatedSubscription = {
+          ...validation.subscription, notes: preservedNotes, updatedAt: now, updatedBy: user.uid
+        };
         await subscriptionRef.set(updatedSubscription, { merge: true });
         if (restaurantSnap.data()?.subscription !== undefined) {
           await restaurantRef.update({ subscription: FieldValue.delete() });
@@ -385,18 +443,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (action === 'create_staff') {
         const name = String(body.name || '').trim();
         const email = String(body.email || '').trim().toLowerCase();
-        const password = String(body.password || '');
         const role = parseRestaurantRole(body.role);
         if (!role) return json(res, 400, { success: false, error: 'Rôle invalide. Choisissez manager, cashier, server ou kitchen.' });
         if (actor.role === 'manager' && role === 'manager') return json(res, 403, { success: false, error: 'Un manager ne peut pas créer un autre manager.' });
         const permissions = resolveRolePermissions(role, body.permissions, actor.role === 'owner');
-        if (!name || !validEmail(email) || password.length < 10 || !permissions) {
-          return json(res, 400, { success: false, error: 'Nom, e-mail, mot de passe (10 caractères minimum) ou permissions hors plafond du rôle.' });
+        if (!name || !validEmail(email) || !permissions) {
+          return json(res, 400, { success: false, error: 'Nom, e-mail ou permissions hors plafond du rôle.' });
         }
         const auth = getAuth();
         let newUser: any = null;
         try {
-          newUser = await auth.createUser({ email, password, displayName: name, disabled: false });
+          newUser = await auth.createUser({ email, displayName: name, disabled: false });
           await auth.setCustomUserClaims(newUser.uid, { role, restaurantSlug: slug, permissions });
           const record = {
             uid: newUser.uid, email, displayName: name, role, restaurantSlug: slug,
@@ -511,30 +568,69 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (actor.role === 'owner') {
           permissions = resolveRolePermissions(role, body.permissions, true);
         } else {
-          // Managers may maintain a member's base role permissions, but cannot
-          // add or revoke owner-granted extras on an unchanged role.
+          // Managers may maintain base role permissions but may neither add nor
+          // silently remove owner-granted extras by changing the member's role.
+          const expectedPermissions = resolveManagerPermissionUpdate(member.role, role, member.permissions);
+          if (!expectedPermissions) {
+            return json(res, 403, { success: false, error: 'Seul le propriétaire peut retirer une autorisation supplémentaire ou changer de rôle si elle ne peut pas être conservée.' });
+          }
           const base = ROLE_BASE_PERMISSIONS[role];
-          const ceiling = ROLE_PERMISSION_CEILINGS[role];
-          const currentExtras = member.role === role && Array.isArray(member.permissions)
-            ? member.permissions.filter((p: unknown): p is Permission =>
-                typeof p === 'string' && ceiling.includes(p as Permission) && !base.includes(p as Permission))
-            : [];
+          const expectedExtras = expectedPermissions.filter(permission => !base.includes(permission));
           const requestedExtras = Array.isArray(body.permissions)
             ? [...new Set(body.permissions.filter((p: unknown): p is Permission =>
-                typeof p === 'string' && ceiling.includes(p as Permission) && !base.includes(p as Permission)))]
+                typeof p === 'string' && ROLE_PERMISSION_CEILINGS[role].includes(p as Permission) && !base.includes(p as Permission)))]
             : [];
-          if (currentExtras.slice().sort().join('|') !== requestedExtras.slice().sort().join('|')) {
+          if (expectedExtras.slice().sort().join('|') !== requestedExtras.slice().sort().join('|')) {
             return json(res, 403, { success: false, error: 'Seul le propriétaire peut modifier les autorisations supplémentaires.' });
           }
-          permissions = resolveRolePermissions(role, [...base, ...currentExtras], true);
+          permissions = resolveRolePermissions(role, expectedPermissions, true);
         }
         if (!permissions) return json(res, 400, { success: false, error: 'Permissions incompatibles avec le plafond du rôle.' });
+        const managerRecord = managerSnap.exists ? managerSnap.data() : null;
+        const permissionSignature = (value: unknown) => Array.isArray(value)
+          ? value.map(permission => String(permission)).sort().join('|')
+          : '';
+        if (!managerRecord || managerRecord.restaurantSlug !== slug || member.restaurantSlug !== slug ||
+            managerRecord.uid !== staffUid || managerRecord.active !== member.active || managerRecord.role !== member.role ||
+            Number(managerRecord.sessionVersion || 0) !== Number(member.sessionVersion || 0) ||
+            permissionSignature(managerRecord.permissions) !== permissionSignature(member.permissions)) {
+          return json(res, 409, { success: false, error: 'Les références d’accès du membre sont incohérentes. Actualisez la liste ou demandez une réparation du compte.' });
+        }
+
+        // Update both membership records atomically. The session version changes in
+        // the same commit, so all previously issued ID tokens are denied immediately.
+        const sessionVersion = currentSessionVersion + 1;
+        const updatedAt = Date.now();
+        await db.runTransaction(async (tx: any) => {
+          const [freshMemberSnap, freshManagerSnap] = await Promise.all([
+            tx.get(memberRef),
+            tx.get(managerRef)
+          ]);
+          if (!freshMemberSnap.exists || !freshManagerSnap.exists) {
+            throw new Error('Références d’accès du membre introuvables.');
+          }
+          const freshMember = freshMemberSnap.data();
+          const freshManager = freshManagerSnap.data();
+          if (freshMember.role !== member.role || freshManager.role !== member.role ||
+              freshManager.restaurantSlug !== slug || freshMember.restaurantSlug !== slug ||
+              freshManager.active !== freshMember.active ||
+              Number(freshMember.sessionVersion || 0) !== currentSessionVersion ||
+              Number(freshManager.sessionVersion || 0) !== currentSessionVersion ||
+              permissionSignature(freshMember.permissions) !== permissionSignature(member.permissions) ||
+              permissionSignature(freshManager.permissions) !== permissionSignature(member.permissions)) {
+            throw new Error('Conflit : les droits du membre ont changé pendant la modification. Actualisez puis réessayez.');
+          }
+          tx.set(memberRef, { role, permissions, sessionVersion, updatedAt, updatedBy: user.uid }, { merge: true });
+          tx.set(managerRef, { role, permissions, sessionVersion, updatedAt, updatedBy: user.uid }, { merge: true });
+        });
+
+        // Refresh the Auth claims only after the authoritative Firestore records
+        // have committed. If Auth is temporarily unavailable, the version mismatch
+        // keeps the old session blocked and an administrator can safely retry.
         const currentAuthUser = await getAuth().getUser(staffUid);
-        const sessionVersion = currentSessionVersion;
         await getAuth().setCustomUserClaims(staffUid, { ...(currentAuthUser.customClaims || {}), role, restaurantSlug: slug, permissions, sessionVersion });
-        await memberRef.set({ role, permissions, sessionVersion, updatedAt: Date.now() }, { merge: true });
-        await db.collection('managers').doc(staffUid).set({ role, permissions, sessionVersion }, { merge: true });
-        return json(res, 200, { success: true });
+        await getAuth().revokeRefreshTokens(staffUid);
+        return json(res, 200, { success: true, requiresReauthentication: true });
       }
     }
 

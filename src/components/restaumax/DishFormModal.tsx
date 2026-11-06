@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Plus, 
@@ -25,7 +25,7 @@ export interface DishFormModalProps {
   onClose: () => void;
   dishToEdit: RestauMenuItem | null;
   restaurant: RestaurantInfo;
-  onSave: (dish: RestauMenuItem) => void;
+  onSave: (dish: RestauMenuItem) => Promise<void>;
 }
 
 const CATEGORY_OPTIONS: { id: RestauMenuItem['category']; label: string }[] = [
@@ -185,10 +185,18 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState(false);
   const [imageLoadError, setImageLoadError] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveInFlight = useRef(false);
+  const newDishIdRef = useRef('');
 
   // Initialize or reset form when modal opens or dish changes
   useEffect(() => {
     if (!isOpen) return;
+    saveInFlight.current = false;
+    newDishIdRef.current = dishToEdit?.id || `dish-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    setIsSaving(false);
+    setSaveError(null);
 
     if (dishToEdit) {
       setName(dishToEdit.name || '');
@@ -278,6 +286,8 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       errs.prepTimeMinutes = 'Le temps de préparation doit être au minimum de 1 minute.';
     } else if (!Number.isInteger(numPrep)) {
       errs.prepTimeMinutes = 'Le temps de préparation doit être un nombre entier de minutes.';
+    } else if (numPrep > 1440) {
+      errs.prepTimeMinutes = 'Le temps de préparation ne peut pas dépasser 1 440 minutes.';
     }
 
     // 5. URL de l'image (Validation robuste conforme RFC, HTTP/HTTPS, localhost, IPv4, FQDN)
@@ -332,9 +342,11 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent | React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    if (saveInFlight.current) return;
     setTouched(true);
+    setSaveError(null);
 
     if (!validateForm()) {
       sounds.playAlert();
@@ -348,7 +360,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       .filter((t) => t.length > 0)
       .filter((t, idx, arr) => arr.indexOf(t) === idx); // Remove duplicates
 
-    const dishId = dishToEdit?.id || `dish-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const dishId = dishToEdit?.id || newDishIdRef.current;
 
     // Build finalized option groups with integer numbers and strictly one default option
     const savedOptionGroups: MenuOptionGroup[] | undefined =
@@ -388,7 +400,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
 
     const savedDish: RestauMenuItem = {
       id: dishId,
-      restaurantSlug: dishToEdit?.restaurantSlug || restaurant.slug || 'chez-awa',
+      restaurantSlug: dishToEdit?.restaurantSlug || restaurant.slug,
       name: name.trim(),
       description: description.trim(),
       category,
@@ -401,13 +413,28 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       availableExtras: savedExtras,
     };
 
+    saveInFlight.current = true;
+    setIsSaving(true);
     sounds.playTap();
-    onSave(savedDish);
-    onClose();
+    try {
+      await onSave(savedDish);
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Le plat n'a pas pu être enregistré. Réessayez.";
+      setSaveError(message);
+      sounds.playAlert();
+    } finally {
+      saveInFlight.current = false;
+      setIsSaving(false);
+    }
   };
 
   // Option Groups Handlers
   const handleAddOptionGroup = () => {
+    if (optionGroups.length >= 20) {
+      setSaveError('Un plat ne peut pas dépasser 20 groupes d’options.');
+      return;
+    }
     sounds.playTap();
     const newGroup: FormOptionGroup = {
       id: `grp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -444,6 +471,10 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   };
 
   const handleAddOptionToGroup = (groupIndex: number) => {
+    if ((optionGroups[groupIndex]?.options.length || 0) >= 50) {
+      setSaveError('Un groupe ne peut pas dépasser 50 options.');
+      return;
+    }
     sounds.playTap();
     const updated = [...optionGroups];
     const newOpt: FormOptionItem = {
@@ -510,6 +541,10 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
 
   // Extras Handlers
   const handleAddExtra = () => {
+    if (extras.length >= 50) {
+      setSaveError('Un plat ne peut pas dépasser 50 suppléments.');
+      return;
+    }
     sounds.playTap();
     const newExtra: FormExtra = {
       id: `ext-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -567,10 +602,12 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           <button
             type="button"
             onClick={() => {
+              if (isSaving) return;
               sounds.playTap();
               onClose();
             }}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+            disabled={isSaving}
+            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
             title="Fermer la fenêtre"
           >
             <X size={20} />
@@ -579,6 +616,12 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+          {saveError && (
+            <div role="alert" className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-rose-800 text-xs font-semibold">
+              {saveError}
+            </div>
+          )}
+
           {/* Global error banner if submitted with errors */}
           {touched && Object.keys(errors).length > 0 && (
             <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-start gap-3 text-rose-800 text-xs">
@@ -646,6 +689,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               </label>
               <textarea
                 rows={2}
+                maxLength={2000}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Description appétissante, ingrédients principaux, saveurs et accompagnement inclus..."
@@ -687,7 +731,9 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 <div className="relative">
                   <input
                     type="number"
-                    step="any"
+                    min={1}
+                    max={1440}
+                    step={1}
                     value={prepTimeMinutes}
                     onChange={(e) => setPrepTimeMinutes(e.target.value)}
                     placeholder="ex. 20"
@@ -777,12 +823,17 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               <input
                 type="text"
                 value={tagsInput}
-                onChange={(e) => setTagsInput(e.target.value)}
+                maxLength={2000}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  const uniqueTags = nextValue.split(',').map(tag => tag.trim()).filter(Boolean).filter((tag, index, all) => all.indexOf(tag) === index);
+                  if (uniqueTags.length <= 30) setTagsInput(nextValue);
+                }}
                 placeholder="ex. Signature, Recommandé, Épicé, Nouveauté"
                 className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#ff6500] focus:bg-white transition-all"
               />
               <p className="text-[11px] text-slate-400 mt-1">
-                Ces badges apparaîtront sur la fiche produit du menu client QR.
+                Ces badges apparaîtront sur la fiche produit du menu client QR (30 tags maximum).
               </p>
             </div>
           </div>
@@ -801,6 +852,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               <button
                 type="button"
                 onClick={handleAddOptionGroup}
+                disabled={optionGroups.length >= 20}
                 className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
               >
                 <Plus size={14} className="text-[#ff6500]" />
@@ -877,6 +929,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleAddOptionToGroup(gIdx)}
+                          disabled={group.options.length >= 50}
                           className="text-[11px] font-bold text-[#ff6500] hover:text-[#e05800] flex items-center gap-1"
                         >
                           <Plus size={12} />
@@ -983,6 +1036,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               <button
                 type="button"
                 onClick={handleAddExtra}
+                disabled={extras.length >= 50}
                 className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
               >
                 <Plus size={14} className="text-[#ff6500]" />
@@ -1063,10 +1117,12 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           <button
             type="button"
             onClick={() => {
+              if (isSaving) return;
               sounds.playTap();
               onClose();
             }}
-            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors"
+            disabled={isSaving}
+            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors disabled:opacity-50"
           >
             Annuler
           </button>
@@ -1074,10 +1130,11 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           <button
             type="button"
             onClick={handleSubmit}
-            className="px-6 py-2.5 rounded-xl bg-[#ff6500] hover:bg-[#e05800] text-white text-xs font-black shadow-sm transition-all flex items-center gap-2 active:scale-95"
+            disabled={isSaving}
+            className="px-6 py-2.5 rounded-xl bg-[#ff6500] hover:bg-[#e05800] text-white text-xs font-black shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-wait"
           >
             <Check size={16} />
-            <span>{isEditing ? 'Enregistrer les modifications' : 'Créer et ajouter le plat'}</span>
+            <span>{isSaving ? 'Enregistrement…' : isEditing ? 'Enregistrer les modifications' : 'Créer et ajouter le plat'}</span>
           </button>
         </div>
       </div>

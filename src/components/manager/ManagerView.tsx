@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { CashDrawerState, PaymentRecord } from '../../types/pos';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
+import { PayDunyaAccountSettings } from './PayDunyaAccountSettings';
+import { ClosedCashSessionsHistory } from './ClosedCashSessionsHistory';
+import { listClosedCashSessionsWithServerValidation, type CashSessionApiRecord } from '../../lib/firebase';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -40,6 +43,8 @@ interface CashSessionSummary {
 }
 
 interface ManagerViewProps {
+  restaurantSlug: string;
+  isOwner: boolean;
   drawerState: CashDrawerState;
   transactions: PaymentRecord[];
   cashSession: CashSessionSummary | null;
@@ -47,13 +52,17 @@ interface ManagerViewProps {
   cashSessionActionLoading: boolean;
   cashMovementActionLoading: boolean;
   canManageCash: boolean;
+  canRefundPayments: boolean;
   onOpenCashSession: (openingBalance: number) => Promise<void>;
   onCloseCashSession: (closingCount: number) => Promise<void>;
   onRecordCashMovement: (movementType: 'expense' | 'withdrawal', amount: number, category: string, note: string) => Promise<void>;
   onViewReceipt: (receipt: PaymentRecord) => void;
+  onRefundPayment: (payment: PaymentRecord, amount: number, reason: string) => Promise<void>;
 }
 
 export const ManagerView: React.FC<ManagerViewProps> = ({
+  restaurantSlug,
+  isOwner,
   drawerState,
   transactions,
   cashSession,
@@ -61,10 +70,12 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   cashSessionActionLoading,
   cashMovementActionLoading,
   canManageCash,
+  canRefundPayments,
   onOpenCashSession,
   onCloseCashSession,
   onRecordCashMovement,
-  onViewReceipt
+  onViewReceipt,
+  onRefundPayment
 }) => {
   const [showZReportModal, setShowZReportModal] = useState(false);
   const [openingBalanceInput, setOpeningBalanceInput] = useState('0');
@@ -74,6 +85,28 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   const [movementCategoryInput, setMovementCategoryInput] = useState('achats');
   const [movementNoteInput, setMovementNoteInput] = useState('');
 
+  const [closedSessions, setClosedSessions] = useState<CashSessionApiRecord[]>([]);
+  const [closedSessionsLoading, setClosedSessionsLoading] = useState(false);
+
+  const loadClosedSessions = useCallback(async () => {
+    if (!restaurantSlug) return;
+    setClosedSessionsLoading(true);
+    try {
+      const res = await listClosedCashSessionsWithServerValidation(restaurantSlug, 20);
+      if (res.success && Array.isArray(res.closedSessions)) {
+        setClosedSessions(res.closedSessions);
+      }
+    } catch (e) {
+      console.warn('Erreur chargement sessions clôturées:', e);
+    } finally {
+      setClosedSessionsLoading(false);
+    }
+  }, [restaurantSlug]);
+
+  useEffect(() => {
+    void loadClosedSessions();
+  }, [loadClosedSessions, cashSession]);
+
   const averageTicket = drawerState.transactionCount > 0 
     ? Math.round(drawerState.totalSales / drawerState.transactionCount) 
     : 0;
@@ -81,6 +114,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   return (
     <div className="flex-1 flex flex-col h-[calc(100vh-60px)] overflow-y-auto bg-[#f4f7fb] p-4 lg:p-8">
       <div className="max-w-7xl mx-auto w-full space-y-6">
+        <PayDunyaAccountSettings restaurantSlug={restaurantSlug} isOwner={isOwner} />
+
         {/* Top Header Summary */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -253,6 +288,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </form>
           ) : <p className="mt-4 text-sm text-slate-500">Aucune session active. Demandez à un responsable d’ouvrir la caisse.</p>}
         </section>
+
+        {/* Closed Cash Sessions History & Performance Comparison Component */}
+        <ClosedCashSessionsHistory
+          sessions={closedSessions}
+          loading={closedSessionsLoading}
+          onRefresh={loadClosedSessions}
+        />
 
         {/* 4 Primary Operational KPIs */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -474,12 +516,12 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                       </td>
                       <td className="py-3 px-4">
                         <span className="capitalize font-semibold text-slate-700">
-                          {tx.paymentMethod === 'especes'
-                            ? 'Espèces'
-                            : tx.paymentMethod === 'wave'
-                            ? 'Wave'
-                            : tx.paymentMethod === 'orange_money'
-                            ? 'Orange Money'
+                          {tx.paymentMethod === 'especes' ? 'Espèces'
+                            : tx.paymentMethod === 'wave' ? 'Wave'
+                            : tx.paymentMethod === 'orange_money' ? 'Orange Money'
+                            : tx.paymentMethod === 'mtn_money' ? 'MTN MoMo'
+                            : tx.paymentMethod === 'moov_money' ? 'Moov Money'
+                            : tx.paymentMethod === 'djamo' ? 'Djamo'
                             : 'Carte Bancaire'}
                         </span>
                       </td>
@@ -492,13 +534,48 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                         )}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <button
-                          onClick={() => onViewReceipt(tx)}
-                          className="p-1.5 rounded-lg bg-slate-100 hover:bg-[#ff6500] hover:text-white text-slate-600 transition-colors"
-                          title="Voir le reçu"
-                        >
-                          <Eye size={14} />
-                        </button>
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => onViewReceipt(tx)}
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-[#ff6500] hover:text-white text-slate-600 transition-colors"
+                            title="Voir le reçu"
+                          >
+                            <Eye size={14} />
+                          </button>
+                          {canRefundPayments && Number(tx.refundPendingAmount || 0) > 0 && (
+                            <span className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-bold text-blue-800" title="Un décaissement PayDunya est en attente">
+                              Remboursement en cours
+                            </span>
+                          )}
+                          {canRefundPayments && tx.refundEligible &&
+                            (tx.paidAmount - Number(tx.refundedAmount || 0) - Number(tx.refundPendingAmount || 0)) > 0 && (
+                            <button
+                              onClick={() => {
+                                const remaining = tx.paidAmount - Number(tx.refundedAmount || 0) - Number(tx.refundPendingAmount || 0);
+                                const rawAmount = window.prompt(`Montant à rembourser (maximum ${remaining} FCFA)`, String(remaining));
+                                if (rawAmount === null) return;
+                                const amount = Number(rawAmount);
+                                if (!Number.isSafeInteger(amount) || amount <= 0 || amount > remaining) {
+                                  window.alert('Montant de remboursement invalide.');
+                                  return;
+                                }
+                                const reason = window.prompt('Motif obligatoire du remboursement :');
+                                if (!reason || reason.trim().length < 3) {
+                                  window.alert('Veuillez saisir un motif de trois caractères minimum.');
+                                  return;
+                                }
+                                const confirmation = tx.paymentMethod === 'especes'
+                                  ? `Confirmez-vous avoir remis physiquement ${formatFCFA(amount)} en espèces au client ?`
+                                  : `Confirmer le remboursement de ${formatFCFA(amount)} vers le wallet d’origine ?`;
+                                if (window.confirm(confirmation)) void onRefundPayment(tx, amount, reason.trim());
+                              }}
+                              className="rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] font-bold text-amber-800 hover:bg-amber-100"
+                              title={tx.paymentMethod === 'especes' ? "Rembourser en espèces" : "Rembourser via PayDunya"}
+                            >
+                              Rembourser
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))

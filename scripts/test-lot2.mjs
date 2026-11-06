@@ -524,13 +524,16 @@ async function runTests() {
   const ticketCompleted = mapRestauOrderToKitchenTicket({ ...mockOrder, status: 'completed' });
   assert(ticketCompleted.status === 'served', 'Statut "completed" mappé vers "served" pour le KDS');
 
-  // Test 3.3: Préservation de l'état des items cochés en cuisine lors des mises à jour du flux
-  const ticketWithCompletedItem = {
-    ...ticket1,
-    items: ticket1.items.map(i => ({ ...i, completed: true }))
-  };
-  const updatedFromFirestore = mapRestauOrderToKitchenTicket(mockOrder, ticketWithCompletedItem);
-  assert(updatedFromFirestore.items[0].completed === true, 'Préserve l\'état coché des plats lors d\'un re-render ou snapshot Firestore');
+  // Test 3.3: L'état coché provient du document Firestore, jamais de l'état React précédent.
+  const orderWithCompletedItem = { ...mockOrder, kitchenItemCompletion: { '0': true } };
+  const updatedFromFirestore = mapRestauOrderToKitchenTicket(orderWithCompletedItem);
+  assert(updatedFromFirestore.items[0].completed === true, 'Restaure l\'état coché depuis kitchenItemCompletion persisté');
+  const orderWithoutProgress = mapRestauOrderToKitchenTicket(mockOrder);
+  assert(orderWithoutProgress.items[0].completed === false, 'Ne conserve pas une coche locale absente du document Firestore');
+
+  const kdsViewSource = fs.readFileSync(path.resolve('src/components/kds/KdsView.tsx'), 'utf-8');
+  assert(kdsViewSource.includes('if (!ticket.items.every(item => item.completed))'),
+    'Le KDS interdit l’expédition tant que toutes les lignes ne sont pas terminées');
 
   // ==========================================================================
   // SECTION 4 : CORRECTION D — Vérification structurelle des règles Firestore
@@ -541,6 +544,10 @@ async function runTests() {
 
   // Test 4.1: Vérification de la fonction scoped isManagerOfRestaurant
   assert(rulesContent.includes('isManagerOfRestaurant(targetSlug)'), 'Définit la fonction de vérification avec portée restaurant (isManagerOfRestaurant)');
+
+  // Test 4.1b: Les mutations de stock passent exclusivement par le backend Admin SDK.
+  assert(rulesContent.includes('allow create, update, delete: if false;'), 'Les articles de stock ne sont plus modifiables directement via le SDK client');
+  assert(rulesContent.includes('// Append-only from the trusted Admin SDK transaction; no client writes.'), 'Le journal de stock est en écriture backend uniquement');
 
   // Test 4.2: Protection multi-tenant sur restaurants et sous-collections
   assert(rulesContent.includes("allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage')"), 'Écritures restaurants restreintes au gérant autorisé');

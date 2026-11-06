@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  addDoc, collection, deleteDoc, doc, onSnapshot, query, runTransaction, updateDoc
+  addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, updateDoc
 } from 'firebase/firestore';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Package, Users, BarChart3, Settings } from 'lucide-react';
-import { auth, db, persistRestaurant } from '../../lib/firebase';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings } from 'lucide-react';
+import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
+import { InventoryRecipePanel } from './InventoryRecipePanel';
 
 type ModuleId = 'customers' | 'inventory' | 'reports' | 'settings';
 type Customer = { id: string; name: string; phone: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
-type InventoryItem = { id: string; name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier?: string; updatedAt: number };
+type InventoryItem = { id: string; name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier?: string; updatedAt: number; active?: boolean };
+type StockMovement = { id: string; itemName: string; unit: string; quantityBefore: number; delta: number; quantityAfter: number; reason: string; createdAt: number; createdBy: string };
 
 const titles: Record<ModuleId, string> = {
   customers: 'Clients et fidélité',
@@ -27,12 +29,21 @@ export const RestaurantAdminModuleView: React.FC<{
   const canManage = permissions.includes(module === 'customers' ? 'customers.manage' : module === 'inventory' ? 'inventory.manage' : 'settings.manage');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [orders, setOrders] = useState<RestauOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '', notes: '' });
   const [itemForm, setItemForm] = useState({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
+  const [editingInventoryItemId, setEditingInventoryItemId] = useState<string | null>(null);
+  const [inventoryCreateKey, setInventoryCreateKey] = useState(() => {
+    try {
+      return sessionStorage.getItem(`restaumax:inventory:pending-create:${restaurant.slug}`) || crypto.randomUUID().replaceAll('-', '');
+    } catch {
+      return crypto.randomUUID().replaceAll('-', '');
+    }
+  });
   const [settings, setSettings] = useState({
     name: restaurant.name, tagline: restaurant.tagline || '', address: restaurant.address || '',
     city: restaurant.city || '', phone: restaurant.phone || '', openingHours: restaurant.openingHours || '',
@@ -48,9 +59,18 @@ export const RestaurantAdminModuleView: React.FC<{
       }, err => setError(err.message));
     }
     if (module === 'inventory') {
-      return onSnapshot(collection(db, 'restaurants', restaurant.slug, 'inventoryItems'), snap => {
-        setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem)).sort((a,b) => a.name.localeCompare(b.name)));
+      const unsubscribeItems = onSnapshot(collection(db, 'restaurants', restaurant.slug, 'inventoryItems'), snap => {
+        setInventory(snap.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem)).filter(item => item.active !== false).sort((a,b) => a.name.localeCompare(b.name)));
       }, err => setError(err.message));
+      const movementsQuery = query(
+        collection(db, 'restaurants', restaurant.slug, 'stockMovements'),
+        orderBy('createdAt', 'desc'),
+        limit(30)
+      );
+      const unsubscribeMovements = onSnapshot(movementsQuery, snap => {
+        setStockMovements(snap.docs.map(d => ({ id: d.id, ...d.data() } as StockMovement)));
+      }, err => setError(err.message));
+      return () => { unsubscribeItems(); unsubscribeMovements(); };
     }
     if (module === 'reports') {
       return onSnapshot(query(collection(db, 'restaurants', restaurant.slug, 'orders')), snap => {
@@ -104,19 +124,57 @@ export const RestaurantAdminModuleView: React.FC<{
     } catch (e) { setError(e instanceof Error ? e.message : 'Mise à jour des points impossible.'); }
   };
 
+  const resetInventoryForm = () => {
+    setEditingInventoryItemId(null);
+    setItemForm({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
+  };
+
+  const startEditInventoryItem = (item: InventoryItem) => {
+    setEditingInventoryItemId(item.id);
+    setItemForm({
+      name: item.name, unit: item.unit, quantity: String(item.quantity),
+      minQuantity: String(item.minQuantity), unitCost: String(item.unitCost), supplier: item.supplier || ''
+    });
+    setError('');
+    setNotice('');
+  };
+
   const addInventoryItem = async (event: React.FormEvent) => {
     event.preventDefault(); setLoading(true); setError(''); setNotice('');
     const quantity = Number(itemForm.quantity), minQuantity = Number(itemForm.minQuantity), unitCost = Number(itemForm.unitCost);
-    if (!itemForm.name.trim() || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(minQuantity) || minQuantity < 0 || !Number.isFinite(unitCost) || unitCost < 0) {
+    if (!itemForm.name.trim() || (!editingInventoryItemId && (!Number.isFinite(quantity) || quantity < 0)) ||
+        !Number.isFinite(minQuantity) || minQuantity < 0 || !Number.isFinite(unitCost) || unitCost < 0) {
       setError('Vérifiez le nom, les quantités et le coût unitaire.'); setLoading(false); return;
     }
     try {
-      await addDoc(collection(db, 'restaurants', restaurant.slug, 'inventoryItems'), {
+      if (editingInventoryItemId) {
+        const result = await updateInventoryItemWithServerValidation(restaurant.slug, editingInventoryItemId, {
+          name: itemForm.name.trim(), unit: itemForm.unit, minQuantity, unitCost, supplier: itemForm.supplier.trim()
+        });
+        if (!result.success) throw new Error(result.error);
+        resetInventoryForm();
+        setNotice('Informations de l’article mises à jour. La quantité reste gérée par les mouvements.');
+        return;
+      }
+
+      const storageKey = `restaumax:inventory:pending-create:${restaurant.slug}`;
+      let storageAvailable = true;
+      try { sessionStorage.setItem(storageKey, inventoryCreateKey); } catch { storageAvailable = false; }
+      const result = await createInventoryItemWithServerValidation(restaurant.slug, {
         name: itemForm.name.trim(), unit: itemForm.unit, quantity, minQuantity, unitCost,
-        supplier: itemForm.supplier.trim(), updatedAt: Date.now()
-      });
-      setItemForm({ name: '', unit: 'kg', quantity: '0', minQuantity: '0', unitCost: '0', supplier: '' });
-      setNotice('Article de stock ajouté.');
+        supplier: itemForm.supplier.trim()
+      }, inventoryCreateKey);
+      if (!result.success) {
+        if (!result.retryable) {
+          if (storageAvailable) sessionStorage.removeItem(storageKey);
+          setInventoryCreateKey(crypto.randomUUID().replaceAll('-', ''));
+        }
+        throw new Error(result.error);
+      }
+      if (storageAvailable) sessionStorage.removeItem(storageKey);
+      resetInventoryForm();
+      setInventoryCreateKey(crypto.randomUUID().replaceAll('-', ''));
+      setNotice('Article de stock ajouté et journal initial sécurisé.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Enregistrement du stock impossible.'); }
     finally { setLoading(false); }
   };
@@ -124,25 +182,48 @@ export const RestaurantAdminModuleView: React.FC<{
   const moveStock = async (item: InventoryItem, delta: number) => {
     if (!canManage || !Number.isFinite(delta) || delta === 0) return;
     setError(''); setNotice('');
-    const itemRef = doc(db, 'restaurants', restaurant.slug, 'inventoryItems', item.id);
-    const movementRef = doc(collection(db, 'restaurants', restaurant.slug, 'stockMovements'));
+    setLoading(true);
     try {
-      await runTransaction(db, async tx => {
-        const snap = await tx.get(itemRef);
-        if (!snap.exists()) throw new Error('Article introuvable.');
-        const current = Number(snap.data().quantity || 0);
-        if (current + delta < 0) throw new Error('Stock insuffisant : sortie refusée.');
-        tx.update(itemRef, { quantity: current + delta, updatedAt: Date.now() });
-        tx.set(movementRef, { itemId: item.id, itemName: item.name, delta, quantityAfter: current + delta, createdAt: Date.now(), createdBy: auth.currentUser?.uid || 'unknown' });
-      });
-      setNotice(delta > 0 ? 'Entrée de stock enregistrée.' : 'Sortie de stock enregistrée.');
+      const storageKey = `restaumax:inventory:pending-move:${restaurant.slug}`;
+      let storageAvailable = true;
+      let pendingMove: { itemId: string; delta: number; idempotencyKey: string } | null = null;
+      try {
+        const raw = sessionStorage.getItem(storageKey);
+        pendingMove = raw ? JSON.parse(raw) : null;
+      } catch {
+        storageAvailable = false;
+      }
+      if (pendingMove && (pendingMove.itemId !== item.id || pendingMove.delta !== delta)) {
+        throw new Error('Un mouvement précédent reste à confirmer. Répétez d’abord exactement le même mouvement pour éviter un doublon.');
+      }
+      const idempotencyKey = pendingMove?.idempotencyKey || crypto.randomUUID().replaceAll('-', '');
+      if (storageAvailable) {
+        sessionStorage.setItem(storageKey, JSON.stringify({ itemId: item.id, delta, idempotencyKey }));
+      }
+      const result = await moveInventoryStockWithServerValidation(
+        restaurant.slug, item.id, delta,
+        delta > 0 ? 'Entrée manuelle' : 'Sortie manuelle',
+        idempotencyKey
+      );
+      if (!result.success) {
+        if (storageAvailable && !result.retryable) sessionStorage.removeItem(storageKey);
+        throw new Error(result.error);
+      }
+      if (storageAvailable) sessionStorage.removeItem(storageKey);
+      setNotice(delta > 0 ? 'Entrée de stock enregistrée et journalisée.' : 'Sortie de stock enregistrée et journalisée.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Mouvement de stock impossible.'); }
+    finally { setLoading(false); }
   };
 
   const removeInventoryItem = async (id: string) => {
-    if (!canManage || !window.confirm('Supprimer cet article du stock ?')) return;
-    try { await deleteDoc(doc(db, 'restaurants', restaurant.slug, 'inventoryItems', id)); setNotice('Article supprimé.'); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Suppression impossible.'); }
+    if (!canManage || !window.confirm('Archiver cet article du stock ? L’historique de ses mouvements sera conservé.')) return;
+    setLoading(true);
+    try {
+      const result = await archiveInventoryItemWithServerValidation(restaurant.slug, id);
+      if (!result.success) throw new Error(result.error);
+      setNotice('Article archivé. Son historique de mouvements est conservé.');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Archivage impossible.'); }
+    finally { setLoading(false); }
   };
 
   const saveSettings = async (event: React.FormEvent) => {
@@ -197,21 +278,40 @@ export const RestaurantAdminModuleView: React.FC<{
 
       {module === 'inventory' && <>
         {canManage && <form onSubmit={addInventoryItem} className="grid gap-3 rounded-2xl border bg-white p-5 md:grid-cols-3">
-          <h2 className="font-bold md:col-span-3">Nouvel article de stock</h2>
+          <h2 className="font-bold md:col-span-3">{editingInventoryItemId ? 'Modifier un article de stock' : 'Nouvel article de stock'}</h2>
           <input required placeholder="Désignation" value={itemForm.name} onChange={e=>setItemForm({...itemForm,name:e.target.value})} className="rounded-lg border p-3"/>
           <select value={itemForm.unit} onChange={e=>setItemForm({...itemForm,unit:e.target.value})} className="rounded-lg border p-3"><option>kg</option><option>g</option><option>L</option><option>ml</option><option>unité</option><option>carton</option><option>sac</option></select>
-          <input type="number" min="0" step="0.001" placeholder="Stock initial" value={itemForm.quantity} onChange={e=>setItemForm({...itemForm,quantity:e.target.value})} className="rounded-lg border p-3"/>
+          {!editingInventoryItemId && <input type="number" min="0" step="0.001" placeholder="Stock initial" value={itemForm.quantity} onChange={e=>setItemForm({...itemForm,quantity:e.target.value})} className="rounded-lg border p-3"/>}
           <input type="number" min="0" step="0.001" placeholder="Seuil d'alerte" value={itemForm.minQuantity} onChange={e=>setItemForm({...itemForm,minQuantity:e.target.value})} className="rounded-lg border p-3"/>
           <input type="number" min="0" step="1" placeholder="Coût unitaire FCFA" value={itemForm.unitCost} onChange={e=>setItemForm({...itemForm,unitCost:e.target.value})} className="rounded-lg border p-3"/>
           <input placeholder="Fournisseur" value={itemForm.supplier} onChange={e=>setItemForm({...itemForm,supplier:e.target.value})} className="rounded-lg border p-3"/>
-          <button disabled={loading} className="flex items-center justify-center gap-2 rounded-lg bg-slate-900 p-3 font-bold text-white md:col-span-3"><Plus size={16}/> Ajouter au stock</button>
+          <div className="flex gap-2 md:col-span-3"><button disabled={loading} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-900 p-3 font-bold text-white">{editingInventoryItemId ? <Save size={16}/> : <Plus size={16}/>} {editingInventoryItemId ? 'Enregistrer les modifications' : 'Ajouter au stock'}</button>{editingInventoryItemId && <button type="button" disabled={loading} onClick={resetInventoryForm} className="rounded-lg border px-4 py-3 font-bold text-slate-600">Annuler</button>}</div>
         </form>}
         <section className="overflow-hidden rounded-2xl border bg-white"><div className="border-b p-4 font-bold">État du stock · {inventory.length} référence(s)</div>
-          {inventory.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.supplier || 'Fournisseur non renseigné'} · {formatFCFA(item.unitCost)} / {item.unit}</p><p className={`mt-1 text-sm font-bold ${item.quantity <= item.minQuantity ? 'text-rose-700' : 'text-emerald-700'}`}>{item.quantity} {item.unit} · seuil {item.minQuantity} {item.unit}{item.quantity <= item.minQuantity ? ' · STOCK BAS' : ''}</p></div>{canManage && <div className="flex flex-wrap gap-2"><button onClick={()=>moveStock(item,1)} className="rounded-lg border px-3 py-2 text-sm">+1 entrée</button><button onClick={()=>moveStock(item,-1)} className="rounded-lg border px-3 py-2 text-sm">−1 sortie</button><button onClick={()=>removeInventoryItem(item.id)} aria-label="Supprimer l'article" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
+          {inventory.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.supplier || 'Fournisseur non renseigné'} · {formatFCFA(item.unitCost)} / {item.unit}</p><p className={`mt-1 text-sm font-bold ${item.quantity <= item.minQuantity ? 'text-rose-700' : 'text-emerald-700'}`}>{item.quantity} {item.unit} · seuil {item.minQuantity} {item.unit}{item.quantity <= item.minQuantity ? ' · STOCK BAS' : ''}</p></div>{canManage && <div className="flex flex-wrap gap-2"><button onClick={()=>startEditInventoryItem(item)} disabled={loading} aria-label={`Modifier ${item.name}`} className="rounded-lg border p-2 text-slate-700"><Pencil size={16}/></button><button onClick={()=>moveStock(item,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">+1 entrée</button><button onClick={()=>moveStock(item,-1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">−1 sortie</button><button onClick={()=>removeInventoryItem(item.id)} disabled={loading} aria-label="Archiver l'article" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
           {inventory.length===0 && <p className="p-8 text-center text-sm text-slate-500">Aucun article de stock. Ajoutez les matières premières et consommables.</p>}
         </section>
+        <InventoryRecipePanel restaurantSlug={restaurant.slug} canManage={canManage} inventory={inventory} />
+        <section className="mt-5 overflow-hidden rounded-2xl border bg-white">
+          <div className="border-b p-4 font-bold">Journal des mouvements récents · {stockMovements.length}</div>
+          {stockMovements.map(movement => (
+            <div key={movement.id} className="grid gap-2 border-b p-4 text-sm last:border-0 md:grid-cols-[1fr_auto] md:items-center">
+              <div>
+                <p className="font-bold">{movement.itemName} · {movement.reason || 'Mouvement de stock'}</p>
+                <p className="text-xs text-slate-500">{new Date(movement.createdAt).toLocaleString('fr-FR')} · {movement.createdBy || 'Système'}</p>
+              </div>
+              <div className="text-sm md:text-right">
+                <p className={movement.delta >= 0 ? 'font-bold text-emerald-700' : 'font-bold text-rose-700'}>
+                  {movement.delta > 0 ? '+' : ''}{movement.delta} {movement.unit}
+                </p>
+                <p className="text-xs text-slate-500">{movement.quantityBefore} → {movement.quantityAfter} {movement.unit}</p>
+              </div>
+            </div>
+          ))}
+          {stockMovements.length === 0 && <p className="p-8 text-center text-sm text-slate-500">Aucun mouvement de stock enregistré.</p>}
+        </section>
       </>}
-
+      
       {module === 'reports' && <>
         <div className="grid gap-4 sm:grid-cols-3"><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Commandes finalisées</p><p className="mt-2 text-3xl font-black">{completedOrders.length}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Montant des commandes finalisées</p><p className="mt-2 text-2xl font-black">{formatFCFA(salesTotal)}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Panier moyen</p><p className="mt-2 text-2xl font-black">{formatFCFA(completedOrders.length ? Math.round(salesTotal/completedOrders.length) : 0)}</p></div></div>
         <section className="rounded-2xl border bg-white p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-bold">Meilleures ventes (quantités)</h2><button onClick={exportCsv} className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white"><Download size={15}/> Exporter CSV</button></div>

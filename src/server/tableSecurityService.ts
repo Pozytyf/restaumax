@@ -125,19 +125,35 @@ export async function revokeTableQr(db: any, restaurantSlug: string, tableId: st
   if (!db) throw new Error('Firebase Admin indisponible.');
   const slug = String(restaurantSlug || '').trim();
   const id = String(tableId || '').trim();
-  const tokens = await db.collection('restaurants').doc(slug).collection('table_qr_tokens').where('tableId', '==', id).get();
-  if (tokens.empty) return { revoked: 0 };
-  const batch = db.batch();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) {
+    throw new Error('Restaurant ou identifiant de table invalide.');
+  }
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const tableRef = restaurantRef.collection('tables').doc(id);
+  const tokenQuery = restaurantRef.collection('table_qr_tokens').where('tableId', '==', id);
   const now = Date.now();
-  let revoked = 0;
-  tokens.docs.forEach((doc: any) => {
-    if (doc.data()?.status === 'active') {
-      batch.update(doc.ref, { status: 'revoked', revokedAt: now, updatedAt: now });
-      revoked += 1;
+
+  // Serialize revocation with QR issuance through the table version document.
+  // This closes the race where a concurrent issuance could otherwise survive a
+  // query-then-batch revocation. Incrementing the version also invalidates sessions.
+  return await db.runTransaction(async (tx: any) => {
+    const [tableSnap, tokens] = await Promise.all([tx.get(tableRef), tx.get(tokenQuery)]);
+    let revoked = 0;
+    tokens.docs.forEach((doc: any) => {
+      if (doc.data()?.status === 'active') {
+        tx.update(doc.ref, { status: 'revoked', revokedAt: now, updatedAt: now });
+        revoked += 1;
+      }
+    });
+    if (tableSnap.exists) {
+      tx.update(tableRef, {
+        qrVersion: Number(tableSnap.data()?.qrVersion || 0) + 1,
+        qrRevokedAt: now,
+        qrUpdatedAt: now
+      });
     }
+    return { revoked, versionAdvanced: tableSnap.exists };
   });
-  if (revoked) await batch.commit();
-  return { revoked };
 }
 
 export async function resolveTableQr(db: any, token: string) {
@@ -275,6 +291,9 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   const managerRole = String(manager.role || '');
   if (!['owner', 'manager'].includes(managerRole)) {
     throw new Error('Seul le propriétaire ou un manager du restaurant peut administrer les QR de table.');
+  }
+  if (managerRole === 'owner' && restaurantSnap.data()?.ownerUid !== decoded.uid) {
+    throw new Error('Le compte propriétaire ne correspond pas au propriétaire enregistré du restaurant.');
   }
   if (managerRole === 'manager' &&
       (!Array.isArray(manager.permissions) || !manager.permissions.includes('tables.manage'))) {

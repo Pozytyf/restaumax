@@ -1,0 +1,42 @@
+name: PayDunya payment and refund lifecycle
+on:
+  push:
+    branches: [fix/authorization-refunds-platform-audit]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/server/paydunyaService.ts'
+      - 'src/server/paydunyaPaymentService.ts'
+      - 'src/server/paydunyaMerchantConfig.ts'
+      - 'scripts/test-paydunya-merchant-config.mjs'
+      - 'src/server/paymentService.ts'
+      - 'server.ts'
+      - 'api/payments/**'
+      - 'src/lib/firebase.ts'
+      - 'src/App.tsx'
+      - 'src/components/pos/PaymentModal.tsx'
+      - 'src/components/manager/ManagerView.tsx'
+      - 'scripts/test-paydunya*.mjs'
+      - 'package.json'
+      - '.github/workflows/paydunya-payment-flow.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  paydunya-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: TypeScript validation
+        run: npm run lint
+      - name: PayDunya service and lifecycle tests
+        run: npm run test:paydunya
+      - name: Merchant credential isolation
+        run: npx tsx scripts/test-paydunya-merchant-config.mjs
+      - name: Production build
+        run: npm run build

@@ -165,6 +165,9 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
     if (!order || order.restaurantSlug !== slug || order.status === 'cancelled') {
       return { success: false, error: 'Commande introuvable, annulée ou rattachée à un autre restaurant.' };
     }
+    if (order.pendingPayDunyaIntentId) {
+      return { success: false, conflict: true, error: 'Une facture Mobile Money PayDunya est en attente pour cette commande. Vérifiez son statut avant tout encaissement en espèces.' };
+    }
 
     const totalAmount = Number(order.totalAmount);
     const alreadyPaid = Number(order.paidAmount || 0);
@@ -258,6 +261,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       actorName: String(input.actorName || actorUid),
       actorRole: member.role,
       method: 'especes',
+      refundEligible: true,
       cashSessionId: activeSessionId,
       currency: order.currency || 'FCFA',
       amountTendered,
@@ -360,6 +364,29 @@ export async function getCashSessionWithDb(db: any, restaurantSlug: string, acto
     cashMovementCount: Number(sessionData.cashMovementCount || 0),
     cashMovements
   };
+}
+
+export async function listClosedCashSessionsWithDb(
+  db: any,
+  restaurantSlug: string,
+  limitCount = 20
+): Promise<Array<Record<string, any>>> {
+  if (!db) throw new Error('Firestore indisponible.');
+  const slug = String(restaurantSlug || '').trim();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) throw new Error('Restaurant invalide.');
+  const safeLimit = Math.min(50, Math.max(1, Math.floor(limitCount)));
+  try {
+    const snapshot = await db.collection('restaurants').doc(slug)
+      .collection('cashSessions')
+      .where('status', '==', 'closed')
+      .get();
+    const sessions = snapshot.docs.map((doc: any) => ({ ...doc.data(), id: doc.id }));
+    sessions.sort((a: any, b: any) => Number(b.closedAt || b.openedAt || 0) - Number(a.closedAt || a.openedAt || 0));
+    return sessions.slice(0, safeLimit);
+  } catch (error: any) {
+    console.error('Erreur lecture historique sessions de caisse:', error);
+    return [];
+  }
 }
 
 export async function openCashSessionWithDb(db: any, input: CashSessionInput): Promise<CashSessionResult> {
@@ -577,5 +604,155 @@ export async function recordCashMovementWithDb(db: any, input: CashMovementInput
       lastCashMovementAt: now
     });
     return { success: true, movement, session: { ...updatedSession, id: sessionId } };
+  });
+}
+
+
+export interface RefundPaymentInput {
+  restaurantSlug: string;
+  paymentId: string;
+  actorUid: string;
+  actorName?: string;
+  sessionVersion: number;
+  amount: number;
+  reason: string;
+  idempotencyKey: string;
+  cashDisbursementConfirmed: boolean;
+}
+
+/**
+ * Enregistre un remboursement d'espèces dans une transaction atomique.
+ * Les remboursements Mobile Money sont refusés ici : ils nécessitent un
+ * décaissement fournisseur confirmé, et ne doivent jamais être simulés par
+ * une simple écriture comptable.
+ */
+export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput): Promise<CashPaymentResult> {
+  if (!db) return { success: false, error: 'Firestore indisponible.' };
+  const slug = String(input.restaurantSlug || '').trim();
+  const paymentId = String(input.paymentId || '').trim();
+  const actorUid = String(input.actorUid || '').trim();
+  const key = String(input.idempotencyKey || '').trim();
+  const reason = String(input.reason || '').trim();
+
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(paymentId) ||
+      !actorUid ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(key) ||
+      !Number.isSafeInteger(input.amount) || input.amount <= 0 || input.amount > 100_000_000 ||
+      reason.length < 3 || reason.length > 300 || input.cashDisbursementConfirmed !== true) {
+    return { success: false, error: 'Paramètres de remboursement invalides.' };
+  }
+
+  const namespace = `${slug}::${paymentId}::${key}`;
+  const refundId = `refund_${sha256(namespace).slice(0, 32)}`;
+  const signature = sha256(JSON.stringify({ slug, paymentId, amount: input.amount, reason }));
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const memberRef = db.collection('managers').doc(actorUid);
+  const paymentRef = restaurantRef.collection('payments').doc(paymentId);
+  const refundRef = restaurantRef.collection('refunds').doc(refundId);
+  const idempotencyRef = db.collection('payment_refund_idempotency').doc(sha256(namespace).slice(0, 48));
+
+  return db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, memberSnap, paymentSnap, refundSnap, idemSnap] = await Promise.all([
+      tx.get(restaurantRef), tx.get(memberRef), tx.get(paymentRef), tx.get(refundRef), tx.get(idempotencyRef)
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = memberSnap.exists ? memberSnap.data() : null;
+    const payment = paymentSnap.exists ? paymentSnap.data() : null;
+
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
+    }
+    const owner = member.role === 'owner' && restaurant.ownerUid === actorUid;
+    const manager = member.role === 'manager';
+    const cashierGrant = member.role === 'cashier' && Array.isArray(member.permissions) &&
+      member.permissions.includes('payments.refund');
+    if (!owner && !manager && !cashierGrant) {
+      return { success: false, error: 'La permission distincte payments.refund est requise.' };
+    }
+
+    if (idemSnap.exists) {
+      const previous = idemSnap.data();
+      if (previous.signature !== signature || previous.actorUid !== actorUid || previous.paymentId !== paymentId) {
+        return { success: false, conflict: true, error: 'Clé d’idempotence déjà utilisée pour un autre remboursement.' };
+      }
+      if (!refundSnap.exists) {
+        return { success: false, conflict: true, error: 'Registre de remboursement incomplet. Opération bloquée.' };
+      }
+      return { success: true, idempotentReplay: true, payment: refundSnap.data() };
+    }
+
+    if (!payment || payment.restaurantSlug !== slug || payment.id !== paymentId) {
+      return { success: false, error: 'Paiement introuvable ou rattaché à un autre restaurant.' };
+    }
+    if (!['especes', 'cash'].includes(String(payment.method || '').toLowerCase())) {
+      return { success: false, conflict: true, error: 'Ce paiement n’est pas un paiement espèces. Un décaissement fournisseur confirmé est nécessaire ; aucun remboursement Mobile Money n’a été exécuté.' };
+    }
+
+    const originalAmount = Number(payment.paidAmount || 0);
+    const alreadyRefunded = Number(payment.refundedAmount || 0);
+    if (!Number.isSafeInteger(originalAmount) || originalAmount <= 0 ||
+        !Number.isSafeInteger(alreadyRefunded) || alreadyRefunded < 0 || alreadyRefunded > originalAmount ||
+        input.amount > originalAmount - alreadyRefunded) {
+      return { success: false, error: 'Le montant dépasse le solde remboursable de ce paiement.' };
+    }
+
+    const orderId = String(payment.orderId || '');
+    const orderRef = restaurantRef.collection('orders').doc(orderId);
+    const activeSessionRef = restaurantRef.collection('cashSessionActive').doc(actorUid);
+    const [orderSnap, activeSessionSnap] = await Promise.all([tx.get(orderRef), tx.get(activeSessionRef)]);
+    const order = orderSnap.exists ? orderSnap.data() : null;
+    const activeSessionId = activeSessionSnap.exists ? String(activeSessionSnap.data()?.sessionId || '') : '';
+    if (!order || order.restaurantSlug !== slug || !activeSessionId || activeSessionSnap.data()?.status !== 'active') {
+      return { success: false, error: 'Commande ou session de caisse active introuvable. Remboursement espèces refusé.' };
+    }
+    const cashSessionRef = restaurantRef.collection('cashSessions').doc(activeSessionId);
+    const cashSessionSnap = await tx.get(cashSessionRef);
+    const cashSession = cashSessionSnap.exists ? cashSessionSnap.data() : null;
+    if (!cashSession || cashSession.status !== 'active' || cashSession.openedByUid !== actorUid ||
+        Number(cashSession.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
+      return { success: false, error: 'La session de caisse active ne correspond pas à cet utilisateur.' };
+    }
+
+    const now = Date.now();
+    const totalRefundedForPayment = alreadyRefunded + input.amount;
+    const totalRefundedForOrder = Number(order.refundedAmount || 0) + input.amount;
+    if (!Number.isSafeInteger(totalRefundedForOrder) || totalRefundedForOrder > Number(order.paidAmount || 0)) {
+      return { success: false, error: 'Incohérence du cumul des remboursements de la commande.' };
+    }
+    const refund = {
+      id: refundId, restaurantSlug: slug, paymentId, orderId,
+      orderNumber: payment.orderNumber || order.orderNumber || orderId,
+      amount: input.amount, currency: payment.currency || order.currency || 'FCFA',
+      method: 'especes', status: 'recorded',
+      cashDisbursementConfirmed: true, cashDisbursementConfirmedAt: now,
+      cashDisbursementConfirmedByUid: actorUid,
+      reason, actorUid, actorName: String(input.actorName || actorUid),
+      actorRole: member.role, createdAt: now,
+      idempotencyKeyHash: sha256(key)
+    };
+    tx.create(refundRef, refund);
+    tx.create(idempotencyRef, {
+      signature, restaurantSlug: slug, paymentId, refundId, actorUid, createdAt: now
+    });
+    tx.update(paymentRef, {
+      refundedAmount: totalRefundedForPayment,
+      refundStatus: totalRefundedForPayment === originalAmount ? 'refunded' : 'partially_refunded',
+      lastRefundAt: now, lastRefundId: refundId
+    });
+    tx.update(orderRef, {
+      refundedAmount: totalRefundedForOrder,
+      netPaidAmount: Math.max(0, Number(order.paidAmount || 0) - totalRefundedForOrder),
+      refundStatus: totalRefundedForOrder >= Number(order.paidAmount || 0) ? 'refunded' : 'partially_refunded',
+      lastRefundAt: now, lastRefundId: refundId
+    });
+    tx.update(cashSessionRef, {
+      cashOut: Number(cashSession.cashOut || 0) + input.amount,
+      refundCount: Number(cashSession.refundCount || 0) + 1,
+      lastRefundAt: now
+    });
+    return { success: true, idempotentReplay: false, payment: refund };
   });
 }

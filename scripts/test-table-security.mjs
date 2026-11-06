@@ -68,7 +68,7 @@ function createDb() {
 async function run() {
   console.log('RESTAUMAX — TESTS SÉCURITÉ QR / SESSION');
   const db = createDb();
-  db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true });
+  db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true, ownerUid: 'owner-1' });
   db.store.set('restaurants/chez-awa/tables/table-4', { id: 'table-4', tableNumber: '4', isActive: true, qrVersion: 0 });
 
   for (const status of ['provisioning', 'suspended', 'deleted']) {
@@ -106,6 +106,21 @@ async function run() {
     scopedOwnerAllowed = true;
   } catch {}
   assert(scopedOwnerAllowed, 'Le propriétaire actif du restaurant conserve la gestion QR');
+
+  db.store.set('managers/owner-spoofed', {
+    uid: 'owner-spoofed', role: 'owner', restaurantSlug: 'chez-awa',
+    active: true, sessionVersion: 0
+  });
+  let mismatchedOwnerRejected = false;
+  try {
+    await authorizeTableManager(
+      db,
+      { verifyIdToken: async () => ({ uid: 'owner-spoofed', role: 'owner', sessionVersion: 0 }) },
+      { headers: { authorization: 'Bearer owner-spoofed-token' } },
+      'chez-awa'
+    );
+  } catch { mismatchedOwnerRejected = true; }
+  assert(mismatchedOwnerRejected, 'Un compte marqué owner mais différent de restaurants.ownerUid ne peut pas gérer les QR');
 
   db.store.set('managers/manager-1', {
     uid: 'manager-1', role: 'manager', restaurantSlug: 'chez-awa',
@@ -181,11 +196,14 @@ async function run() {
 
   const revoked = await revokeTableQr(db, 'chez-awa', 'table-4');
   assert(revoked.revoked === 1, 'Révocation immédiate du QR actif');
+  assert(revoked.versionAdvanced === true && db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 2,
+    'La révocation incrémente atomiquement la version de table pour invalider les sessions et sérialiser une rotation concurrente');
   assert(await getActiveTableSession(db, resolved.sessionSecret) === null, 'Session existante invalidée immédiatement après révocation');
   let oldTokenRejected = false;
   try { await resolveTableQr(db, token); } catch { oldTokenRejected = true; }
   assert(oldTokenRejected, 'Ancien QR révoqué ne peut plus ouvrir de session');
 
+  const versionBeforeRotation = db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion;
   const rotated = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   assert(rotated.token !== token, 'Rotation émet un nouveau jeton distinct');
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'deleted', deletedAt: Date.now() });
@@ -193,7 +211,7 @@ async function run() {
   try { await resolveTableQr(db, rotated.token); } catch { deletedRestaurantRejected = true; }
   assert(deletedRestaurantRejected, 'Un QR ne peut pas ouvrir de session pour un restaurant supprimé logiquement');
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'active', deletedAt: undefined });
-  assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 2, 'Rotation incrémente la version de table');
+  assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === versionBeforeRotation + 1, 'Rotation incrémente la version de table après révocation');
   let inactiveRejected = false;
   db.store.set('restaurants/chez-awa/tables/table-4', { ...db.store.get('restaurants/chez-awa/tables/table-4'), isActive: false });
   try { await resolveTableQr(db, rotated.token); } catch { inactiveRejected = true; }

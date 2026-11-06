@@ -51,8 +51,8 @@ export interface RestaurantHubViewProps {
   onNavigateToClientMenu: () => void;
   onNavigateToStaffRole: (role: 'pos' | 'floor' | 'kds' | 'manager') => void;
   onToggleDishAvailability: (dishId: string) => void;
-  onCreateDish: (dish: RestauMenuItem) => void;
-  onUpdateDish: (dish: RestauMenuItem) => void;
+  onCreateDish: (dish: RestauMenuItem) => Promise<void>;
+  onUpdateDish: (dish: RestauMenuItem) => Promise<void>;
   onDeleteDish: (dishId: string) => void;
   currentUserEmail?: string | null;
   onSignOut?: () => void;
@@ -98,6 +98,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
   permissions = []
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'menu_catalog' | 'qr_tables' | 'staff' | 'customers' | 'inventory' | 'reports' | 'settings'>('overview');
+  const canViewCatalog = permissions.includes('menu.view') || permissions.includes('menu.manage');
   // Format current date in French standard
   const todayFormatted = new Intl.DateTimeFormat('fr-FR', {
     weekday: 'long',
@@ -128,14 +129,14 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       title: 'Menu et catalogue des plats',
       subtitle: 'Carte client & spécialités',
       description: 'Consultation de la carte complète, fiches techniques et pilotage de la disponibilité en direct.',
-      status: 'active',
-      statusLabel: 'Actif',
+      status: canViewCatalog ? 'active' : 'unavailable',
+      statusLabel: canViewCatalog ? 'Accès catalogue autorisé' : 'Réservé au propriétaire / manager',
       icon: BookOpen,
-      actionLabel: 'Gérer le catalogue & disponibilités',
-      onAction: () => {
+      actionLabel: canViewCatalog ? 'Gérer le catalogue & disponibilités' : undefined,
+      onAction: canViewCatalog ? () => {
         sounds.playTap();
         setActiveTab('menu_catalog');
-      }
+      } : undefined
     },
     {
       id: 'options-prices',
@@ -143,14 +144,14 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       title: 'Options, suppléments et prix',
       subtitle: 'Personnalisations & Tarifs en FCFA',
       description: 'Accompagnements inclus ou payants (ex. alloco +500 FCFA), suppléments sauces et consignes cuisine.',
-      status: 'active',
-      statusLabel: 'Actif',
+      status: canViewCatalog ? 'active' : 'unavailable',
+      statusLabel: canViewCatalog ? 'Accès catalogue autorisé' : 'Réservé au propriétaire / manager',
       icon: SlidersHorizontal,
-      actionLabel: 'Voir les options du menu',
-      onAction: () => {
+      actionLabel: canViewCatalog ? 'Gérer les options, suppléments et prix' : undefined,
+      onAction: canViewCatalog ? () => {
         sounds.playTap();
-        onNavigateToClientMenu();
-      }
+        setActiveTab('menu_catalog');
+      } : undefined
     },
     {
       id: 'orders',
@@ -188,21 +189,21 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       title: 'Salle, tables et QR codes',
       subtitle: 'Chevalets de table & Affectations',
       description: 'Génération et impression des QR codes de tables, gestion des zones (salle, terrasse, bar) et couverts.',
-      status: 'active',
-      statusLabel: 'Actif',
+      status: permissions.includes('tables.manage') ? 'active' : 'unavailable',
+      statusLabel: permissions.includes('tables.manage') ? 'Gestion des tables' : 'Réservé au propriétaire / manager autorisé',
       icon: QrCode,
-      actionLabel: 'Générateur QR Codes des Tables',
-      onAction: () => {
+      actionLabel: permissions.includes('tables.manage') ? 'Générateur QR Codes des Tables' : undefined,
+      onAction: permissions.includes('tables.manage') ? () => {
         sounds.playTap();
         setActiveTab('qr_tables');
-      }
+      } : undefined
     },
     {
       id: 'cash-register',
       order: 7,
       title: 'Caisse et paiements',
       subtitle: 'Supervision & Clôture Z',
-      description: 'Encaissements en espèces, Mobile Money et carte, audit des règlements et clôture de shift.',
+      description: 'Encaissements en espèces et Mobile Money, audit des règlements et clôture de shift. Carte bancaire non activée en V1.',
       status: 'active',
       statusLabel: 'Actif',
       icon: Calculator,
@@ -274,13 +275,14 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     }
   ];
 
-  if (activeTab === 'menu_catalog') {
+  if (activeTab === 'menu_catalog' && canViewCatalog) {
     return (
       <MenuManagementView
         restaurant={restaurant}
         menuItems={menuItems}
         catalogLoading={menuCatalogLoading}
         catalogError={menuCatalogError}
+        canManageCatalog={permissions.includes('menu.manage')}
         onToggleAvailability={onToggleDishAvailability}
         onCreateDish={onCreateDish}
         onUpdateDish={onUpdateDish}
@@ -356,7 +358,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
           </div>
 
           <div className="flex items-center gap-3 text-xs text-slate-300">
-            <button
+            {permissions.includes('tables.manage') && <button
               onClick={() => {
                 sounds.playTap();
                 setActiveTab('qr_tables');
@@ -366,7 +368,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             >
               <QrCode size={13} className="text-emerald-400" />
               <span>QR Tables</span>
-            </button>
+            </button>}
 
             <div className="hidden lg:flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-700/60">
               <Calendar size={14} className="text-[#ff6500]" />
@@ -458,7 +460,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                 {menuItemsCount}
               </div>
               <span className="text-[11px] text-slate-500 font-medium mt-0.5 block">
-                Catalogue actif Chez Awa
+                Catalogue actif · {restaurant.name}
               </span>
             </div>
 
