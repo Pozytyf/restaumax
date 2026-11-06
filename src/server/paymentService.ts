@@ -126,7 +126,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
 
     const isOwner = member.role === 'owner' && restaurant.ownerUid === actorUid;
     const canManageCash = isOwner ||
-      member.role === 'manager' ||
+      (member.role === 'manager' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage')) ||
       (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
     if (!canManageCash) {
       return { success: false, error: 'Votre rôle ne permet pas d’encaisser des paiements en espèces.' };
@@ -335,7 +335,7 @@ export async function listRecentCashPaymentsWithDb(db: any, restaurantSlug: stri
 
 function canManageCashSession(member: any, restaurant: any, actorUid: string): boolean {
   return (member?.role === 'owner' && restaurant?.ownerUid === actorUid) ||
-    member?.role === 'manager' ||
+    (member?.role === 'manager' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage')) ||
     (member?.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
 }
 
@@ -643,7 +643,8 @@ export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput
       return { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
     }
     const owner = member.role === 'owner' && restaurant.ownerUid === actorUid;
-    const manager = member.role === 'manager';
+    const manager = member.role === 'manager' && Array.isArray(member.permissions) &&
+      member.permissions.includes('payments.refund');
     const cashierGrant = member.role === 'cashier' && Array.isArray(member.permissions) &&
       member.permissions.includes('payments.refund');
     if (!owner && !manager && !cashierGrant) {
