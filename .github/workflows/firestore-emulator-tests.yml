@@ -32,13 +32,10 @@ jobs:
       - name: Installation propre des dépendances npm
         run: npm ci --legacy-peer-deps
 
-      - name: Installation temporaire des outils de recette navigateur
+      - name: Installation temporaire des outils de tests Firestore et navigateur
         run: |
-          npm install --no-save --package-lock=false playwright @axe-core/playwright
+          npm install --no-save --package-lock=false --legacy-peer-deps firebase-tools@15.34.2 @firebase/rules-unit-testing@6.0.0 playwright @axe-core/playwright
           npx playwright install --with-deps chromium
-
-      - name: Installation des outils de test des règles Firestore
-        run: npm install --no-save --package-lock=false --legacy-peer-deps firebase-tools@15.34.2 @firebase/rules-unit-testing@6.0.0
 
       - name: 1. Contrôle statique TypeScript (lint)
         run: npm run lint
