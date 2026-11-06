@@ -133,12 +133,28 @@ async function run() {
 
     const tamperedPriceResult = await processOrderSubmission({
       ...payload,
-      idempotencyKey: 'integration-tampered-price-' + suffix,
+      idempotencyKey: 'integration-tampered-total-' + suffix,
       declaredTotal: 1
     }, provider);
     check(tamperedPriceResult.success === false &&
       String(tamperedPriceResult.error || '').includes('recalculé'),
-      'Le serveur refuse un total POS falsifié et recalcule les tarifs du catalogue');
+      'Le serveur refuse un total POS falsifié');
+
+    const clientPriceTampering = await processOrderSubmission({
+      ...payload,
+      idempotencyKey: 'integration-tampered-line-price-' + suffix,
+      cart: [{
+        ...payload.cart[0],
+        unitPrice: 1,
+        selectedOption: { ...payload.cart[0].selectedOption, extraPrice: 0 },
+        selectedExtras: [{ extraId: 'sauce', name: 'Prix falsifié', price: 0 }]
+      }]
+    }, provider);
+    check(clientPriceTampering.success === true &&
+      clientPriceTampering.order?.totalAmount === 6800 &&
+      clientPriceTampering.order?.items?.[0]?.selectedExtras?.[0]?.name === 'Sauce maison' &&
+      clientPriceTampering.order?.items?.[0]?.selectedExtras?.[0]?.price === 1000,
+      'Le serveur ignore les prix et libellés client et applique ceux du catalogue officiel');
 
     console.log('\n--- Création réelle de la commande POS ---');
     const created = await processOrderSubmission(payload, provider);
