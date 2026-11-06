@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { PaymentMethod, CartItem, Table } from '../../types/pos';
 import type { RestauGuestAccount } from '../../types/restaumax';
 import { formatFCFA, formatFCFANumberOnly } from '../../utils/format';
+import { getPosCartLineUnitPrice } from '../../utils/posCart';
 import { sounds } from '../../utils/audio';
 import { 
   X, 
@@ -55,7 +56,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [guestNumber, setGuestNumber] = useState(1);
   const [guestName, setGuestName] = useState('');
 
-  const subtotal = cart.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
+  const subtotal = cart.reduce((sum, item) => sum + getPosCartLineUnitPrice(item) * item.quantity, 0);
   const discountAmount = Math.round((subtotal * discountPercent) / 100);
   const total = Math.max(0, orderTotalAmount ?? (subtotal - discountAmount));
 
