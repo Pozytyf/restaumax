@@ -11,6 +11,9 @@ const port = Number(process.env.E2E_PORT || 4173);
 const baseUrl = `http://127.0.0.1:${port}`;
 const app = initializeApp({ projectId: firebaseConfig.projectId }, 'restaumax-client-e2e-' + Date.now());
 const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// The public demo seed intentionally contains only client-facing restaurant fields.
+// Complete the emulator-only operational state required by the trusted order service.
+await db.collection('restaurants').doc('chez-awa').set({ status: 'active', isActive: true, isOpen: true }, { merge: true });
 const server = spawn('npm', ['run', 'dev'], {
   env: {
     ...process.env,
