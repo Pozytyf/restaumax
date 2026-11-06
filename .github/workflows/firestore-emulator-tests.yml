@@ -32,6 +32,11 @@ jobs:
       - name: Installation propre des dépendances npm
         run: npm ci --legacy-peer-deps
 
+      - name: Installation temporaire des outils de recette navigateur
+        run: |
+          npm install --no-save --package-lock=false playwright @axe-core/playwright
+          npx playwright install --with-deps chromium
+
       - name: Installation des outils de test des règles Firestore
         run: npm install --no-save --package-lock=false --legacy-peer-deps firebase-tools@15.34.2 @firebase/rules-unit-testing@6.0.0
 
@@ -49,7 +54,7 @@ jobs:
 
       - name: 4. Tests transactionnels et règles de sécurité sur le véritable Firestore Emulator
         run: |
-          npx --yes firebase-tools@15.34.2 emulators:exec --only firestore --project demo-restaumax "npm run seed:local && FIRESTORE_EMULATOR_STRICT=true npm run test:emulator && node scripts/test-security-rules.mjs && node scripts/test-cash-payments.mjs"
+          npx --yes firebase-tools@15.34.2 emulators:exec --only firestore --project demo-restaumax "npm run seed:local && FIRESTORE_EMULATOR_STRICT=true npm run test:emulator && node scripts/test-security-rules.mjs && node scripts/test-cash-payments.mjs && node scripts/e2e-client-flow.mjs"
 
       - name: 5. Validation de la compilation de production (build)
         run: npm run build
