@@ -271,7 +271,9 @@ export default function App() {
           : dish.category === 'desserts'
             ? 'dessert'
             : 'plat',
-      tags: dish.tags
+      tags: dish.tags,
+      optionGroups: dish.optionGroups,
+      availableExtras: dish.availableExtras
     })));
   }, [activeMenuItems]);
 
@@ -943,18 +945,44 @@ export default function App() {
     setCart([]);
   };
 
-  const handleAddToCart = (dish: MenuItem) => {
-    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
+  const handleAddToCart = (configuredItem: ClientCartItem): boolean => {
+    if (pendingPosOrder) {
+      window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.');
+      return false;
+    }
+    const dish = menuItems.find((item) => item.id === configuredItem.menuItemId);
+    if (!dish || dish.available !== true) return false;
+
+    const configurationKey = (option?: ClientCartItem['selectedOption'], extras: ClientCartItem['selectedExtras'] = []) =>
+      JSON.stringify({
+        groupId: option?.groupId || '',
+        optionId: option?.optionId || '',
+        extras: extras.map((extra) => extra.extraId).sort()
+      });
+
     setCart((prev) => {
-      const existing = prev.find((item) => item.menuItem.id === dish.id);
+      const key = configurationKey(configuredItem.selectedOption, configuredItem.selectedExtras);
+      const existing = prev.find((item) =>
+        item.menuItem.id === dish.id &&
+        configurationKey(item.selectedOption, item.selectedExtras || []) === key &&
+        (item.specialInstructions || '') === (configuredItem.prepNotes || '')
+      );
       if (existing) {
         return prev.map((item) =>
-          item.menuItem.id === dish.id ? { ...item, quantity: item.quantity + 1 } : item
+          item.id === existing.id ? { ...item, quantity: item.quantity + configuredItem.quantity } : item
         );
-      } else {
-        return [...prev, { id: `ci-${Date.now()}-${dish.id}`, menuItem: dish, quantity: 1, course: dish.course }];
       }
+      return [...prev, {
+        id: configuredItem.id,
+        menuItem: dish,
+        quantity: configuredItem.quantity,
+        selectedOption: configuredItem.selectedOption,
+        selectedExtras: configuredItem.selectedExtras,
+        specialInstructions: configuredItem.prepNotes,
+        course: dish.course
+      }];
     });
+    return true;
   };
 
   const handleUpdateQuantity = (itemId: string, delta: number) => {
@@ -995,9 +1023,10 @@ export default function App() {
         menuItemId: item.menuItem.id,
         name: item.menuItem.name,
         basePrice: item.menuItem.price,
-        unitPrice: item.menuItem.price,
+        unitPrice: item.menuItem.price + (item.selectedOption?.extraPrice || 0) + (item.selectedExtras || []).reduce((sum, extra) => sum + extra.price, 0),
         quantity: item.quantity,
-        selectedExtras: [],
+        selectedOption: item.selectedOption,
+        selectedExtras: item.selectedExtras || [],
         prepNotes: item.specialInstructions,
         imageUrl: item.menuItem.imageUrl
       }));
@@ -1476,7 +1505,7 @@ export default function App() {
         id: item.menuItemId || item.id,
         name: item.name,
         category: existing?.category || 'plats',
-        price: Number(item.unitPrice),
+        price: Number(item.basePrice ?? item.unitPrice),
         description: existing?.description || '',
         imageUrl: existing?.imageUrl || '',
         available: existing?.available ?? false,
@@ -1493,7 +1522,9 @@ export default function App() {
         id: item.id,
         menuItem,
         quantity: item.quantity,
-        specialInstructions: notes,
+        selectedOption: item.selectedOption,
+        selectedExtras: item.selectedExtras || [],
+        specialInstructions: item.prepNotes || notes,
         course: menuItem.course
       };
     });
