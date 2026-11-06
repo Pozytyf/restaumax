@@ -397,7 +397,7 @@ export default function App() {
   const [authRestaurantRole, setAuthRestaurantRole] = useState<string>('');
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
   const canManageCash = isRestaurantOwner ||
-    authRestaurantRole === 'manager' ||
+    (authRestaurantRole === 'manager' && userPermissions.includes('cash.manage')) ||
     (authRestaurantRole === 'cashier' && userPermissions.includes('cash.manage'));
   const canCollectPayment = canManageCash;
   const mapCashPaymentRecord = (payment: any): PaymentRecord => ({
@@ -1288,7 +1288,8 @@ export default function App() {
     }
   };
 
-  const canRefundPayments = isRestaurantOwner || authRestaurantRole === 'manager' ||
+  const canRefundPayments = isRestaurantOwner ||
+    (authRestaurantRole === 'manager' && userPermissions.includes('payments.refund')) ||
     (authRestaurantRole === 'cashier' && userPermissions.includes('payments.refund'));
 
   const handleRefundPayment = async (payment: PaymentRecord, amount: number, reason: string) => {
