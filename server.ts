@@ -427,9 +427,8 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       const staffTableSnap = snapshots[staffTableIndex];
       const staffTable = staffTableSnap?.exists ? staffTableSnap.data() : null;
       if (!staffTable || staffTable.isActive !== true ||
-          String(staffTable.tableNumber || '').trim().toLowerCase() !== String(orderToCreate.tableNumber || '').trim().toLowerCase() ||
-          restaurantData.isOpen === false) {
-        return { success: false, error: 'Commande du personnel refusée : table inactive, numéro incohérent ou restaurant fermé.' };
+          String(staffTable.tableNumber || '').trim().toLowerCase() !== String(orderToCreate.tableNumber || '').trim().toLowerCase()) {
+        return { success: false, error: 'Commande du personnel refusée : table inactive ou numéro incohérent.' };
       }
     }
 
@@ -460,11 +459,10 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         tableData.isActive === true &&
         Number(tableData.qrVersion || 0) === Number(sessionData.qrVersion || 0) &&
         String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
-        Number(sessionData.restaurantSessionVersion || 0) === Number(restaurantData.tableSessionVersion || 0) &&
-        restaurantData.isOpen !== false
+        Number(sessionData.restaurantSessionVersion || 0) === Number(restaurantData.tableSessionVersion || 0)
       );
       if (!valid) {
-        return { success: false, error: 'Commande refusée : QR révoqué, session expirée, table inactive ou restaurant indisponible.' };
+        return { success: false, error: 'Commande refusée : QR révoqué, session expirée ou table inactive.' };
       }
     }
 
