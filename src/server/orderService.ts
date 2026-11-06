@@ -374,47 +374,57 @@ export async function processOrderSubmission(
     }
     const qty = rawQty;
 
-    // Validation des options obligatoires et facultatives
-    const requiredGroups = (catalogItem.optionGroups || []).filter(g => g.required);
+    // Les choix de plusieurs groupes sont transportés sous forme de paires
+    // groupId/optionId concaténées avec "+". Chaque paire est revalidée depuis le catalogue.
+    const optionGroups = catalogItem.optionGroups || [];
+    const selectedGroupIds = line.selectedOption?.groupId ? line.selectedOption.groupId.split('+') : [];
+    const selectedOptionIds = line.selectedOption?.optionId ? line.selectedOption.optionId.split('+') : [];
     let verifiedSelectedOption: RestauOrderItem['selectedOption'] = undefined;
+    let optionExtraPrice = 0;
 
-    if (requiredGroups.length > 0 && !line.selectedOption) {
-      return { 
-        success: false, 
-        error: `Une option obligatoire (${requiredGroups.map(g => g.name).join(', ')}) est requise pour "${catalogItem.name}".` 
-      };
+    if (selectedGroupIds.length !== selectedOptionIds.length ||
+        selectedGroupIds.some((id, index) => !id || !selectedOptionIds[index]) ||
+        new Set(selectedGroupIds).size !== selectedGroupIds.length) {
+      return { success: false, error: `Les choix d'options de "${catalogItem.name}" sont invalides.` };
     }
 
-    if (line.selectedOption) {
-      const targetGroup = (catalogItem.optionGroups || []).find(g => g.id === line.selectedOption!.groupId);
+    const selectedPairs = selectedGroupIds.map((groupId, index) => ({ groupId, optionId: selectedOptionIds[index] }));
+    for (const requiredGroup of optionGroups.filter(group => group.required)) {
+      if (!selectedPairs.some(pair => pair.groupId === requiredGroup.id)) {
+        return { success: false, error: `Une option est obligatoire pour le groupe "${requiredGroup.name}" du plat "${catalogItem.name}".` };
+      }
+    }
+
+    const verifiedPairs: Array<{ groupId: string; groupName: string; optionId: string; optionName: string; extraPrice: number }> = [];
+    for (const pair of selectedPairs) {
+      const targetGroup = optionGroups.find(group => group.id === pair.groupId);
       if (!targetGroup) {
-        return { 
-          success: false, 
-          error: `Le groupe d'options spécifié pour "${catalogItem.name}" n'existe pas.` 
-        };
+        return { success: false, error: `Le groupe d'options "${pair.groupId}" de "${catalogItem.name}" n'existe pas.` };
       }
-
-      const targetOption = targetGroup.options.find(o => o.id === line.selectedOption!.optionId);
+      const targetOption = targetGroup.options.find(option => option.id === pair.optionId);
       if (!targetOption) {
-        return { 
-          success: false, 
-          error: `L'option "${line.selectedOption.optionId}" est introuvable dans le groupe "${targetGroup.name}".` 
-        };
+        return { success: false, error: `L'option "${pair.optionId}" est introuvable dans le groupe "${targetGroup.name}".` };
       }
-
       if (typeof targetOption.extraPrice !== 'number' || !Number.isFinite(targetOption.extraPrice) || targetOption.extraPrice < 0) {
-        return {
-          success: false,
-          error: `Donnée de catalogue corrompue : L'option "${targetOption.name}" possède un surcoût invalide (${targetOption.extraPrice}).`
-        };
+        return { success: false, error: `Donnée de catalogue corrompue : L'option "${targetOption.name}" possède un surcoût invalide (${targetOption.extraPrice}).` };
       }
-
-      verifiedSelectedOption = {
+      optionExtraPrice += targetOption.extraPrice;
+      verifiedPairs.push({
         groupId: targetGroup.id,
         groupName: targetGroup.name,
         optionId: targetOption.id,
         optionName: targetOption.name,
         extraPrice: targetOption.extraPrice
+      });
+    }
+
+    if (verifiedPairs.length > 0) {
+      verifiedSelectedOption = {
+        groupId: verifiedPairs.map(pair => pair.groupId).join('+'),
+        groupName: verifiedPairs.map(pair => pair.groupName).join(' / '),
+        optionId: verifiedPairs.map(pair => pair.optionId).join('+'),
+        optionName: verifiedPairs.map(pair => `${pair.groupName}: ${pair.optionName}`).join(' · '),
+        extraPrice: optionExtraPrice
       };
     }
 
@@ -448,9 +458,9 @@ export async function processOrderSubmission(
     }
 
     const trustedBasePrice = catalogItem.price;
-    const optionExtraPrice = verifiedSelectedOption ? verifiedSelectedOption.extraPrice : 0;
+    const trustedOptionExtraPrice = verifiedSelectedOption ? verifiedSelectedOption.extraPrice : 0;
     const extrasCost = verifiedExtrasList.reduce((sum, e) => sum + e.price, 0);
-    const trustedUnitPrice = trustedBasePrice + optionExtraPrice + extrasCost;
+    const trustedUnitPrice = trustedBasePrice + trustedOptionExtraPrice + extrasCost;
     const lineTotal = trustedUnitPrice * qty;
 
     verifiedItems.push({
