@@ -324,11 +324,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
               {/* Optional general note for the entire order */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                <label htmlFor="cart-customer-note" className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
                   <MessageSquare size={12} className="text-slate-500" />
                   <span>Consigne globale pour la commande (optionnel) :</span>
                 </label>
                 <input
+                  id="cart-customer-note"
                   type="text"
                   placeholder="Ex : Servir les boissons fraîches en premier, couverts supplémentaires..."
                   value={customerNote}
