@@ -48,7 +48,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [customerNote, setCustomerNote] = useState<string>('');
-  const dialogRef = useAccessibleDialog<HTMLDivElement>(isOpen, onClose);
+  const dialogRef = useAccessibleDialog<HTMLDivElement>(isOpen, () => { if (!isSubmitting) onClose(); });
 
   if (!isOpen) return null;
 
