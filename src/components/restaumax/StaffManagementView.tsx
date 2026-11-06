@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { auth } from '../../lib/firebase';
-import { ArrowLeft, UserPlus, Shield, UserX, UserCheck, Trash2, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { auth, requestManagerPasswordReset } from '../../lib/firebase';
+import { ArrowLeft, UserPlus, Shield, UserX, UserCheck, Trash2, RefreshCw } from 'lucide-react';
 
 const PERMISSIONS = [
   ['menu.view', 'Consulter le menu'], ['menu.manage', 'Modifier le menu'],
@@ -20,7 +20,7 @@ const ROLE_LABELS: Record<StaffRole, string> = {
   owner: 'Propriétaire', manager: 'Manager', cashier: 'Caissier', server: 'Serveur', kitchen: 'Cuisine / Bar'
 };
 const ROLE_CEILINGS: Record<EditableStaffRole, string[]> = {
-  manager: ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view'],
+  manager: ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','orders.cancel','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view'],
   cashier: ['orders.view','tables.view','pos.access','cash.view','cash.manage','orders.cancel','payments.refund','reports.cash.view'],
   server: ['orders.view','tables.view','pos.access','orders.serve'],
   kitchen: ['orders.view','kitchen.access']
@@ -31,6 +31,7 @@ const ROLE_DEFAULTS: Record<EditableStaffRole, string[]> = {
   server: ROLE_CEILINGS.server,
   kitchen: ROLE_CEILINGS.kitchen
 };
+const permissionLabel = (id: string) => PERMISSIONS.find(([permission]) => permission === id)?.[1] || id;
 
 export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () => void }> = ({ restaurantSlug, onBack }) => {
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -41,8 +42,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [editRole, setEditRole] = useState<EditableStaffRole>('cashier');
   const [editPermissions, setEditPermissions] = useState<string[]>([]);
-  const [showPassword, setShowPassword] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'cashier' as EditableStaffRole, permissions: ROLE_DEFAULTS.cashier });
+  const [form, setForm] = useState({ name: '', email: '', role: 'cashier' as EditableStaffRole, permissions: ROLE_DEFAULTS.cashier });
 
   const request = useCallback(async (body?: Record<string, unknown>) => {
     if (!auth.currentUser) throw new Error('Session expirée.');
@@ -69,9 +69,13 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
   const create = async (event: React.FormEvent) => {
     event.preventDefault(); setError(''); setNotice(''); setLoading(true);
     try {
+      const createdEmail = form.email.trim();
       await request({ action: 'create_staff', slug: restaurantSlug, ...form });
-      setNotice('Compte créé. Remettez les identifiants à la personne concernée de manière privée.');
-      setForm({ name: '', email: '', password: '', role: 'cashier', permissions: ROLE_DEFAULTS.cashier });
+      const reset = await requestManagerPasswordReset(createdEmail);
+      setNotice(reset.success
+        ? 'Compte créé. Un e-mail sécurisé de réinitialisation a été envoyé au membre pour qu’il définisse son propre mot de passe.'
+        : 'Compte créé, mais l’e-mail automatique n’a pas pu être envoyé. Utilisez « Mot de passe oublié ? » sur l’écran de connexion.');
+      setForm({ name: '', email: '', role: 'cashier', permissions: ROLE_DEFAULTS.cashier });
       await refresh();
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
@@ -136,21 +140,24 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
         <div className="grid gap-3 md:grid-cols-2">
           <input required placeholder="Nom complet" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="rounded-lg border border-slate-300 p-3"/>
           <input required type="email" placeholder="Adresse e-mail" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} className="rounded-lg border border-slate-300 p-3"/>
-          <div className="relative"><input required minLength={10} type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="Mot de passe initial (10 caractères min.)" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} className="w-full rounded-lg border border-slate-300 p-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div>
           <select value={form.role} onChange={e=>{const role=e.target.value as EditableStaffRole;setForm({...form,role,permissions:ROLE_DEFAULTS[role]});}} className="rounded-lg border border-slate-300 p-3">
             {actorRole === 'owner' && <option value="manager">Manager</option>}
             <option value="cashier">Caissier</option><option value="server">Serveur</option><option value="kitchen">Cuisine / Bar</option>
           </select>
         </div>
         <div><p className="mb-2 text-sm font-bold">Autorisations accordées</p><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{PERMISSIONS.filter(([id])=>(actorRole === 'owner' ? ROLE_CEILINGS[form.role] : ROLE_DEFAULTS[form.role]).includes(id)).map(([id,label])=><label key={id} className="flex items-center gap-2 rounded-lg bg-slate-50 p-2 text-sm"><input type="checkbox" checked={form.permissions.includes(id)} onChange={()=>togglePermission(id)}/>{label}</label>)}</div></div>
-        <p className="text-xs text-amber-700">Les autorisations sont appliquées côté serveur et dans les règles Firestore. Ne partagez pas les mots de passe par un canal public.</p>
+        <p className="text-xs text-emerald-700">Un e-mail Firebase sécurisé est envoyé au membre après création pour qu’il définisse lui-même son mot de passe. Aucun mot de passe temporaire n’est demandé.</p>
         <button disabled={loading} className="rounded-lg bg-slate-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">Créer le compte</button>
       </form>
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="flex items-center justify-between border-b border-slate-200 p-4"><h2 className="font-bold">Comptes du restaurant</h2><button onClick={refresh} disabled={loading} className="flex items-center gap-2 text-sm"><RefreshCw size={14}/> Actualiser</button></div>
         {staff.map(member=><div key={member.uid} className="border-b border-slate-100 p-4 last:border-0">
           <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold">{member.displayName} {member.role === 'owner' && <span className="text-xs text-orange-600">· Propriétaire</span>}</p><p className="text-xs text-slate-500">{member.email} · {ROLE_LABELS[member.role] || member.role}</p><p className="mt-1 text-xs text-slate-500">{member.permissions?.length || 0} autorisation(s) · {member.active ? 'Actif' : 'Suspendu'}</p></div>{member.role !== 'owner' && !(actorRole === 'manager' && member.role === 'manager') && <div className="flex flex-wrap gap-2">{member.active && <button onClick={()=>beginEdit(member)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">Modifier les droits</button>}{member.active ? <button disabled={loading} onClick={()=>setMemberStatus(member,'suspended')} className="flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700"><UserX size={14}/> Suspendre</button> : <button disabled={loading} onClick={()=>setMemberStatus(member,'active')} className="flex items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700"><UserCheck size={14}/> Réactiver</button>}<button disabled={loading} onClick={()=>deleteMember(member)} className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-600"><Trash2 size={14}/> Supprimer</button></div>}</div>
-          {editingUid === member.uid && <div className="mt-4 space-y-3 rounded-xl bg-slate-50 p-4"><select value={editRole} onChange={e=>{const role=e.target.value as EditableStaffRole;setEditRole(role);setEditPermissions(ROLE_DEFAULTS[role]);}} className="rounded-lg border border-slate-300 bg-white p-2 text-sm">{actorRole === 'owner' && <option value="manager">Manager</option>}<option value="cashier">Caissier</option><option value="server">Serveur</option><option value="kitchen">Cuisine / Bar</option></select><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{PERMISSIONS.filter(([id])=>(actorRole === 'owner' ? ROLE_CEILINGS[editRole] : ROLE_DEFAULTS[editRole]).includes(id)).map(([id,label])=><label key={id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editPermissions.includes(id)} onChange={()=>toggleEditPermission(id)}/>{label}</label>)}</div><div className="flex gap-2"><button disabled={loading} onClick={()=>saveEdit(member.uid)} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white">Enregistrer les droits</button><button onClick={()=>setEditingUid(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-xs">Annuler</button></div></div>}
+          {editingUid === member.uid && <div className="mt-4 space-y-3 rounded-xl bg-slate-50 p-4"><select value={editRole} onChange={e=>{const role=e.target.value as EditableStaffRole;setEditRole(role);setEditPermissions(ROLE_DEFAULTS[role]);}} className="rounded-lg border border-slate-300 bg-white p-2 text-sm">{actorRole === 'owner' && <option value="manager">Manager</option>}<option value="cashier">Caissier</option><option value="server">Serveur</option><option value="kitchen">Cuisine / Bar</option></select><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{PERMISSIONS.filter(([id])=>(actorRole === 'owner' ? ROLE_CEILINGS[editRole] : ROLE_DEFAULTS[editRole]).includes(id)).map(([id,label])=><label key={id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editPermissions.includes(id)} onChange={()=>toggleEditPermission(id)}/>{label}</label>)}</div>{actorRole === 'manager' && member.role !== 'owner' && (() => {
+            const basePermissions = ROLE_DEFAULTS[member.role as EditableStaffRole] || [];
+            const ownerExtras = member.permissions.filter(permission => !basePermissions.includes(permission));
+            return ownerExtras.length > 0 ? <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900">Autorisations supplémentaires accordées par le propriétaire : <strong>{ownerExtras.map(permissionLabel).join(', ')}</strong>. Elles ne peuvent être retirées que par le propriétaire.</p> : null;
+          })()}<div className="flex gap-2"><button disabled={loading} onClick={()=>saveEdit(member.uid)} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white">Enregistrer les droits</button><button onClick={()=>setEditingUid(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-xs">Annuler</button></div></div>}
         </div>)}
         {staff.length === 0 && <p className="p-6 text-center text-sm text-slate-500">Aucun membre enregistré.</p>}
       </section>

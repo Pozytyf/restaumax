@@ -39,6 +39,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
+import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
+import { manageInventoryWithDb } from './src/server/inventoryService.js';
 import { 
   processOrderSubmission, 
   ServerFirestoreProvider,
@@ -46,7 +48,10 @@ import {
   OrderProbeResult,
   IdempotencyReservationResult
 } from './src/server/orderService.js';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb } from './src/server/paymentService.js';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
+import { type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
+import { loadRestaurantPayDunyaConfig, saveRestaurantPayDunyaCredentials } from './src/server/paydunyaMerchantConfig.js';
+import { startPayDunyaOrderPaymentWithDb, processPayDunyaInvoiceCallbackWithDb, startPayDunyaRefundWithDb, processPayDunyaDisbursementCallbackWithDb, reconcilePayDunyaInvoiceIntentWithDb } from './src/server/paydunyaPaymentService.js';
 import {
   authorizeTableManager,
   buildCsrfCookie,
@@ -75,7 +80,8 @@ const isProd = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
 // 1. Initialisation stricte de Firebase Admin SDK
 export let adminDb: any = null;
@@ -421,9 +427,8 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       const staffTableSnap = snapshots[staffTableIndex];
       const staffTable = staffTableSnap?.exists ? staffTableSnap.data() : null;
       if (!staffTable || staffTable.isActive !== true ||
-          String(staffTable.tableNumber || '').trim().toLowerCase() !== String(orderToCreate.tableNumber || '').trim().toLowerCase() ||
-          restaurantData.isOpen === false) {
-        return { success: false, error: 'Commande du personnel refusée : table inactive, numéro incohérent ou restaurant fermé.' };
+          String(staffTable.tableNumber || '').trim().toLowerCase() !== String(orderToCreate.tableNumber || '').trim().toLowerCase()) {
+        return { success: false, error: 'Commande du personnel refusée : table inactive ou numéro incohérent.' };
       }
     }
 
@@ -454,11 +459,10 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         tableData.isActive === true &&
         Number(tableData.qrVersion || 0) === Number(sessionData.qrVersion || 0) &&
         String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
-        Number(sessionData.restaurantSessionVersion || 0) === Number(restaurantData.tableSessionVersion || 0) &&
-        restaurantData.isOpen !== false
+        Number(sessionData.restaurantSessionVersion || 0) === Number(restaurantData.tableSessionVersion || 0)
       );
       if (!valid) {
-        return { success: false, error: 'Commande refusée : QR révoqué, session expirée, table inactive ou restaurant indisponible.' };
+        return { success: false, error: 'Commande refusée : QR révoqué, session expirée ou table inactive.' };
       }
     }
 
@@ -532,8 +536,25 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       };
     }
 
-    // CREATE_NOMINAL : Première soumission nominale ou reprise après échec
-    t.set(docRefOrder, orderToCreate);
+    // Existing idempotent replays above remain readable even if the restaurant closes
+    // after the original commit. Only a new order creation is blocked while closed.
+    if (restaurantData.isOpen === false && ['sur_place', 'a_emporter'].includes(orderToCreate.orderMode)) {
+      return { success: false, error: 'Commande refusée : le restaurant est actuellement fermé.' };
+    }
+
+    // CREATE_NOMINAL : Première soumission nominale ou reprise après échec.
+    // Persist only the non-secret QR session binding so later customer payments
+    // can prove that the order originated from this exact table session.
+    const orderToStore = tableSession ? {
+      ...orderToCreate,
+      tableSession: {
+        sessionHash: tableSession.sessionHash,
+        qrTokenHash: tableSession.qrTokenHash,
+        qrVersion: Number(tableSession.qrVersion),
+        tableId: tableSession.tableId
+      }
+    } : orderToCreate;
+    t.set(docRefOrder, orderToStore);
     t.set(docRefKey, {
       id: keyDocId,
       namespacedKey: `${restaurantSlug}:${idempotencyKey}`,
@@ -850,8 +871,165 @@ export async function handleTableQrManagement(req: any) {
     return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
   } catch (err: any) {
     const message = String(err?.message || 'Accès refusé.');
-    const statusCode = /Authentification|Accès|Permission/.test(message) ? 403 : 400;
+    const code = String(err?.code || '');
+    const statusCode = code.startsWith('auth/') || /Authentification|Identité|Session utilisateur/.test(message)
+      ? 401
+      : /Accès|Permission|propriétaire|Restaurant inactif|indisponible/.test(message)
+        ? 403
+        : 400;
     return { statusCode, body: { success: false, error: message } };
+  }
+}
+
+export async function handleCustomerPayDunyaInvoiceRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  if (!req || !requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+  const input = payload && typeof payload === 'object' ? payload as any : {};
+  const slug = String(input.restaurantSlug || '').trim();
+  const sessionSecret = readCookie(req.headers?.cookie, tableSessionCookieName);
+  const csrfCookie = readCookie(req.headers?.cookie, tableCsrfCookieName);
+  const csrfHeader = req.headers?.['x-rm-csrf-token'];
+  try {
+    const session = await getActiveTableSession(adminDb, sessionSecret);
+    if (!session || !csrfCookie || csrfHeader !== csrfCookie ||
+        String(input.csrfToken || '') !== csrfCookie || !validateCsrf(session, csrfHeader)) {
+      return { statusCode: 401, body: { success: false, error: 'Session QR invalide, expirée ou révoquée. Scannez à nouveau le QR de votre table.' } };
+    }
+    if (slug !== session.restaurantSlug) {
+      return { statusCode: 403, body: { success: false, error: 'La session QR ne correspond pas à ce restaurant.' } };
+    }
+    const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
+    if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+    const requestOrigin = String(req?.headers?.origin || '').replace(/\/$/, '');
+      const appOrigin = String(process.env.APP_ORIGIN || requestOrigin).replace(/\/$/, '');
+    let parsedOrigin: URL;
+    try { parsedOrigin = new URL(appOrigin); } catch {
+      return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya invalide.' } };
+    }
+    if (parsedOrigin.protocol !== 'https:' || parsedOrigin.pathname !== '/' || !requestOrigin || parsedOrigin.origin !== requestOrigin) {
+      return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN doit correspondre à l’origine HTTPS de cette version RestauMax.' } };
+    }
+    const result = await startPayDunyaOrderPaymentWithDb(adminDb, config.data, {
+      restaurantSlug: slug,
+      orderId: String(input.orderId || ''),
+      actorUid: `table_${String(session.sessionHash).slice(0, 32)}`,
+      actorName: 'Client QR',
+      sessionVersion: Number(session.qrVersion || 0),
+      idempotencyKey: String(input.idempotencyKey || ''),
+      channel: String(input.channel || '') as PayDunyaCiWithdrawMode,
+      amount: input.amount,
+      callbackUrl: `${parsedOrigin.origin}/api/payments/paydunya-callback?restaurantSlug=${encodeURIComponent(slug)}`,
+      returnUrl: `${parsedOrigin.origin}/payments/return?restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
+      cancelUrl: `${parsedOrigin.origin}/payments/return?cancelled=1&restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
+      customerTableSession: {
+        sessionHash: session.sessionHash,
+        qrTokenHash: session.qrTokenHash,
+        qrVersion: Number(session.qrVersion || 0),
+        tableId: session.tableId,
+        tableNumber: String(session.tableNumber)
+      }
+    });
+    if (result.success) return { statusCode: 200, body: result };
+    return { statusCode: result.conflict ? 409 : 400, body: result };
+  } catch (error: any) {
+    return { statusCode: 401, body: { success: false, error: error?.message || 'Session QR invalide.' } };
+  }
+}
+
+export async function handleCustomerPayDunyaReconcileRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  if (!req || !requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+  const input = payload && typeof payload === 'object' ? payload as any : {};
+  const slug = String(input.restaurantSlug || '').trim();
+  const sessionSecret = readCookie(req.headers?.cookie, tableSessionCookieName);
+  const csrfCookie = readCookie(req.headers?.cookie, tableCsrfCookieName);
+  const csrfHeader = req.headers?.['x-rm-csrf-token'];
+  try {
+    const session = await getActiveTableSession(adminDb, sessionSecret);
+    if (!session || !csrfCookie || csrfHeader !== csrfCookie ||
+        String(input.csrfToken || '') !== csrfCookie || !validateCsrf(session, csrfHeader) ||
+        slug !== session.restaurantSlug) {
+      return { statusCode: 401, body: { success: false, error: 'Session QR invalide ou révoquée.' } };
+    }
+    const paymentIntentId = String(input.paymentIntentId || '');
+    if (!/^pdi_[a-f0-9]{32}$/.test(paymentIntentId)) {
+      return { statusCode: 400, body: { success: false, error: 'Référence de paiement QR invalide.' } };
+    }
+    const intentRef = adminDb.collection('restaurants').doc(slug).collection('paymentIntents').doc(paymentIntentId);
+    const intentSnap = await intentRef.get();
+    if (!intentSnap.exists) return { statusCode: 404, body: { success: false, error: 'Intention de paiement introuvable.' } };
+    const intent = intentSnap.data();
+    const orderId = String(intent.orderId || '');
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(orderId)) {
+      return { statusCode: 400, body: { success: false, error: 'Référence de commande de paiement invalide.' } };
+    }
+    const orderRef = adminDb.collection('restaurants').doc(slug).collection('orders').doc(orderId);
+    const orderSnap = await orderRef.get();
+    const order = orderSnap.exists ? orderSnap.data() : null;
+    const binding = order?.tableSession || {};
+    if (!order || order.orderMode !== 'sur_place' ||
+        String(order.tableNumber || '') !== String(session.tableNumber) ||
+        binding.sessionHash !== session.sessionHash || binding.qrTokenHash !== session.qrTokenHash ||
+        Number(binding.qrVersion) !== Number(session.qrVersion) || binding.tableId !== session.tableId) {
+      return { statusCode: 403, body: { success: false, error: 'Cette commande ne correspond pas à la session QR de votre table.' } };
+    }
+    const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env, true);
+    if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+    const result = await reconcilePayDunyaInvoiceIntentWithDb(
+      adminDb, config.data, slug, paymentIntentId
+    );
+    if (result.success) return { statusCode: 200, body: result };
+    return { statusCode: result.conflict ? 409 : 400, body: result };
+  } catch {
+    return { statusCode: 401, body: { success: false, error: 'Session QR invalide.' } };
+  }
+}
+
+export async function handlePayDunyaCallbackRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  const config = await loadRestaurantPayDunyaConfig(adminDb, String(req?.query?.restaurantSlug || ''), process.env, true);
+  if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+  try {
+    const result = await processPayDunyaInvoiceCallbackWithDb(adminDb, config.data, payload);
+    if (!result.success) return { statusCode: result.conflict ? 409 : 400, body: result };
+    return { statusCode: 200, body: result };
+  } catch (error: any) {
+    console.error('Erreur callback PayDunya:', String(error?.message || error));
+    return { statusCode: 500, body: { success: false, error: 'Notification PayDunya à retraiter.' } };
+  }
+}
+
+export async function handlePayDunyaDisbursementCallbackRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  const callbackSlug = String(req?.query?.restaurantSlug || '');
+  const merchantConfig = await loadRestaurantPayDunyaConfig(adminDb, callbackSlug, process.env, true);
+  // A callback may only reconcile an existing disbursement. Enabling status checks here
+  // does not expose the initiation path, which remains guarded by both live flags.
+  const config = merchantConfig.success ? { success: true as const, data: { ...merchantConfig.data, pushEnabled: merchantConfig.data.mode === 'live' } } : merchantConfig;
+  if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+  try {
+    const result = await processPayDunyaDisbursementCallbackWithDb(adminDb, config.data, payload);
+    if (!result.success) return { statusCode: result.conflict ? 409 : 400, body: result };
+    return { statusCode: 200, body: result };
+  } catch (error: any) {
+    console.error('Erreur callback décaissement PayDunya:', String(error?.message || error));
+    return { statusCode: 500, body: { success: false, error: 'Notification de décaissement à retraiter.' } };
   }
 }
 
@@ -898,6 +1076,17 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       (member.role === 'cashier' && Array.isArray(member.permissions) &&
         (member.permissions.includes('cash.view') || member.permissions.includes('cash.manage') || member.permissions.includes('reports.cash.view')));
 
+    if (method === 'GET' && String(req.query?.action || '') === 'paydunya_account_status') {
+      if (!isOwner) return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire vérifié peut consulter la configuration du compte marchand.' } };
+      const merchantSnap = await restaurantRef.collection('_private').doc('paydunya').get();
+      const merchantData = merchantSnap.exists ? merchantSnap.data() : null;
+      return { statusCode: 200, body: {
+        success: true,
+        connected: Boolean(merchantData?.enabled === true && merchantData?.credentials),
+        mode: merchantData?.enabled === true ? String(merchantData?.mode || 'test') : null
+      } };
+    }
+
     if (method === 'GET') {
       if (!canViewCash) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les encaissements.' } };
       if (String(req.query?.action || '') === 'session_status') {
@@ -910,6 +1099,126 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
 
     if (!canManageCash) {
       return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de gérer la caisse.' } };
+    }
+
+    if (input.action === 'configure_paydunya_account') {
+      if (!isOwner) return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire vérifié peut connecter le compte PayDunya.' } };
+      if (input.enabled === false) {
+        await adminDb.collection('restaurants').doc(slug).collection('_private').doc('paydunya')
+          .set({ enabled: false, disabledAt: Date.now(), updatedAt: Date.now() }, { merge: true });
+        return { statusCode: 200, body: { success: true, connected: false } };
+      }
+      try {
+        const credentials = {
+          mode: String(input.mode || 'test') as 'test' | 'live',
+          masterKey: String(input.masterKey || ''),
+          privateKey: String(input.privateKey || ''),
+          token: String(input.token || '')
+        };
+        if (credentials.mode === 'live' && process.env.PAYDUNYA_LIVE_ENABLED !== 'true') {
+          return { statusCode: 403, body: { success: false, error: 'Les clés Production ne peuvent pas être activées sur RestauMax pour le moment.' } };
+        }
+        await saveRestaurantPayDunyaCredentials(adminDb, slug, credentials, process.env);
+        return { statusCode: 200, body: { success: true, connected: true, mode: credentials.mode } };
+      } catch (error: any) {
+        return { statusCode: 400, body: { success: false, error: String(error?.message || 'Identifiants PayDunya invalides.') } };
+      }
+    }
+
+    if (input.action === 'reconcile_paydunya_payment') {
+      // Settlement-only access: allow reconciling an existing invoice after merchant disconnect.
+      const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env, true);
+      if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+      const result = await reconcilePayDunyaInvoiceIntentWithDb(
+        adminDb, config.data, slug, String(input.paymentIntentId || '')
+      );
+      if (result.success) return { statusCode: 200, body: result };
+      return { statusCode: result.conflict ? 409 : 400, body: result };
+    }
+
+    if (input.action === 'create_paydunya_invoice') {
+      const config = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
+      if (!config.success) return { statusCode: 503, body: { success: false, error: config.error } };
+      const requestOrigin = String(req?.headers?.origin || '').replace(/\/$/, '');
+      const appOrigin = String(process.env.APP_ORIGIN || requestOrigin).replace(/\/$/, '');
+      let parsedAppOrigin: URL;
+      try { parsedAppOrigin = new URL(appOrigin); } catch {
+        return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya est invalide.' } };
+      }
+      if (parsedAppOrigin.protocol !== 'https:' || parsedAppOrigin.pathname !== '/' || !requestOrigin || parsedAppOrigin.origin !== requestOrigin) {
+        return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN doit être https://restaumax.vercel.app.' } };
+      }
+      const channel = String(input.channel || '') as PayDunyaCiWithdrawMode;
+      const result = await startPayDunyaOrderPaymentWithDb(adminDb, config.data, {
+        restaurantSlug: slug,
+        orderId: String(input.orderId || ''),
+        actorUid: decoded.uid,
+        actorName: String(decoded.name || decoded.email || decoded.uid),
+        sessionVersion: Number(decoded.sessionVersion || 0),
+        idempotencyKey: String(input.idempotencyKey || ''),
+        channel,
+        amount: input.amount,
+        callbackUrl: `${parsedAppOrigin.origin}/api/payments/paydunya-callback?restaurantSlug=${encodeURIComponent(slug)}`,
+        returnUrl: `${parsedAppOrigin.origin}/payments/return?restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`,
+        cancelUrl: `${parsedAppOrigin.origin}/payments/return?cancelled=1&restaurantSlug=${encodeURIComponent(slug)}&orderId=${encodeURIComponent(String(input.orderId || ''))}`
+      });
+      if (result.success) return { statusCode: 200, body: result };
+      return { statusCode: result.conflict ? 409 : 400, body: result };
+    }
+
+    if (input.action === 'refund_paydunya_payment') {
+      const canRefund = isOwner || member.role === 'manager' ||
+        (member.role === 'cashier' && Array.isArray(member.permissions) &&
+          member.permissions.includes('payments.refund'));
+      if (!canRefund) return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };
+      const merchantConfig = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
+      const payoutConfig = merchantConfig.success ? { success: true as const, data: { ...merchantConfig.data, pushEnabled: merchantConfig.data.mode === 'live' && process.env.PAYDUNYA_LIVE_ENABLED === 'true' && process.env.PAYDUNYA_PUSH_ENABLED === 'true' } } : merchantConfig;
+      if (!payoutConfig.success) return { statusCode: 503, body: { success: false, error: payoutConfig.error } };
+      const requestOrigin = String(req?.headers?.origin || '').replace(/\/$/, '');
+      const appOrigin = String(process.env.APP_ORIGIN || requestOrigin).replace(/\/$/, '');
+      let parsedOrigin: URL;
+      try { parsedOrigin = new URL(appOrigin); } catch {
+        return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN PayDunya invalide.' } };
+      }
+      if (parsedOrigin.protocol !== 'https:' || parsedOrigin.pathname !== '/' || !requestOrigin || parsedOrigin.origin !== requestOrigin) {
+        return { statusCode: 503, body: { success: false, error: 'APP_ORIGIN doit être https://restaumax.vercel.app.' } };
+      }
+      const result = await startPayDunyaRefundWithDb(adminDb, payoutConfig.data, {
+        restaurantSlug: slug,
+        paymentId: String(input.paymentId || ''),
+        actorUid: decoded.uid,
+        actorName: String(decoded.name || decoded.email || decoded.uid),
+        sessionVersion: Number(decoded.sessionVersion || 0),
+        amount: input.amount,
+        reason: String(input.reason || ''),
+        idempotencyKey: String(input.idempotencyKey || ''),
+        callbackUrl: `${parsedOrigin.origin}/api/payments/paydunya-disbursement-callback?restaurantSlug=${encodeURIComponent(slug)}`
+      });
+      if (result.success) return { statusCode: 200, body: result };
+      return { statusCode: result.conflict ? 409 : 400, body: result };
+    }
+
+    if (input.action === 'refund_cash_payment') {
+      const canRefund = isOwner || member.role === 'manager' ||
+        (member.role === 'cashier' && Array.isArray(member.permissions) &&
+          member.permissions.includes('payments.refund'));
+      if (!canRefund) {
+        return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };
+      }
+      const refundResult = await refundCashPaymentWithDb(adminDb, {
+        restaurantSlug: slug,
+        paymentId: String(input.paymentId || ''),
+        actorUid: decoded.uid,
+        actorName: String(decoded.name || decoded.email || decoded.uid),
+        sessionVersion: Number(decoded.sessionVersion || 0),
+        amount: input.amount,
+        reason: String(input.reason || ''),
+        idempotencyKey: String(input.idempotencyKey || ''),
+        cashDisbursementConfirmed: input.cashDisbursementConfirmed === true
+      });
+      if (refundResult.success) return { statusCode: 200, body: refundResult };
+      if (refundResult.conflict) return { statusCode: 409, body: refundResult };
+      return { statusCode: 400, body: refundResult };
     }
 
     const sessionInput = {
@@ -1080,12 +1389,86 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       delete input.tableSession;
     }
     const result = await processOrderSubmission(input, serverFirestoreProvider);
-    if (result.success) return { statusCode: 200, body: result };
+    if (result.success) {
+      const safeOrder = result.order ? { ...result.order } as any : undefined;
+      if (safeOrder) delete safeOrder.tableSession;
+      return { statusCode: 200, body: { ...result, order: safeOrder } };
+    }
     if (result.conflict) return { statusCode: 409, body: result };
     return { statusCode: 400, body: result };
   } catch (err: any) {
     console.error('Erreur inattendue API /api/orders:', err?.message || String(err));
     return { statusCode: 500, body: { success: false, error: 'Erreur interne du serveur lors du traitement de la commande.' } };
+  }
+}
+
+export async function handleInventoryRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de stock indisponible : Firebase Admin non configuré.' } };
+  if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const input = payload && typeof payload === 'object' ? { ...(payload as any) } : {};
+    const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+    const result = await manageInventoryWithDb(adminDb, {
+      ...input, restaurantSlug, actorUid: decoded.uid,
+      sessionVersion: Number(decoded.sessionVersion || 0)
+    });
+    return result.success ? { statusCode: 200, body: result } : { statusCode: 403, body: result };
+  } catch (error: any) {
+    console.error('Erreur API gestion stock:', error?.message || String(error));
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la gestion du stock.' } };
+  }
+}
+
+export async function handleKitchenItemRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) {
+    return { statusCode: 503, body: { success: false, error: 'Service cuisine indisponible : Firebase Admin non configuré.' } };
+  }
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!req || !requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const input = payload && typeof payload === 'object' ? { ...(payload as any) } : {};
+    const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
+    const orderId = typeof input.orderId === 'string' ? input.orderId.trim() : '';
+    const itemId = typeof input.itemId === 'string' ? input.itemId.trim() : '';
+    const itemIndex = input.itemIndex;
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) ||
+        !/^[a-zA-Z0-9_-]{1,160}$/.test(orderId) ||
+        !Number.isInteger(itemIndex) || itemIndex < 0 || itemIndex > 99 ||
+        typeof input.completed !== 'boolean' ||
+        itemId !== `ki-${orderId}-${itemIndex}`) {
+      return { statusCode: 400, body: { success: false, error: 'Données de préparation invalides.' } };
+    }
+
+    const result = await updateKitchenItemCompletionWithDb(adminDb, {
+      restaurantSlug,
+      orderId,
+      itemId,
+      itemIndex,
+      completed: input.completed,
+      actorUid: decoded.uid,
+      sessionVersion: Number(decoded.sessionVersion || 0)
+    });
+    return result.success
+      ? { statusCode: 200, body: result }
+      : { statusCode: 403, body: result };
+  } catch (error: any) {
+    console.error('Erreur API progression cuisine:', error?.message || String(error));
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la mise à jour cuisine.' } };
   }
 }
 
@@ -1099,11 +1482,55 @@ app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
 });
 
+app.post('/api/kitchen-item', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleKitchenItemRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/payments/customer-paydunya', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const result = await handleCustomerPayDunyaInvoiceRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/payments/customer-paydunya-reconcile', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const result = await handleCustomerPayDunyaReconcileRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/payments/paydunya-disbursement-callback', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handlePayDunyaDisbursementCallbackRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/payments/paydunya-callback', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handlePayDunyaCallbackRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
 app.all('/api/payments', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handlePaymentsRequest(req.method === 'GET' ? undefined : req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/inventory', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleInventoryRequest(req.body, req);
   return res.status(result.statusCode).json(result.body);
 });
 

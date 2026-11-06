@@ -140,6 +140,11 @@ export interface RestauOrder {
   createdAt: number; // UTC timestamp ms
   createdAtIso: string;
   statusUpdatedAt?: number;
+  /** Per-line KDS completion state, keyed by stable zero-based order item index. */
+  kitchenItemCompletion?: Record<string, boolean>;
+  kitchenItemsCompletedCount?: number;
+  kitchenItemUpdatedAt?: number;
+  kitchenItemUpdatedBy?: string;
   idempotencyKey?: string;
   idempotencyDocId?: string;
   contentSignature?: string;

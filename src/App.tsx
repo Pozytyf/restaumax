@@ -22,6 +22,12 @@ import {
   submitOrderWithServerValidation,
   submitPosOrderWithServerValidation,
   collectCashPaymentWithServerValidation,
+  createPayDunyaPaymentWithServerValidation,
+  createCustomerPayDunyaPaymentWithServerValidation,
+  reconcileCustomerPayDunyaPaymentWithServerValidation,
+  refundPayDunyaPaymentWithServerValidation,
+  refundCashPaymentWithServerValidation,
+  reconcilePayDunyaPaymentWithServerValidation,
   listRecentCashPaymentsWithServerValidation,
   getCashSessionWithServerValidation,
   openCashSessionWithServerValidation,
@@ -30,6 +36,7 @@ import {
   type CashSessionApiRecord,
   subscribeToOrders,
   updateOrderStatus,
+  updateKitchenItemCompletionWithServerValidation,
   subscribeToTables,
   persistTable,
   deleteTable,
@@ -68,18 +75,13 @@ import { PlatformAdminView } from './components/restaumax/PlatformAdminView';
  * Mappe de façon déterministe et stable une commande Firestore RestauOrder vers un ticket KDS KitchenTicket
  */
 export function mapRestauOrderToKitchenTicket(
-  order: RestauOrder, 
-  existingTicket?: KitchenTicket
+  order: RestauOrder
 ): KitchenTicket {
   let ticketStatus: TicketStatus = 'in_prep';
   if (order.status === 'ready') ticketStatus = 'ready';
   else if (order.status === 'completed') ticketStatus = 'served';
   else if (order.status === 'cancelled') ticketStatus = 'cancelled';
   else ticketStatus = 'in_prep';
-
-  const existingCompletedNames = new Set(
-    existingTicket?.items.filter(i => i.completed).map(i => i.name) || []
-  );
 
   return {
     id: `ord-${order.id}`,
@@ -106,7 +108,7 @@ export function mapRestauOrderToKitchenTicket(
         quantity: it.quantity,
         course: 'plat',
         notes: notesArr.join(' · '),
-        completed: existingCompletedNames.has(it.name)
+        completed: order.kitchenItemCompletion?.[String(idx)] === true
       };
     })
   };
@@ -138,14 +140,17 @@ export default function App() {
   const [authRestaurantSlug, setAuthRestaurantSlug] = useState<string>('');
   const [authIsSuperAdmin, setAuthIsSuperAdmin] = useState<boolean>(false);
   const routeRestaurantSlug = activePathname.startsWith('/r/') ? activePathname.split('/')[2] : '';
-  const queryRestaurantSlug = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('restaurant') || ''; } catch { return ''; } })();
-  const activeRestaurantSlug = routeRestaurantSlug || (authIsSuperAdmin ? queryRestaurantSlug : authRestaurantSlug) || authRestaurantSlug || 'chez-awa';
+  const queryRestaurantSlug = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('restaurant') || new URL(currentPath, 'http://localhost').searchParams.get('restaurantSlug') || ''; } catch { return ''; } })();
+  const activeRestaurantSlug = routeRestaurantSlug || (authIsSuperAdmin ? queryRestaurantSlug : authRestaurantSlug || queryRestaurantSlug) || 'chez-awa';
 
   const isClientMenuRoute = activePathname.startsWith('/r/');
   const isStaffRoute = activePathname === '/staff';
   const isPlatformAdminRoute = activePathname === '/admin';
+  const isPaymentReturnRoute = activePathname === '/payments/return';
   const isRestaurantHubRoute = activePathname.startsWith('/gestion');
-  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute && !isPlatformAdminRoute;
+  const isHomePageRoute = !isClientMenuRoute && !isStaffRoute && !isRestaurantHubRoute && !isPlatformAdminRoute && !isPaymentReturnRoute;
+  const paymentReturnOrderId = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('orderId') || ''; } catch { return ''; } })();
+  const paymentReturnIntentId = (() => { try { return new URL(currentPath, 'http://localhost').searchParams.get('paymentIntentId') || ''; } catch { return ''; } })();
 
   // Recover the HttpOnly table session after the opaque QR resolver redirects to the menu.
   useEffect(() => {
@@ -339,7 +344,54 @@ export default function App() {
 
   // RestauMax Authentication & Manager Authorization State
   const [authUser, setAuthUser] = useState<User | null>(null);
+  const [paydunyaReturnStatus, setPaydunyaReturnStatus] = useState<'idle' | 'checking' | 'completed' | 'pending' | 'cancelled' | 'failed' | 'error'>('idle');
+  const [paydunyaReturnError, setPaydunyaReturnError] = useState('');
+
   const serverName = authUser?.displayName || authUser?.email?.split('@')[0] || 'Personnel';
+
+  const reconcilePayDunyaReturn = async () => {
+    if (!paymentReturnIntentId) {
+      setPaydunyaReturnStatus('error');
+      setPaydunyaReturnError('Référence de paiement absente de l’URL de retour.');
+      return;
+    }
+    setPaydunyaReturnStatus('checking');
+    setPaydunyaReturnError('');
+    let result:
+      | { success: true; status: string }
+      | { success: false; error: string };
+    try {
+      const tableResponse = await fetch('/api/table-session', { credentials: 'same-origin', cache: 'no-store' });
+      const tableData = tableResponse.ok ? await tableResponse.json() : null;
+      if (tableData?.success && tableData.restaurantSlug === activeRestaurantSlug && tableData.csrfToken) {
+        result = await reconcileCustomerPayDunyaPaymentWithServerValidation(
+          activeRestaurantSlug, paymentReturnIntentId, tableData.csrfToken
+        );
+      } else if (authUser) {
+        result = await reconcilePayDunyaPaymentWithServerValidation(activeRestaurantSlug, paymentReturnIntentId);
+      } else {
+        result = { success: false, error: 'Session QR expirée. Le paiement sera tout de même rapproché par la notification PayDunya ; reconnectez-vous ou rescanez le QR pour consulter son statut.' };
+      }
+    } catch {
+      result = { success: false, error: 'Impossible de récupérer la session de paiement. Le callback PayDunya reste la source de confirmation.' };
+    }
+    if (!result.success) {
+      setPaydunyaReturnStatus('error');
+      setPaydunyaReturnError(result.error);
+      return;
+    }
+    if (result.status === 'completed') setPaydunyaReturnStatus('completed');
+    else if (result.status === 'cancelled') setPaydunyaReturnStatus('cancelled');
+    else if (result.status === 'failed') setPaydunyaReturnStatus('failed');
+    else setPaydunyaReturnStatus('pending');
+  };
+
+  useEffect(() => {
+    if (isPaymentReturnRoute && paymentReturnIntentId) {
+      void reconcilePayDunyaReturn();
+    }
+  }, [isPaymentReturnRoute, authUser, activeRestaurantSlug, paymentReturnIntentId]);
+
   const [isAuthorizedManager, setIsAuthorizedManager] = useState<boolean>(false);
   const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
   const [authRestaurantRole, setAuthRestaurantRole] = useState<string>('');
@@ -347,7 +399,7 @@ export default function App() {
   const canManageCash = isRestaurantOwner ||
     authRestaurantRole === 'manager' ||
     (authRestaurantRole === 'cashier' && userPermissions.includes('cash.manage'));
-  const canCollectPayment = canManageCash && cashSession?.status === 'active';
+  const canCollectPayment = canManageCash;
   const mapCashPaymentRecord = (payment: any): PaymentRecord => ({
     id: String(payment.id),
     orderId: String(payment.orderNumber || payment.orderId),
@@ -370,7 +422,18 @@ export default function App() {
     guestShareAmount: payment.guestShareAmount !== undefined ? Number(payment.guestShareAmount) : undefined,
     guestPreviouslyPaidAmount: payment.guestPreviouslyPaidAmount !== undefined ? Number(payment.guestPreviouslyPaidAmount) : undefined,
     guestRemainingAfter: payment.guestRemainingAfter !== undefined ? Number(payment.guestRemainingAfter) : undefined,
-    paymentMethod: 'especes',
+    refundedAmount: Number(payment.refundedAmount || 0),
+    refundPendingAmount: Number(payment.refundPendingAmount || 0),
+    refundStatus: String(payment.refundStatus || ''),
+    refundEligible: payment.refundEligible === true,
+    providerChannel: String(payment.providerChannel || ''),
+    paymentMethod: payment.method === 'paydunya'
+      ? (payment.providerChannel === 'wave-ci' ? 'wave'
+        : payment.providerChannel === 'orange-money-ci' ? 'orange_money'
+        : payment.providerChannel === 'mtn-ci' ? 'mtn_money'
+        : payment.providerChannel === 'moov-ci' ? 'moov_money'
+        : payment.providerChannel === 'djamo-ci' ? 'djamo' : 'especes')
+      : 'especes',
     items: Array.isArray(payment.items) ? payment.items.map((item: any) => ({
       name: String(item.name || 'Article'),
       quantity: Number(item.quantity || 1),
@@ -412,16 +475,22 @@ export default function App() {
         ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
         : superAdmin ? [] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
       setAuthRestaurantRole(typeof token.claims.role === 'string' ? token.claims.role : '');
-      }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setUserPermissions([]); });
+      }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); });
       else { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); }
     });
 
     return () => unsubAuth();
   }, []);
 
-  // Subscribe to Tables subcollection when manager is authorized or management hub is active
+  // Subscribe to tables only for members with the explicit tables.view permission.
   useEffect(() => {
-    if (!isAuthorizedManager && !isRestaurantHubRoute) return;
+    const canViewTables = !!authUser && (
+      isRestaurantOwner || userPermissions.includes('tables.view')
+    );
+    if (!canViewTables) {
+      setRestauTables([]);
+      return;
+    }
 
     let isMounted = true;
     const unsubTables = subscribeToTables(activeRestaurantSlug, (tbls) => {
@@ -434,7 +503,7 @@ export default function App() {
       isMounted = false;
       unsubTables();
     };
-  }, [isAuthorizedManager, isRestaurantHubRoute, activeRestaurantSlug]);
+  }, [authUser, isRestaurantOwner, userPermissions, activeRestaurantSlug]);
 
   // Subscribe to the active restaurant's orders for KDS and unpaid POS recovery.
   useEffect(() => {
@@ -461,12 +530,8 @@ export default function App() {
         if (!isMounted) return;
         setRestauOrders(firestoreOrders);
         setKitchenTickets((previous) => {
-          const existingMap = new Map<string, KitchenTicket>(previous.map((ticket) => [ticket.id, ticket]));
           const nonFirestoreTickets = previous.filter((ticket) => !ticket.id.startsWith('ord-'));
-          const mappedTickets = firestoreOrders.map((order) => {
-            const existing = existingMap.get(`ord-${order.id}`);
-            return mapRestauOrderToKitchenTicket(order, existing);
-          });
+          const mappedTickets = firestoreOrders.map((order) => mapRestauOrderToKitchenTicket(order));
           return [...mappedTickets, ...nonFirestoreTickets];
         });
       },
@@ -532,7 +597,8 @@ export default function App() {
         ...previous,
         totalSales,
         cashSales,
-        mobileMoneySales: 0,
+        mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte')
+          .reduce((sum, record) => sum + record.paidAmount, 0),
         cardSales: 0,
         discountsTotal: 0,
         transactionCount: records.length
@@ -551,7 +617,12 @@ export default function App() {
       setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
       setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
       setIsRestaurantOwner(token.claims.role === 'owner');
-      setUserPermissions(token.claims.role === 'owner' || token.claims.role === 'super_admin' || token.claims.role === 'admin' ? ['menu.view','menu.manage','orders.view','orders.manage','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage'] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setUserPermissions(token.claims.role === 'owner'
+        ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','orders.cancel','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
+        : token.claims.role === 'super_admin' || token.claims.role === 'admin'
+          ? []
+          : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+      setAuthRestaurantRole(typeof token.claims.role === 'string' ? token.claims.role : '');
       return { success: true };
     }
     return { success: false, error: res.error };
@@ -564,6 +635,7 @@ export default function App() {
     setIsRestaurantOwner(false);
     setAuthIsSuperAdmin(false);
     setAuthRestaurantSlug('');
+    setAuthRestaurantRole('');
     setUserPermissions([]);
   };
 
@@ -619,7 +691,7 @@ export default function App() {
       setRestauMenuItems((prev) => [newDish, ...prev]);
     } catch (err) {
       console.error('Erreur de persistance du nouveau plat dans Firestore:', err);
-      window.alert("Le plat n'a pas été enregistré. Vérifiez les champs et vos droits, puis réessayez.");
+      throw new Error("Le plat n'a pas été enregistré. Vérifiez les champs, vos droits et votre connexion, puis réessayez.");
     }
   };
 
@@ -631,7 +703,7 @@ export default function App() {
       ));
     } catch (err) {
       console.error('Erreur de mise à jour du plat dans Firestore:', err);
-      window.alert("Les modifications du plat n'ont pas été enregistrées. Réessayez.");
+      throw new Error("Les modifications du plat n'ont pas été enregistrées. Vérifiez votre connexion et vos droits, puis réessayez.");
     }
   };
 
@@ -709,6 +781,25 @@ export default function App() {
   };
 
   // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation & atomic idempotency)
+  const handleStartClientPayDunya = async (
+    order: RestauOrder,
+    channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci',
+    amount: number
+  ): Promise<void> => {
+    if (!tableSession || tableSession.restaurantSlug !== activeRestaurantSlug) {
+      window.alert('Pour payer par Mobile Money, scannez à nouveau le QR code de votre table afin de sécuriser la session.');
+      return;
+    }
+    const result = await createCustomerPayDunyaPaymentWithServerValidation(
+      activeRestaurantSlug, order.id, channel, generateClientOrderIdempotencyKey(), tableSession.csrfToken, amount
+    );
+    if (!result.success) {
+      window.alert(`Facture PayDunya non créée : ${result.error}`);
+      return;
+    }
+    window.location.assign(result.checkoutUrl);
+  };
+
   const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
     if (tableSessionExpected && !tableSession) {
       return { success: false, error: 'La session de cette table est indisponible ou a été révoquée. Scannez à nouveau le QR code physique.' };
@@ -792,6 +883,7 @@ export default function App() {
       if (prev.some(t => t.id === newKitchenTicket.id)) return prev;
       return [newKitchenTicket, ...prev];
     });
+    setRestauOrders(previous => [confirmedOrder, ...previous.filter(order => order.id !== confirmedOrder.id)]);
 
     // Clear client cart strictly only upon confirmed write
     setClientCart([]);
@@ -928,6 +1020,7 @@ export default function App() {
         ticket,
         ...previous.filter((existing) => existing.id !== ticket.id)
       ]);
+      setRestauOrders(previous => [result.order, ...previous.filter(order => order.id !== result.order.id)]);
       setPosOrderIdempotencyKey(generateClientOrderIdempotencyKey());
       setCart([]);
       window.alert(`Commande enregistrée et envoyée en cuisine : ${result.order.orderNumber}`);
@@ -1043,13 +1136,12 @@ export default function App() {
     guestNumber: number;
     guestName: string;
   }) => {
-    if (!canManageCash || cashSession?.status !== 'active') {
+    const isCashPayment = paymentData.method === 'especes';
+    if (!canManageCash || (isCashPayment && cashSession?.status !== 'active')) {
       setIsPaymentModalOpen(false);
-      window.alert("La session de caisse n'est plus active. Ouvrez ou vérifiez votre session avant d'encaisser.");
-      return;
-    }
-    if (paymentData.method !== 'especes') {
-      window.alert("Seuls les paiements en espèces sont actuellement raccordés à un journal serveur. Wave, Orange Money et carte seront activés après intégration des prestataires.");
+      window.alert(isCashPayment
+        ? "La session de caisse n'est plus active. Ouvrez ou vérifiez votre session avant d'encaisser."
+        : "Votre rôle ne permet pas de lancer un paiement Mobile Money.");
       return;
     }
     if (discountPercent > 0) {
@@ -1088,15 +1180,46 @@ export default function App() {
           return;
         }
 
-        order = orderResult.order;
+        const createdOrder = orderResult.order;
+        if (!createdOrder) {
+          window.alert("La commande a été acceptée sans document retourné. Vérifiez l'historique avant toute nouvelle tentative.");
+          return;
+        }
+        order = createdOrder;
         setPosOrderIdempotencyKey(generateClientOrderIdempotencyKey());
-        setPendingPosOrder(order);
-        setPendingPosPaidAmount(Number(order.paidAmount || 0));
-        const ticket = mapRestauOrderToKitchenTicket(order);
+        setPendingPosOrder(createdOrder);
+        setPendingPosPaidAmount(Number(createdOrder.paidAmount || 0));
+        const ticket = mapRestauOrderToKitchenTicket(createdOrder);
         setKitchenTickets((previous) => [
           ticket,
           ...previous.filter((existing) => existing.id !== ticket.id)
         ]);
+        setRestauOrders(previous => [createdOrder, ...previous.filter(existing => existing.id !== createdOrder.id)]);
+      }
+
+      if (!isCashPayment) {
+        const channelByMethod = {
+          wave: 'wave-ci',
+          orange_money: 'orange-money-ci',
+          mtn_money: 'mtn-ci',
+          moov_money: 'moov-ci',
+          djamo: 'djamo-ci'
+        } as const;
+        const channel = channelByMethod[paymentData.method as keyof typeof channelByMethod];
+        if (!channel) {
+          window.alert("Ce moyen de paiement n'est pas disponible.");
+          return;
+        }
+        const checkout = await createPayDunyaPaymentWithServerValidation(
+          activeRestaurantSlug, order.id, channel, paymentIdempotencyKey, paymentData.paidAmount
+        );
+        if (!checkout.success) {
+          window.alert(`Facture Mobile Money non créée : ${checkout.error}`);
+          return;
+        }
+        setIsPaymentModalOpen(false);
+        window.location.assign(checkout.checkoutUrl);
+        return;
       }
 
       const paymentResult = await collectCashPaymentWithServerValidation(
@@ -1165,13 +1288,79 @@ export default function App() {
     }
   };
 
-  const handleToggleKdsItem = (ticketId: string, itemId: string) => {
+  const canRefundPayments = isRestaurantOwner || authRestaurantRole === 'manager' ||
+    (authRestaurantRole === 'cashier' && userPermissions.includes('payments.refund'));
+
+  const handleRefundPayment = async (payment: PaymentRecord, amount: number, reason: string) => {
+    if (!canRefundPayments) {
+      window.alert("Votre rôle ne permet pas de rembourser ce paiement.");
+      return;
+    }
+    const idempotencyKey = generateClientOrderIdempotencyKey();
+    const result = payment.paymentMethod === 'especes'
+      ? await refundCashPaymentWithServerValidation(
+          activeRestaurantSlug, payment.id, amount, reason, idempotencyKey, true
+        )
+      : await refundPayDunyaPaymentWithServerValidation(
+          activeRestaurantSlug, payment.id, amount, reason, idempotencyKey
+        );
+    if (!result.success) {
+      window.alert(`Remboursement refusé : ${result.error}`);
+      return;
+    }
+    if (payment.paymentMethod === 'especes') {
+      window.alert("Remboursement espèces enregistré. La confirmation de remise physique au client est journalisée.");
+    } else {
+      window.alert(result.status === 'completed'
+        ? "Remboursement Mobile Money confirmé par PayDunya."
+        : result.status === 'failed'
+          ? "PayDunya a refusé le décaissement. Le montant réservé a été libéré."
+          : result.status === 'created'
+            ? "Le décaissement est créé mais pas encore confirmé comme soumis. Il reste réservé pour rapprochement ; ne relancez pas l'opération."
+            : "Demande de remboursement transmise. Elle reste en attente de confirmation PayDunya ; ne relancez pas l'opération.");
+    }
+    const refreshed = await listRecentCashPaymentsWithServerValidation(activeRestaurantSlug);
+    if (refreshed.success) {
+      const records = refreshed.payments.map(mapCashPaymentRecord);
+      setTransactions(records);
+      setDrawerState((previous) => ({
+        ...previous,
+        totalSales: records.reduce((sum, record) => sum + record.paidAmount, 0),
+        cashSales: records.filter((record) => record.paymentMethod === 'especes').reduce((sum, record) => sum + record.paidAmount, 0),
+        mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte').reduce((sum, record) => sum + record.paidAmount, 0),
+        transactionCount: records.length
+      }));
+    }
+  };
+
+  const handleToggleKdsItem = async (ticketId: string, itemId: string, completed: boolean) => {
+    if (ticketId.startsWith('ord-')) {
+      const orderId = ticketId.slice(4);
+      const itemPrefix = `ki-${orderId}-`;
+      if (!itemId.startsWith(itemPrefix)) {
+        window.alert('Ligne de préparation invalide.');
+        return;
+      }
+      const itemIndex = Number(itemId.slice(itemPrefix.length));
+      if (!Number.isInteger(itemIndex) || itemIndex < 0) {
+        window.alert('Ligne de préparation invalide.');
+        return;
+      }
+      const result = await updateKitchenItemCompletionWithServerValidation(
+        activeRestaurantSlug, orderId, itemId, itemIndex, completed
+      );
+      if (!result.success) {
+        window.alert(result.error);
+        return;
+      }
+    }
+
     setKitchenTickets((prev) =>
       prev.map((ticket) =>
         ticket.id === ticketId
           ? {
               ...ticket,
-              items: ticket.items.map((i) => (i.id === itemId ? { ...i, completed: !i.completed } : i))
+              items: ticket.items.map((item) => (item.id === itemId ? { ...item, completed } : item))
             }
           : ticket
       )
@@ -1201,6 +1390,11 @@ export default function App() {
       else firestoreStatus = 'in_prep';
 
       try {
+        const currentOrder = restauOrders.find(order => order.id === rawOrderId);
+        // Firestore rules require the kitchen transition pending -> in_prep -> ready.
+        if (status === 'ready' && currentOrder?.status === 'pending') {
+          await updateOrderStatus(activeRestaurantSlug, rawOrderId, 'in_prep');
+        }
         await updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus);
       } catch (err) {
         console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
@@ -1328,6 +1522,7 @@ export default function App() {
           onRemoveItem={handleRemoveClientCartItem}
           onClearCart={handleClearClientCart}
           onConfirmOrder={handleClientOrderConfirm}
+          onStartPayDunyaPayment={handleStartClientPayDunya}
           isUncertain={isOrderUncertain}
           tableSessionUnavailable={tableSessionExpected && !tableSessionChecking && !tableSession}
           catalogLoading={activeMenuLoading}
@@ -1347,12 +1542,22 @@ export default function App() {
             <p className="text-xs font-bold text-slate-700">Vérification de la session sécurisée...</p>
             <p className="text-[11px] text-slate-400 mt-1">Connexion sécurisée au Centre de Gestion RestauMax</p>
           </div>
+        ) : (authUser && authIsSuperAdmin) ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-[#f4f7fb] p-8 text-center">
+            <p className="text-sm font-bold text-slate-800">Le super-administrateur n’a pas accès aux opérations d’un restaurant.</p>
+            <button onClick={() => navigateTo('/admin')} className="rounded-xl bg-[#101d2d] px-5 py-3 text-sm font-bold text-white">Accéder à l’administration plateforme</button>
+          </div>
         ) : (!authUser || !isAuthorizedManager) ? (
           <ManagerLoginView
             onLogin={handleManagerLogin}
             onBackToMenu={() => navigateTo('/')}
             restaurantName={restaurant.name}
           />
+        ) : !(isRestaurantOwner || authRestaurantRole === 'manager') ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-[#f4f7fb] p-8 text-center">
+            <p className="text-sm font-bold text-slate-800">Votre rôle ne permet pas d’accéder au Centre de Gestion.</p>
+            <button onClick={() => navigateTo('/staff')} className="rounded-xl bg-[#101d2d] px-5 py-3 text-sm font-bold text-white">Ouvrir mon espace de travail</button>
+          </div>
         ) : (
           <RestaurantHubView
             restaurant={restaurant}
@@ -1377,7 +1582,7 @@ export default function App() {
             onUpdateDish={handleUpdateDish}
             onDeleteDish={handleDeleteDish}
             currentUserEmail={authUser?.email}
-            canManageStaff={isRestaurantOwner || authIsSuperAdmin}
+            canManageStaff={isRestaurantOwner || (authRestaurantRole === 'manager' && userPermissions.includes('staff.manage'))}
             permissions={userPermissions}
             onSignOut={handleManagerSignOut}
           />
@@ -1386,6 +1591,44 @@ export default function App() {
 
       {/* 3. Central platform administration: /admin */}
       {isPlatformAdminRoute && <PlatformAdminView onBack={() => navigateTo('/')} onOpenRestaurant={(slug) => navigateTo(`/gestion?restaurant=${encodeURIComponent(slug)}`)} />}
+
+      {/* PayDunya hosted checkout return: provider callback remains the payment source of truth */}
+      {isPaymentReturnRoute && (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 text-amber-700">
+              <span className="text-lg font-black">RM</span>
+            </div>
+            <h1 className="text-xl font-black text-slate-900">Retour du paiement PayDunya</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              {paydunyaReturnStatus === 'checking' ? 'Vérification sécurisée auprès de PayDunya…'
+                : paydunyaReturnStatus === 'completed' ? 'Paiement confirmé. La commande et le journal RestauMax ont été mis à jour.'
+                : paydunyaReturnStatus === 'cancelled' ? 'Le paiement a été annulé chez PayDunya. Aucun encaissement n’a été enregistré.'
+                : paydunyaReturnStatus === 'failed' ? 'PayDunya confirme que le paiement a échoué. Aucun encaissement n’a été enregistré.'
+                : paydunyaReturnStatus === 'pending' ? 'Le paiement est encore en attente chez PayDunya. Ne relancez pas un second paiement ; vérifiez à nouveau dans quelques instants.'
+                : paydunyaReturnStatus === 'error' ? (paydunyaReturnError || 'Le statut n’a pas pu être rapproché automatiquement.')
+                : 'La confirmation sécurisée du paiement va être vérifiée.'}
+            </p>
+            {paymentReturnOrderId && (
+              <p className="mt-3 text-xs font-semibold text-slate-500">Commande : {paymentReturnOrderId}</p>
+            )}
+            <p className="mt-3 text-xs text-slate-500">
+              Seule la confirmation serveur PayDunya fait foi. Le simple retour du navigateur ne valide jamais un paiement.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-center gap-2">
+              <button onClick={() => void reconcilePayDunyaReturn()}
+                disabled={paydunyaReturnStatus === 'checking' || !paymentReturnIntentId}
+                className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 disabled:opacity-50">
+                Vérifier à nouveau
+              </button>
+              <button onClick={() => navigateTo(authUser ? '/gestion' : `/r/${activeRestaurantSlug}?table_session=1`)}
+                className="rounded-xl bg-[#101d2d] px-5 py-3 text-sm font-bold text-white">
+                {authUser ? 'Retour à la gestion du restaurant' : 'Retour au menu de la table'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 4. RestauMax Home Landing Page: / */}
       {isHomePageRoute && (
@@ -1461,10 +1704,6 @@ export default function App() {
                     window.alert("Votre rôle ne permet pas d'encaisser un paiement.");
                     return;
                   }
-                  if (cashSession?.status !== 'active') {
-                    window.alert("Ouvrez d'abord votre session de caisse depuis l'écran Supervision & Caisse.");
-                    return;
-                  }
                   setIsPaymentModalOpen(true);
                 }}
                 serverName={serverName}
@@ -1495,6 +1734,8 @@ export default function App() {
 
             {currentRole === 'manager' && (userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')) && (
               <ManagerView
+                restaurantSlug={activeRestaurantSlug}
+                isOwner={isRestaurantOwner}
                 drawerState={drawerState}
                 transactions={transactions}
                 cashSession={cashSession}
@@ -1502,6 +1743,8 @@ export default function App() {
                 cashSessionActionLoading={cashSessionActionLoading}
                 cashMovementActionLoading={cashMovementActionLoading}
                 canManageCash={canManageCash}
+                canRefundPayments={canRefundPayments}
+                onRefundPayment={handleRefundPayment}
                 onOpenCashSession={handleOpenCashSession}
                 onCloseCashSession={handleCloseCashSession}
                 onRecordCashMovement={handleRecordCashMovement}

@@ -36,6 +36,7 @@ export interface ClientMenuViewProps {
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
   onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
+  onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
 }
@@ -110,6 +111,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   onRemoveItem,
   onClearCart,
   onConfirmOrder,
+  onStartPayDunyaPayment,
   isUncertain = false,
   onResetUncertainty
 }) => {
@@ -319,21 +321,14 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {filteredItems.map((dish) => (
-                <div
+                <button
+                  type="button"
                   key={dish.id}
                   onClick={() => {
                     sounds.playTap();
                     setActiveItemModal(dish);
                   }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setActiveItemModal(dish);
-                    }
-                  }}
-                  className="group bg-white rounded-2xl border border-slate-200/90 hover:border-slate-300 p-3.5 shadow-2xs hover:shadow-md transition-all cursor-pointer flex gap-3 text-left active:scale-[0.99]"
+                  className="group w-full bg-white rounded-2xl border border-slate-200/90 hover:border-slate-300 p-3.5 shadow-2xs hover:shadow-md transition-all cursor-pointer flex gap-3 text-left active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6500] focus-visible:ring-offset-2"
                 >
                   {/* Dish Thumbnail */}
                   <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl bg-slate-100 overflow-hidden shrink-0">
@@ -367,26 +362,20 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
                         {formatFCFA(dish.price)}
                       </span>
 
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          sounds.playTap();
-                          setActiveItemModal(dish);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-orange-50 group-hover:bg-[#ff6500] text-[#ff6500] group-hover:text-white font-bold text-[11px] transition-colors flex items-center gap-1"
-                      >
+                      <span aria-hidden="true" className="px-2.5 py-1 rounded-lg bg-orange-50 group-hover:bg-[#ff6500] text-[#ff6500] group-hover:text-white font-bold text-[11px] transition-colors flex items-center gap-1">
                         <span>Choisir</span>
                         <ChevronRight size={12} />
-                      </button>
+                      </span>
                     </div>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
         </div>
       </div>
+
+      <span className="sr-only" aria-live="polite" aria-atomic="true">{totalItemCount} article{totalItemCount > 1 ? 's' : ''} dans le panier.</span>
 
       {/* Persistent Floating Bottom Cart Bar (Mobile & Desktop) */}
       {cart.length > 0 && (
@@ -441,6 +430,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       {/* Cart Drawer */}
       <CartDrawer
         isOpen={isCartOpen}
+        restaurantName={restaurant.name}
         onClose={() => setIsCartOpen(false)}
         cart={cart}
         tableNumber={tableNumber}
@@ -466,6 +456,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       {/* Confirmed Order Modal */}
       <OrderConfirmationModal
         order={confirmedOrder}
+        restaurantName={restaurant.name}
+        onStartPayDunyaPayment={onStartPayDunyaPayment}
         onClose={() => setConfirmedOrder(null)}
         onNewOrder={() => {
           setConfirmedOrder(null);

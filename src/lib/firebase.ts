@@ -19,6 +19,7 @@ import {
   getDocs,
   setDoc, 
   deleteDoc,
+  runTransaction,
   collection, 
   onSnapshot,
   query,
@@ -278,8 +279,19 @@ export async function persistDishAvailability(restaurantSlug: string, dishId: st
  */
 export async function deleteMenuItem(restaurantSlug: string, dishId: string): Promise<void> {
   const path = `restaurants/${restaurantSlug}/menuItems/${dishId}`;
+  const menuItemRef = doc(db, 'restaurants', restaurantSlug, 'menuItems', dishId);
+  const recipeRef = doc(db, 'restaurants', restaurantSlug, 'menuRecipes', dishId);
   try {
-    await deleteDoc(doc(db, 'restaurants', restaurantSlug, 'menuItems', dishId));
+    await runTransaction(db, async (transaction) => {
+      const [menuItemSnapshot, recipeSnapshot] = await Promise.all([
+        transaction.get(menuItemRef),
+        transaction.get(recipeRef)
+      ]);
+      // Delete the private recipe and its menu item atomically. Firestore rules
+      // require both documents to be absent after the same transaction.
+      if (recipeSnapshot.exists()) transaction.delete(recipeRef);
+      if (menuItemSnapshot.exists()) transaction.delete(menuItemRef);
+    });
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
   }
@@ -295,44 +307,25 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
 
   try {
     const tokenResult = await getIdTokenResult(user);
-    if (tokenResult.claims?.role === 'admin' || tokenResult.claims?.role === 'super_admin') {
-      return true;
-    }
 
-    // Restaurant owner, manager and staff privileges must also exist in the trusted
-    // server-provisioned membership document. This allows immediate account revocation.
+    // Restaurant operational access requires a trusted tenant membership.
+    // Platform super-admins must use /admin and never inherit restaurant operations.
     const managerDocRef = doc(db, 'managers', user.uid);
     const managerDoc = await getDoc(managerDocRef);
     const data = managerDoc.exists() ? managerDoc.data() : null;
     if (
-      data &&
-      data.active === true &&
-      Number(tokenResult.claims?.sessionVersion || 0) === Number(data.sessionVersion || 0) &&
-      ['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(data.role)
-    ) {
-      return true;
-    }
+      !data ||
+      data.active !== true ||
+      Number(tokenResult.claims?.sessionVersion || 0) !== Number(data.sessionVersion || 0) ||
+      !['owner', 'manager', 'cashier', 'server', 'kitchen'].includes(data.role) ||
+      typeof data.restaurantSlug !== 'string' ||
+      !data.restaurantSlug
+    ) return false;
 
-    // A recreated super-admin account can be allowlisted server-side before its
-    // Firebase token has the corresponding custom claim. Only the trusted API
-    // may verify the private allowlist and issue that claim; never promote in-browser.
-    if (!user.email) return false;
-    try {
-      const idToken = await user.getIdToken();
-      const response = await fetch('/api/platform-admin', {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${idToken}` },
-        cache: 'no-store',
-      });
-      if (!response.ok) return false;
-
-      const refreshedToken = await getIdTokenResult(user, true);
-      return refreshedToken.claims?.role === 'admin' ||
-        refreshedToken.claims?.role === 'super_admin';
-    } catch (bootstrapError) {
-      console.warn('Initialisation du rôle super-administrateur impossible:', bootstrapError);
-      return false;
-    }
+    const restaurantSnap = await getDoc(doc(db, 'restaurants', data.restaurantSlug));
+    if (!restaurantSnap.exists() || restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt) return false;
+    if (data.role === 'owner') return restaurantSnap.data()?.ownerUid === user.uid;
+    return true;
   } catch (err) {
     console.warn('Erreur lors de la vérification des privilèges gestionnaire:', err);
     return false;
@@ -706,6 +699,188 @@ export async function collectCashPaymentWithServerValidation(
   }
 }
 
+export type PayDunyaClientChannel = 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci';
+
+export async function createPayDunyaPaymentWithServerValidation(
+  restaurantSlug: string,
+  orderId: string,
+  channel: PayDunyaClientChannel,
+  idempotencyKey: string,
+  amount: number
+): Promise<{ success: true; checkoutUrl: string; paymentIntentId: string; amount: number; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({
+        action: 'create_paydunya_invoice', restaurantSlug, orderId, channel, idempotencyKey, amount
+      })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success || typeof data.checkoutUrl !== 'string') {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'PayDunya n’a pas pu créer la facture.' };
+    }
+    return {
+      success: true, checkoutUrl: data.checkoutUrl,
+      paymentIntentId: String(data.paymentIntentId || ''),
+      amount: Number(data.amount || 0), idempotentReplay: data.idempotentReplay === true
+    };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau lors de la création de la facture PayDunya.' };
+  }
+}
+
+export async function createCustomerPayDunyaPaymentWithServerValidation(
+  restaurantSlug: string,
+  orderId: string,
+  channel: PayDunyaClientChannel,
+  idempotencyKey: string,
+  csrfToken: string,
+  amount: number
+): Promise<{ success: true; checkoutUrl: string; paymentIntentId: string; amount: number } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const response = await fetch('/api/payments/customer-paydunya', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-RM-CSRF-Token': csrfToken },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, orderId, channel, idempotencyKey, csrfToken, amount })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success || typeof data.checkoutUrl !== 'string') {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'PayDunya n’a pas pu créer la facture de cette commande.' };
+    }
+    return { success: true, checkoutUrl: data.checkoutUrl,
+      paymentIntentId: String(data.paymentIntentId || ''), amount: Number(data.amount || 0) };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau lors de la création du paiement QR.' };
+  }
+}
+
+export async function reconcileCustomerPayDunyaPaymentWithServerValidation(
+  restaurantSlug: string,
+  paymentIntentId: string,
+  csrfToken: string
+): Promise<{ success: true; status: string; paymentId?: string } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const response = await fetch('/api/payments/customer-paydunya-reconcile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-RM-CSRF-Token': csrfToken },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, paymentIntentId, csrfToken })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'Le statut du paiement QR ne peut pas être vérifié.' };
+    }
+    return { success: true, status: String(data.status || 'pending'),
+      paymentId: data.paymentId ? String(data.paymentId) : undefined };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau pendant le rapprochement du paiement QR.' };
+  }
+}
+
+export async function reconcilePayDunyaPaymentWithServerValidation(
+  restaurantSlug: string,
+  paymentIntentId: string
+): Promise<{ success: true; status: string; paymentId?: string; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ action: 'reconcile_paydunya_payment', restaurantSlug, paymentIntentId })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'Le statut PayDunya ne peut pas être vérifié.' };
+    }
+    return { success: true, status: String(data.status || 'pending'),
+      paymentId: data.paymentId ? String(data.paymentId) : undefined,
+      idempotentReplay: data.idempotentReplay === true };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau pendant le rapprochement PayDunya.' };
+  }
+}
+
+export async function refundPayDunyaPaymentWithServerValidation(
+  restaurantSlug: string,
+  paymentId: string,
+  amount: number,
+  reason: string,
+  idempotencyKey: string
+): Promise<{ success: true; refundId: string; status: string; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({
+        action: 'refund_paydunya_payment', restaurantSlug, paymentId, amount, reason, idempotencyKey
+      })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'Le remboursement Mobile Money a été refusé.' };
+    }
+    return { success: true, refundId: String(data.refundId || ''), status: String(data.status || ''),
+      idempotentReplay: data.idempotentReplay === true };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau lors du remboursement Mobile Money.' };
+  }
+}
+
+export async function refundCashPaymentWithServerValidation(
+  restaurantSlug: string,
+  paymentId: string,
+  amount: number,
+  reason: string,
+  idempotencyKey: string,
+  cashDisbursementConfirmed: boolean
+): Promise<{ success: true; payment: Record<string, unknown>; status: string; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({
+        action: 'refund_cash_payment', restaurantSlug, paymentId, amount, reason, idempotencyKey, cashDisbursementConfirmed
+      })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, conflict: response.status === 409 || data.conflict === true,
+        error: data.error || 'Le remboursement espèces a été refusé.' };
+    }
+    return { success: true, payment: data.payment || {}, status: 'recorded', idempotentReplay: data.idempotentReplay === true };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau lors du remboursement espèces.' };
+  }
+}
+
 export async function listRecentCashPaymentsWithServerValidation(
   restaurantSlug: string
 ): Promise<{ success: true; payments: CashPaymentApiRecord[] } | { success: false; error: string }> {
@@ -756,6 +931,106 @@ export function subscribeToOrders(
       handleFirestoreError(err, OperationType.LIST, path);
     }
   );
+}
+
+type InventoryApiResult = { success: true; itemId?: string; quantityBefore?: number; quantityAfter?: number; idempotentReplay?: boolean } | { success: false; error: string; retryable?: boolean };
+
+async function inventoryRequest(
+  restaurantSlug: string,
+  payload: Record<string, unknown>
+): Promise<InventoryApiResult> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/inventory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, ...payload })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Opération de stock refusée.', retryable: response.status >= 500 || response.status === 408 || response.status === 429 };
+    return data as InventoryApiResult;
+  } catch (error: any) {
+    console.error('Erreur appel /api/inventory:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant la gestion du stock.', retryable: true };
+  }
+}
+
+export async function createInventoryItemWithServerValidation(
+  restaurantSlug: string,
+  item: { name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier: string },
+  idempotencyKey: string
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'create', ...item, idempotencyKey });
+}
+
+export async function saveInventoryRecipeWithServerValidation(
+  restaurantSlug: string,
+  menuItemId: string,
+  recipeLines: Array<{ inventoryItemId: string; quantityPerDish: number }>
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'save_recipe', menuItemId, recipeLines });
+}
+
+export async function updateInventoryItemWithServerValidation(
+  restaurantSlug: string,
+  itemId: string,
+  item: { name: string; unit: string; minQuantity: number; unitCost: number; supplier: string }
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'update', itemId, ...item });
+}
+
+export async function moveInventoryStockWithServerValidation(
+  restaurantSlug: string,
+  itemId: string,
+  delta: number,
+  reason: string,
+  idempotencyKey: string
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'move', itemId, delta, reason, idempotencyKey });
+}
+
+export async function archiveInventoryItemWithServerValidation(
+  restaurantSlug: string,
+  itemId: string
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'archive', itemId });
+}
+
+/**
+ * Persists a kitchen line completion state through the trusted backend.
+ * The client never writes KDS progress directly to Firestore.
+ */
+export async function updateKitchenItemCompletionWithServerValidation(
+  restaurantSlug: string,
+  orderId: string,
+  itemId: string,
+  itemIndex: number,
+  completed: boolean
+): Promise<{ success: true; completed: boolean; idempotentReplay?: boolean } | { success: false; error: string }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/kitchen-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, orderId, itemId, itemIndex, completed })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      return { success: false, error: data.error || 'Mise à jour cuisine refusée.' };
+    }
+    return { success: true, completed: data.completed === true, idempotentReplay: data.idempotentReplay === true };
+  } catch (error: any) {
+    console.error('Erreur appel /api/kitchen-item:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant la mise à jour cuisine.' };
+  }
 }
 
 /**

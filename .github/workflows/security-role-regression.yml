@@ -1,0 +1,30 @@
+name: Security role regression
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  role-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run lint
+      - name: Role ceilings
+        run: npx tsx scripts/test-role-ceilings.mjs
+      - name: Full role boundaries
+        run: npx tsx scripts/test-full-role-boundaries.mjs
+      - name: Firestore owner binding
+        run: node scripts/test-firestore-owner-rule.mjs
+      - name: Atomic cash refund
+        run: npx tsx scripts/test-refund-service.mjs

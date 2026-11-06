@@ -1,0 +1,34 @@
+name: Firestore owner binding emulator regression
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'firestore.rules'
+      - 'scripts/test-owner-uid-emulator.mjs'
+      - '.github/workflows/firestore-owner-binding.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  owner-binding:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Setup Java
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install dependencies
+        run: |
+          npm ci --legacy-peer-deps
+          npm install --no-save --package-lock=false --legacy-peer-deps firebase-tools@15.34.2 @firebase/rules-unit-testing@6.0.0
+      - name: Verify ownerUid rules in Firestore Emulator
+        run: npx --yes firebase-tools@15.34.2 emulators:exec --only firestore --project demo-restaumax "node scripts/test-owner-uid-emulator.mjs"

@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { auth, requestManagerPasswordReset } from '../../lib/firebase';
+import { calculateSubscriptionMetrics } from '../../lib/subscriptionMetrics';
 import { Building2, ShieldCheck, LogOut, Plus, RefreshCw, Ban, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 
 type RestaurantRow = {
-  slug: string; name: string; ownerName?: string; ownerEmail?: string;
+  slug: string; name: string;
   status?: string; isOpen?: boolean; deletedAt?: number;
   subscription?: {
     planName?: string; priceFcfa?: number; currency?: string;
@@ -13,11 +14,17 @@ type RestaurantRow = {
     startsAt?: number; endsAt?: number; notes?: string;
   };
 };
+type PlatformSummary = {
+  totalRestaurants: number; activeRestaurants: number; suspendedRestaurants: number;
+  deletedRestaurants: number; openRestaurants: number; monthlyRecurringRevenueFcfa: number;
+  subscriptionsByPlan: Record<string, number>; subscriptionsByStatus: Record<string, number>;
+};
 type StaffRow = { uid: string; email: string; displayName: string; role: 'owner' | 'manager' | 'staff'; active: boolean; permissions?: string[] };
 
 export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant: (slug: string) => void }> = ({ onBack, onOpenRestaurant }) => {
   const [user, setUser] = useState<User | null>(auth.currentUser);
   const [restaurants, setRestaurants] = useState<RestaurantRow[]>([]);
+  const [summary, setSummary] = useState<PlatformSummary | null>(null);
   const [expandedRestaurant, setExpandedRestaurant] = useState<string | null>(null);
   const [staffByRestaurant, setStaffByRestaurant] = useState<Record<string, StaffRow[]>>({});
   const [loading, setLoading] = useState(false);
@@ -26,14 +33,13 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [showOwnerPassword, setShowOwnerPassword] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [subscriptionRestaurant, setSubscriptionRestaurant] = useState<RestaurantRow | null>(null);
   const [subscriptionForm, setSubscriptionForm] = useState({
     planName: '', priceFcfa: '0', billingCycle: 'monthly',
     status: 'trial', startsOn: '', endsOn: '', notes: ''
   });
-  const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '', ownerPassword: '' });
+  const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '' });
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
@@ -54,12 +60,12 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
-    try { const data = await request(); setRestaurants(data.restaurants || []); }
+    try { const data = await request(); setRestaurants(data.restaurants || []); setSummary(data.summary || null); }
     catch (e: any) { setError(e.message || 'Accès super-administrateur refusé.'); }
     finally { setLoading(false); }
   }, [request]);
 
-  useEffect(() => { if (user) refresh(); else setRestaurants([]); }, [user, refresh]);
+  useEffect(() => { if (user) refresh(); else { setRestaurants([]); setSummary(null); } }, [user, refresh]);
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault(); setError(''); setLoading(true);
@@ -72,8 +78,12 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
     event.preventDefault(); setError(''); setNotice(''); setLoading(true);
     try {
       const result = await request({ action: 'create_restaurant', ...form });
-      setNotice(`Restaurant créé. Compte propriétaire : ${result.owner.email}`);
-      setForm({ name: '', ownerName: '', ownerEmail: '', ownerPassword: '' });
+      const ownerEmail = String(result.owner?.email || form.ownerEmail).trim();
+      const reset = await requestManagerPasswordReset(ownerEmail);
+      setNotice(reset.success
+        ? `Restaurant créé. Un e-mail sécurisé a été envoyé à ${ownerEmail} pour que le propriétaire définisse son mot de passe.`
+        : `Restaurant créé. Le compte propriétaire est ${ownerEmail}, mais l’e-mail automatique a échoué ; utilisez « Mot de passe oublié ? » à la connexion.`);
+      setForm({ name: '', ownerName: '', ownerEmail: '' });
       setShowCreate(false); await refresh();
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
@@ -203,6 +213,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
     finally { setLoading(false); }
   };
 
+  const subscriptionMetrics = calculateSubscriptionMetrics(restaurants);
+
   return <div className="min-h-screen bg-slate-950 text-slate-100">
     <header className="border-b border-slate-800 bg-slate-900 px-5 py-4">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
@@ -218,10 +230,33 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <label className="block text-sm">Adresse e-mail<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/></label>
         <label className="block text-sm">Mot de passe<div className="relative mt-1"><input required type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
         <button disabled={loading} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white disabled:opacity-50">{loading ? 'Connexion…' : 'Se connecter'}</button>
-      </form> : <><section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Restaurants enregistrés</p><p className="mt-2 text-3xl font-black">{restaurants.length}</p></div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements actifs</p><p className="mt-2 text-3xl font-black">{restaurants.filter(r=>r.status !== 'suspended' && r.status !== 'deleted' && !r.deletedAt).length}</p></div>
+      </form> : <><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Restaurants enregistrés</p><p className="mt-2 text-3xl font-black">{summary?.totalRestaurants ?? restaurants.length}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements actifs</p><p className="mt-2 text-3xl font-black">{summary?.activeRestaurants ?? 0}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements suspendus</p><p className="mt-2 text-3xl font-black">{summary?.suspendedRestaurants ?? 0}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Restaurants ouverts</p><p className="mt-2 text-3xl font-black">{summary?.openRestaurants ?? 0}</p></div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Revenu mensuel récurrent</p><p className="mt-2 text-2xl font-black">{Number(summary?.monthlyRecurringRevenueFcfa || 0).toLocaleString('fr-FR')} <span className="text-sm">FCFA</span></p></div>
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Compte connecté</p><p className="mt-2 truncate text-sm font-bold">{user.email}</p></div>
+      </section>
+      <section className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">Abonnements actifs valides</p>
+          <p className="mt-2 text-2xl font-black text-emerald-300">{subscriptionMetrics.activeSubscriptionCount}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">Périodes d’essai en cours</p>
+          <p className="mt-2 text-2xl font-black text-sky-300">{subscriptionMetrics.trialSubscriptionCount}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">À régulariser / expirés</p>
+          <p className="mt-2 text-2xl font-black text-amber-300">{subscriptionMetrics.attentionSubscriptionCount}</p>
+        </div>
+      </section>
+      <p className="text-xs text-slate-500">Les essais et abonnements expirés sont exclus des indicateurs valides. Le MRR affiché reste une estimation contractuelle, pas un encaissement constaté.</p>
+      <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+        <p className="mb-2 text-sm font-bold text-slate-300">Abonnements par plan</p>
+        <div className="flex flex-wrap gap-2">{Object.entries(summary?.subscriptionsByPlan || {}).map(([plan, count]) =>
+          <span key={plan} className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">{plan} : {count}</span>)}</div>
       </section>
       <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-black">Gestion des restaurants</h2><p className="text-sm text-slate-400">Création, attribution du propriétaire et activation des établissements.</p></div><div className="flex gap-2"><button onClick={refresh} disabled={loading} className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm"><RefreshCw size={15}/> Actualiser</button><button onClick={()=>setShowCreate(v=>!v)} className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-bold"><Plus size={16}/> Nouveau restaurant</button></div></div>
       {showCreate && <form onSubmit={createRestaurant} className="grid gap-3 rounded-2xl border border-slate-700 bg-slate-900 p-5 md:grid-cols-2">
@@ -229,8 +264,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <input required placeholder="Nom du restaurant" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="rounded-lg border border-slate-700 bg-slate-950 p-3"/>
         <input required placeholder="Nom complet du propriétaire" value={form.ownerName} onChange={e=>setForm({...form,ownerName:e.target.value})} className="rounded-lg border border-slate-700 bg-slate-950 p-3"/>
         <input required type="email" placeholder="E-mail du propriétaire" value={form.ownerEmail} onChange={e=>setForm({...form,ownerEmail:e.target.value})} className="rounded-lg border border-slate-700 bg-slate-950 p-3"/>
-        <div className="relative"><input required minLength={10} type={showOwnerPassword ? "text" : "password"} autoComplete="new-password" placeholder="Mot de passe initial (10 caractères min.)" value={form.ownerPassword} onChange={e=>setForm({...form,ownerPassword:e.target.value})} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 pr-12"/><button type="button" onClick={()=>setShowOwnerPassword(v=>!v)} aria-label={showOwnerPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showOwnerPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div>
-        <p className="text-xs text-amber-300 md:col-span-2">Transmets le mot de passe initial au propriétaire par un canal privé. Il devra le modifier dès sa première connexion.</p>
+        <p className="text-xs text-emerald-300 md:col-span-2">Après création, un e-mail Firebase sécurisé est envoyé au propriétaire pour qu’il définisse lui-même son mot de passe. Aucun mot de passe temporaire n’est demandé ni transmis.</p>
         <div className="flex gap-2 md:col-span-2"><button disabled={loading} className="rounded-lg bg-orange-500 px-5 py-2 font-bold">Créer le restaurant</button><button type="button" onClick={()=>setShowCreate(false)} className="rounded-lg border border-slate-700 px-4 py-2">Annuler</button></div>
       </form>}
       {subscriptionRestaurant && <form onSubmit={saveSubscription} className="grid gap-3 rounded-2xl border border-violet-800 bg-slate-900 p-5 md:grid-cols-2">
@@ -283,7 +317,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
           <button type="button" onClick={()=>setSubscriptionRestaurant(null)} className="rounded-lg border border-slate-700 px-4 py-2">Annuler</button>
         </div>
       </form>}
-      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-4 font-bold">Établissements ({restaurants.length})</div>{restaurants.length === 0 ? <p className="p-8 text-center text-sm text-slate-400">Aucun restaurant enregistré.</p> : restaurants.map(r=><React.Fragment key={r.slug}><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4"><div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3"><Building2 size={20}/></div><div><p className="font-bold">{r.name}</p><p className="text-xs text-slate-400">{r.slug} · {r.ownerName || r.ownerEmail || 'Propriétaire non renseigné'}</p>
+      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"><div className="border-b border-slate-800 p-4 font-bold">Établissements ({restaurants.length})</div>{restaurants.length === 0 ? <p className="p-8 text-center text-sm text-slate-400">Aucun restaurant enregistré.</p> : restaurants.map(r=><React.Fragment key={r.slug}><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4"><div className="flex items-center gap-3"><div className="rounded-xl bg-slate-800 p-3"><Building2 size={20}/></div><div><p className="font-bold">{r.name}</p><p className="text-xs text-slate-400">{r.slug} · Identité du propriétaire protégée dans la vue synthèse</p>
                       <p className="text-[11px] text-violet-300">
                         {r.subscription?.planName
                           ? `${r.subscription.planName} · ${Number(r.subscription.priceFcfa || 0).toLocaleString('fr-FR')} FCFA · ${billingCycleLabel(r.subscription.billingCycle)} · ${subscriptionStatusLabel(r.subscription.status)}`

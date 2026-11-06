@@ -1,4 +1,5 @@
 import { validateSubscriptionInput } from '../src/server/subscriptionService.ts';
+import { calculateSubscriptionMetrics } from '../src/lib/subscriptionMetrics.ts';
 
 let passed = 0;
 let failed = 0;
@@ -37,6 +38,23 @@ assert(validateSubscriptionInput({ ...valid, billingCycle: 'weekly' }).success =
 assert(validateSubscriptionInput({ ...valid, status: 'enabled' }).success === false, 'Un statut inconnu est refusé');
 assert(validateSubscriptionInput({ ...valid, startsAt: 0 }).success === false, 'Une date de début invalide est refusée');
 assert(validateSubscriptionInput({ ...valid, endsAt: valid.startsAt }).success === false, 'Une fin antérieure ou égale au début est refusée');
+
+console.log('\n--- Indicateurs d’abonnement plateforme ---');
+const metrics = calculateSubscriptionMetrics([
+  { status: 'active', subscription: { status: 'active', endsAt: 2000000, priceFcfa: 12000, billingCycle: 'monthly' } },
+  { status: 'active', subscription: { status: 'active', endsAt: 2000000, priceFcfa: 120000, billingCycle: 'yearly' } },
+  { status: 'active', subscription: { status: 'trial', endsAt: 2000000, priceFcfa: 0, billingCycle: 'monthly' } },
+  { status: 'active', subscription: { status: 'active', endsAt: 500000, priceFcfa: 9000, billingCycle: 'monthly' } },
+  { status: 'active', subscription: { status: 'past_due', endsAt: 2000000, priceFcfa: 9000, billingCycle: 'monthly' } },
+  { status: 'active', subscription: { status: 'active', endsAt: 2000000, priceFcfa: 50000, billingCycle: 'custom' } },
+  { status: 'suspended' }
+], 1000000);
+assert(metrics.restaurantCount === 7, 'Le nombre total de restaurants est calculé');
+assert(metrics.activeRestaurantCount === 6, 'Les restaurants suspendus sont exclus des établissements actifs');
+assert(metrics.activeSubscriptionCount === 3, 'Les abonnements actifs non expirés sont comptabilisés');
+assert(metrics.trialSubscriptionCount === 1, 'Les périodes d’essai valides sont comptabilisées séparément');
+assert(metrics.attentionSubscriptionCount === 2, 'Les abonnements expirés et en retard sont signalés');
+assert(metrics.estimatedMonthlyRevenue === 22000, 'Le MRR estime les plans mensuels et annualise les plans annuels, sans compter les essais ni les personnalisés');
 
 console.log('\nRésultats abonnements : ' + passed + '/' + (passed + failed) + ' réussis (' + failed + ' échec(s)).');
 if (failed > 0) process.exit(1);

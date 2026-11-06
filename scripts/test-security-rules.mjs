@@ -5,7 +5,7 @@ import {
   assertSucceeds
 } from '@firebase/rules-unit-testing';
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc
+  collection, deleteDoc, doc, getDoc, getDocs, runTransaction, setDoc, updateDoc
 } from 'firebase/firestore';
 
 const projectId = 'demo-restaumax';
@@ -43,7 +43,7 @@ try {
     }
     const members = [
       ['owner-a','rest-a','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage']],
-      ['manager-a','rest-a','manager',['menu.manage','orders.manage','orders.view','tables.view','tables.manage','pos.access','cash.view','cash.manage','reports.view','staff.manage','settings.view']],
+      ['manager-a','rest-a','manager',['menu.manage','orders.manage','orders.view','tables.view','tables.manage','pos.access','cash.view','cash.manage','reports.view','staff.manage','settings.view','inventory.view','inventory.manage']],
       ['cashier-a','rest-a','cashier',['pos.access','cash.view','cash.manage','orders.view']],
       ['server-a','rest-a','server',['pos.access','orders.view','tables.view','orders.serve']],
       ['kitchen-a','rest-a','kitchen',['orders.view','kitchen.access']],
@@ -68,12 +68,24 @@ try {
       totalAmount:1000, status:'pending'
     };
     await setDoc(doc(db,'restaurants/rest-a/orders/order-1'),orderData);
-    await setDoc(doc(db,'restaurants/rest-a/orders/order-kitchen'),{...orderData,id:'order-kitchen',orderNumber:'#CMD-002'});
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-kitchen'),{...orderData,id:'order-kitchen',orderNumber:'#CMD-002',kitchenItemsCompletedCount:1});
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-kitchen-incomplete'),{...orderData,id:'order-kitchen-incomplete',orderNumber:'#CMD-005',status:'in_prep',kitchenItemsCompletedCount:0});
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-manager-incomplete'),{...orderData,id:'order-manager-incomplete',orderNumber:'#CMD-006',status:'in_prep',kitchenItemsCompletedCount:0});
+    await setDoc(doc(db,'restaurants/rest-a/orders/order-owner-incomplete'),{...orderData,id:'order-owner-incomplete',orderNumber:'#CMD-007',status:'in_prep',kitchenItemsCompletedCount:0});
     await setDoc(doc(db,'restaurants/rest-a/orders/order-server'),{...orderData,id:'order-server',orderNumber:'#CMD-003',status:'ready'});
     await setDoc(doc(db,'restaurants/rest-a/orders/order-cashier'),{...orderData,id:'order-cashier',orderNumber:'#CMD-004'});
     await setDoc(doc(db,'restaurants/rest-b/orders/order-1'),{...orderData,restaurantSlug:'rest-b'});
+    await setDoc(doc(db,'restaurants/rest-a/inventoryItems/rice'),{
+      id:'rice',name:'Riz',unit:'kg',quantity:10,minQuantity:2,unitCost:500,active:true
+    });
+    await setDoc(doc(db,'restaurants/rest-a/stockMovements/initial-rice'),{
+      itemId:'rice',itemName:'Riz',unit:'kg',quantityBefore:0,delta:10,quantityAfter:10,reason:'Stock initial'
+    });
     await setDoc(doc(db,'restaurants/rest-a/menuItems/dish-1'),{
       id:'dish-1',restaurantSlug:'rest-a',name:'Plat',category:'plats',price:1000,available:true
+    });
+    await setDoc(doc(db,'restaurants/rest-a/menuRecipes/dish-1'),{
+      menuItemId:'dish-1', ingredients:[{itemId:'rice',quantityPerDish:0.2,unit:'kg'}]
     });
     await setDoc(doc(db,'restaurants/rest-b/menuItems/dish-1'),{
       id:'dish-1',restaurantSlug:'rest-b',name:'Plat B',category:'plats',price:1200,available:true
@@ -104,6 +116,20 @@ try {
   await denies(setDoc(table(a('manager-a'),'rest-b'),{id:'table-1',tableNumber:'X',capacity:2,isActive:true}), 'Restaurant A ne peut pas écrire dans B');
   await denies(deleteDoc(table(a('manager-a'),'rest-b')), 'Restaurant A ne peut pas supprimer dans B');
 
+  // 1b. Inventory is readable by authorized staff, but every mutation is backend-only.
+  await allows(getDocs(collection(a('owner-a'),'restaurants/rest-a/inventoryItems')), 'Le propriétaire peut consulter le catalogue de stock');
+  await allows(getDocs(collection(a('manager-a'),'restaurants/rest-a/inventoryItems')), 'Le manager avec inventory.view peut consulter le stock');
+  await denies(setDoc(doc(a('owner-a'),'restaurants/rest-a/inventoryItems/rice-forged'),{
+    id:'rice-forged',name:'Riz falsifié',unit:'kg',quantity:999,minQuantity:0,unitCost:1,active:true
+  }), 'Même le propriétaire ne peut pas créer directement un article de stock via le SDK client');
+  await denies(updateDoc(doc(a('manager-a'),'restaurants/rest-a/inventoryItems/rice'),{quantity:1}), 'Le manager ne peut pas modifier directement une quantité de stock');
+  await denies(deleteDoc(doc(a('manager-a'),'restaurants/rest-a/inventoryItems/rice')), 'Le manager ne peut pas supprimer directement un article de stock');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/stockMovements/forged'),{
+    itemId:'rice',delta:999,quantityAfter:1009
+  }), 'Le manager ne peut pas fabriquer une entrée dans le journal des mouvements');
+  await denies(updateDoc(doc(a('manager-a'),'restaurants/rest-a/stockMovements/initial-rice'),{quantityAfter:0}), 'Le journal des mouvements est immuable');
+  await denies(deleteDoc(doc(a('manager-a'),'restaurants/rest-a/stockMovements/initial-rice')), 'Le journal des mouvements ne peut pas être supprimé');
+
   // 2. Subscription metadata is private and never readable through the client SDK.
   await denies(getDoc(doc(anonymous, 'restaurantSubscriptions/rest-a')), 'Un client QR anonyme ne peut pas lire les données privées d’abonnement');
   await denies(getDoc(doc(a('owner-a'), 'restaurantSubscriptions/rest-a')), 'Même le propriétaire ne lit pas les données privées d’abonnement via Firestore client');
@@ -114,9 +140,61 @@ try {
   await denies(setDoc(doc(a('server-a'),'restaurants/rest-a/payments/payment-1'),{amount:1000}), 'Un serveur ne peut pas créer un paiement');
   await denies(updateDoc(order(a('server-a'),'rest-a'),{status:'cancelled'}), 'Un serveur ne peut pas annuler une commande');
 
+  // 2b. Catalogue writes are tenant-scoped and require the menu.manage role ceiling.
+  const managerDish = doc(a('manager-a'), 'restaurants/rest-a/menuItems/dish-manager-created');
+  await allows(setDoc(managerDish, {
+    id:'dish-manager-created', restaurantSlug:'rest-a', name:'Plat manager',
+    category:'plats', price:2500, available:true, description:'Test', imageUrl:'',
+    prepTimeMinutes:15
+  }), 'Un manager autorisé peut créer un plat dans le catalogue de son restaurant');
+  const invalidMenuBase = { restaurantSlug:'rest-a', name:'Plat invalide', category:'plats', price:2500, available:true };
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-float-price'),{
+    ...invalidMenuBase, id:'dish-float-price', price:2500.5
+  }), 'Le catalogue refuse un prix FCFA non entier');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-zero-price'),{
+    ...invalidMenuBase, id:'dish-zero-price', price:0
+  }), 'Le catalogue refuse un prix nul comme le formulaire de gestion');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-zero-prep'),{
+    ...invalidMenuBase, id:'dish-zero-prep', prepTimeMinutes:0
+  }), 'Le catalogue refuse un temps de préparation nul');
+
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-category'),{
+    ...invalidMenuBase, id:'dish-invalid-category', category:'autre'
+  }), 'Le catalogue refuse une catégorie hors nomenclature');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-options'),{
+    ...invalidMenuBase, id:'dish-invalid-options', optionGroups:'corrompu'
+  }), 'Le catalogue refuse une structure de groupes d’options qui n’est pas une liste');
+  await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-prep-time'),{
+    ...invalidMenuBase, id:'dish-invalid-prep-time', prepTimeMinutes:1441
+  }), 'Le catalogue refuse un temps de préparation hors plage');
+
+  await allows(updateDoc(managerDish, { price:2750 }), 'Un manager autorisé peut modifier le prix d’un plat');
+  await denies(updateDoc(managerDish, { restaurantSlug:'rest-b' }), 'Un manager ne peut pas déplacer un plat vers un autre restaurant');
+  await allows(deleteDoc(managerDish), 'Un manager autorisé peut supprimer un plat du catalogue');
+  await denies(deleteDoc(doc(a('cashier-a'),'restaurants/rest-a/menuItems/dish-1')), 'Un caissier ne peut pas supprimer un plat du catalogue');
+  await denies(deleteDoc(doc(a('cashier-escalated'),'restaurants/rest-a/menuItems/dish-1')), 'Un droit menu.manage falsifié ne permet pas de supprimer un plat hors plafond de rôle');
+  await denies(updateDoc(doc(a('server-a'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un serveur sans menu.manage ne peut pas modifier le catalogue');
+
   // 3. A cashier cannot change menu prices or staff permissions.
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un caissier ne peut pas modifier le prix du menu');
   await denies(updateDoc(doc(a('cashier-escalated'),'restaurants/rest-a/menuItems/dish-1'),{price:1}), 'Un droit menu.manage falsifié ne dépasse pas le plafond du caissier');
+
+  const managerMenuDb = a('manager-a');
+  const recipeRef = doc(managerMenuDb,'restaurants/rest-a/menuRecipes/dish-1');
+  const linkedDishRef = doc(managerMenuDb,'restaurants/rest-a/menuItems/dish-1');
+  await denies(deleteDoc(recipeRef), 'Un manager ne peut pas supprimer une recette sans supprimer le plat associé');
+  await denies(deleteDoc(linkedDishRef), 'Un manager ne peut pas supprimer un plat tant que sa recette associée subsiste');
+  await allows(runTransaction(managerMenuDb, async transaction => {
+    const [dishSnapshot, recipeSnapshot] = await Promise.all([
+      transaction.get(linkedDishRef),
+      transaction.get(recipeRef)
+    ]);
+    if (recipeSnapshot.exists()) transaction.delete(recipeRef);
+    if (dishSnapshot.exists()) transaction.delete(linkedDishRef);
+  }), 'Le manager peut supprimer atomiquement le plat et sa fiche recette liée');
+  const [deletedDish, deletedRecipe] = await Promise.all([getDoc(linkedDishRef), getDoc(recipeRef)]);
+  check(!deletedDish.exists() && !deletedRecipe.exists(), 'La suppression atomique ne laisse aucune recette orpheline');
+
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/staff/manager-b'),{permissions:['settings.manage']}), 'Un caissier ne peut pas modifier les permissions du personnel');
   await allows(updateDoc(order(a('cashier-cancel'),'rest-a','order-cashier'),{status:'cancelled'}), 'Un caissier peut annuler uniquement si le droit explicite orders.cancel lui est accordé');
 
@@ -124,6 +202,10 @@ try {
   await denies(updateDoc(order(a('kitchen-a'),'rest-a'),{status:'cancelled'}), 'Cuisine/Bar ne peut pas annuler une commande');
   await allows(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'in_prep'}), 'Cuisine/Bar peut démarrer la préparation');
   await allows(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'ready'}), 'Cuisine/Bar peut marquer une commande prête');
+  await denies(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen-incomplete'),{status:'ready'}), 'Cuisine/Bar ne peut pas déclarer prête une commande avec des lignes non terminées');
+  await denies(updateDoc(order(a('manager-a'),'rest-a','order-manager-incomplete'),{status:'ready'}), 'Le manager ne peut pas contourner le pointage des lignes cuisine');
+  await denies(updateDoc(order(a('owner-a'),'rest-a','order-owner-incomplete'),{status:'ready'}), 'Le propriétaire ne peut pas contourner le pointage des lignes cuisine');
+  await denies(updateDoc(order(a('owner-a'),'rest-a','order-owner-incomplete'),{kitchenItemsCompletedCount:1}), 'Le compteur de lignes terminées est modifiable uniquement par le backend');
   await denies(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'completed'}), 'Cuisine/Bar ne peut pas déclarer une commande servie');
   await allows(updateDoc(order(a('server-a'),'rest-a','order-server'),{status:'completed'}), 'Le serveur peut confirmer la remise d’une commande prête');
   await denies(setDoc(doc(a('kitchen-a'),'restaurants/rest-a/payments/payment-2'),{amount:1000}), 'Cuisine/Bar ne peut pas encaisser');

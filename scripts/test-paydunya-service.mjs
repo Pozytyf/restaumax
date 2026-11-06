@@ -6,7 +6,12 @@ import {
   createPayDunyaRedistribution,
   confirmPayDunyaInvoice,
   verifyPayDunyaCallback,
-  PAYDUNYA_CI_PAYMENT_CHANNELS
+  getPayDunyaDisbursementConfig,
+  createPayDunyaDisbursementInvoice,
+  submitPayDunyaDisbursement,
+  checkPayDunyaDisbursementStatus,
+  PAYDUNYA_CI_PAYMENT_CHANNELS,
+  PAYDUNYA_CI_WITHDRAW_MODES_SUPPORTED
 } from '../src/server/paydunyaService.ts';
 
 let passed = 0;
@@ -110,6 +115,7 @@ if (config) {
       ok: true,
       json: async () => ({
         response_code: '00',
+        hash: createHash('sha512').update('test-master-key').digest('hex'),
         invoice: { token: 'test_ABC123', total_amount: 7500 },
         status: 'completed',
         custom_data: { payment_intent_id: 'intent-42' },
@@ -167,6 +173,75 @@ if (config) {
       async () => ({ ok: true, json: async () => ({ response_code: '99', response_text: 'Rejected' }) }));
     assert(failedPayout.success === false, 'Une redistribution refusée par PayDunya n’est pas déclarée réussie');
   }
+}
+
+
+console.log('\n--- PayDunya PUSH : décaissements contrôlés ---');
+const pushDisabled = getPayDunyaDisbursementConfig({
+  ...env, PAYDUNYA_MODE: 'live', PAYDUNYA_LIVE_ENABLED: 'true'
+});
+assert(pushDisabled.success === true && pushDisabled.data.pushEnabled === false,
+  'Les décaissements PUSH restent désactivés sans activation dédiée');
+const pushEnabled = getPayDunyaDisbursementConfig({
+  ...env, PAYDUNYA_MODE: 'live', PAYDUNYA_LIVE_ENABLED: 'true', PAYDUNYA_PUSH_ENABLED: 'true'
+});
+assert(pushEnabled.success === true && pushEnabled.data.pushEnabled === true,
+  'Le PUSH exige le mode live et deux drapeaux explicites');
+assert(PAYDUNYA_CI_WITHDRAW_MODES_SUPPORTED.length === 5 &&
+  PAYDUNYA_CI_WITHDRAW_MODES_SUPPORTED.includes('orange-money-ci') &&
+  PAYDUNYA_CI_WITHDRAW_MODES_SUPPORTED.includes('wave-ci'),
+  'Les cinq modes de retrait ivoiriens documentés sont autorisés');
+if (pushEnabled.success) {
+  const pushConfig = pushEnabled.data;
+  const payoutInput = {
+    accountAlias: '0700000000', amount: 2500, withdrawMode: 'orange-money-ci',
+    callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-disbursement-callback',
+    disburseId: 'refund_test_0001'
+  };
+  let calls = [];
+  const pushFetch = async (url, options) => {
+    calls.push({ url: String(url), body: JSON.parse(options.body) });
+    if (String(url).endsWith('/get-invoice')) {
+      return { ok: true, json: async () => ({ response_code: '00', disburse_token: 'PUSH_TOKEN_123' }) };
+    }
+    if (String(url).endsWith('/submit-invoice')) {
+      return { ok: true, json: async () => ({ response_code: '00', status: 'pending', transaction_id: 'TX-123' }) };
+    }
+    return { ok: true, json: async () => ({
+      response_code: '00', status: 'success', token: 'PUSH_TOKEN_123',
+      amount: '2500', withdraw_mode: 'orange-money-ci',
+      transaction_id: 'TX-123', provider_ref: 'OM-REF-123'
+    }) };
+  };
+  const createdPush = await createPayDunyaDisbursementInvoice(pushConfig, payoutInput, pushFetch);
+  assert(createdPush.success && createdPush.data.token === 'PUSH_TOKEN_123' &&
+    createdPush.data.status === 'created',
+    'L’initiation retourne uniquement un token created, sans déclarer le transfert réussi');
+  assert(calls[0]?.url.endsWith('/get-invoice') && calls[0]?.body.withdraw_mode === 'orange-money-ci',
+    'L’initiation utilise l’endpoint PUSH v2 et le mode CI demandé');
+  const submittedPush = await submitPayDunyaDisbursement(pushConfig, 'PUSH_TOKEN_123', 'refund_test_0001', pushFetch);
+  assert(submittedPush.success && submittedPush.data.status === 'pending',
+    'Une soumission pending reste pending et n’est pas comptabilisée comme remboursée');
+  const checkedPush = await checkPayDunyaDisbursementStatus(pushConfig, 'PUSH_TOKEN_123', pushFetch);
+  assert(checkedPush.success && checkedPush.data.status === 'success' &&
+    checkedPush.data.amount === 2500 && checkedPush.data.providerReference === 'OM-REF-123',
+    'Le statut final est relu côté serveur avec montant et référence fournisseur');
+  let disabledCalls = 0;
+  const disabledPush = await createPayDunyaDisbursementInvoice(
+    { ...pushConfig, pushEnabled: false }, payoutInput,
+    async () => { disabledCalls++; throw new Error('must not call'); }
+  );
+  assert(!disabledPush.success && disabledCalls === 0,
+    'Un décaissement désactivé ne déclenche aucun appel réseau');
+  const invalidMode = await createPayDunyaDisbursementInvoice(pushConfig,
+    { ...payoutInput, withdrawMode: 'orange-money-senegal' }, pushFetch);
+  assert(!invalidMode.success, 'Un mode de retrait hors Côte d’Ivoire est refusé');
+  const invalidPhone = await createPayDunyaDisbursementInvoice(pushConfig,
+    { ...payoutInput, accountAlias: '+2250700000000' }, pushFetch);
+  assert(!invalidPhone.success, 'Le numéro bénéficiaire doit être fourni sans indicatif pays');
+  const failedProvider = await submitPayDunyaDisbursement(pushConfig, 'PUSH_TOKEN_123', 'refund_test_0001',
+    async () => ({ ok: true, json: async () => ({ response_code: '00', status: 'failed' }) }));
+  assert(!failedProvider.success, 'Un statut failed ne peut pas être interprété comme un succès');
 }
 
 console.log('\n--- Vérification de notification IPN ---');

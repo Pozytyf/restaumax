@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { RestauMenuItem, SelectedOption, SelectedExtra, ClientCartItem } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog';
 import { X, Plus, Minus, Check, Clock, Sparkles, MessageSquare, AlertCircle } from 'lucide-react';
 
 interface ProductDetailModalProps {
@@ -23,6 +24,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [prepNotes, setPrepNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  const dialogRef = useAccessibleDialog<HTMLDivElement>(Boolean(item), onClose);
 
   // Initialize defaults whenever item changes
   useEffect(() => {
@@ -186,6 +189,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-2xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-in fade-in duration-150">
       <div 
         className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col my-auto max-h-[90vh] animate-in zoom-in-95 duration-150"
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="product-modal-title"
@@ -252,7 +257,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
           {/* Validation Error Alert */}
           {validationError && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
+            <div role="alert" aria-live="assertive" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
               <AlertCircle size={16} className="shrink-0 text-rose-600" />
               <span>{validationError}</span>
             </div>
@@ -280,10 +285,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 {group.options.map((opt) => {
                   const isSelected = selectedOptionsByGroup[group.id]?.optionId === opt.id;
                   return (
-                    <label
+                    <button
+                      type="button"
                       key={opt.id}
+                      aria-pressed={isSelected}
                       onClick={() => handleSelectOption(group, opt)}
-                      className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer select-none transition-all ${
+                      className={`w-full text-left flex items-center justify-between p-3 rounded-xl border cursor-pointer select-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6500] ${
                         isSelected
                           ? 'border-[#ff6500] bg-orange-50/50 shadow-2xs ring-1 ring-[#ff6500]/50'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
@@ -303,7 +310,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       <span className={`text-xs font-bold tnum ${isSelected ? 'text-[#ff6500]' : 'text-slate-500'}`}>
                         {opt.extraPrice > 0 ? `+${formatFCFA(opt.extraPrice)}` : 'Inclus'}
                       </span>
-                    </label>
+                    </button>
                   );
                 })}
               </div>
@@ -326,10 +333,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 {item.availableExtras.map((extra) => {
                   const isChecked = selectedExtras.some(e => e.extraId === extra.id);
                   return (
-                    <label
+                    <button
+                      type="button"
                       key={extra.id}
+                      aria-pressed={isChecked}
                       onClick={() => handleToggleExtra(extra)}
-                      className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer select-none transition-all ${
+                      className={`w-full text-left flex items-center justify-between p-3 rounded-xl border cursor-pointer select-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6500] ${
                         isChecked
                           ? 'border-[#ff6500] bg-orange-50/40 shadow-2xs'
                           : 'border-slate-200 bg-white hover:bg-slate-50'
@@ -349,7 +358,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       <span className="text-xs font-bold text-[#ff6500] tnum">
                         +{formatFCFA(extra.price)}
                       </span>
-                    </label>
+                    </button>
                   );
                 })}
               </div>
@@ -358,11 +367,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
           {/* Preparation Notes ("sans piment", etc.) */}
           <div className="pt-2 border-t border-slate-100">
-            <label className="block text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+            <label htmlFor="product-prep-notes" className="block text-xs font-bold text-slate-900 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
               <MessageSquare size={13} className="text-slate-500" />
               Notes de préparation pour la cuisine
             </label>
             <input
+              id="product-prep-notes"
               type="text"
               placeholder="Ex : sans piment, bien cuit, sauce à part, pas d’oignons..."
               value={prepNotes}

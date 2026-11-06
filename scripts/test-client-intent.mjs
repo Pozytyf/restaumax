@@ -122,6 +122,9 @@ async function runClientIntentTests() {
   assert(restoredUncertain?.isUncertain === true, '3.1 : État incertain persisté dans sessionStorage');
   assert(restoredUncertain?.idempotencyKey === 'intent-key-client-alpha-001', '3.2 : Clé d\'idempotence rigoureusement inchangée');
   assert(restoredUncertain?.cart.length === 1, '3.3 : Panier verrouillé intact');
+  assert(restoredUncertain?.restaurantSlug === 'chez-awa' && restoredUncertain?.orderMode === 'sur_place' && restoredUncertain?.tableNumber === '4', '3.4 : Restaurant, mode de service et table préservés après erreur réseau');
+  assert(JSON.stringify(restoredUncertain?.cart) === JSON.stringify(testCart), '3.5 : Contenu et quantités du panier strictement identiques après erreur réseau');
+  assert(restoredUncertain?.customerNote === 'Bien cuit et sauce à part', '3.6 : Note de commande conservée pour la reprise avec la même clé');
 
   // -------------------------------------------------------------------------
   // 4. Confirmation réussie (200 OK) : nettoyage complet

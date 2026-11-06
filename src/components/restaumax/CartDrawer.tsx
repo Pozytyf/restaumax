@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ClientCartItem } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog';
 import { 
   X, 
   Trash2, 
@@ -19,6 +20,7 @@ import {
 
 interface CartDrawerProps {
   isOpen: boolean;
+  restaurantName: string;
   onClose: () => void;
   cart: ClientCartItem[];
   tableNumber: string | null;
@@ -32,6 +34,7 @@ interface CartDrawerProps {
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   isOpen,
+  restaurantName,
   onClose,
   cart,
   tableNumber,
@@ -45,6 +48,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [customerNote, setCustomerNote] = useState<string>('');
+  const dialogRef = useAccessibleDialog<HTMLDivElement>(isOpen, () => { if (!isSubmitting) onClose(); });
 
   if (!isOpen) return null;
 
@@ -81,6 +85,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-2xs flex justify-end animate-in fade-in duration-150">
       <div 
         className="bg-white w-full max-w-md h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-200"
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="cart-drawer-title"
@@ -153,7 +159,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
         {/* Uncertainty Alert Banner (Cart locked to prevent duplicate submission) */}
         {isUncertain && (
-          <div className="mx-4 mt-3 p-3.5 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs shadow-sm shrink-0 animate-in fade-in space-y-2">
+          <div role="alert" aria-live="assertive" className="mx-4 mt-3 p-3.5 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs shadow-sm shrink-0 animate-in fade-in space-y-2">
             <div className="flex items-start gap-2">
               <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
               <div className="leading-snug">
@@ -181,7 +187,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
         {/* Error notification if submission failed */}
         {submitError && !isUncertain && (
-          <div className="mx-4 mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 shrink-0 animate-in fade-in">
+          <div role="alert" aria-live="assertive" className="mx-4 mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 shrink-0 animate-in fade-in">
             <AlertCircle size={15} className="text-rose-600 shrink-0 mt-0.5" />
             <div className="flex-1 leading-snug">
               <span className="font-bold">Commande non transmise : </span>
@@ -199,7 +205,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
               <h3 className="text-base font-extrabold text-slate-900 mb-1">Votre panier est vide</h3>
               <p className="text-xs text-slate-500 max-w-xs mb-5 leading-relaxed">
-                Parcourez le menu de Chez Awa et ajoutez vos grillades, accompagnements et boissons préférés.
+                Parcourez le menu de {restaurantName} et ajoutez vos plats, accompagnements et boissons préférés.
               </p>
               <button
                 onClick={onClose}
@@ -318,11 +324,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
               {/* Optional general note for the entire order */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                <label htmlFor="cart-customer-note" className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
                   <MessageSquare size={12} className="text-slate-500" />
                   <span>Consigne globale pour la commande (optionnel) :</span>
                 </label>
                 <input
+                  id="cart-customer-note"
                   type="text"
                   placeholder="Ex : Servir les boissons fraîches en premier, couverts supplémentaires..."
                   value={customerNote}
@@ -370,7 +377,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 {isSubmitting ? (
                   <>
                     <Loader2 size={18} className="animate-spin text-white" />
-                    <span>Transmission en cours...</span>
+                    <span role="status" aria-live="polite">Transmission de votre commande en cours…</span>
                   </>
                 ) : isUncertain ? (
                   <>

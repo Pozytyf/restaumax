@@ -18,6 +18,7 @@
 import 'dotenv/config';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { SWEET_AND_HOT_TEST_MENU_ITEMS } from './sweet-and-hot-test-menu.mjs';
 import { 
   getAppletFirebaseConfig, 
   validateServiceAccountCredentials,
@@ -215,7 +216,7 @@ export function resolveSeedServiceAccount(firebaseConfig, env = process.env) {
 export async function seedCatalog(db, options = {}) {
   const isMerge = Boolean(options.isMerge);
   const restaurant = options.restaurant || CHEZ_AWA_RESTAURANT;
-  const menuItems = options.menuItems || CHEZ_AWA_MENU_ITEMS;
+  const menuItems = options.menuItems || [...CHEZ_AWA_MENU_ITEMS, ...SWEET_AND_HOT_TEST_MENU_ITEMS];
 
   const restRef = db.collection('restaurants').doc(restaurant.slug);
   const snap = await restRef.get();

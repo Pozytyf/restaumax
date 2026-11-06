@@ -57,7 +57,9 @@ service cloud.firestore {
         isRestaurantActive(targetSlug) &&
         member.get('restaurantSlug', '') == targetSlug &&
         member.get('active', false) == true &&
-        member.get('role', '') in ['owner', 'manager', 'staff', 'cashier', 'server', 'kitchen'];
+        member.get('role', '') in ['owner', 'manager', 'cashier', 'server', 'kitchen'] &&
+        (member.get('role', '') != 'owner' ||
+          get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.ownerUid == request.auth.uid);
     }
 
     // Maximum permission ceilings for the six restaurant roles.
@@ -67,7 +69,7 @@ service cloud.firestore {
         (role == 'manager' && permission in [
           'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
           'tables.view', 'tables.manage', 'pos.access', 'kitchen.access',
-          'cash.view', 'cash.manage', 'reports.view', 'customers.view',
+          'cash.view', 'cash.manage', 'orders.cancel', 'payments.refund', 'reports.view', 'customers.view',
           'customers.manage', 'inventory.view', 'inventory.manage',
           'staff.view', 'staff.manage', 'settings.view'
         ]) ||
@@ -80,8 +82,7 @@ service cloud.firestore {
         ]) ||
         (role == 'kitchen' && permission in [
           'orders.view', 'kitchen.access'
-        ]) ||
-        (role == 'staff' && permission in ['orders.view', 'tables.view']);
+        ]);
     }
 
     // Restaurant access is ALWAYS membership-scoped. Platform custom claims
@@ -93,7 +94,9 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/managers/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.restaurantSlug == targetSlug &&
         get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active == true &&
-        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['owner', 'manager', 'staff', 'cashier', 'server', 'kitchen'] &&
+        get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['owner', 'manager', 'cashier', 'server', 'kitchen'] &&
+        (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role != 'owner' ||
+          get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.ownerUid == request.auth.uid) &&
         (
           get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'owner' ||
           (
@@ -123,9 +126,15 @@ service cloud.firestore {
         && data.id is string && data.id.size() > 0 && data.id.size() <= 128
         && data.restaurantSlug is string && data.restaurantSlug.size() > 0 && data.restaurantSlug.size() <= 100
         && data.name is string && data.name.size() > 0 && data.name.size() <= 200
-        && data.category is string && data.category.size() > 0 && data.category.size() <= 50
-        && data.price is number && data.price >= 0
-        && data.available is bool;
+        && data.category in ['grillades', 'plats', 'entrees', 'accompagnements', 'boissons', 'desserts']
+        && data.price is int && data.price > 0
+        && data.available is bool
+        && (!data.keys().hasAny(['description']) || (data.description is string && data.description.size() <= 2000))
+        && (!data.keys().hasAny(['imageUrl']) || (data.imageUrl is string && data.imageUrl.size() <= 2048))
+        && (!data.keys().hasAny(['prepTimeMinutes']) || (data.prepTimeMinutes is int && data.prepTimeMinutes >= 1 && data.prepTimeMinutes <= 1440))
+        && (!data.keys().hasAny(['optionGroups']) || (data.optionGroups is list && data.optionGroups.size() <= 20))
+        && (!data.keys().hasAny(['availableExtras']) || (data.availableExtras is list && data.availableExtras.size() <= 50))
+        && (!data.keys().hasAny(['tags']) || (data.tags is list && data.tags.size() <= 30));
     }
 
     function isValidTable(data) {
@@ -149,7 +158,9 @@ service cloud.firestore {
       let role = member.get('role', '');
       let permissions = member.get('permissions', []);
       let statusChanged = changed.hasAny(['status']);
-      let canManage = role == 'owner' ||
+      let isVerifiedOwner = role == 'owner' &&
+        get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.ownerUid == request.auth.uid;
+      let canManage = isVerifiedOwner ||
         (role == 'manager' && permissions is list && 'orders.manage' in permissions);
       let canCancel = role == 'cashier' && permissions is list && 'orders.cancel' in permissions;
       let canKitchen = role == 'kitchen' && permissions is list && 'kitchen.access' in permissions;
@@ -167,11 +178,13 @@ service cloud.firestore {
         (!changed.hasAny(['statusUpdatedAt']) || statusChanged) &&
         (
           (statusChanged &&
-            ((canManage && isValidOrderTransition(existing().status, incoming().status)) ||
+            ((canManage && isValidOrderTransition(existing().status, incoming().status) &&
+               (incoming().status != 'ready' || existing().get('kitchenItemsCompletedCount', 0) == existing().items.size())) ||
              (canCancel && existing().status in ['pending', 'in_prep', 'ready'] && incoming().status == 'cancelled') ||
              (canKitchen &&
                ((existing().status == 'pending' && incoming().status == 'in_prep') ||
-                (existing().status == 'in_prep' && incoming().status == 'ready'))) ||
+                (existing().status == 'in_prep' && incoming().status == 'ready' &&
+                 existing().get('kitchenItemsCompletedCount', 0) == existing().items.size()))) ||
              (canServe && existing().status == 'ready' && incoming().status == 'completed'))) ||
           (!statusChanged && changed.hasAny(['kitchenNotes']) && (canManage || canKitchen))
         );
@@ -235,7 +248,8 @@ service cloud.firestore {
             'name', 'category', 'price', 'available', 'description', 'imageUrl',
             'prepTimeMinutes', 'optionGroups', 'availableExtras', 'tags'
           ]);
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId);
+        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId) &&
+          !existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuRecipes/$(dishId));
       }
 
       // Tables contain operational data and must never be publicly readable.
@@ -277,24 +291,24 @@ service cloud.firestore {
       // Inventory catalog and immutable stock movement audit trail.
       match /inventoryItems/{itemId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
-        allow create, update: if hasRestaurantPermission(restaurantSlug, 'inventory.manage')
-          && isValidId(itemId)
-          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
-          && incoming().unit is string && incoming().unit.size() > 0 && incoming().unit.size() <= 20
-          && incoming().quantity is number && incoming().quantity >= 0
-          && incoming().minQuantity is number && incoming().minQuantity >= 0
-          && incoming().unitCost is number && incoming().unitCost >= 0;
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'inventory.manage') && isValidId(itemId);
+        // Inventory mutations are Admin SDK only and must pass the transactional API.
+        allow create, update, delete: if false;
+      }
+
+      match /menuRecipes/{menuItemId} {
+        allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
+        // Recipe creation and edits remain backend-only. A linked recipe may be
+        // deleted by a catalogue manager only in the same transaction that deletes
+        // its menu item, preventing orphaned recipe records.
+        allow create, update: if false;
+        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(menuItemId) &&
+          !existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuItems/$(menuItemId));
       }
 
       match /stockMovements/{movementId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
-        allow create: if hasRestaurantPermission(restaurantSlug, 'inventory.manage')
-          && isValidId(movementId)
-          && incoming().itemId is string && incoming().itemId.size() > 0
-          && incoming().delta is number && incoming().delta != 0
-          && incoming().quantityAfter is number && incoming().quantityAfter >= 0;
-        allow update, delete: if false;
+        // Append-only from the trusted Admin SDK transaction; no client writes.
+        allow create, update, delete: if false;
       }
 
       // Orders subcollection
