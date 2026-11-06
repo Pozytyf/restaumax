@@ -9,7 +9,7 @@ import firebaseConfig from '../firebase-applet-config.json' with { type: 'json' 
 
 const port = Number(process.env.E2E_PORT || 4173);
 const baseUrl = `http://127.0.0.1:${port}`;
-const app = initializeApp({ projectId: 'demo-restaumax' }, 'restaumax-client-e2e-' + Date.now());
+const app = initializeApp({ projectId: firebaseConfig.projectId }, 'restaumax-client-e2e-' + Date.now());
 const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 const server = spawn('npm', ['run', 'dev'], {
   env: {
