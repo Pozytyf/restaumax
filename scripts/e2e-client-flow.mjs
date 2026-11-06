@@ -27,6 +27,7 @@ const server = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'server
 });
 
 let browser;
+let context;
 const serverExit = new Promise(resolve => server.once('exit', resolve));
 let firstOrderResponse = null;
 let replayResponse = null;
@@ -69,7 +70,8 @@ try {
   await waitForServer();
 
   browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  context = await browser.newContext({ viewport: { width: 1365, height: 900 } });
+  const page = await context.newPage();
   page.setDefaultTimeout(20000);
   await page.goto(`${baseUrl}/r/chez-awa`, { waitUntil: 'domcontentloaded' });
 
@@ -157,6 +159,7 @@ try {
   console.error('ÉCHEC DE LA RECETTE NAVIGATEUR CLIENT :', error);
   process.exitCode = 1;
 } finally {
+  if (context) await context.close();
   if (browser) await browser.close();
   if (server.exitCode === null && server.signalCode === null) server.kill('SIGTERM');
   await Promise.race([serverExit, delay(5000)]);
