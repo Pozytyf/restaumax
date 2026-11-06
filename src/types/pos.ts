@@ -30,7 +30,9 @@ export interface CartItem {
   menuItem: MenuItem;
   quantity: number;
   specialInstructions?: string;
+  /** Sélection composite : les identifiants de groupes/options sont concaténés dans l'ordre du catalogue. */
   selectedOption?: SelectedOption;
+  /** Suppléments du catalogue, conservés séparément pour le recalcul serveur et le ticket cuisine. */
   selectedExtras?: SelectedExtra[];
   course: 'entree' | 'plat' | 'dessert' | 'boisson';
 }
