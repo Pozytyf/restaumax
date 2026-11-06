@@ -14,7 +14,7 @@ const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 // The public demo seed intentionally contains only client-facing restaurant fields.
 // Complete the emulator-only operational state required by the trusted order service.
 await db.collection('restaurants').doc('chez-awa').set({ status: 'active', isActive: true, isOpen: true }, { merge: true });
-const server = spawn('npm', ['run', 'dev'], {
+const server = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'server.ts'], {
   env: {
     ...process.env,
     PORT: String(port),
@@ -27,6 +27,7 @@ const server = spawn('npm', ['run', 'dev'], {
 });
 
 let browser;
+const serverExit = new Promise(resolve => server.once('exit', resolve));
 let firstOrderResponse = null;
 let replayResponse = null;
 let passed = 0;
@@ -157,6 +158,7 @@ try {
   process.exitCode = 1;
 } finally {
   if (browser) await browser.close();
-  server.kill('SIGTERM');
+  if (server.exitCode === null && server.signalCode === null) server.kill('SIGTERM');
+  await Promise.race([serverExit, delay(5000)]);
   await app.delete().catch(() => {});
 }
