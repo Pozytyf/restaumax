@@ -19,6 +19,7 @@ import {
 
 interface CartDrawerProps {
   isOpen: boolean;
+  restaurantName: string;
   onClose: () => void;
   cart: ClientCartItem[];
   tableNumber: string | null;
@@ -32,6 +33,7 @@ interface CartDrawerProps {
 
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   isOpen,
+  restaurantName,
   onClose,
   cart,
   tableNumber,
@@ -199,7 +201,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </div>
               <h3 className="text-base font-extrabold text-slate-900 mb-1">Votre panier est vide</h3>
               <p className="text-xs text-slate-500 max-w-xs mb-5 leading-relaxed">
-                Parcourez le menu de Chez Awa et ajoutez vos grillades, accompagnements et boissons préférés.
+                Parcourez le menu de {restaurantName} et ajoutez vos plats, accompagnements et boissons préférés.
               </p>
               <button
                 onClick={onClose}
