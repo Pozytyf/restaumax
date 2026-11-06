@@ -27,7 +27,7 @@ async function run() {
   const productModalSource = readFileSync(new URL('../src/components/restaumax/ProductDetailModal.tsx', import.meta.url), 'utf8');
   const cartLedgerSource = readFileSync(new URL('../src/components/pos/CartLedger.tsx', import.meta.url), 'utf8');
   const paymentModalSource = readFileSync(new URL('../src/components/pos/PaymentModal.tsx', import.meta.url), 'utf8');
-  check((appSource.match(/cart\\.map\\(toClientCartItem\\)/g) || []).length === 2,
+  check((appSource.match(/cart\.map\(toClientCartItem\)/g) || []).length === 2,
     'Envoi cuisine et encaissement direct utilisent le même sérialiseur POS');
   check(posViewSource.includes('<ProductDetailModal') &&
     posViewSource.includes('onAddToCart={onAddToCart}') &&
