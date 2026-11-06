@@ -1,5 +1,7 @@
 name: Security role regression
 on:
+  push:
+    branches: [fix/authorization-refunds-platform-audit]
   pull_request:
     branches: [main]
   workflow_dispatch:
