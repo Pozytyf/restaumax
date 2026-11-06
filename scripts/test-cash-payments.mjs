@@ -23,6 +23,8 @@ async function run() {
   const uid = 'cashier-' + Date.now();
   const restaurantRef = db.collection('restaurants').doc(slug);
   const memberRef = db.collection('managers').doc(uid);
+  const managerUid = 'manager-' + Date.now();
+  const managerRef = db.collection('managers').doc(managerUid);
   const orderRef = restaurantRef.collection('orders').doc('order-main');
   const concurrentOrderRef = restaurantRef.collection('orders').doc('order-concurrent');
   const cancelledOrderRef = restaurantRef.collection('orders').doc('order-cancelled');
@@ -38,6 +40,7 @@ async function run() {
       uid, role: 'cashier', restaurantSlug: slug, permissions: ['cash.manage', 'cash.view'],
       active: true, sessionVersion: 3
     });
+    await managerRef.set({ uid: managerUid, role: 'manager', restaurantSlug: slug, permissions: [], active: true, sessionVersion: 3 });
     await orderRef.set({
       id: 'order-main', orderNumber: '#CMD-001', restaurantSlug: slug, orderMode: 'sur_place',
       tableNumber: '4', totalAmount: 9500, paidAmount: 0, currency: 'FCFA', status: 'pending',
@@ -57,6 +60,18 @@ async function run() {
       tableNumber: '4', totalAmount: 10000, paidAmount: 0, currency: 'FCFA', status: 'pending',
       items: [{ name: 'Repas partagé test', quantity: 1, unitPrice: 10000 }]
     });
+
+    console.log('\n--- Contrôle strict des autorisations manager ---');
+    const managerCashDenied = await recordCashPaymentWithDb(db, {
+      restaurantSlug: slug, orderId: 'order-main', actorUid: managerUid,
+      sessionVersion: 3, amountTendered: 1000, idempotencyKey: 'manager-cash-denied-01'
+    });
+    assert(managerCashDenied.success === false, 'Un manager sans cash.manage ne peut pas encaisser via l’API serveur');
+    const managerSessionDenied = await openCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: managerUid, actorName: 'Manager Test',
+      sessionVersion: 3, openingBalance: 1000, idempotencyKey: 'manager-open-denied-01'
+    });
+    assert(managerSessionDenied.success === false, 'Un manager sans cash.manage ne peut pas ouvrir une session de caisse');
 
     console.log('\n--- Ouverture et contrôle de session de caisse ---');
     const noSession = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-no-session-01'));
@@ -302,7 +317,7 @@ async function run() {
     if (movements) for (const doc of movements.docs) { try { await doc.ref.delete(); } catch {} }
     const activeSessions = await restaurantRef.collection('cashSessionActive').get().catch(() => null);
     if (activeSessions) for (const doc of activeSessions.docs) { try { await doc.ref.delete(); } catch {} }
-    for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, splitOrderRef, memberRef, restaurantRef]) {
+    for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, splitOrderRef, memberRef, managerRef, restaurantRef]) {
       try { await ref.delete(); } catch {}
     }
     try { await app.delete(); } catch {}
