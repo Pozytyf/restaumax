@@ -56,10 +56,10 @@ async function checkA11y(page, name) {
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();
   if (results.violations.length) {
-    console.error('Violations axe (' + name + '):', results.violations.map(v => ({
+    console.error('Violations axe (' + name + '): ' + JSON.stringify(results.violations.map(v => ({
       id: v.id, impact: v.impact, description: v.description,
       nodes: v.nodes.map(n => ({ target: n.target, summary: n.failureSummary }))
-    })));
+    })), null, 2));
   }
   check(results.violations.length === 0, 'Axe WCAG 2.1 AA sans violation sur la fenêtre ' + name);
 }
