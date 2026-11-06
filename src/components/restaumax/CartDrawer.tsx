@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ClientCartItem } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
+import { useAccessibleDialog } from '../../hooks/useAccessibleDialog';
 import { 
   X, 
   Trash2, 
@@ -47,6 +48,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [customerNote, setCustomerNote] = useState<string>('');
+  const dialogRef = useAccessibleDialog<HTMLDivElement>(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -83,6 +85,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-2xs flex justify-end animate-in fade-in duration-150">
       <div 
         className="bg-white w-full max-w-md h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-200"
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="cart-drawer-title"
@@ -183,7 +187,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
         {/* Error notification if submission failed */}
         {submitError && !isUncertain && (
-          <div className="mx-4 mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 shrink-0 animate-in fade-in">
+          <div role="alert" aria-live="assertive" className="mx-4 mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 shrink-0 animate-in fade-in">
             <AlertCircle size={15} className="text-rose-600 shrink-0 mt-0.5" />
             <div className="flex-1 leading-snug">
               <span className="font-bold">Commande non transmise : </span>
@@ -372,7 +376,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 {isSubmitting ? (
                   <>
                     <Loader2 size={18} className="animate-spin text-white" />
-                    <span>Transmission en cours...</span>
+                    <span role="status" aria-live="polite">Transmission de votre commande en cours…</span>
                   </>
                 ) : isUncertain ? (
                   <>
