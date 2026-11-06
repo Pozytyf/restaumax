@@ -128,7 +128,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       const matchCat = selectedCategory === 'tous' || item.category === selectedCategory;
       const matchQuery = !searchQuery ||
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.tags && item.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())));
       return matchAvailable && matchCat && matchQuery;
     });
