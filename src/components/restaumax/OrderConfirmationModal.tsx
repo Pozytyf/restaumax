@@ -204,7 +204,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                   className="mt-1 w-full rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900" />
               </label>
               <p className="text-[10px] text-blue-900">Vous pouvez payer une partie ou la totalité du solde restant : {formatFCFA(remainingDue)}.</p>
-              <select value={selectedChannel} onChange={(event) => setSelectedChannel(event.target.value as typeof selectedChannel)}
+              <select aria-label="Opérateur Mobile Money" value={selectedChannel} onChange={(event) => setSelectedChannel(event.target.value as typeof selectedChannel)}
                 disabled={isStartingPayment}
                 className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-800">
                 <option value="wave-ci">Wave</option>
