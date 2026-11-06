@@ -1717,6 +1717,7 @@ export default function App() {
           <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {currentRole === 'pos' && userPermissions.includes('pos.access') && (
               <PosView
+                restaurantSlug={activeRestaurantSlug}
                 menuItems={menuItems}
                 cart={cart}
                 selectedTable={selectedTable}
