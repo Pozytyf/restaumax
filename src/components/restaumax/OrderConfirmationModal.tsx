@@ -34,7 +34,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   const [isStartingPayment, setIsStartingPayment] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  const dialogRef = useAccessibleDialog<HTMLDivElement>(Boolean(order), onClose);
+  const dialogRef = useAccessibleDialog<HTMLDivElement>(Boolean(order), () => { if (!isStartingPayment) onClose(); });
   useEffect(() => {
     if (order) setPaymentAmount(String(Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))))));
   }, [order?.id, order?.remainingAmount, order?.paidAmount, order?.totalAmount]);
@@ -62,6 +62,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
             }}
             className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
             aria-label="Fermer"
+            disabled={isStartingPayment}
           >
             <X size={18} />
           </button>
