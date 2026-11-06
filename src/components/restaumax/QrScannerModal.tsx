@@ -21,6 +21,8 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
   const frameRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scanningRef = useRef(false);
+  const cameraRequestRef = useRef(0);
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [autoScanEnabled, setAutoScanEnabled] = useState(autoStartScan);
   const [cameraReady, setCameraReady] = useState(false);
@@ -36,7 +38,14 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
   }, [isOpen, autoStartScan]);
 
   const stopCamera = useCallback(() => {
+    // Invalidate any pending getUserMedia request so a late permission grant
+    // cannot leave the camera running after the modal has closed.
+    cameraRequestRef.current += 1;
     scanningRef.current = false;
+    if (successTimeoutRef.current) {
+      clearTimeout(successTimeoutRef.current);
+      successTimeoutRef.current = null;
+    }
     setIsScanningActive(false);
     if (frameRef.current !== null) {
       cancelAnimationFrame(frameRef.current);
@@ -61,7 +70,8 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
     } catch {
       // Audio playback might be muted or constrained
     }
-    setTimeout(() => {
+    successTimeoutRef.current = setTimeout(() => {
+      successTimeoutRef.current = null;
       stopCamera();
       onScanResult(tokenPath);
       onClose();
@@ -157,6 +167,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
   }, [handleValidTokenScanned]);
 
   const initCamera = useCallback(async () => {
+    const requestId = ++cameraRequestRef.current;
     setCameraError(null);
     setFeedback(false);
 
@@ -175,6 +186,13 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
         }
       });
 
+      // The user may have closed the modal or disabled scanning while the
+      // browser permission prompt was still open. Always release late streams.
+      if (requestId !== cameraRequestRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -183,6 +201,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
       setCameraReady(true);
       startScanningLoop();
     } catch (error: any) {
+      if (requestId !== cameraRequestRef.current) return;
       const name = error?.name || '';
       if (name === 'NotAllowedError') {
         setCameraError("L'accès à la caméra a été refusé. Veuillez autoriser la caméra dans les paramètres de votre navigateur.");
