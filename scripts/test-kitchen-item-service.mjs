@@ -108,13 +108,14 @@ const serverSource = fs.readFileSync(new URL('../server.ts', import.meta.url), '
 const apiSource = fs.readFileSync(new URL('../api/kitchen-item.ts', import.meta.url), 'utf8');
 const firebaseSource = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const kitchenMapperSource = fs.readFileSync(new URL('../src/utils/kitchenTicket.ts', import.meta.url), 'utf8');
 const kdsView = fs.readFileSync(new URL('../src/components/kds/KdsView.tsx', import.meta.url), 'utf8');
 const rulesSource = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 assert(serverSource.includes("app.post('/api/kitchen-item'"), 'Express exposes the KDS item endpoint');
 assert(apiSource.includes('handleKitchenItemRequest(req.body, req)'), 'Vercel API exposes the KDS item endpoint');
 assert(firebaseSource.includes("fetch('/api/kitchen-item'"), 'Client persists KDS progress through the trusted API');
 assert(appSource.includes('updateKitchenItemCompletionWithServerValidation('), 'KDS UI uses the trusted persistence helper');
-assert(appSource.includes("completed: order.kitchenItemCompletion?.[String(idx)] === true"), 'KDS state is restored from Firestore snapshots');
+assert(kitchenMapperSource.includes("completed: order.kitchenItemCompletion?.[String(index)] === true"), 'KDS state is restored from Firestore snapshots');
 assert(kdsView.includes("if (ticket.status !== 'in_prep') return;"), 'KDS line progress is locked after the ticket is ready');
 assert(kdsView.includes('if (!ticket.items.every(item => item.completed))'), 'KDS cannot dispatch a ticket with unfinished lines');
 assert(kdsView.includes("target?.closest('input, textarea, select, button, a, [role=\"button\"], [contenteditable=\"true\"]')"),
