@@ -1235,9 +1235,14 @@ export default function App() {
           menuItemId: item.menuItem.id,
           name: item.menuItem.name,
           basePrice: item.menuItem.price,
-          unitPrice: item.menuItem.price,
+          // Match the kitchen path: carry the complete configuration and display price.
+          // The server independently recalculates every option/extra from Firestore.
+          unitPrice: item.menuItem.price +
+            (item.selectedOption?.extraPrice || 0) +
+            (item.selectedExtras || []).reduce((sum, extra) => sum + extra.price, 0),
           quantity: item.quantity,
-          selectedExtras: [],
+          selectedOption: item.selectedOption,
+          selectedExtras: item.selectedExtras || [],
           prepNotes: item.specialInstructions,
           imageUrl: item.menuItem.imageUrl
         }));
