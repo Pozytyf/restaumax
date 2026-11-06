@@ -61,6 +61,20 @@ assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
   hubView.includes("status: permissions.includes('tables.manage') ? 'active' : 'unavailable'"),
   'QR administration entry points are restricted to members with tables.manage');
 
+const paymentService = fs.readFileSync(new URL('../src/server/paymentService.ts', import.meta.url), 'utf8');
+const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const posView = fs.readFileSync(new URL('../src/components/pos/PosView.tsx', import.meta.url), 'utf8');
+assert(paymentService.includes("(member.role === 'manager' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'))"),
+  'cash backend requires explicit cash.manage for managers as well as cashiers');
+assert(paymentService.includes("member.permissions.includes('payments.refund')"),
+  'refund backend requires the distinct payments.refund grant for managers and cashiers');
+assert(appSource.includes("(authRestaurantRole === 'manager' && userPermissions.includes('cash.manage'))") &&
+  appSource.includes("(authRestaurantRole === 'manager' && userPermissions.includes('payments.refund'))"),
+  'staff UI follows the same explicit cash and refund permission gates as the backend');
+assert(posView.includes('const matchesAvailability = item.available === true') &&
+  posView.includes('return matchesAvailability && matchesCategory && matchesQuery'),
+  'POS catalog hides dishes that are not explicitly available');
+
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const managerRule = firestoreRules.match(/role == 'manager' && permission in \[([\s\S]*?)\]\)/)?.[1] || '';
 assert(managerRule.includes("'orders.cancel'") && managerRule.includes("'payments.refund'"), 'Firestore manager ceiling includes cancellation and refund permissions');
