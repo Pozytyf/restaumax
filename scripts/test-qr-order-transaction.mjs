@@ -179,8 +179,16 @@ async function run() {
     assert(inactiveStaffTable.success === false, 'Une commande POS est refusée si la table devient inactive avant la transaction');
     await tableRef.update({ isActive: true });
 
-    // Both public customer order modes must be rejected when the restaurant closes.
+    // A committed order can be safely replayed after closure without creating a duplicate.
+    const takeawayReplayParams = buildParams('takeaway-replay-closed-' + Date.now(), 'a_emporter');
+    const initialTakeaway = await executeOrderTransactionWithDb(db, takeawayReplayParams);
+    assert(initialTakeaway.success === true, 'Une commande à emporter valide est créée avant fermeture');
     await restaurantRef.update({ isOpen: false, status: 'active', deletedAt: null });
+    const replayAfterClosure = await executeOrderTransactionWithDb(db, takeawayReplayParams);
+    assert(replayAfterClosure.success === true && replayAfterClosure.idempotentReplay === true,
+      'Une reprise idempotente après fermeture restitue la commande existante sans doublon');
+
+    // Both public customer order modes must be rejected when the restaurant closes.
     const closedTakeaway = await executeOrderTransactionWithDb(
       db,
       buildParams('takeaway-closed-' + Date.now(), 'a_emporter')
