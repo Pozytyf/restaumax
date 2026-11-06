@@ -597,6 +597,7 @@ export interface CashSessionApiRecord {
   closingCount?: number;
   expectedCash?: number;
   variance?: number;
+  closedByName?: string;
 }
 
 async function cashSessionRequest(
