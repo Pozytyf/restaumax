@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CartItem, Table } from '../../types/pos';
 import { formatFCFA } from '../../utils/format';
+import { getPosCartLineUnitPrice } from '../../utils/posCart';
 import { sounds } from '../../utils/audio';
 import { 
   Trash2, 
@@ -56,8 +57,7 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
   const [showDiscountInput, setShowDiscountInput] = useState(false);
 
   // Calculations
-  const lineUnitPrice = (item: CartItem) => item.menuItem.price + (item.selectedOption?.extraPrice || 0) + (item.selectedExtras || []).reduce((sum, extra) => sum + extra.price, 0);
-  const subtotal = cart.reduce((sum, item) => sum + lineUnitPrice(item) * item.quantity, 0);
+  const subtotal = cart.reduce((sum, item) => sum + getPosCartLineUnitPrice(item) * item.quantity, 0);
   const discountAmount = Math.round((subtotal * discountPercent) / 100);
   const taxAmount = 0; // Tax included or 0% in standard restaurant display
   const grandTotal = Math.max(0, subtotal - discountAmount + taxAmount);
@@ -165,13 +165,13 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
                     {item.menuItem.name}
                   </h4>
                   <div className="text-[11px] font-semibold text-[#ff6500] tnum">
-                    {formatFCFA(lineUnitPrice(item))} / unité
+                    {formatFCFA(getPosCartLineUnitPrice(item))} / unité
                   </div>
                 </div>
 
                 <div className="text-right shrink-0">
                   <div className="text-xs font-extrabold text-slate-900 tnum">
-                    {formatFCFA(lineUnitPrice(item) * item.quantity)}
+                    {formatFCFA(getPosCartLineUnitPrice(item) * item.quantity)}
                   </div>
                 </div>
               </div>
