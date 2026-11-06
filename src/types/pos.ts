@@ -1,3 +1,4 @@
+import type { MenuOptionGroup, MenuExtra, SelectedOption, SelectedExtra } from './restaumax';
 export type Role = 'pos' | 'floor' | 'kds' | 'manager';
 
 export type Category = 
@@ -20,6 +21,8 @@ export interface MenuItem {
   prepTimeMinutes: number;
   course: 'entree' | 'plat' | 'boisson' | 'dessert';
   tags?: string[];
+  optionGroups?: MenuOptionGroup[];
+  availableExtras?: MenuExtra[];
 }
 
 export interface CartItem {
@@ -27,6 +30,8 @@ export interface CartItem {
   menuItem: MenuItem;
   quantity: number;
   specialInstructions?: string;
+  selectedOption?: SelectedOption;
+  selectedExtras?: SelectedExtra[];
   course: 'entree' | 'plat' | 'dessert' | 'boisson';
 }
 
