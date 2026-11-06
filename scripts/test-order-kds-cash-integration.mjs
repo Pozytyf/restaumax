@@ -4,6 +4,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { processOrderSubmission } from '../src/server/orderService.ts';
 import { toClientCartItem } from '../src/utils/posCart.ts';
+import { mapRestauOrderToKitchenTicket } from '../src/utils/kitchenTicket.ts';
 import { executeOrderTransactionWithDb } from '../server.ts';
 import { updateKitchenItemCompletionWithDb } from '../src/server/kitchenService.ts';
 import { openCashSessionWithDb, recordCashPaymentWithDb } from '../src/server/paymentService.ts';
@@ -172,6 +173,12 @@ async function run() {
       createdLine.selectedExtras?.[0]?.extraId === 'sauce' &&
       createdLine.prepNotes === 'Sauce à part',
       'Les deux groupes obligatoires, le supplément et la note sont persistés sans perte');
+
+    const kitchenTicket = mapRestauOrderToKitchenTicket(created.order);
+    check(kitchenTicket.items[0]?.notes?.includes('Options :') &&
+      kitchenTicket.items[0]?.notes?.includes('Suppléments : Sauce maison') &&
+      kitchenTicket.items[0]?.notes?.includes('Note : Sauce à part'),
+      'Le ticket KDS affiche les options, suppléments et notes de préparation de la commande');
 
     const replay = await processOrderSubmission(payload, provider);
     check(replay.success === true && replay.idempotentReplay === true &&
