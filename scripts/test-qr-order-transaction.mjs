@@ -179,6 +179,19 @@ async function run() {
     assert(inactiveStaffTable.success === false, 'Une commande POS est refusée si la table devient inactive avant la transaction');
     await tableRef.update({ isActive: true });
 
+    // Both public customer order modes must be rejected when the restaurant closes.
+    await restaurantRef.update({ isOpen: false, status: 'active', deletedAt: null });
+    const closedTakeaway = await executeOrderTransactionWithDb(
+      db,
+      buildParams('takeaway-closed-' + Date.now(), 'a_emporter')
+    );
+    assert(closedTakeaway.success === false && closedTakeaway.error?.includes('fermé'),
+      'Une commande à emporter est refusée dans la transaction lorsque le restaurant est fermé');
+    const closedQr = await executeOrderTransactionWithDb(db, buildParams('qr-closed-' + Date.now()));
+    assert(closedQr.success === false,
+      'Une commande QR sur place reste refusée lorsque le restaurant est fermé');
+    await restaurantRef.update({ isOpen: true });
+
     await restaurantRef.update({ isOpen: true, status: 'deleted', deletedAt: Date.now() });
     const deletedRestaurant = await executeOrderTransactionWithDb(db, buildParams('deleted-restaurant-' + Date.now()));
     assert(deletedRestaurant.success === false, 'Un restaurant supprimé logiquement ne peut plus recevoir de commande');
