@@ -117,5 +117,14 @@ assert(appSource.includes('updateKitchenItemCompletionWithServerValidation('), '
 assert(appSource.includes("completed: order.kitchenItemCompletion?.[String(idx)] === true"), 'KDS state is restored from Firestore snapshots');
 assert(kdsView.includes("if (ticket.status !== 'in_prep') return;"), 'KDS line progress is locked after the ticket is ready');
 assert(kdsView.includes('if (!ticket.items.every(item => item.completed))'), 'KDS cannot dispatch a ticket with unfinished lines');
+assert(kdsView.includes("target?.closest('input, textarea, select, button, a, [role=\"button\"], [contenteditable=\"true\"]')"),
+  'KDS global shortcuts do not intercept native interactive controls');
+assert(!kdsView.includes("e.key === 'Tab'"), 'KDS preserves native Tab and Shift+Tab focus navigation');
+assert(kdsView.includes('role="checkbox"') && kdsView.includes('aria-checked={item.completed}'),
+  'KDS preparation rows expose their completion state to assistive technology');
+assert(kdsView.includes("e.key !== ' ' && e.key !== 'Enter'"),
+  'KDS preparation rows can be toggled using the keyboard');
+
+
 assert(rulesSource.includes("existing().get('kitchenItemsCompletedCount', 0) == existing().items.size()"), 'Firestore requires every line to be complete before ready');
 console.log('KDS item progress service, API and transition checks passed.');
