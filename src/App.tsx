@@ -262,7 +262,7 @@ export default function App() {
       price: dish.price,
       description: dish.description,
       imageUrl: dish.imageUrl,
-      available: dish.available !== false,
+      available: dish.available === true,
       prepTimeMinutes: dish.prepTimeMinutes,
       course: dish.category === 'entrees'
         ? 'entree'
