@@ -342,7 +342,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
                     <span className="absolute bottom-1.5 left-1.5 text-[9px] font-bold text-white bg-black/60 backdrop-blur-2xs px-1.5 py-0.5 rounded tnum">
                       {dish.prepTimeMinutes}m
                     </span>
-                  </button>
+                  </div>
 
                   {/* Dish Details */}
                   <div className="flex-1 min-w-0 flex flex-col justify-between">
@@ -368,7 +368,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
                       </span>
                     </div>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
