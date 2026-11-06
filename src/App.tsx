@@ -54,6 +54,7 @@ import {
   updatePendingOrderIntentUncertainty 
 } from './utils/orderIntentStorage';
 import { formatFCFA } from './utils/format';
+import { toClientCartItem } from './utils/posCart';
 import { sounds } from './utils/audio';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -1064,18 +1065,7 @@ export default function App() {
 
     setIsSubmittingPosOrder(true);
     try {
-      const clientCart: ClientCartItem[] = cart.map((item) => ({
-        id: item.id,
-        menuItemId: item.menuItem.id,
-        name: item.menuItem.name,
-        basePrice: item.menuItem.price,
-        unitPrice: item.menuItem.price + (item.selectedOption?.extraPrice || 0) + (item.selectedExtras || []).reduce((sum, extra) => sum + extra.price, 0),
-        quantity: item.quantity,
-        selectedOption: item.selectedOption,
-        selectedExtras: item.selectedExtras || [],
-        prepNotes: item.specialInstructions,
-        imageUrl: item.menuItem.imageUrl
-      }));
+      const clientCart: ClientCartItem[] = cart.map(toClientCartItem);
 
       const result = await submitPosOrderWithServerValidation(activeRestaurantSlug, {
         cart: clientCart,
@@ -1230,22 +1220,7 @@ export default function App() {
     try {
       let order = pendingPosOrder;
       if (!order) {
-        const clientCart: ClientCartItem[] = cart.map((item) => ({
-          id: item.id,
-          menuItemId: item.menuItem.id,
-          name: item.menuItem.name,
-          basePrice: item.menuItem.price,
-          // Match the kitchen path: carry the complete configuration and display price.
-          // The server independently recalculates every option/extra from Firestore.
-          unitPrice: item.menuItem.price +
-            (item.selectedOption?.extraPrice || 0) +
-            (item.selectedExtras || []).reduce((sum, extra) => sum + extra.price, 0),
-          quantity: item.quantity,
-          selectedOption: item.selectedOption,
-          selectedExtras: item.selectedExtras || [],
-          prepNotes: item.specialInstructions,
-          imageUrl: item.menuItem.imageUrl
-        }));
+        const clientCart: ClientCartItem[] = cart.map(toClientCartItem);
 
         const orderResult = await submitPosOrderWithServerValidation(activeRestaurantSlug, {
           cart: clientCart,
