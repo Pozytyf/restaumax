@@ -31,7 +31,20 @@ async function run() {
   const menuItem = {
     id: 'dish-integration', restaurantSlug: slug, name: 'Plat intégration',
     category: 'plats', price: 5000, available: true, description: 'Test transversal',
-    optionGroups: [], availableExtras: []
+    optionGroups: [
+      { id: 'side', name: 'Accompagnement', required: true, options: [
+        { id: 'rice', name: 'Riz', extraPrice: 500 },
+        { id: 'alloco', name: 'Alloco', extraPrice: 800 }
+      ] },
+      { id: 'cooking', name: 'Cuisson', required: true, options: [
+        { id: 'medium', name: 'À point', extraPrice: 0 },
+        { id: 'well', name: 'Bien cuit', extraPrice: 300 }
+      ] }
+    ],
+    availableExtras: [
+      { id: 'sauce', name: 'Sauce maison', price: 1000 },
+      { id: 'egg', name: 'Œuf', price: 500 }
+    ]
   };
 
   try {
@@ -50,10 +63,21 @@ async function run() {
       orderMode: 'a_emporter',
       tableNumber: null,
       idempotencyKey: 'integration-order-' + suffix,
-      declaredTotal: 5000,
+      declaredTotal: 6800,
       cart: [{
         id: 'cart-line-1', menuItemId: menuItem.id, name: menuItem.name,
-        basePrice: 5000, unitPrice: 5000, quantity: 1, selectedExtras: []
+        basePrice: 5000, unitPrice: 6800, quantity: 1,
+        selectedOption: {
+          groupId: 'side+cooking',
+          groupName: 'Accompagnement / Cuisson',
+          optionId: 'rice+well',
+          optionName: 'Accompagnement: Riz · Cuisson: Bien cuit',
+          extraPrice: 800
+        },
+        selectedExtras: [
+          { extraId: 'sauce', name: 'Sauce maison', price: 1000 }
+        ],
+        prepNotes: 'Sauce à part'
       }]
     };
     const provider = {
@@ -75,10 +99,22 @@ async function run() {
     check(created.success === true && Boolean(created.order?.id),
       'Le POS crée une commande validée depuis le catalogue officiel' + (created.error ? ' — ' + created.error : ''));
     const orderId = created.order.id;
+    const createdLine = created.order.items[0];
+    check(createdLine.basePrice === 5000 && createdLine.unitPrice === 6800 &&
+      createdLine.totalPrice === 6800,
+      'Le serveur recalcule le prix depuis le catalogue : base 5 000 + options 800 + supplément 1 000');
+    check(createdLine.selectedOption?.groupId === 'side+cooking' &&
+      createdLine.selectedOption?.optionId === 'rice+well' &&
+      createdLine.selectedExtras?.length === 1 &&
+      createdLine.selectedExtras?.[0]?.extraId === 'sauce' &&
+      createdLine.prepNotes === 'Sauce à part',
+      'Les deux groupes obligatoires, le supplément et la note sont persistés sans perte');
 
     const replay = await processOrderSubmission(payload, provider);
-    check(replay.success === true && replay.idempotentReplay === true && replay.order.id === orderId,
-      'Le rejeu de commande retourne le même document sans doublon');
+    check(replay.success === true && replay.idempotentReplay === true &&
+      replay.order.id === orderId && replay.order.items[0].selectedOption?.optionId === 'rice+well' &&
+      replay.order.items[0].selectedExtras?.[0]?.extraId === 'sauce',
+      'Le rejeu de commande retourne le même document configuré sans doublon');
 
     console.log('\n--- Transmission et progression KDS ---');
     const kitchen = await updateKitchenItemCompletionWithDb(db, {
@@ -102,17 +138,17 @@ async function run() {
 
     const partial = await recordCashPaymentWithDb(db, {
       restaurantSlug: slug, orderId, actorUid: uid, actorName: 'Manager intégration',
-      sessionVersion: 7, amountTendered: 2000, idempotencyKey: 'integration-pay-a-' + suffix
+      sessionVersion: 7, amountTendered: 2800, idempotencyKey: 'integration-pay-a-' + suffix
     });
-    check(partial.success === true && partial.order?.paidAmount === 2000 &&
-      partial.order?.remainingAmount === 3000 && partial.order?.paymentStatus === 'partial',
-      'Un premier encaissement partiel met à jour la commande sans créer une nouvelle commande');
+    check(partial.success === true && partial.order?.paidAmount === 2800 &&
+      partial.order?.remainingAmount === 4000 && partial.order?.paymentStatus === 'partial',
+      'Un premier encaissement partiel met à jour la commande configurée sans la recréer');
 
     const final = await recordCashPaymentWithDb(db, {
       restaurantSlug: slug, orderId, actorUid: uid, actorName: 'Manager intégration',
-      sessionVersion: 7, amountTendered: 3000, idempotencyKey: 'integration-pay-b-' + suffix
+      sessionVersion: 7, amountTendered: 4000, idempotencyKey: 'integration-pay-b-' + suffix
     });
-    check(final.success === true && final.order?.paidAmount === 5000 &&
+    check(final.success === true && final.order?.paidAmount === 6800 &&
       final.order?.remainingAmount === 0 && final.order?.paymentStatus === 'paid',
       'Le second encaissement solde exactement la même commande');
 
@@ -120,14 +156,17 @@ async function run() {
     const payments = await restaurantRef.collection('payments').where('orderId', '==', orderId).get();
     const cashSession = await restaurantRef.collection('cashSessions').doc(opened.session.id).get();
     check(persisted?.kitchenItemCompletion?.['0'] === true &&
-      persisted?.kitchenItemsCompletedCount === 1 && persisted?.paidAmount === 5000,
+      persisted?.kitchenItemsCompletedCount === 1 && persisted?.paidAmount === 6800 &&
+      persisted?.items?.[0]?.selectedOption?.optionId === 'rice+well' &&
+      persisted?.items?.[0]?.selectedExtras?.[0]?.extraId === 'sauce' &&
+      persisted?.items?.[0]?.prepNotes === 'Sauce à part',
       'Les écritures caisse ne détruisent pas la progression KDS déjà enregistrée');
-    check(payments.size === 2 && cashSession.data()?.cashCollected === 5000,
+    check(payments.size === 2 && cashSession.data()?.cashCollected === 6800,
       'Le journal de paiements et le solde de caisse concordent avec les deux encaissements');
 
     const replayPayment = await recordCashPaymentWithDb(db, {
       restaurantSlug: slug, orderId, actorUid: uid, actorName: 'Manager intégration',
-      sessionVersion: 7, amountTendered: 3000, idempotencyKey: 'integration-pay-b-' + suffix
+      sessionVersion: 7, amountTendered: 4000, idempotencyKey: 'integration-pay-b-' + suffix
     });
     check(replayPayment.success === true && replayPayment.idempotentReplay === true && payments.size === 2,
       'Le rejeu d’un paiement ne double pas le journal ni le montant encaissé');
