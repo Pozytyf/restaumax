@@ -89,9 +89,16 @@ export const KdsView: React.FC<KdsViewProps> = ({
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept if user is typing in an input or textarea
-      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (targetTag === 'input' || targetTag === 'textarea' || targetTag === 'select') {
+      // Preserve native keyboard navigation and activation for all interactive controls.
+      const target = e.target as HTMLElement | null;
+      if (
+        e.defaultPrevented ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.altKey ||
+        target?.isContentEditable ||
+        target?.closest('input, textarea, select, button, a, [role="button"], [contenteditable="true"]')
+      ) {
         return;
       }
 
@@ -111,7 +118,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
       }
 
       // Arrow navigation
-      if (e.key === 'ArrowRight' || e.key === 'l' || e.key === 'Tab' && !e.shiftKey) {
+      if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'l') {
         if (activeTickets.length > 0) {
           e.preventDefault();
           const nextIndex = (selectedTicketIndex + 1) % activeTickets.length;
@@ -122,7 +129,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
         return;
       }
 
-      if (e.key === 'ArrowLeft' || e.key === 'h' || e.key === 'Tab' && e.shiftKey) {
+      if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'h') {
         if (activeTickets.length > 0) {
           e.preventDefault();
           const prevIndex = (selectedTicketIndex - 1 + activeTickets.length) % activeTickets.length;
@@ -421,15 +428,25 @@ export const KdsView: React.FC<KdsViewProps> = ({
                     {ticket.items.map((item) => (
                       <div
                         key={item.id}
+                        role="checkbox"
+                        aria-checked={item.completed}
+                        aria-disabled={ticket.status !== 'in_prep'}
+                        tabIndex={ticket.status === 'in_prep' ? 0 : -1}
                         onClick={(e) => {
                           e.stopPropagation();
                           if (ticket.status !== 'in_prep') return;
                           sounds.playTap();
                           onToggleItemComplete(ticket.id, item.id, !item.completed);
                         }}
-                        aria-disabled={ticket.status !== 'in_prep'}
+                        onKeyDown={(e) => {
+                          if (ticket.status !== 'in_prep' || (e.key !== ' ' && e.key !== 'Enter')) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          sounds.playTap();
+                          onToggleItemComplete(ticket.id, item.id, !item.completed);
+                        }}
                         title={ticket.status !== 'in_prep' ? 'La commande est prête : progression verrouillée.' : 'Marquer la ligne comme préparée'}
-                        className={`py-2.5 px-2 rounded-lg ${ticket.status === 'in_prep' ? 'cursor-pointer' : 'cursor-not-allowed'} transition-colors flex items-start gap-2.5 ${
+                        className={`py-2.5 px-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${ticket.status === 'in_prep' ? 'cursor-pointer' : 'cursor-not-allowed'} transition-colors flex items-start gap-2.5 ${
                           item.completed
                             ? 'bg-slate-100 opacity-60'
                             : 'hover:bg-slate-50'
