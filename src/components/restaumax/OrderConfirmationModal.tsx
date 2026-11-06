@@ -16,6 +16,7 @@ import {
 
 interface OrderConfirmationModalProps {
   order: RestauOrder | null;
+  restaurantName: string;
   onClose: () => void;
   onNewOrder: () => void;
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
@@ -23,6 +24,7 @@ interface OrderConfirmationModalProps {
 
 export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   order,
+  restaurantName,
   onClose,
   onNewOrder,
   onStartPayDunyaPayment
@@ -222,7 +224,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
           <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 flex items-start gap-2.5">
             <Sparkles size={16} className="text-emerald-600 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
-              <span className="font-bold text-emerald-900">Préparation en cours :</span> Le chef et l'équipe de Chez Awa ont reçu votre ticket. Installez-vous confortablement, le service sera assuré dès que vos plats seront prêts.
+              <span className="font-bold text-emerald-900">Préparation en cours :</span> L'équipe de {restaurantName} a reçu votre ticket. Installez-vous confortablement, le service sera assuré dès que vos plats seront prêts.
             </div>
           </div>
         </div>
