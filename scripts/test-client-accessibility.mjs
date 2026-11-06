@@ -46,6 +46,14 @@ for (const [name, source] of [['détail produit', files.product], ['panier', fil
 
 assert(files.product.includes('role="alert"') && files.product.includes('aria-live="assertive"'),
   'Les erreurs de validation des options sont annoncées');
+assert(files.product.includes('aria-pressed={isSelected}') && files.product.includes('aria-pressed={isChecked}'),
+  'Les choix d’options et suppléments sont des contrôles natifs annoncés comme sélectionnés');
+assert(files.product.includes('htmlFor="product-prep-notes"') && files.product.includes('id="product-prep-notes"'),
+  'Le champ de consigne produit possède un libellé programmatique');
+assert(files.cart.includes('htmlFor="cart-customer-note"') && files.cart.includes('id="cart-customer-note"'),
+  'Le champ de consigne globale du panier possède un libellé programmatique');
+assert(files.confirmation.includes('aria-label="Opérateur Mobile Money"'),
+  'Le sélecteur de l’opérateur Mobile Money possède un nom accessible');
 assert(files.cart.includes('role="alert"') && files.cart.includes('aria-live="assertive"'),
   'Les erreurs de soumission de commande sont annoncées');
 assert(files.cart.includes('Transmission incertaine') && files.cart.includes('role="alert" aria-live="assertive" className="mx-4 mt-3 p-3.5'),
