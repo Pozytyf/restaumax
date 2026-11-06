@@ -443,6 +443,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       {/* Cart Drawer */}
       <CartDrawer
         isOpen={isCartOpen}
+        restaurantName={restaurant.name}
         onClose={() => setIsCartOpen(false)}
         cart={cart}
         tableNumber={tableNumber}
