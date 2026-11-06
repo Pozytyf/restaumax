@@ -91,12 +91,13 @@ export const PosView: React.FC<PosViewProps> = ({
   // Filtered menu
   const filteredItems = useMemo(() => {
     return menuItems.filter((item) => {
+      const matchesAvailability = item.available === true;
       const matchesCategory = selectedCategory === 'tous' || item.category === selectedCategory;
       const matchesQuery = !searchQuery || 
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.tags && item.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())));
-      return matchesCategory && matchesQuery;
+      return matchesAvailability && matchesCategory && matchesQuery;
     });
   }, [menuItems, selectedCategory, searchQuery]);
 
