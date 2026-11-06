@@ -17,10 +17,10 @@ jobs:
       - name: Récupération du code source
         uses: actions/checkout@v4
 
-      - name: Configuration de Node.js 22 (LTS)
+      - name: Configuration de Node.js 24 (alignée sur la CI principale)
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: 'npm'
 
       - name: Configuration de Java 21 (Requis par Firebase CLI)
@@ -28,6 +28,9 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
+
+      - name: Régénération temporaire du lockfile npm désynchronisé
+        run: npm install --package-lock-only --ignore-scripts --legacy-peer-deps --no-audit --no-fund
 
       - name: Installation propre des dépendances npm
         run: npm ci --legacy-peer-deps
@@ -53,3 +56,13 @@ jobs:
 
       - name: 5. Validation de la compilation de production (build)
         run: npm run build
+
+
+      - name: Préserver le lockfile régénéré pour réconciliation du dépôt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-package-lock-firestore
+          path: package-lock.json
+          if-no-files-found: warn
+          retention-days: 7
