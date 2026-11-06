@@ -952,6 +952,52 @@ export default function App() {
     }
     const dish = menuItems.find((item) => item.id === configuredItem.menuItemId);
     if (!dish || dish.available !== true) return false;
+    if (!Number.isInteger(configuredItem.quantity) || configuredItem.quantity < 1 || configuredItem.quantity > 50) return false;
+
+    // Rebuild all selected prices and labels from the latest live catalogue.
+    // Never trust values returned by the browser's product configurator.
+    const requestedGroupIds = configuredItem.selectedOption?.groupId.split('+') || [];
+    const requestedOptionIds = configuredItem.selectedOption?.optionId.split('+') || [];
+    if (requestedGroupIds.length !== requestedOptionIds.length ||
+        new Set(requestedGroupIds).size !== requestedGroupIds.length) return false;
+
+    const resolvedOptions = requestedGroupIds.map((groupId, index) => {
+      const group = dish.optionGroups?.find((candidate) => candidate.id === groupId);
+      const option = group?.options.find((candidate) => candidate.id === requestedOptionIds[index]);
+      return group && option ? {
+        groupId: group.id,
+        groupName: group.name,
+        optionId: option.id,
+        optionName: option.name,
+        extraPrice: option.extraPrice
+      } : null;
+    });
+    if (resolvedOptions.some((option) => option === null)) return false;
+    if ((dish.optionGroups || []).some((group) =>
+      group.required && !resolvedOptions.some((option) => option?.groupId === group.id)
+    )) return false;
+
+    const verifiedOptions = resolvedOptions.filter((option): option is NonNullable<typeof option> => option !== null);
+    const verifiedSelectedOption: ClientCartItem['selectedOption'] = verifiedOptions.length === 0
+      ? undefined
+      : {
+          groupId: verifiedOptions.map((option) => option.groupId).join('+'),
+          groupName: verifiedOptions.map((option) => option.groupName).join(' / '),
+          optionId: verifiedOptions.map((option) => option.optionId).join('+'),
+          optionName: verifiedOptions.map((option) => `${option.groupName}: ${option.optionName}`).join(' · '),
+          extraPrice: verifiedOptions.reduce((sum, option) => sum + option.extraPrice, 0)
+        };
+
+    const requestedExtras = configuredItem.selectedExtras || [];
+    const requestedExtraIds = requestedExtras.map((extra) => extra.extraId);
+    if (new Set(requestedExtraIds).size !== requestedExtraIds.length) return false;
+    const verifiedExtras = requestedExtraIds.map((extraId) => {
+      const extra = dish.availableExtras?.find((candidate) => candidate.id === extraId);
+      return extra ? { extraId: extra.id, name: extra.name, price: extra.price } : null;
+    });
+    if (verifiedExtras.some((extra) => extra === null)) return false;
+    const selectedExtras = verifiedExtras.filter((extra): extra is NonNullable<typeof extra> => extra !== null);
+    const prepNotes = (configuredItem.prepNotes || '').trim().slice(0, 150);
 
     const configurationKey = (option?: ClientCartItem['selectedOption'], extras: ClientCartItem['selectedExtras'] = []) =>
       JSON.stringify({
@@ -961,11 +1007,11 @@ export default function App() {
       });
 
     setCart((prev) => {
-      const key = configurationKey(configuredItem.selectedOption, configuredItem.selectedExtras);
+      const key = configurationKey(verifiedSelectedOption, selectedExtras);
       const existing = prev.find((item) =>
         item.menuItem.id === dish.id &&
         configurationKey(item.selectedOption, item.selectedExtras || []) === key &&
-        (item.specialInstructions || '') === (configuredItem.prepNotes || '')
+        (item.specialInstructions || '') === prepNotes
       );
       if (existing) {
         return prev.map((item) =>
@@ -976,9 +1022,9 @@ export default function App() {
         id: configuredItem.id,
         menuItem: dish,
         quantity: configuredItem.quantity,
-        selectedOption: configuredItem.selectedOption,
-        selectedExtras: configuredItem.selectedExtras,
-        specialInstructions: configuredItem.prepNotes,
+        selectedOption: verifiedSelectedOption,
+        selectedExtras,
+        specialInstructions: prepNotes,
         course: dish.course
       }];
     });
