@@ -10,8 +10,44 @@
   },
   "rewrites": [
     {
+      "source": "/api/health",
+      "destination": "/api/core?route=health"
+    },
+    {
+      "source": "/api/inventory",
+      "destination": "/api/core?route=inventory"
+    },
+    {
+      "source": "/api/kitchen-item",
+      "destination": "/api/core?route=kitchen-item"
+    },
+    {
+      "source": "/api/orders",
+      "destination": "/api/core?route=orders"
+    },
+    {
+      "source": "/api/platform-admin",
+      "destination": "/api/core?route=platform-admin"
+    },
+    {
+      "source": "/api/pos-orders",
+      "destination": "/api/core?route=pos-orders"
+    },
+    {
+      "source": "/api/table-session",
+      "destination": "/api/core?route=table-session"
+    },
+    {
+      "source": "/api/tables/qr",
+      "destination": "/api/core?route=tables/qr"
+    },
+    {
+      "source": "/api/tables/resolve-qr",
+      "destination": "/api/core?route=tables/resolve-qr"
+    },
+    {
       "source": "/q/:token",
-      "destination": "/api/tables/resolve-qr?token=:token"
+      "destination": "/api/core?route=tables/resolve-qr&token=:token"
     },
     {
       "source": "/r/:path*",
