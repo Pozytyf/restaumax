@@ -428,15 +428,25 @@ export const KdsView: React.FC<KdsViewProps> = ({
                     {ticket.items.map((item) => (
                       <div
                         key={item.id}
+                        role="checkbox"
+                        aria-checked={item.completed}
+                        aria-disabled={ticket.status !== 'in_prep'}
+                        tabIndex={ticket.status === 'in_prep' ? 0 : -1}
                         onClick={(e) => {
                           e.stopPropagation();
                           if (ticket.status !== 'in_prep') return;
                           sounds.playTap();
                           onToggleItemComplete(ticket.id, item.id, !item.completed);
                         }}
-                        aria-disabled={ticket.status !== 'in_prep'}
+                        onKeyDown={(e) => {
+                          if (ticket.status !== 'in_prep' || (e.key !== ' ' && e.key !== 'Enter')) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          sounds.playTap();
+                          onToggleItemComplete(ticket.id, item.id, !item.completed);
+                        }}
                         title={ticket.status !== 'in_prep' ? 'La commande est prête : progression verrouillée.' : 'Marquer la ligne comme préparée'}
-                        className={`py-2.5 px-2 rounded-lg ${ticket.status === 'in_prep' ? 'cursor-pointer' : 'cursor-not-allowed'} transition-colors flex items-start gap-2.5 ${
+                        className={`py-2.5 px-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${ticket.status === 'in_prep' ? 'cursor-pointer' : 'cursor-not-allowed'} transition-colors flex items-start gap-2.5 ${
                           item.completed
                             ? 'bg-slate-100 opacity-60'
                             : 'hover:bg-slate-50'
