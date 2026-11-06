@@ -29,9 +29,6 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Régénération temporaire du lockfile npm désynchronisé
-        run: npm install --package-lock-only --ignore-scripts --legacy-peer-deps --no-audit --no-fund
-
       - name: Installation propre des dépendances npm
         run: npm ci --legacy-peer-deps
 
@@ -56,13 +53,3 @@ jobs:
 
       - name: 5. Validation de la compilation de production (build)
         run: npm run build
-
-
-      - name: Préserver le lockfile régénéré pour réconciliation du dépôt
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: regenerated-package-lock-firestore
-          path: package-lock.json
-          if-no-files-found: warn
-          retention-days: 7
