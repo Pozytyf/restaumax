@@ -396,7 +396,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 )}
               </button>
 
-              <div className="flex items-center justify-between text-[10px] text-slate-600 px-1">
+              <div className="flex items-center justify-between text-[10px] text-slate-300 px-1">
                 <span>Paiement en espèces ou Mobile Money au service</span>
                 <span className="text-slate-300 font-semibold">TVA incluse (FCFA)</span>
               </div>
