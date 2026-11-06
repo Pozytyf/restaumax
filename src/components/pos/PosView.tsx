@@ -80,10 +80,7 @@ export const PosView: React.FC<PosViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<Category>('tous');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<MenuItem | null>(null);
-  const [showCustomItemModal, setShowCustomItemModal] = useState(false);
-  const [customName, setCustomName] = useState('');
-  const [customPrice, setCustomPrice] = useState('');
-
+ 
   // Cart item count map for badge display on item cards
   const cartCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -105,29 +102,6 @@ export const PosView: React.FC<PosViewProps> = ({
       return matchesAvailability && matchesCategory && matchesQuery;
     });
   }, [menuItems, selectedCategory, searchQuery]);
-
-  const handleAddCustomItem = (e: React.FormEvent) => {
-    e.preventDefault();
-    const priceNum = parseInt(customPrice.replace(/\D/g, ''), 10);
-    if (!customName.trim() || isNaN(priceNum) || priceNum <= 0) return;
-
-    const newItem: MenuItem = {
-      id: `custom-${Date.now()}`,
-      name: customName.trim(),
-      category: 'plats',
-      price: priceNum,
-      description: 'Article spécial sur mesure',
-      imageUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=600&q=80',
-      available: true,
-      prepTimeMinutes: 10,
-      course: 'plat'
-    };
-
-    window.alert('Les articles libres ne peuvent pas être envoyés en commande tant qu’ils ne sont pas enregistrés dans le catalogue officiel.');
-    setCustomName('');
-    setCustomPrice('');
-    setShowCustomItemModal(false);
-  };
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row h-[calc(100vh-60px)] overflow-hidden bg-[#f4f7fb]">
@@ -158,11 +132,14 @@ export const PosView: React.FC<PosViewProps> = ({
 
             {/* Quick Action Button for Custom Item */}
             <button
-              onClick={() => window.alert('Les articles libres ne sont pas encore pris en charge par la validation sécurisée du catalogue. Utilisez un article enregistré au menu.')}
-              className="text-xs font-bold px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg transition-colors flex items-center gap-1.5 self-start sm:self-auto shrink-0"
+              type="button"
+              disabled
+              title="Disponible après mise en place d'une création sécurisée côté serveur."
+              aria-label="Article libre indisponible : utilisez un article du catalogue"
+              className="text-xs font-bold px-3 py-2 bg-slate-100 text-slate-500 rounded-lg flex items-center gap-1.5 self-start sm:self-auto shrink-0 cursor-not-allowed opacity-70"
             >
               <Plus size={14} />
-              Article Libre
+              Article Libre (indisponible)
             </button>
           </div>
 
@@ -356,77 +333,7 @@ export const PosView: React.FC<PosViewProps> = ({
         />
       )}
 
-      {/* Custom Item Modal */}
-      {showCustomItemModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
-          <form
-            onSubmit={handleAddCustomItem}
-            className="bg-white rounded-xl shadow-2xl border border-slate-200 p-5 w-full max-w-sm"
-          >
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
-              <h3 className="text-sm font-bold text-slate-900">
-                Ajouter un article sur mesure
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowCustomItemModal(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                ✕
-              </button>
-            </div>
 
-            <div className="space-y-3 mb-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Nom du plat / article
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Supplément Homard, Bouteille Champagne..."
-                  value={customName}
-                  onChange={(e) => setCustomName(e.target.value)}
-                  className="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-[#ff6500] focus:outline-none"
-                  autoFocus
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Prix en FCFA
-                </label>
-                <input
-                  type="number"
-                  placeholder="Ex: 5000"
-                  value={customPrice}
-                  onChange={(e) => setCustomPrice(e.target.value)}
-                  className="w-full text-xs font-bold border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-[#ff6500] focus:outline-none tnum"
-                  required
-                  min="100"
-                  step="100"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCustomItemModal(false)}
-                className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-md"
-              >
-                Annuler
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-1.5 text-xs font-bold bg-[#ff6500] text-white hover:bg-[#e05800] rounded-md shadow-sm"
-              >
-                Ajouter au panier
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   );
 };
