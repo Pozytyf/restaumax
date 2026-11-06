@@ -42,8 +42,17 @@ assert(app.includes('subscribeToMenuItems(') && app.includes('activeRestaurantSl
 assert(app.includes('setMenuItems(activeMenuItems.map((dish) => ({'),
   'the POS menu is derived from the same live Firestore catalogue');
 const clientMenu = fs.readFileSync(new URL('../src/components/restaumax/ClientMenuView.tsx', import.meta.url), 'utf8');
+const cartDrawer = fs.readFileSync(new URL('../src/components/restaumax/CartDrawer.tsx', import.meta.url), 'utf8');
+const orderConfirmation = fs.readFileSync(new URL('../src/components/restaumax/OrderConfirmationModal.tsx', import.meta.url), 'utf8');
 assert(clientMenu.includes('available === false') || clientMenu.includes('available !== false'),
   'unavailable dishes are excluded from the customer ordering flow');
+assert(clientMenu.includes('restaurantName={restaurant.name}') &&
+  cartDrawer.includes('restaurantName: string') &&
+  cartDrawer.includes('Parcourez le menu de {restaurantName}') &&
+  orderConfirmation.includes('L\'équipe de {restaurantName} a reçu votre ticket.'),
+  'cart and order confirmation use the active restaurant name in multi-tenant customer flows');
+assert(!cartDrawer.includes('Chez Awa') && !orderConfirmation.includes('Chez Awa'),
+  'customer cart and order confirmation contain no hardcoded demo restaurant name');
 assert(menuView.includes('canManageCatalog = false') && menuView.includes('if (!canManageCatalog) return'),
   'catalogue mutation actions are guarded by the menu.manage permission');
 assert(menuView.includes("(item.description || '').toLowerCase().includes(query)"),
