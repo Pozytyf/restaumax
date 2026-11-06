@@ -2,7 +2,7 @@ name: RestauMax — Tests Firestore Emulator & Qualité
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, stabilize/ai-studio-sync-2026-11-06 ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
