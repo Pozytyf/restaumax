@@ -50,6 +50,8 @@ assert(files.cart.includes('role="alert"') && files.cart.includes('aria-live="as
   'Les erreurs de soumission de commande sont annoncées');
 assert(files.cart.includes('role="status"') && files.cart.includes('aria-live="polite"'),
   'Le chargement de la commande est annoncé');
+assert(files.cart.includes('catch (err') && files.cart.includes('setSubmitError(err?.message'),
+  'Une erreur réseau est capturée et présentée sans vider le panier');
 assert(files.confirmation.includes('role="status"') && files.confirmation.includes('aria-live="polite"'),
   'La confirmation de commande est annoncée');
 assert(files.confirmation.includes('paymentError') && files.confirmation.includes('role="alert"'),
