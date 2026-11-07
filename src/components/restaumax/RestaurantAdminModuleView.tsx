@@ -50,7 +50,7 @@ export const RestaurantAdminModuleView: React.FC<{
     name: restaurant.name, tagline: restaurant.tagline || '', address: restaurant.address || '',
     city: restaurant.city || '', phone: restaurant.phone || '', openingHours: restaurant.openingHours || '',
     isOpen: restaurant.isOpen, taxRatePercent: String(restaurant.taxRatePercent ?? 0),
-    taxMode: restaurant.taxMode || 'exclusive', receiptFooter: restaurant.receiptFooter || '', receiptPaperWidth: restaurant.receiptPaperWidth || '80mm'
+    taxMode: restaurant.taxMode || 'exclusive', loyaltyPointsPer1000: String(restaurant.loyaltyPointsPer1000 ?? 1), receiptFooter: restaurant.receiptFooter || '', receiptPaperWidth: restaurant.receiptPaperWidth || '80mm'
   });
 
   useEffect(() => {
@@ -236,7 +236,9 @@ export const RestaurantAdminModuleView: React.FC<{
   const saveSettings = async (event: React.FormEvent) => {
     event.preventDefault(); setLoading(true); setError(''); setNotice('');
     const taxRatePercent = Number(settings.taxRatePercent);
-    if (!settings.name.trim() || !Number.isFinite(taxRatePercent) || taxRatePercent < 0 || taxRatePercent > 100) {
+    const loyaltyPointsPer1000 = Number(settings.loyaltyPointsPer1000);
+    if (!settings.name.trim() || !Number.isFinite(taxRatePercent) || taxRatePercent < 0 || taxRatePercent > 100 ||
+        !Number.isInteger(loyaltyPointsPer1000) || loyaltyPointsPer1000 < 0 || loyaltyPointsPer1000 > 100) {
       setError('Nom du restaurant ou taux de taxe invalide (0 à 100 %).'); setLoading(false); return;
     }
     try {
@@ -244,7 +246,7 @@ export const RestaurantAdminModuleView: React.FC<{
         ...restaurant, name: settings.name.trim(), tagline: settings.tagline.trim(),
         address: settings.address.trim(), city: settings.city.trim(), phone: settings.phone.trim(),
         openingHours: settings.openingHours.trim(), isOpen: settings.isOpen,
-        taxRatePercent, taxMode: settings.taxMode as 'exclusive' | 'inclusive', receiptFooter: settings.receiptFooter.trim(),
+        taxRatePercent, taxMode: settings.taxMode as 'exclusive' | 'inclusive', loyaltyPointsPer1000, receiptFooter: settings.receiptFooter.trim(),
         receiptPaperWidth: settings.receiptPaperWidth as '58mm' | '80mm'
       });
       setNotice('Paramètres enregistrés dans Firestore.');
@@ -351,6 +353,7 @@ export const RestaurantAdminModuleView: React.FC<{
         <label className="text-sm font-semibold">Horaires d'ouverture<input value={settings.openingHours} onChange={e=>setSettings({...settings,openingHours:e.target.value})} placeholder="Ex. Lun–Dim : 11h–23h" className="mt-1 w-full rounded-lg border p-3"/></label>
         <label className="text-sm font-semibold">Taux de taxe (%)<input type="number" min="0" max="100" step="0.01" value={settings.taxRatePercent} onChange={e=>setSettings({...settings,taxRatePercent:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/><span className="text-xs font-normal text-slate-500">Appliqué par le serveur aux nouvelles commandes. Vérifiez le taux applicable à votre régime fiscal.</span></label>
         <label className="text-sm font-semibold">Mode de calcul de la taxe<select value={settings.taxMode} onChange={e=>setSettings({...settings,taxMode:e.target.value as 'exclusive'|'inclusive'})} className="mt-1 w-full rounded-lg border p-3"><option value="exclusive">Taxe ajoutée au prix (HT → TTC)</option><option value="inclusive">Taxe déjà incluse dans le prix (TTC)</option></select><span className="text-xs font-normal text-slate-500">Le mode est enregistré avec les paramètres du restaurant et figé sur chaque commande.</span></label>
+        <label className="text-sm font-semibold">Points fidélité par tranche de 1 000 FCFA<input type="number" min="0" max="100" step="1" value={settings.loyaltyPointsPer1000} onChange={e=>setSettings({...settings,loyaltyPointsPer1000:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/><span className="text-xs font-normal text-slate-500">Par défaut : 1 point pour 1 000 FCFA entièrement encaissés. 0 désactive l’attribution automatique.</span></label>
         <label className="text-sm font-semibold">Format d'impression ticket<select value={settings.receiptPaperWidth} onChange={e=>setSettings({...settings,receiptPaperWidth:e.target.value as '58mm'|'80mm'})} className="mt-1 w-full rounded-lg border p-3"><option value="58mm">58 mm</option><option value="80mm">80 mm</option></select></label>
         <label className="text-sm font-semibold md:col-span-2">Pied de ticket<input value={settings.receiptFooter} onChange={e=>setSettings({...settings,receiptFooter:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/></label>
         <label className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm font-bold md:col-span-2"><input type="checkbox" checked={settings.isOpen} onChange={e=>setSettings({...settings,isOpen:e.target.checked})}/> Restaurant ouvert aux commandes client</label>
