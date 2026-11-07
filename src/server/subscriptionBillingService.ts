@@ -210,7 +210,13 @@ export async function settleSubscriptionInvoiceWithDb(
       ...invoice, status: 'paid', paidAt: now, paymentReference,
       amountPaidFcfa: input.amountFcfa, paidBy: input.actorUid
     };
-    tx.update(invoiceRef, updatedInvoice);
+    tx.update(invoiceRef, { ...updatedInvoice, paymentMethod: 'manual' });
+    const subscriptionPaymentId = `subpay_${hash(slug + ':' + invoiceId + ':' + paymentReference)}`;
+    tx.create(subscriptionRef.collection('payments').doc(subscriptionPaymentId), {
+      id: subscriptionPaymentId, invoiceId, restaurantSlug: slug,
+      amountFcfa: input.amountFcfa, currency: 'XOF', method: 'manual',
+      paymentReference, paidAt: now, recordedBy: input.actorUid
+    });
     tx.update(subscriptionRef, {
       status: 'active', startsAt: periodStart, endsAt: periodEnd, nextBillingAt: periodEnd,
       currentInvoiceId: null, currentInvoiceAmountFcfa: null, pastDueAt: null, suspendedAt: null,
