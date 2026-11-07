@@ -17,6 +17,8 @@ const restaurantRef = db.collection('restaurants').doc(slug);
 try {
   await Promise.all([
     restaurantRef.set({ slug, status: 'active', isOpen: true, ownerUid: 'owner-subscription-test', tableSessionVersion: 3 }),
+    restaurantRef.collection('table_sessions').doc('active-session').set({ status: 'active', sessionHash: 'active-session' }),
+    restaurantRef.collection('table_qr_tokens').doc('active-token').set({ status: 'active', tokenHash: 'active-token', tableId: 'table-4' }),
     subscriptionRef.set({
       planName: 'Pro', priceFcfa: 25000, currency: 'XOF', billingCycle: 'monthly',
       status: 'active', startsAt: now - 30 * 86400000, endsAt: now - 1000,
@@ -49,6 +51,10 @@ try {
   assert.equal(suspended.status, 'suspended');
   assert.equal(suspended.suspensionReason, 'subscription_past_due');
   assert.equal(suspended.tableSessionVersion, 4);
+  assert.equal((await restaurantRef.collection('table_sessions').doc('active-session').get()).data().status, 'revoked',
+    'Les sessions QR actives sont révoquées lors de la suspension');
+  assert.equal((await restaurantRef.collection('table_qr_tokens').doc('active-token').get()).data().status, 'revoked',
+    'Les anciens QR sont révoqués pour empêcher leur réutilisation après réactivation');
 
   const settled = await settleSubscriptionInvoiceWithDb(db, {
     restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
@@ -99,7 +105,7 @@ try {
   assert.equal((await freeRef.get()).data().status, 'active');
   assert.equal((await freeRef.collection('invoices').get()).size, 0);
 
-  console.log('Subscription billing Firestore Emulator tests passed: 25 assertions.');
+  console.log('Subscription billing Firestore Emulator tests passed: 27 assertions.');
 } finally {
   await app.delete();
 }
