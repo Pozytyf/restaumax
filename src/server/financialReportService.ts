@@ -72,3 +72,52 @@ export function calculateFinancialReport(input: FinancialReportInput): Financial
     grossMarginPercent: collectedFcfa > 0 ? Math.round((grossMarginFcfa / collectedFcfa) * 10000) / 100 : 0
   };
 }
+
+export async function getFinancialReportWithDb(
+  db: any,
+  input: { restaurantSlug: string; actorUid: string; sessionVersion: number; from?: number; to?: number }
+) {
+  const slug = String(input.restaurantSlug || '').trim();
+  const uid = String(input.actorUid || '').trim();
+  const now = Date.now();
+  const from = Number(input.from || now - 30 * 24 * 60 * 60 * 1000);
+  const to = Number(input.to || now);
+  if (!db || !/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !uid ||
+      !Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from <= 0 || to < from ||
+      to - from > 93 * 24 * 60 * 60 * 1000) {
+    return { success: false, error: 'Période ou restaurant invalide (maximum 93 jours).' };
+  }
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const memberRef = db.collection('managers').doc(uid);
+  const [restaurantSnap, memberSnap] = await Promise.all([restaurantRef.get(), memberRef.get()]);
+  const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+  const member = memberSnap.exists ? memberSnap.data() : null;
+  const isOwner = member?.role === 'owner' && restaurant?.ownerUid === uid;
+  const canView = isOwner || (
+    member?.role === 'manager' && Array.isArray(member.permissions) && member.permissions.includes('reports.view')
+  );
+  if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt ||
+      !member || member.active !== true || member.restaurantSlug !== slug ||
+      Number(member.sessionVersion || 0) !== Number(input.sessionVersion || 0) || !canView) {
+    return { success: false, error: 'Accès aux rapports financiers refusé.' };
+  }
+
+  const [ordersSnap, paymentsSnap, movementsSnap, consumptionsSnap] = await Promise.all([
+    restaurantRef.collection('orders').where('createdAt', '>=', from).where('createdAt', '<=', to).get(),
+    restaurantRef.collection('payments').where('createdAt', '>=', from).where('createdAt', '<=', to).get(),
+    restaurantRef.collection('cashMovements').where('createdAt', '>=', from).where('createdAt', '<=', to).get(),
+    restaurantRef.collection('stockOrderConsumptions').where('consumedAt', '>=', from).where('consumedAt', '<=', to).get()
+  ]);
+  const data = {
+    orders: ordersSnap.docs.map((doc: any) => doc.data()),
+    payments: paymentsSnap.docs.map((doc: any) => doc.data()),
+    cashMovements: movementsSnap.docs.map((doc: any) => doc.data()),
+    stockConsumptions: consumptionsSnap.docs.map((doc: any) => doc.data())
+  };
+  return {
+    success: true,
+    from,
+    to,
+    report: calculateFinancialReport(data)
+  };
+}
