@@ -320,8 +320,8 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
       <div className="p-4 bg-[#101d2d] text-white border-t border-slate-800 shadow-xl">
         <div className="space-y-1.5 mb-3 text-xs">
           <div className="flex justify-between text-slate-300 font-medium">
-            <span>Sous-total</span>
-            <span className="font-bold tnum">{formatFCFA(subtotal)}</span>
+            <span>Sous-total HT</span>
+            <span className="font-bold tnum">{formatFCFA(taxBreakdown.subtotalAmount)}</span>
           </div>
           <div className="flex justify-between text-slate-300 font-medium">
             <span>{taxMode === 'inclusive' ? 'Taxe incluse' : 'Taxe ajoutée'} ({taxRatePercent} %)</span>
