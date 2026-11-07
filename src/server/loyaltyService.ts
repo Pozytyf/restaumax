@@ -40,7 +40,7 @@ export async function awardLoyaltyPointsInTransaction(input: LoyaltyAwardInput):
   if (!Number.isSafeInteger(totalAmount) || totalAmount < 0 || !Number.isSafeInteger(taxAmount) || taxAmount < 0 ||
       !Number.isSafeInteger(subtotal) || subtotal < 0 ||
       !Number.isSafeInteger(fcfaPerPoint) || fcfaPerPoint < 1 || fcfaPerPoint > 100000000) {
-    return { success: false, awarded: 0 };
+    return { success: true, awarded: 0, orderFields: { loyaltyAwardStatus: 'skipped_invalid_amount_or_configuration' } };
   }
   const points = Math.floor(subtotal / fcfaPerPoint);
   if (points <= 0) return { success: true, awarded: 0 };
@@ -73,7 +73,7 @@ export async function awardLoyaltyPointsInTransaction(input: LoyaltyAwardInput):
   const existing = customerSnap?.exists ? customerSnap.data() || {} : null;
   const previousPoints = Number(existing?.loyaltyPoints || 0);
   if (!Number.isSafeInteger(previousPoints) || previousPoints < 0) {
-    return { success: false, awarded: 0 };
+    return { success: true, awarded: 0, orderFields: { loyaltyAwardStatus: 'manual_review' } };
   }
   const customerId = customerRef.id;
   const customerName = String(order.customerName || existing?.name || 'Client').trim().slice(0, 80) || 'Client';
