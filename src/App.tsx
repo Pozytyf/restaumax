@@ -1703,6 +1703,7 @@ export default function App() {
           <Header
             currentRole={currentRole}
             permissions={userPermissions}
+            canAccessCash={isRestaurantOwner || authRestaurantRole === 'manager'}
             onSelectRole={(r) => {
               sounds.playTap();
               setCurrentRole(r);
