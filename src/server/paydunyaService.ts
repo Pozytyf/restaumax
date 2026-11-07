@@ -2,6 +2,13 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 
 export type PayDunyaMode = 'test' | 'live';
 
+export type PayDunyaCiWithdrawMode =
+  | 'orange-money-ci'
+  | 'wave-ci'
+  | 'mtn-ci'
+  | 'moov-ci'
+  | 'djamo-ci';
+
 export interface PayDunyaConfig {
   mode: PayDunyaMode;
   masterKey: string;
