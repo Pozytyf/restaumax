@@ -267,7 +267,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       }
       tx.update(orderRef, orderUpdate);
       return { success: true, status: targetStatus, idempotentReplay: false, stockLines: recipeLines.length };
-    });
+    }, { maxAttempts: 10 });
   } catch (error: any) {
     console.error('[RestauMax order lifecycle] Transaction failed:', error?.message || String(error));
     return { success: false, error: 'Impossible de mettre à jour la commande et son stock. Réessayez.' };
