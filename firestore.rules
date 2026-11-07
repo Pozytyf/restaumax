@@ -121,7 +121,10 @@ service cloud.firestore {
       return data.keys().hasAll(['slug', 'name', 'isOpen'])
         && data.slug is string && data.slug.size() > 0 && data.slug.size() <= 100
         && data.name is string && data.name.size() > 0 && data.name.size() <= 200
-        && data.isOpen is bool;
+        && data.isOpen is bool
+        && (!data.keys().hasAny(['taxRatePercent']) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100))
+        && (!data.keys().hasAny(['taxMode']) || data.taxMode in ['exclusive', 'inclusive'])
+        && (!data.keys().hasAny(['loyaltyPointsPer1000']) || (data.loyaltyPointsPer1000 is int && data.loyaltyPointsPer1000 >= 0 && data.loyaltyPointsPer1000 <= 100));
     }
 
     function isValidMenuItem(data) {
