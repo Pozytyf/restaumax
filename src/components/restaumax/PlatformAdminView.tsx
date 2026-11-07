@@ -11,7 +11,8 @@ type RestaurantRow = {
     planName?: string; priceFcfa?: number; currency?: string;
     billingCycle?: 'monthly' | 'yearly' | 'custom';
     status?: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
-    startsAt?: number; endsAt?: number; notes?: string;
+    startsAt?: number; endsAt?: number; nextBillingAt?: number; notes?: string;
+    autoRenew?: boolean; gracePeriodDays?: number; currentInvoiceId?: string | null; currentInvoiceAmountFcfa?: number | null; pastDueAt?: number | null;
   };
 };
 type PlatformSummary = {
@@ -35,9 +36,10 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   const [showPassword, setShowPassword] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [subscriptionRestaurant, setSubscriptionRestaurant] = useState<RestaurantRow | null>(null);
+  const [subscriptionPaymentReference, setSubscriptionPaymentReference] = useState('');
   const [subscriptionForm, setSubscriptionForm] = useState({
     planName: '', priceFcfa: '0', billingCycle: 'monthly',
-    status: 'trial', startsOn: '', endsOn: '', notes: ''
+    status: 'trial', startsOn: '', endsOn: '', notes: '', autoRenew: true, gracePeriodDays: '7'
   });
   const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '' });
 
@@ -117,7 +119,9 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       status: subscription.status || 'trial',
       startsOn: dateInputFromTimestamp(subscription.startsAt),
       endsOn: dateInputFromTimestamp(subscription.endsAt),
-      notes: subscription.notes || ''
+      notes: subscription.notes || '',
+      autoRenew: subscription.billingCycle === 'custom' ? false : subscription.autoRenew !== false,
+      gracePeriodDays: String(subscription.gracePeriodDays ?? 7)
     });
   };
 
@@ -143,6 +147,9 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
           status: subscriptionForm.status,
           startsAt,
           endsAt,
+          nextBillingAt: endsAt,
+          autoRenew: subscriptionForm.billingCycle === 'custom' ? false : subscriptionForm.autoRenew,
+          gracePeriodDays: Number(subscriptionForm.gracePeriodDays),
           notes: subscriptionForm.notes.trim()
         }
       });
@@ -150,6 +157,26 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       setSubscriptionRestaurant(null);
       await refresh();
     } catch (e: any) { setError(e.message || 'Mise à jour de l’abonnement impossible.'); }
+    finally { setLoading(false); }
+  };
+
+  const settleSubscriptionInvoice = async () => {
+    const subscription = subscriptionRestaurant?.subscription;
+    if (!subscriptionRestaurant || !subscription?.currentInvoiceId) return;
+    const reference = subscriptionPaymentReference.trim();
+    if (reference.length < 4) { setError('Renseignez la référence du paiement réellement reçu.'); return; }
+    setLoading(true); setError(''); setNotice('');
+    try {
+      await request({
+        action: 'settle_subscription_invoice', slug: subscriptionRestaurant.slug,
+        invoiceId: subscription.currentInvoiceId,
+        amountFcfa: Number(subscription.currentInvoiceAmountFcfa ?? subscription.priceFcfa ?? 0),
+        paymentReference: reference
+      });
+      setSubscriptionPaymentReference('');
+      setNotice('Facture réglée et période d’abonnement renouvelée.');
+      await refresh();
+    } catch (e: any) { setError(e.message || 'Règlement de facture impossible.'); }
     finally { setLoading(false); }
   };
 
@@ -270,7 +297,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       {subscriptionRestaurant && <form onSubmit={saveSubscription} className="grid gap-3 rounded-2xl border border-violet-800 bg-slate-900 p-5 md:grid-cols-2">
         <div className="md:col-span-2 flex items-start justify-between gap-3">
           <div><h3 className="text-lg font-bold">Abonnement · {subscriptionRestaurant.name}</h3>
-            <p className="text-xs text-slate-400">Gestion manuelle du plan et de sa période. Aucun prélèvement automatique ni blocage d’accès à échéance n’est déclenché pour le moment.</p></div>
+            <p className="text-xs text-slate-400">Les factures sont générées à échéance et l’accès est suspendu après le délai de grâce si elles restent impayées. Le prélèvement bancaire/PayDunya automatique n’est pas activé : confirmez ici uniquement un paiement réellement reçu.</p></div>
           <button type="button" onClick={() => setSubscriptionRestaurant(null)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs">Fermer</button>
         </div>
         <label className="text-sm">Nom du plan
@@ -285,10 +312,21 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/>
         </label>
         <label className="text-sm">Périodicité
-          <select value={subscriptionForm.billingCycle} onChange={e=>setSubscriptionForm({...subscriptionForm,billingCycle:e.target.value})}
+          <select value={subscriptionForm.billingCycle} onChange={e=>setSubscriptionForm({...subscriptionForm,billingCycle:e.target.value,autoRenew:e.target.value==='custom'?false:subscriptionForm.autoRenew})}
             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3">
             <option value="monthly">Mensuelle</option><option value="yearly">Annuelle</option><option value="custom">Personnalisée</option>
           </select>
+        </label>
+        <label className="text-sm">Délai de grâce (jours)
+          <input type="number" min="0" max="60" step="1" value={subscriptionForm.gracePeriodDays}
+            onChange={e=>setSubscriptionForm({...subscriptionForm,gracePeriodDays:e.target.value})}
+            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/>
+        </label>
+        <label className="flex items-center gap-2 text-sm md:col-span-2">
+          <input type="checkbox" checked={subscriptionForm.autoRenew}
+            disabled={subscriptionForm.billingCycle === 'custom'}
+            onChange={e=>setSubscriptionForm({...subscriptionForm,autoRenew:e.target.checked})}/>
+          Renouveler automatiquement (générer la facture à échéance)
         </label>
         <label className="text-sm">Statut
           <select value={subscriptionForm.status} onChange={e=>setSubscriptionForm({...subscriptionForm,status:e.target.value})}
@@ -312,6 +350,12 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
             onChange={e=>setSubscriptionForm({...subscriptionForm,notes:e.target.value})}
             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/>
         </label>
+        {subscriptionRestaurant.subscription?.currentInvoiceId && <div className="md:col-span-2 rounded-xl border border-amber-700 bg-amber-950/30 p-4">
+          <p className="font-bold text-amber-200">Facture à régler · {subscriptionRestaurant.subscription.currentInvoiceId}</p>
+          <p className="mt-1 text-xs text-slate-300">Montant attendu : {Number(subscriptionRestaurant.subscription.currentInvoiceAmountFcfa ?? subscriptionRestaurant.subscription.priceFcfa ?? 0).toLocaleString('fr-FR')} FCFA. Vérifiez le virement ou le paiement hors ligne avant de confirmer.</p>
+          <input value={subscriptionPaymentReference} onChange={e=>setSubscriptionPaymentReference(e.target.value)} minLength={4} maxLength={128} placeholder="Référence du paiement reçu" className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm"/>
+          <button type="button" disabled={loading || subscriptionPaymentReference.trim().length<4} onClick={settleSubscriptionInvoice} className="mt-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold">Confirmer le paiement et renouveler</button>
+        </div>}
         <div className="flex gap-2 md:col-span-2">
           <button disabled={loading} className="rounded-lg bg-violet-600 px-5 py-2 font-bold disabled:opacity-50">Enregistrer l’abonnement</button>
           <button type="button" onClick={()=>setSubscriptionRestaurant(null)} className="rounded-lg border border-slate-700 px-4 py-2">Annuler</button>
@@ -322,7 +366,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
                         {r.subscription?.planName
                           ? `${r.subscription.planName} · ${Number(r.subscription.priceFcfa || 0).toLocaleString('fr-FR')} FCFA · ${billingCycleLabel(r.subscription.billingCycle)} · ${subscriptionStatusLabel(r.subscription.status)}`
                           : 'Abonnement non configuré'}
-                        {r.subscription?.endsAt ? ` · échéance ${new Date(r.subscription.endsAt).toLocaleDateString('fr-FR')}` : ''}
+                        {r.subscription?.endsAt ? ` · échéance ${new Date(r.subscription.endsAt).toLocaleDateString('fr-FR')}` : ''}{r.subscription?.nextBillingAt ? ` · prochaine facture ${new Date(r.subscription.nextBillingAt).toLocaleDateString('fr-FR')}` : ''}
                       </p></div></div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${r.status === 'deleted' || r.deletedAt ? 'bg-slate-700 text-slate-300' : r.status === 'suspended' ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'}`}>{r.status === 'deleted' || r.deletedAt ? 'Supprimé' : r.status === 'suspended' ? 'Suspendu' : 'Actif'}</span>{r.status !== 'deleted' && !r.deletedAt && <><button onClick={()=>onOpenRestaurant(r.slug)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">Gérer</button><button disabled={loading} onClick={()=>editSubscription(r)} className="rounded-lg border border-violet-800 px-3 py-2 text-xs font-bold text-violet-300">Abonnement</button><button disabled={loading} onClick={()=>setStatus(r,r.status === 'suspended' ? 'active' : 'suspended')} className="flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-xs">{r.status === 'suspended' ? <CheckCircle2 size={14}/> : <Ban size={14}/>} {r.status === 'suspended' ? 'Réactiver' : 'Suspendre'}</button><button disabled={loading} onClick={()=>deleteRestaurant(r)} className="rounded-lg border border-rose-900 px-3 py-2 text-xs font-bold text-rose-300">Supprimer</button></>}<button disabled={loading} onClick={()=>toggleRestaurantStaff(r)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">{expandedRestaurant === r.slug ? 'Masquer les comptes' : 'Gérer les comptes'}</button></div></div>{expandedRestaurant === r.slug && <div className="space-y-3 border-b border-slate-800 bg-slate-950/60 p-4">{(staffByRestaurant[r.slug] || []).map(member=><div key={member.uid} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 p-3"><div><p className="font-bold text-sm">{member.displayName} <span className="text-xs text-slate-400">· {member.role === 'owner' ? 'Propriétaire' : member.role === 'manager' ? 'Gérant' : 'Serveur / Personnel'}</span></p><p className="text-xs text-slate-400">{member.email} · {member.active ? 'Actif' : 'Suspendu'}</p></div><div className="flex gap-2">{member.active ? <button disabled={loading || r.status === 'deleted' || Boolean(r.deletedAt)} onClick={()=>setUserStatus(r,member,'suspended')} className="rounded-lg border border-rose-900 px-3 py-2 text-xs text-rose-300">Suspendre</button> : <button disabled={loading || r.status !== 'active'} onClick={()=>setUserStatus(r,member,'active')} className="rounded-lg border border-emerald-900 px-3 py-2 text-xs text-emerald-300">Réactiver</button>}<button disabled={loading || r.status === 'deleted' || Boolean(r.deletedAt)} onClick={()=>deleteUser(r,member)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs">Supprimer</button></div></div>)}{(staffByRestaurant[r.slug] || []).length === 0 && <p className="text-sm text-slate-400">Aucun compte associé.</p>}<p className="text-xs text-slate-500">Les comptes propriétaires ne peuvent être supprimés que par le super-administrateur. Les historiques métier sont conservés.</p></div>}</React.Fragment>)}</div>
       </>}
     </main>

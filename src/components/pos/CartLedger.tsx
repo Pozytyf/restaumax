@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CartItem, Table } from '../../types/pos';
 import { formatFCFA } from '../../utils/format';
 import { getPosCartLineUnitPrice } from '../../utils/posCart';
+import { calculateOrderTax, type RestaurantTaxMode } from '../../utils/pricing';
 import { sounds } from '../../utils/audio';
 import { 
   Trash2, 
@@ -32,6 +33,11 @@ interface CartLedgerProps {
   serverName: string;
   alreadyPaidAmount?: number;
   isExistingOrder?: boolean;
+  taxRatePercent?: number;
+  taxMode?: RestaurantTaxMode;
+  customerName: string;
+  customerPhone: string;
+  onCustomerChange: (field: 'name' | 'phone', value: string) => void;
 }
 
 export const CartLedger: React.FC<CartLedgerProps> = ({
@@ -50,7 +56,12 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
   onOpenPayment,
   serverName,
   alreadyPaidAmount = 0,
-  isExistingOrder = false
+  isExistingOrder = false,
+  taxRatePercent = 0,
+  taxMode = 'exclusive',
+  customerName,
+  customerPhone,
+  onCustomerChange
 }) => {
   const [editingNotesItemId, setEditingNotesItemId] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState('');
@@ -59,8 +70,9 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
   // Calculations
   const subtotal = cart.reduce((sum, item) => sum + getPosCartLineUnitPrice(item) * item.quantity, 0);
   const discountAmount = Math.round((subtotal * discountPercent) / 100);
-  const taxAmount = 0; // Tax included or 0% in standard restaurant display
-  const grandTotal = Math.max(0, subtotal - discountAmount + taxAmount);
+  const taxBreakdown = calculateOrderTax(Math.max(0, subtotal - discountAmount), taxRatePercent, taxMode);
+  const taxAmount = taxBreakdown.taxAmount;
+  const grandTotal = taxBreakdown.totalAmount;
   const remainingDue = Math.max(0, grandTotal - alreadyPaidAmount);
   const totalItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -296,12 +308,24 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
         </div>
       )}
 
+      <div className="mx-4 mb-3 rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-2">
+        <p className="text-xs font-bold text-slate-800">Client et fidélité (facultatif)</p>
+        <p className="text-[11px] text-slate-600">Les points sont crédités lorsque la commande est entièrement encaissée.</p>
+        <input value={customerName} onChange={e=>onCustomerChange('name',e.target.value)} maxLength={80}
+          placeholder="Nom du client" className="w-full rounded-lg border border-orange-200 bg-white p-2 text-xs"/>
+        <input value={customerPhone} onChange={e=>onCustomerChange('phone',e.target.value)} maxLength={24}
+          placeholder="Téléphone ivoirien (10 chiffres)" className="w-full rounded-lg border border-orange-200 bg-white p-2 text-xs"/>
+      </div>
       {/* Permanently Locked #101D2D Container with Grand Total & #FF6500 Payment Triggers */}
       <div className="p-4 bg-[#101d2d] text-white border-t border-slate-800 shadow-xl">
         <div className="space-y-1.5 mb-3 text-xs">
           <div className="flex justify-between text-slate-300 font-medium">
-            <span>Sous-total</span>
-            <span className="font-bold tnum">{formatFCFA(subtotal)}</span>
+            <span>Sous-total HT</span>
+            <span className="font-bold tnum">{formatFCFA(taxBreakdown.subtotalAmount)}</span>
+          </div>
+          <div className="flex justify-between text-slate-300 font-medium">
+            <span>{taxMode === 'inclusive' ? 'Taxe incluse' : 'Taxe ajoutée'} ({taxRatePercent} %)</span>
+            <span className="font-bold tnum">{formatFCFA(taxAmount)}</span>
           </div>
           {discountPercent > 0 && (
             <div className="flex justify-between text-amber-300 font-medium">

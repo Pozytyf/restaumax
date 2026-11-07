@@ -91,57 +91,93 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       let movementRefs: any[] = [];
 
       if (order.status === 'pending' && targetStatus === 'in_prep') {
-        const menuIds: string[] = Array.from(new Set<string>((order.items as any[]).map((item: any) => String(item.menuItemId || '')).filter((id: string) => id.length > 0)));
+        const menuIds: string[] = Array.from(new Set<string>(
+          (order.items as any[]).map((item: any) => String(item.menuItemId || '')).filter((id: string) => id.length > 0)
+        ));
         const recipeRefs = menuIds.map((id: string) => restaurantRef.collection('menuRecipes').doc(id));
         const recipeSnaps = await Promise.all(recipeRefs.map((ref: any) => tx.get(ref)));
         const aggregated = new Map<string, { quantity: number; unit: string; itemName: string }>();
-        for (let i = 0; i < recipeSnaps.length; i++) {
-          const recipeSnap = recipeSnaps[i];
-          const menuId = menuIds[i];
-          if (!recipeSnap.exists) { untrackedItemIds.push(menuId); continue; } // Plat sans fiche recette : aucune déduction implicite.
-          const recipe = recipeSnap.data();
-          const portions = order.items
-            .filter((item: any) => String(item.menuItemId || '') === menuId)
-            .reduce((sum: number, item: any) => {
-              const quantity = Number(item.quantity);
-              if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) throw new Error('Quantité de commande invalide pour le calcul de stock.');
-              return sum + quantity;
-            }, 0);
-          if (!Array.isArray(recipe.lines) || recipe.lines.length === 0) {
-            return { success: false, error: `La fiche recette de ${menuId} est invalide.` };
+        const addRecipeLines = (lines: any[], portions: number, label: string) => {
+          if (!Array.isArray(lines) || lines.length === 0) {
+            throw new Error(`Fiche de stock invalide : ${label}.`);
           }
-          for (const line of recipe.lines) {
+          for (const line of lines) {
             const inventoryItemId = String(line.inventoryItemId || '');
             const perDish = Number(line.quantityPerDish);
             if (!validId(inventoryItemId) || !Number.isFinite(perDish) || perDish <= 0 ||
-                Math.round(perDish * 1000) !== perDish * 1000 ||
-                !line.unit || !String(line.itemName || '')) {
-              return { success: false, error: `Une ligne de recette du plat ${menuId} est invalide.` };
+                Math.round(perDish * 1000) !== perDish * 1000 || !line.unit || !String(line.itemName || '')) {
+              throw new Error(`Une ligne de fiche de stock de ${label} est invalide.`);
             }
             const existing = aggregated.get(inventoryItemId);
-            if (existing && existing.unit !== String(line.unit)) {
-              return { success: false, error: 'Unités incohérentes pour un même ingrédient.' };
-            }
+            if (existing && existing.unit !== String(line.unit)) throw new Error('Unités incohérentes pour un même ingrédient.');
             aggregated.set(inventoryItemId, {
               quantity: (existing?.quantity || 0) + perDish * portions,
-              unit: String(line.unit),
-              itemName: String(line.itemName)
+              unit: String(line.unit), itemName: String(line.itemName)
             });
           }
-        }
-        for (const item of order.items as any[]) {
-          const menuId = String(item.menuItemId || '');
-          const hasUnmappedCustomization = Boolean(item.selectedOption) || (Array.isArray(item.selectedExtras) && item.selectedExtras.length > 0);
-          const untrackedId = menuId || String(item.id || 'ligne-sans-id');
-          if ((hasUnmappedCustomization || !menuId) && !untrackedItemIds.includes(untrackedId)) {
-            untrackedItemIds.push(untrackedId);
+        };
+
+        for (let i = 0; i < recipeSnaps.length; i++) {
+          const recipeSnap = recipeSnaps[i];
+          const menuId = menuIds[i];
+          const matchingItems = (order.items as any[]).filter((item: any) => String(item.menuItemId || '') === menuId);
+          const portions = matchingItems.reduce((sum: number, item: any) => {
+            const quantity = Number(item.quantity);
+            if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) throw new Error('Quantité de commande invalide pour le calcul de stock.');
+            return sum + quantity;
+          }, 0);
+          if (!recipeSnap.exists) untrackedItemIds.push(menuId);
+          else addRecipeLines(recipeSnap.data().lines, portions, `plat ${menuId}`);
+
+          for (const item of matchingItems) {
+            const selection = item.selectedOption;
+            if (selection) {
+              const groupIds = String(selection.groupId || '').split('+');
+              const optionIds = String(selection.optionId || '').split('+');
+              if (!groupIds.length || groupIds.length !== optionIds.length || groupIds.some((id: string) => !validId(id)) || optionIds.some((id: string) => !validId(id))) {
+                throw new Error(`Sélection d'options incohérente pour ${menuId}.`);
+              }
+              for (let optionIndex = 0; optionIndex < groupIds.length; optionIndex++) {
+                const groupId = groupIds[optionIndex];
+                const optionId = optionIds[optionIndex];
+                const recipeId = hash(`option:${menuId}:${groupId}:${optionId}`);
+                const recipeRef = restaurantRef.collection('menuCustomizationRecipes').doc(recipeId);
+                const recipeSnap = await tx.get(recipeRef);
+                if (!recipeSnap.exists) {
+                  untrackedItemIds.push(`${menuId}:option:${groupId}:${optionId}`);
+                } else {
+                  const optionRecipe = recipeSnap.data();
+                  if (optionRecipe.customizationType !== 'option' || optionRecipe.menuItemId !== menuId ||
+                      optionRecipe.groupId !== groupId || optionRecipe.optionId !== optionId) {
+                    throw new Error('Fiche de stock d’option incohérente avec le catalogue.');
+                  }
+                  addRecipeLines(optionRecipe.lines, Number(item.quantity), `option ${optionRecipe.targetName || optionId}`);
+                }
+              }
+            }
+            for (const extra of Array.isArray(item.selectedExtras) ? item.selectedExtras : []) {
+              const extraId = String(extra.extraId || extra.id || '');
+              if (!validId(extraId)) throw new Error(`Supplément invalide pour ${menuId}.`);
+              const recipeId = hash(`extra:${menuId}::${extraId}`);
+              const recipeRef = restaurantRef.collection('menuCustomizationRecipes').doc(recipeId);
+              const recipeSnap = await tx.get(recipeRef);
+              if (!recipeSnap.exists) {
+                untrackedItemIds.push(`${menuId}:extra:${extraId}`);
+              } else {
+                const extraRecipe = recipeSnap.data();
+                if (extraRecipe.customizationType !== 'extra' || extraRecipe.menuItemId !== menuId || extraRecipe.extraId !== extraId) {
+                  throw new Error('Fiche de stock de supplément incohérente avec le catalogue.');
+                }
+                addRecipeLines(extraRecipe.lines, Number(item.quantity), `supplément ${extraRecipe.targetName || extraId}`);
+              }
+            }
           }
         }
         recipeLines = [...aggregated.entries()].map(([inventoryItemId, value]) => ({
           inventoryItemId, quantity: Math.round(value.quantity * 1000) / 1000,
           unit: value.unit, itemName: value.itemName
         }));
-      } else if (targetStatus === 'cancelled' && ['applied', 'partial'].includes(String(consumption?.status || ''))) {
+            } else if (targetStatus === 'cancelled' && ['applied', 'partial'].includes(String(consumption?.status || ''))) {
         recipeLines = Array.isArray(consumption.lines) ? consumption.lines : [];
       }
 
@@ -182,10 +218,13 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           const line = recipeLines[i];
           const item = inventorySnaps[i].data();
           const before = Number(item.quantity);
+          const unitCost = Number(item.unitCost);
+          line.unitCost = Number.isFinite(unitCost) && unitCost >= 0 ? unitCost : null;
           const after = Math.round((before - line.quantity) * 1000) / 1000;
           tx.update(inventoryRefs[i], { quantity: after, updatedAt: now });
           tx.create(movementRefs[i], {
             itemId: line.inventoryItemId, itemName: String(item.name || line.itemName), unit: line.unit,
+            unitCost: line.unitCost,
             quantityBefore: before, delta: -line.quantity, quantityAfter: after,
             reason: `Consommation commande ${orderId}`, orderId, createdAt: now, createdBy: actorUid,
             idempotencyKey: movementRefs[i].path.split('/').pop()
@@ -209,6 +248,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           tx.update(inventoryRefs[i], { quantity: after, updatedAt: now });
           tx.create(movementRefs[i], {
             itemId: line.inventoryItemId, itemName: String(item.name || line.itemName), unit: line.unit,
+            unitCost: line.unitCost === undefined ? null : line.unitCost,
             quantityBefore: before, delta: Number(line.quantity), quantityAfter: after,
             reason: `Restauration annulation commande ${orderId}`, orderId, createdAt: now, createdBy: actorUid,
             idempotencyKey: movementRefs[i].path.split('/').pop()

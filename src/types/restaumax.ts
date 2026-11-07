@@ -73,6 +73,8 @@ export interface RestaurantInfo {
   isOpen: boolean;
   openingHours: string;
   taxRatePercent?: number;
+  taxMode?: 'exclusive' | 'inclusive';
+  loyaltyFcfaPerPoint?: number;
   receiptFooter?: string;
   receiptPaperWidth?: '58mm' | '80mm';
 }
@@ -126,8 +128,21 @@ export interface RestauOrder {
   tableNumber: string | null;
   items: RestauOrderItem[];
   itemsCount: number;
-  totalAmount: number; // in FCFA
+  customerName?: string;
+  customerPhone?: string;
+  customerPhoneNormalized?: string;
+  loyaltyPointsAwarded?: number;
+  loyaltyCustomerId?: string;
+  loyaltyAwardedAt?: number;
+  loyaltyAwardStatus?: string;
+  totalAmount: number; // final amount due in FCFA, including configured tax
+  subtotalAmount?: number;
+  taxAmount?: number;
+  taxRatePercent?: number;
+  taxMode?: 'exclusive' | 'inclusive';
   paidAmount?: number;
+  refundedAmount?: number;
+  netPaidAmount?: number;
   remainingAmount?: number;
   paymentStatus?: 'partial' | 'paid' | 'unpaid';
   splitGuests?: number;

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { validateSubscriptionInput } from '../src/server/subscriptionService.ts';
 import { calculateSubscriptionMetrics } from '../src/lib/subscriptionMetrics.ts';
 
@@ -38,6 +39,19 @@ assert(validateSubscriptionInput({ ...valid, billingCycle: 'weekly' }).success =
 assert(validateSubscriptionInput({ ...valid, status: 'enabled' }).success === false, 'Un statut inconnu est refusé');
 assert(validateSubscriptionInput({ ...valid, startsAt: 0 }).success === false, 'Une date de début invalide est refusée');
 assert(validateSubscriptionInput({ ...valid, endsAt: valid.startsAt }).success === false, 'Une fin antérieure ou égale au début est refusée');
+assert(validateSubscriptionInput({ ...valid, gracePeriodDays: 61 }).success === false, 'Un délai de grâce supérieur à 60 jours est refusé');
+assert(validateSubscriptionInput({ ...valid, nextBillingAt: -1 }).success === false, 'Une prochaine échéance invalide est refusée');
+assert(validateSubscriptionInput({ ...valid, billingCycle: 'custom' }).success === false, 'Un cycle personnalisé ne peut pas activer le renouvellement automatique');
+assert(validateSubscriptionInput({ ...valid, billingCycle: 'custom', autoRenew: false }).success === true, 'Un cycle personnalisé sans renouvellement automatique est accepté');
+const vercelConfig = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+const serverSource = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const billingDocs = readFileSync(new URL('../docs/SUBSCRIPTION_BILLING_OPERATIONS.md', import.meta.url), 'utf8');
+assert(vercelConfig.crons?.some(cron => cron.path === '/api/subscriptions/billing-cycle' && cron.schedule === '0 2 * * *'),
+  'Le cycle de facturation est planifié chaque jour à 02:00 UTC');
+assert(serverSource.includes('process.env.CRON_SECRET') && serverSource.includes('timingSafeEqual'),
+  'Le point d’entrée Cron exige un secret comparé de façon sûre');
+assert(billingDocs.includes('ne débite pas automatiquement') && billingDocs.includes('CRON_SECRET'),
+  'Les limites de prélèvement et les conditions d’activation sont documentées');
 
 console.log('\n--- Indicateurs d’abonnement plateforme ---');
 const metrics = calculateSubscriptionMetrics([

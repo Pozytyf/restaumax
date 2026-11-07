@@ -1,6 +1,7 @@
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { validateSubscriptionInput } from './subscriptionService.js';
+import { settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
 
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
@@ -172,7 +173,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (action === 'overview' || action === 'create_restaurant' || action === 'set_restaurant_status' || action === 'update_subscription' || action === 'delete_restaurant') {
+    if (action === 'overview' || action === 'create_restaurant' || action === 'set_restaurant_status' || action === 'update_subscription' || action === 'settle_subscription_invoice' || action === 'delete_restaurant') {
       if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
 
       if (action === 'overview') {
@@ -205,7 +206,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             billingCycle: typeof raw.billingCycle === 'string' ? raw.billingCycle : null,
             priceFcfa: Number.isSafeInteger(raw.priceFcfa) ? raw.priceFcfa : null,
             startsAt: Number.isFinite(raw.startsAt) ? raw.startsAt : null,
-            endsAt: Number.isFinite(raw.endsAt) ? raw.endsAt : null
+            endsAt: Number.isFinite(raw.endsAt) ? raw.endsAt : null,
+            nextBillingAt: Number.isFinite(raw.nextBillingAt) ? raw.nextBillingAt : null,
+            gracePeriodDays: Number.isSafeInteger(raw.gracePeriodDays) ? raw.gracePeriodDays : 7,
+            autoRenew: raw.autoRenew !== false,
+            currentInvoiceId: typeof raw.currentInvoiceId === 'string' ? raw.currentInvoiceId : null,
+            currentInvoiceAmountFcfa: Number.isSafeInteger(raw.currentInvoiceAmountFcfa) ? raw.currentInvoiceAmountFcfa : null,
+            pastDueAt: Number.isFinite(raw.pastDueAt) ? raw.pastDueAt : null
           };
           return {
             slug: d.id,
@@ -379,6 +386,18 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           createdAt: now
         });
         return json(res, 200, { success: true, subscription: updatedSubscription });
+      }
+
+      if (action === 'settle_subscription_invoice') {
+        const slug = String(body.slug || '').trim();
+        const result = await settleSubscriptionInvoiceWithDb(db, {
+          restaurantSlug: slug,
+          invoiceId: String(body.invoiceId || ''),
+          amountFcfa: Number(body.amountFcfa),
+          paymentReference: String(body.paymentReference || ''),
+          actorUid: user.uid
+        });
+        return json(res, result.success ? 200 : result.conflict ? 409 : 400, result);
       }
 
       if (action === 'delete_restaurant') {

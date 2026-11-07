@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { awardLoyaltyPointsInTransaction } from './loyaltyService.ts';
 
 export interface CashPaymentInput {
   restaurantSlug: string;
@@ -250,6 +251,14 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
     };
     guestAccounts[guestIndex] = updatedGuestAccount;
     const now = Date.now();
+    const loyaltyResult = paymentStatus === 'paid'
+      ? await awardLoyaltyPointsInTransaction({
+          tx, restaurantRef, restaurant, orderRef, order, actorUid, now
+        })
+      : { success: true, awarded: 0 };
+    if (!loyaltyResult.success) {
+      return { success: false, error: 'Attribution des points impossible : paiement conservé en attente de rapprochement.' };
+    }
 
     const payment = {
       id: paymentId,
@@ -268,6 +277,10 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       paidAmount: acceptedAmount,
       changeAmount,
       totalAmount,
+      subtotalAmount: Number(order.subtotalAmount ?? totalAmount),
+      taxAmount: Number(order.taxAmount || 0),
+      taxRatePercent: Number(order.taxRatePercent || 0),
+      taxMode: order.taxMode === 'inclusive' ? 'inclusive' : 'exclusive',
       previouslyPaidAmount: alreadyPaid,
       remainingBefore,
       remainingAfter: remainingAmount,
@@ -291,6 +304,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       paidAmount,
       remainingAmount,
       paymentStatus,
+      ...(loyaltyResult.orderFields || {}),
       lastPaymentAt: now,
       lastPaymentId: paymentId
     };
@@ -310,6 +324,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       paidAmount,
       remainingAmount,
       paymentStatus,
+      ...(loyaltyResult.orderFields || {}),
       lastPaymentAt: now,
       lastPaymentId: paymentId
     });
@@ -722,6 +737,52 @@ export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput
     if (!Number.isSafeInteger(totalRefundedForOrder) || totalRefundedForOrder > Number(order.paidAmount || 0)) {
       return { success: false, error: 'Incohérence du cumul des remboursements de la commande.' };
     }
+
+    let loyaltyReversalFields: Record<string, any> = {};
+    const awardedPoints = Number(order.loyaltyPointsAwarded || 0);
+    if (awardedPoints > 0) {
+      const awardLedgerRef = restaurantRef.collection('loyaltyLedger').doc(`order_${sha256(orderId).slice(0, 32)}`);
+      const awardLedgerSnap = await tx.get(awardLedgerRef);
+      const customerId = String(order.loyaltyCustomerId || awardLedgerSnap.data()?.customerId || '');
+      if (!awardLedgerSnap.exists || !/^[a-zA-Z0-9_-]{1,160}$/.test(customerId)) {
+        loyaltyReversalFields = { loyaltyReversalStatus: 'manual_review' };
+      } else {
+        const customerRef = restaurantRef.collection('customers').doc(customerId);
+        const reversalRef = restaurantRef.collection('loyaltyReversals').doc(refundId);
+        const [customerSnap, reversalSnap] = await Promise.all([tx.get(customerRef), tx.get(reversalRef)]);
+        if (reversalSnap.exists) {
+          loyaltyReversalFields = {
+            loyaltyPointsReversed: Number(reversalSnap.data()?.pointsReversed || 0),
+            loyaltyReversalStatus: 'reversed'
+          };
+        } else if (!customerSnap.exists) {
+          loyaltyReversalFields = { loyaltyReversalStatus: 'manual_review' };
+        } else {
+          const totalOrderAmount = Number(order.totalAmount || 0);
+          const targetReversed = totalOrderAmount > 0
+            ? Math.floor(awardedPoints * Math.min(totalRefundedForOrder, totalOrderAmount) / totalOrderAmount)
+            : awardedPoints;
+          const previouslyReversed = Number(order.loyaltyPointsReversed || 0);
+          const pointsToReverse = Math.max(0, targetReversed - previouslyReversed);
+          const customerPoints = Number(customerSnap.data()?.loyaltyPoints || 0);
+          const pointsRemoved = Math.min(Math.max(0, customerPoints), pointsToReverse);
+          if (pointsRemoved > 0) {
+            tx.update(customerRef, { loyaltyPoints: Math.max(0, customerPoints - pointsRemoved), updatedAt: now });
+            tx.create(reversalRef, {
+              id: refundId, restaurantSlug: slug, orderId, paymentId,
+              customerId, pointsReversed: targetReversed, pointsRemoved,
+              refundAmount: input.amount, cumulativeRefundAmount: totalRefundedForOrder,
+              createdAt: now, createdBy: actorUid
+            });
+          }
+          loyaltyReversalFields = {
+            loyaltyPointsReversed: targetReversed,
+            loyaltyReversalStatus: targetReversed >= awardedPoints ? 'reversed' : 'partially_reversed'
+          };
+        }
+      }
+    }
+
     const refund = {
       id: refundId, restaurantSlug: slug, paymentId, orderId,
       orderNumber: payment.orderNumber || order.orderNumber || orderId,
@@ -746,6 +807,7 @@ export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput
       refundedAmount: totalRefundedForOrder,
       netPaidAmount: Math.max(0, Number(order.paidAmount || 0) - totalRefundedForOrder),
       refundStatus: totalRefundedForOrder >= Number(order.paidAmount || 0) ? 'refunded' : 'partially_refunded',
+      ...loyaltyReversalFields,
       lastRefundAt: now, lastRefundId: refundId
     });
     tx.update(cashSessionRef, {

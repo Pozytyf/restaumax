@@ -437,6 +437,8 @@ export async function submitOrderWithServerValidation(
     tableNumber: string | null;
     idempotencyKey: string;
     customerNote?: string;
+    customerName?: string;
+    customerPhone?: string;
     allowedTables?: RestaurantTable[];
     declaredTotal?: number;
     fallbackCatalog?: RestauMenuItem[];
@@ -456,6 +458,8 @@ export async function submitOrderWithServerValidation(
         restaurantSlug,
         orderMode: params.orderMode,
         customerNote: params.customerNote,
+        customerName: params.customerName,
+        customerPhone: params.customerPhone,
         declaredTotal: params.declaredTotal,
         idempotencyKey: params.idempotencyKey,
         cart: params.cart,
@@ -498,6 +502,8 @@ export async function submitPosOrderWithServerValidation(
     tableNumber: string | null;
     idempotencyKey: string;
     customerNote?: string;
+    customerName?: string;
+    customerPhone?: string;
   }
 ): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
@@ -517,6 +523,8 @@ export async function submitPosOrderWithServerValidation(
         orderMode: params.orderMode,
         tableNumber: params.tableNumber,
         customerNote: params.customerNote,
+        customerName: params.customerName,
+        customerPhone: params.customerPhone,
         idempotencyKey: params.idempotencyKey,
         cart: params.cart,
       }),
@@ -1011,6 +1019,14 @@ export async function saveInventoryRecipeWithServerValidation(
   recipeLines: Array<{ inventoryItemId: string; quantityPerDish: number }>
 ): Promise<InventoryApiResult> {
   return inventoryRequest(restaurantSlug, { action: 'save_recipe', menuItemId, recipeLines });
+}
+
+export async function saveInventoryCustomizationRecipeWithServerValidation(
+  restaurantSlug: string,
+  target: { menuItemId: string; customizationType: 'option' | 'extra'; groupId?: string; optionId?: string; extraId?: string },
+  recipeLines: Array<{ inventoryItemId: string; quantityPerDish: number }>
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'save_customization_recipe', ...target, recipeLines });
 }
 
 export async function updateInventoryItemWithServerValidation(

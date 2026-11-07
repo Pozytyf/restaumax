@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ClientCartItem } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
+import { calculateOrderTax, type RestaurantTaxMode } from '../../utils/pricing';
 import { sounds } from '../../utils/audio';
 import { 
   X, 
@@ -20,13 +21,15 @@ import {
 interface CartDrawerProps {
   isOpen: boolean;
   restaurantName: string;
+  taxRatePercent?: number;
+  taxMode?: RestaurantTaxMode;
   onClose: () => void;
   cart: ClientCartItem[];
   tableNumber: string | null;
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
-  onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; isReplay?: boolean }>;
+  onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; isReplay?: boolean }>;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
 }
@@ -34,6 +37,8 @@ interface CartDrawerProps {
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   isOpen,
   restaurantName,
+  taxRatePercent = 0,
+  taxMode = 'exclusive',
   onClose,
   cart,
   tableNumber,
@@ -47,11 +52,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [customerNote, setCustomerNote] = useState<string>('');
+  const [customerName, setCustomerName] = useState<string>('');
+  const [customerPhone, setCustomerPhone] = useState<string>('');
 
   if (!isOpen) return null;
 
   const totalItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+  const taxBreakdown = calculateOrderTax(subtotal, taxRatePercent, taxMode);
 
   const handleOrderSubmission = async () => {
     if (isSubmitting || cart.length === 0 || !onConfirmOrder) return;
@@ -61,10 +69,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     setSubmitError(null);
 
     try {
-      const result = await onConfirmOrder(customerNote.trim() || undefined);
+      if (Boolean(customerName.trim()) !== Boolean(customerPhone.trim())) {
+        setSubmitError('Pour cumuler des points, renseignez à la fois votre nom et votre numéro de téléphone.');
+        setIsSubmitting(false);
+        return;
+      }
+      const result = await onConfirmOrder(customerNote.trim() || undefined, {
+        name: customerName.trim() || undefined, phone: customerPhone.trim() || undefined
+      });
       if (result.success) {
         // Successful submission: drawer is closed or transitioned by parent
         setCustomerNote('');
+        setCustomerName(''); setCustomerPhone('');
         setIsSubmitting(false);
       } else {
         // Failed submission: keep cart intact, display explicit message
@@ -318,6 +334,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 );
               })}
 
+              {/* Optional identity for automatic loyalty points */}
+              <div className="mb-3 rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-2">
+                <p className="text-xs font-bold text-slate-800">Fidélité (facultatif)</p>
+                <p className="text-[11px] text-slate-600">Indiquez votre nom et votre téléphone pour cumuler automatiquement des points lorsque la commande est entièrement réglée.</p>
+                <input type="text" placeholder="Votre nom" value={customerName}
+                  onChange={e=>setCustomerName(e.target.value)} maxLength={80}
+                  disabled={isSubmitting || isUncertain}
+                  className="w-full rounded-lg border border-orange-200 bg-white p-2 text-xs"/>
+                <input type="tel" placeholder="Téléphone ivoirien (10 chiffres)" value={customerPhone}
+                  onChange={e=>setCustomerPhone(e.target.value)} maxLength={24}
+                  disabled={isSubmitting || isUncertain}
+                  className="w-full rounded-lg border border-orange-200 bg-white p-2 text-xs"/>
+              </div>
               {/* Optional general note for the entire order */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
                 <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
@@ -345,18 +374,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             <div className="space-y-1.5 text-xs">
               <div className="flex justify-between text-slate-300">
                 <span>Sous-total articles</span>
-                <span className="font-bold tnum">{formatFCFA(subtotal)}</span>
+                <span className="font-bold tnum">{formatFCFA(taxBreakdown.subtotalAmount)}</span>
               </div>
               <div className="flex justify-between text-slate-300">
-                <span>Frais de service & couverts</span>
-                <span className="font-bold text-emerald-400">Inclus</span>
+                <span>{taxMode === 'inclusive' ? 'Taxe incluse (' + taxRatePercent + ' %)' : 'Taxe (' + taxRatePercent + ' %)'}</span>
+                <span className="font-bold tnum">{formatFCFA(taxBreakdown.taxAmount)}</span>
               </div>
               <div className="pt-2 border-t border-slate-700 flex items-baseline justify-between">
                 <span className="text-xs uppercase font-extrabold tracking-wider text-slate-300">
                   Total à Payer
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-white tracking-tight tnum">
-                  {formatFCFA(subtotal)}
+                  {formatFCFA(taxBreakdown.totalAmount)}
                 </span>
               </div>
             </div>

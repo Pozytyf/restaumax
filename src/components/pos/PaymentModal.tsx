@@ -25,6 +25,10 @@ interface PaymentModalProps {
   discountPercent: number;
   alreadyPaidAmount?: number;
   orderTotalAmount?: number;
+  orderSubtotalAmount?: number;
+  orderTaxAmount?: number;
+  orderTaxRatePercent?: number;
+  orderTaxMode?: 'exclusive' | 'inclusive';
   guestAccounts?: RestauGuestAccount[];
   isSubmitting?: boolean;
   onConfirmPayment: (paymentData: {
@@ -46,6 +50,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   discountPercent,
   alreadyPaidAmount = 0,
   orderTotalAmount,
+  orderSubtotalAmount,
+  orderTaxAmount,
+  orderTaxRatePercent,
+  orderTaxMode = 'exclusive',
   guestAccounts = EMPTY_GUEST_ACCOUNTS,
   isSubmitting = false,
   onConfirmPayment
@@ -198,6 +206,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               {discountPercent > 0 && (
                 <div className="text-xs font-semibold text-emerald-600 mt-1">
                   Remise de {discountPercent}% appliquée (-{formatFCFA(discountAmount)})
+                </div>
+              )}
+              {orderTotalAmount !== undefined && (
+                <div className="mt-2 border-t border-slate-200 pt-2 text-left text-xs text-slate-600">
+                  <div className="flex justify-between"><span>Sous-total</span><strong>{formatFCFA(orderSubtotalAmount ?? subtotal)}</strong></div>
+                  <div className="flex justify-between"><span>{orderTaxMode === 'inclusive' ? 'Taxe incluse' : 'Taxe ajoutée'} ({Number(orderTaxRatePercent || 0)} %)</span><strong>{formatFCFA(orderTaxAmount || 0)}</strong></div>
                 </div>
               )}
             </div>

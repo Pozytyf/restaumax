@@ -46,7 +46,7 @@ import {
   subscribeToAuth,
   type User
 } from './lib/firebase';
-import { validateAndBuildOrder, generateClientOrderIdempotencyKey } from './utils/pricing';
+import { validateAndBuildOrder, generateClientOrderIdempotencyKey, calculateOrderTax } from './utils/pricing';
 import { 
   savePendingOrderIntent, 
   loadPendingOrderIntent, 
@@ -163,6 +163,7 @@ export default function App() {
   const [tables, setTables] = useState<Table[]>([]);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [posCustomer, setPosCustomer] = useState({ name: '', phone: '' });
   const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>([]);
   const [restauOrders, setRestauOrders] = useState<RestauOrder[]>([]);
@@ -377,9 +378,11 @@ export default function App() {
     tableNumber: payment.tableNumber ? `Table ${payment.tableNumber}` : 'À emporter',
     waiter: String(payment.actorName || payment.actorRole || 'Personnel'),
     timestamp: new Date(Number(payment.createdAt)),
-    subtotal: Number(payment.totalAmount || 0),
+    subtotal: Number(payment.subtotalAmount ?? payment.totalAmount ?? 0),
     discount: 0,
-    tax: 0,
+    tax: Number(payment.taxAmount || 0),
+    taxRatePercent: Number(payment.taxRatePercent || 0),
+    taxMode: payment.taxMode === 'inclusive' ? 'inclusive' : 'exclusive',
     total: Number(payment.totalAmount || 0),
     paidAmount: Number(payment.paidAmount || 0),
     tenderedAmount: Number(payment.amountTendered || payment.paidAmount || 0),
@@ -771,7 +774,7 @@ export default function App() {
     window.location.assign(result.checkoutUrl);
   };
 
-  const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
+  const handleClientOrderConfirm = async (customerNote?: string, customer?: { name?: string; phone?: string }): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
     if (tableSessionExpected && !tableSession) {
       return { success: false, error: 'La session de cette table est indisponible ou a été révoquée. Scannez à nouveau le QR code physique.' };
     }
@@ -785,14 +788,21 @@ export default function App() {
       cart: clientCart,
       idempotencyKey: clientOrderIdempotencyKey,
       customerNote,
+      customerName: customer?.name,
+      customerPhone: customer?.phone,
       timestamp: Date.now(),
       isUncertain: false
     });
 
-    const clientDeclaredTotal = clientCart.reduce(
+    const clientSubtotal = clientCart.reduce(
       (sum, item) => sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1),
       0
     );
+    const clientDeclaredTotal = calculateOrderTax(
+      clientSubtotal,
+      Number(restaurant.taxRatePercent || 0),
+      restaurant.taxMode || 'exclusive'
+    ).totalAmount;
 
     const submitRes = await submitOrderWithServerValidation(activeRestaurantSlug, {
       cart: clientCart,
@@ -800,6 +810,8 @@ export default function App() {
       tableNumber: tableSession?.tableNumber || null,
       csrfToken: tableSession?.csrfToken,
       customerNote,
+      customerName: customer?.name,
+      customerPhone: customer?.phone,
       idempotencyKey: clientOrderIdempotencyKey,
       allowedTables: restauTables.length > 0 ? restauTables : undefined,
       declaredTotal: clientDeclaredTotal,
@@ -1023,7 +1035,9 @@ export default function App() {
         orderMode: selectedTable ? 'sur_place' : 'a_emporter',
         tableNumber: selectedTable?.number || null,
         idempotencyKey: posOrderIdempotencyKey,
-        customerNote: `Commande saisie au comptoir par ${serverName}`
+        customerNote: `Commande saisie au comptoir par ${serverName}`,
+        customerName: posCustomer.name.trim() || undefined,
+        customerPhone: posCustomer.phone.trim() || undefined
       });
 
       if (!result.success) {
@@ -1178,7 +1192,9 @@ export default function App() {
           orderMode: selectedTable ? 'sur_place' : 'a_emporter',
           tableNumber: selectedTable?.number || null,
           idempotencyKey: posOrderIdempotencyKey,
-          customerNote: `Commande saisie au comptoir par ${serverName}`
+          customerNote: `Commande saisie au comptoir par ${serverName}`,
+          customerName: posCustomer.name.trim() || undefined,
+          customerPhone: posCustomer.phone.trim() || undefined
         });
 
         if (!orderResult.success) {
@@ -1710,6 +1726,11 @@ export default function App() {
             {currentRole === 'pos' && userPermissions.includes('pos.access') && (
               <PosView
                 restaurantSlug={activeRestaurantSlug}
+                taxRatePercent={Number(restaurant.taxRatePercent || 0)}
+                taxMode={restaurant.taxMode || 'exclusive'}
+                customerName={posCustomer.name}
+                customerPhone={posCustomer.phone}
+                onCustomerChange={(field,value)=>setPosCustomer(current=>({...current,[field]:value}))}
                 menuItems={menuItems}
                 cart={cart}
                 selectedTable={selectedTable}
@@ -1787,6 +1808,10 @@ export default function App() {
             discountPercent={discountPercent}
             alreadyPaidAmount={pendingPosPaidAmount}
             orderTotalAmount={pendingPosOrder?.totalAmount}
+            orderSubtotalAmount={pendingPosOrder?.subtotalAmount}
+            orderTaxAmount={pendingPosOrder?.taxAmount}
+            orderTaxRatePercent={pendingPosOrder?.taxRatePercent}
+            orderTaxMode={pendingPosOrder?.taxMode}
             guestAccounts={pendingPosOrder?.guestAccounts}
             isSubmitting={isSubmittingPayment}
             onConfirmPayment={handleConfirmPayment}

@@ -4,6 +4,7 @@ import { ProductDetailModal } from './ProductDetailModal';
 import { CartDrawer } from './CartDrawer';
 import { OrderConfirmationModal } from './OrderConfirmationModal';
 import { formatFCFA } from '../../utils/format';
+import { calculateOrderTax } from '../../utils/pricing';
 import { sounds } from '../../utils/audio';
 import { 
   Search, 
@@ -35,7 +36,7 @@ export interface ClientMenuViewProps {
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
-  onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
+  onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
@@ -137,6 +138,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   // Cart totals
   const totalItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartSubtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+  const cartTax = calculateOrderTax(cartSubtotal, Number(restaurant.taxRatePercent || 0), restaurant.taxMode || 'exclusive');
 
   return (
     <div className="min-h-screen bg-[#f4f7fb] pb-28 text-[#181c1f]">
@@ -416,7 +418,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
               </div>
 
               <div className="text-base font-black tracking-tight tnum bg-black/20 px-3 py-1 rounded-xl">
-                {formatFCFA(cartSubtotal)}
+                {formatFCFA(cartTax.totalAmount)}
               </div>
             </button>
           </div>
@@ -444,6 +446,8 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       <CartDrawer
         isOpen={isCartOpen}
         restaurantName={restaurant.name}
+        taxRatePercent={Number(restaurant.taxRatePercent || 0)}
+        taxMode={restaurant.taxMode || 'exclusive'}
         onClose={() => setIsCartOpen(false)}
         cart={cart}
         tableNumber={tableNumber}
@@ -452,11 +456,11 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         onClearCart={onClearCart}
         isUncertain={isUncertain}
         onResetUncertainty={onResetUncertainty}
-        onConfirmOrder={async (note) => {
+        onConfirmOrder={async (note, customer) => {
           if (!onConfirmOrder) {
             return { success: false, error: "Fonction de commande non configurée." };
           }
-          const res = await onConfirmOrder(note);
+          const res = await onConfirmOrder(note, customer);
           if (res.success && res.order) {
             setIsCartOpen(false);
             setConfirmedOrder(res.order);

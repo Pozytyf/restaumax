@@ -6,6 +6,9 @@
     },
     "api/payments/*.ts": {
       "includeFiles": "firebase-applet-config.json"
+    },
+    "api/subscriptions/*.ts": {
+      "includeFiles": "firebase-applet-config.json"
     }
   },
   "rewrites": [
@@ -40,6 +43,12 @@
     {
       "source": "/payments/:path*",
       "destination": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/subscriptions/billing-cycle",
+      "schedule": "0 2 * * *"
     }
   ]
 }

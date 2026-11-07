@@ -33,14 +33,15 @@ async function run() {
   });
 
   try {
-    await restaurantRef.set({ slug, status: 'active', isActive: true, ownerUid: 'owner-test' });
+    await restaurantRef.set({ slug, status: 'active', isActive: true, ownerUid: 'owner-test', loyaltyFcfaPerPoint: 1000 });
     await memberRef.set({
       uid, role: 'cashier', restaurantSlug: slug, permissions: ['cash.manage', 'cash.view'],
       active: true, sessionVersion: 3
     });
     await orderRef.set({
       id: 'order-main', orderNumber: '#CMD-001', restaurantSlug: slug, orderMode: 'sur_place',
-      tableNumber: '4', totalAmount: 9500, paidAmount: 0, currency: 'FCFA', status: 'pending',
+      tableNumber: '4', totalAmount: 9500, subtotalAmount: 9500, taxAmount: 0, paidAmount: 0, currency: 'FCFA', status: 'pending',
+      customerName: 'Client Fidélité', customerPhone: '07 00 00 00 01', customerPhoneNormalized: '0700000001',
       items: [{ name: 'Poulet test', quantity: 1, unitPrice: 9500 }]
     });
     await concurrentOrderRef.set({
@@ -91,6 +92,8 @@ async function run() {
 
     console.log('\n--- Encaissement partiel et idempotence ---');
     const partial = await recordCashPaymentWithDb(db, input('order-main', 3000, 'cash-partial-0001'));
+    const noEarlyLoyalty = await restaurantRef.collection('customers').where('phoneNormalized', '==', '0700000001').get();
+    assert(noEarlyLoyalty.empty, 'Aucun point n’est attribué tant que le solde de la commande reste partiel');
     assert(partial.success === true && partial.payment?.paidAmount === 3000 &&
       partial.order?.remainingAmount === 6500 && partial.order?.paymentStatus === 'partial',
       'Un encaissement partiel enregistre le montant reçu et le solde restant');
@@ -129,6 +132,13 @@ async function run() {
       finalPayment.payment?.changeAmount === 500 && finalPayment.order?.remainingAmount === 0 &&
       finalPayment.order?.paymentStatus === 'paid',
       'Le paiement final règle le solde exact et calcule la monnaie à rendre');
+    const loyaltyCustomers = await restaurantRef.collection('customers').where('phoneNormalized', '==', '0700000001').get();
+    assert(loyaltyCustomers.size === 1 && loyaltyCustomers.docs[0].data().loyaltyPoints === 9,
+      'Les points sont attribués automatiquement une seule fois au paiement intégral');
+    assert(finalPayment.order?.loyaltyPointsAwarded === 9,
+      'La commande conserve le nombre de points attribués');
+    const loyaltyLedger = await restaurantRef.collection('loyaltyLedger').where('orderId', '==', 'order-main').get();
+    assert(loyaltyLedger.size === 1, 'Le journal de fidélité conserve une seule écriture par commande');
 
     const alreadyPaid = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-after-paid-01'));
     assert(alreadyPaid.success === false, 'Une commande déjà réglée ne peut pas être encaissée une seconde fois');

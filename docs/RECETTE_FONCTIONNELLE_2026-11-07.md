@@ -66,16 +66,66 @@ Les recettes ou suppléments sans nomenclature dédiée sont explicitement signa
 - **Caisse :** sessions, paiements partiels, idempotence, journal et clôture vérifiés par tests automatisés.
 - **PayDunya :** les tests automatisés couvrent le cycle et l'isolation des comptes marchands. Aucun test de transaction réelle n'a été effectué.
 
-## Lacunes restantes — ne pas présenter comme livrées
+## Recette complémentaire — cinq chantiers fonctionnels (7 novembre 2026)
 
-1. **Nomenclatures configurables :** rattacher les options et suppléments à leurs propres composants de stock pour éliminer les états « suivi partiel ».
-2. **Taxes :** le taux est enregistrable dans les paramètres, mais le POS conserve actuellement un calcul de taxe à zéro ; le calcul fiscal et son affichage doivent être définis et testés.
-3. **Fidélité :** les fiches clients et points existent, mais l'attribution des points n'est pas encore automatisée à partir des ventes encaissées.
-4. **Rapports :** les indicateurs présents portent surtout sur les commandes finalisées et les meilleures ventes ; les marges, dépenses et rapprochements financiers complets restent à consolider.
-5. **Abonnements RestauMax :** les statuts et dates sont administrables, mais la facturation récurrente, le renouvellement et la suspension automatique à échéance ne sont pas certifiés.
-6. **PayDunya :** le paiement Mobile Money des factures partagées entre convives reste désactivé ; les remboursements Mobile Money ne sont pas opérationnels. Le décaissement PUSH ne doit pas être assimilé à un remboursement.
-7. **Recette navigateur :** aucune validation visuelle/interactive sur Preview n'a été réalisée, conformément à l'interdiction de déployer sur Vercel. Les tests présents certifient le code, les services et les transactions, pas l'expérience navigateur en environnement hébergé.
+### Commit et validation exacte
+
+- Branche : `feat/stock-tax-loyalty-finance-subscriptions`
+- SHA validé : `8ded05962ac9eb3d310292b9ea85cc36991429e0`
+- PR : [#48 — cinq chantiers fonctionnels](https://github.com/Pozytyf/restaumax/pull/48)
+
+Tous les contrôles ci-dessous ont réussi sur ce SHA exact :
+
+| Contrôle | Résultat |
+|---|---|
+| TypeScript, tests unitaires, build et audit dépendances | Réussi |
+| Firestore Emulator strict | Réussi |
+| Sécurité des rôles | Réussi |
+| Liaison `ownerUid` | Réussi |
+| Cycle PayDunya TEST | Réussi |
+| Remboursement / liaison propriétaire | Réussi |
+| Vue d'administration plateforme | Réussi |
+
+### Critères réussis
+
+| Domaine | Recette vérifiée |
+|---|---|
+| Recettes de stock des options et suppléments | Les recettes personnalisées sont résolues et consommées avec les ingrédients principaux ; les identifiants historiques d'extras restent compatibles ; les mouvements conservent le coût unitaire. |
+| Fiscalité | Modes HT (taxe ajoutée) et TTC (taxe extraite), calcul serveur, conservation du détail sur commande/paiement, aperçu POS/QR et reçu. |
+| Fidélité | Attribution idempotente au paiement intégral en espèces et PayDunya ; base de calcul hors taxes ; contrepassation proportionnelle des points lors des remboursements espèces. |
+| Rapports | Ventes HT/TTC, taxes nettes, encaissements, remboursements, coût des marchandises, marge brute, dépenses enregistrées, résultat et écarts de caisse ; export CSV ; détail de caisse protégé par permission. |
+| Abonnements | Factures mensuelles/annuelles idempotentes, période de grâce, suspension à échéance, révocation des sessions et QR, renouvellement gratuit, rapprochement manuel audité et réactivation contrôlée. |
+
+### Tests Emulator additionnels
+
+| Suite | Résultat |
+|---|---:|
+| Contrats transactionnels Firestore | 36/36 |
+| POS → commande → stock → KDS → caisse | 28/28 |
+| Paiements espèces | 44/44 |
+| Facturation et suspension des abonnements | 27 assertions |
+| Contrepassation des points sur remboursements | 10 assertions |
+| Fidélité et base fiscale hors taxes | 7 assertions |
+| Rapports financiers sur Firestore Emulator | 12 assertions |
+| Tests de liaison `ownerUid` | Réussis |
+| Lots unitaires historiques | Lot 1 : 51/51 ; lot 2 : 131/131 |
+| Persistance d'intention | 22/22 |
+
+### État des cinq chantiers
+
+1. **Nomenclatures des options et suppléments — code validé.** Le restaurateur doit encore renseigner les composants et quantités réels pour chaque option/supplément. Tant qu'une nomenclature manque, le ticket et les rapports signalent le suivi partiel ; aucune consommation fictive n'est comptabilisée.
+2. **Taxes — code validé.** Le taux reste paramétrable par restaurant. RestauMax ne choisit pas à la place du restaurateur le taux légal applicable : celui-ci doit être confirmé selon son régime fiscal.
+3. **Fidélité — code validé.** Le client doit fournir un nom et un téléphone valides. Les points sont crédités sur les ventes hors taxes au règlement intégral. La contrepassation automatique est validée pour les remboursements espèces ; le remboursement Mobile Money PayDunya reste non opérationnel.
+4. **Rapports — code validé.** Les coûts historiques absents et les commandes dont le suivi de stock est partiel/ignoré sont signalés comme couverture de marge incomplète. Les dépenses non saisies dans RestauMax ne peuvent pas être incluses.
+5. **Abonnements — moteur code validé, activation hébergée en attente.** Le Cron quotidien est déclaré dans `vercel.json`, mais il ne s'exécutera qu'après configuration de `CRON_SECRET` et déploiement d'une version qui contient l'endpoint. Le rapprochement d'un paiement est manuel. Le débit automatique des clients par carte/Mobile Money n'est pas implémenté : aucun mandat ni compte marchand plateforme de prélèvement récurrent n'est configuré. Voir [les consignes d'exploitation](./SUBSCRIPTION_BILLING_OPERATIONS.md).
+
+### Limites de cette recette
+
+- Aucune recette visuelle dans un navigateur hébergé n'a été réalisée : aucun déploiement Vercel Preview ou Production n'a été effectué.
+- Aucun déploiement Firebase Production n'a été effectué.
+- PayDunya est resté en TEST ; aucune transaction réelle ni aucun remboursement Mobile Money réel n'a été exécuté.
+- La recette certifie le code, les services, les règles et les transactions sur émulateur. Elle ne certifie pas l'activation du Cron ni l'expérience visuelle hébergée.
 
 ## Conclusion
 
-Le commit testé satisfait les workflows CI, Emulator, rôles et PayDunya TEST. Le parcours transversal POS → commande → cuisine → caisse est validé sur Firestore Emulator à 28/28. Les lacunes listées ci-dessus restent ouvertes et doivent être traitées avant de déclarer RestauMax complet ou prêt pour une exploitation réelle.
+Les cinq chantiers disposent désormais d'une implémentation dans la branche de recette et leurs suites automatisées sont vertes sur le SHA `8ded05962ac9eb3d310292b9ea85cc36991429e0`. La validation du code est terminée. L'activation opérationnelle de la facturation planifiée et tout débit récurrent restent explicitement en attente des prérequis décrits ci-dessus ; ils ne sont pas présentés comme actifs.

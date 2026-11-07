@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { resolveRolePermissions, resolveManagerPermissionUpdate, canManageStaffMember } from '../src/server/platformAdmin.ts';
 
 let passed = 0;
@@ -38,6 +39,19 @@ assert(!canManageStaffMember('manager', 'manager'), 'Le manager ne peut pas admi
 assert(!canManageStaffMember('manager', 'owner'), 'Le manager ne peut pas administrer le propriétaire');
 assert(canManageStaffMember('owner', 'manager'), 'Le propriétaire peut administrer un manager');
 assert(!canManageStaffMember('owner', 'owner'), 'Le propriétaire ne peut pas supprimer le rôle propriétaire depuis le personnel');
+
+const serverSource = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const firestoreRules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+assert(serverSource.includes('adminAuth.verifyIdToken(idToken, true)') &&
+  serverSource.includes("member.restaurantSlug !== restaurantSlug") &&
+  serverSource.includes("permissions.includes('reports.view')"),
+  'Les rapports exigent un jeton actif et une permission liée au restaurant exact');
+assert(serverSource.includes("permissions.includes('reports.cash.view')") &&
+  serverSource.includes('includeCashDetails'),
+  'Les rapprochements et détails de caisse exigent reports.cash.view');
+assert(firestoreRules.includes("match /payments/{paymentId}") &&
+  firestoreRules.includes('allow read, write: if false;'),
+  'Les écritures de paiement restent interdites au client et accessibles seulement au serveur de confiance');
 
 console.log('\nRésultat politique des rôles : ' + passed + ' réussis / ' + failed + ' échoués.');
 if (failed) process.exitCode = 1;

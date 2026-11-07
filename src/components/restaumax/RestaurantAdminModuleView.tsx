@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, updateDoc
+  addDoc, collection, deleteDoc, doc, getDocs, limit, onSnapshot, orderBy, query, updateDoc, where
 } from 'firebase/firestore';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings } from 'lucide-react';
 import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
@@ -9,9 +9,29 @@ import { formatFCFA } from '../../utils/format';
 import { InventoryRecipePanel } from './InventoryRecipePanel';
 
 type ModuleId = 'customers' | 'inventory' | 'reports' | 'settings';
-type Customer = { id: string; name: string; phone: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
+type Customer = { id: string; name: string; phone: string; phoneNormalized?: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
 type InventoryItem = { id: string; name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier?: string; updatedAt: number; active?: boolean };
 type StockMovement = { id: string; itemName: string; unit: string; quantityBefore: number; delta: number; quantityAfter: number; reason: string; createdAt: number; createdBy: string };
+type FinancialReport = {
+  period: { startAt: number; endAt: number };
+  orderCount: number; paidOrderCount: number;
+  grossCollected: number; taxCollected: number; netSales: number;
+  costOfGoodsSold: number; grossProfit: number; grossMarginPercent: number;
+  expenseTotal: number; operatingResult: number;
+  costCoverageComplete: boolean; untrackedStockOrderCount: number; costMovementCount: number; missingCostMovementCount: number;
+  bestSellers: Array<{ name: string; quantity: number }>;
+  cash?: {
+    paymentMethodTotals: Record<string, number>;
+    expenseCount: number; expenseByCategory: Record<string, number>;
+    withdrawalTotal: number; closedSessionCount: number; cashVariance: number; sessionsWithVariance: number;
+  };
+};
+
+const normalizeCustomerPhone = (value: string) => {
+  const digits = value.replace(/\D/g, '');
+  const local = digits.startsWith('225') && digits.length === 13 ? digits.slice(3) : digits;
+  return /^[0-9]{10}$/.test(local) ? local : '';
+};
 
 const titles: Record<ModuleId, string> = {
   customers: 'Clients et fidélité',
@@ -31,6 +51,9 @@ export const RestaurantAdminModuleView: React.FC<{
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [orders, setOrders] = useState<RestauOrder[]>([]);
+  const [financialReport, setFinancialReport] = useState<FinancialReport | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportRefreshKey, setReportRefreshKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -47,7 +70,8 @@ export const RestaurantAdminModuleView: React.FC<{
   const [settings, setSettings] = useState({
     name: restaurant.name, tagline: restaurant.tagline || '', address: restaurant.address || '',
     city: restaurant.city || '', phone: restaurant.phone || '', openingHours: restaurant.openingHours || '',
-    isOpen: restaurant.isOpen, taxRatePercent: String(restaurant.taxRatePercent ?? 0),
+    isOpen: restaurant.isOpen, taxRatePercent: String(restaurant.taxRatePercent ?? 0), taxMode: restaurant.taxMode || 'exclusive',
+    loyaltyFcfaPerPoint: String(restaurant.loyaltyFcfaPerPoint ?? 1000),
     receiptFooter: restaurant.receiptFooter || '', receiptPaperWidth: restaurant.receiptPaperWidth || '80mm'
   });
 
@@ -73,24 +97,47 @@ export const RestaurantAdminModuleView: React.FC<{
       return () => { unsubscribeItems(); unsubscribeMovements(); };
     }
     if (module === 'reports') {
-      return onSnapshot(query(collection(db, 'restaurants', restaurant.slug, 'orders')), snap => {
+      let active = true;
+      const stopOrders = onSnapshot(query(collection(db, 'restaurants', restaurant.slug, 'orders')), snap => {
         setOrders(snap.docs.map(d => d.data() as RestauOrder));
       }, err => setError(err.message));
+      const loadReport = async () => {
+        setReportLoading(true);
+        try {
+          const user = auth.currentUser;
+          if (!user) throw new Error('Connexion requise pour consulter les rapports.');
+          const token = await user.getIdToken(true);
+          const response = await fetch('/api/reports?restaurantSlug=' + encodeURIComponent(restaurant.slug) + '&periodDays=30', {
+            headers: { Authorization: 'Bearer ' + token },
+            credentials: 'same-origin', cache: 'no-store'
+          });
+          const data = await response.json();
+          if (!response.ok || !data.success) throw new Error(data.error || 'Chargement des rapports impossible.');
+          if (active) setFinancialReport(data.report as FinancialReport);
+        } catch (e) {
+          if (active) setError(e instanceof Error ? e.message : 'Chargement des rapports impossible.');
+        } finally {
+          if (active) setReportLoading(false);
+        }
+      };
+      void loadReport();
+      return () => { active = false; stopOrders(); };
     }
     return undefined;
-  }, [module, restaurant.slug]);
+  }, [module, restaurant.slug, reportRefreshKey]);
 
   useEffect(() => {
     setSettings({
       name: restaurant.name, tagline: restaurant.tagline || '', address: restaurant.address || '',
       city: restaurant.city || '', phone: restaurant.phone || '', openingHours: restaurant.openingHours || '',
       isOpen: restaurant.isOpen, taxRatePercent: String(restaurant.taxRatePercent ?? 0),
+      taxMode: restaurant.taxMode || 'exclusive',
+      loyaltyFcfaPerPoint: String(restaurant.loyaltyFcfaPerPoint ?? 1000),
       receiptFooter: restaurant.receiptFooter || '', receiptPaperWidth: restaurant.receiptPaperWidth || '80mm'
     });
   }, [restaurant]);
 
   const completedOrders = useMemo(() => orders.filter(o => o.status === 'completed'), [orders]);
-  const salesTotal = useMemo(() => completedOrders.reduce((sum,o) => sum + Number(o.totalAmount || 0), 0), [completedOrders]);
   const bestSellers = useMemo(() => {
     const map = new Map<string, number>();
     completedOrders.forEach(o => o.items?.forEach(i => map.set(i.name, (map.get(i.name) || 0) + i.quantity)));
@@ -99,9 +146,22 @@ export const RestaurantAdminModuleView: React.FC<{
 
   const addCustomer = async (event: React.FormEvent) => {
     event.preventDefault(); setLoading(true); setError(''); setNotice('');
+    const phoneNormalized = normalizeCustomerPhone(customerForm.phone);
+    if (!phoneNormalized || customerForm.name.trim().length < 2) {
+      setError('Renseignez un nom valide et un numéro ivoirien à 10 chiffres (indicatif +225 accepté).');
+      setLoading(false); return;
+    }
     try {
+      const duplicate = await getDocs(query(
+        collection(db, 'restaurants', restaurant.slug, 'customers'),
+        where('phoneNormalized', '==', phoneNormalized), limit(1)
+      ));
+      if (!duplicate.empty) {
+        setError('Un client utilise déjà ce numéro de téléphone dans ce restaurant.');
+        setLoading(false); return;
+      }
       await addDoc(collection(db, 'restaurants', restaurant.slug, 'customers'), {
-        ...customerForm, name: customerForm.name.trim(), phone: customerForm.phone.trim(),
+        ...customerForm, name: customerForm.name.trim(), phone: customerForm.phone.trim(), phoneNormalized,
         email: customerForm.email.trim(), loyaltyPoints: 0, createdAt: Date.now(), updatedAt: Date.now()
       });
       setCustomerForm({ name: '', phone: '', email: '', notes: '' }); setNotice('Client enregistré.');
@@ -229,7 +289,9 @@ export const RestaurantAdminModuleView: React.FC<{
   const saveSettings = async (event: React.FormEvent) => {
     event.preventDefault(); setLoading(true); setError(''); setNotice('');
     const taxRatePercent = Number(settings.taxRatePercent);
-    if (!settings.name.trim() || !Number.isFinite(taxRatePercent) || taxRatePercent < 0 || taxRatePercent > 100) {
+    const loyaltyFcfaPerPoint = Number(settings.loyaltyFcfaPerPoint);
+    if (!settings.name.trim() || !Number.isFinite(taxRatePercent) || taxRatePercent < 0 || taxRatePercent > 100 ||
+        !Number.isSafeInteger(loyaltyFcfaPerPoint) || loyaltyFcfaPerPoint < 1 || loyaltyFcfaPerPoint > 100000000) {
       setError('Nom du restaurant ou taux de taxe invalide (0 à 100 %).'); setLoading(false); return;
     }
     try {
@@ -237,7 +299,7 @@ export const RestaurantAdminModuleView: React.FC<{
         ...restaurant, name: settings.name.trim(), tagline: settings.tagline.trim(),
         address: settings.address.trim(), city: settings.city.trim(), phone: settings.phone.trim(),
         openingHours: settings.openingHours.trim(), isOpen: settings.isOpen,
-        taxRatePercent, receiptFooter: settings.receiptFooter.trim(),
+        taxRatePercent, taxMode: settings.taxMode, loyaltyFcfaPerPoint, receiptFooter: settings.receiptFooter.trim(),
         receiptPaperWidth: settings.receiptPaperWidth as '58mm' | '80mm'
       });
       setNotice('Paramètres enregistrés dans Firestore.');
@@ -246,12 +308,29 @@ export const RestaurantAdminModuleView: React.FC<{
   };
 
   const exportCsv = () => {
-    const rows = [['N° commande','Date','Mode','Table','Statut','Montant FCFA'], ...completedOrders.map(o => [
-      o.orderNumber, new Date(o.createdAt).toISOString(), o.orderMode, o.tableNumber || '', o.status, String(o.totalAmount)
-    ])];
-    const csv = '\uFEFF' + rows.map(row => row.map(value => '"' + String(value).replaceAll('"','""') + '"').join(';')).join('\n');
+    const rows: string[][] = [
+      ['N° commande','Date','Mode','Table','Statut','Sous-total HT','Taxe','Mode taxe','Total TTC','Encaissé','Remboursé','Net encaissé'],
+      ...completedOrders.map(o => [
+        o.orderNumber, new Date(o.createdAt).toISOString(), o.orderMode, o.tableNumber || '', o.status,
+        String(o.subtotalAmount ?? o.totalAmount), String(o.taxAmount || 0), o.taxMode || 'exclusive',
+        String(o.totalAmount), String(o.paidAmount || 0), String(o.refundedAmount || 0),
+        String(o.netPaidAmount ?? Math.max(0, Number(o.paidAmount || 0) - Number(o.refundedAmount || 0)))
+      ])
+    ];
+    if (financialReport) {
+      rows.push([]);
+      rows.push(['Synthèse financière (30 derniers jours)','Montant FCFA']);
+      rows.push(['Ventes encaissées TTC nettes', String(financialReport.grossCollected)]);
+      rows.push(['Taxes collectées nettes', String(financialReport.taxCollected)]);
+      rows.push(['Ventes hors taxes', String(financialReport.netSales)]);
+      rows.push(['Coût des marchandises vendues', String(financialReport.costOfGoodsSold)]);
+      rows.push(['Marge brute', String(financialReport.grossProfit)]);
+      rows.push(['Dépenses', String(financialReport.expenseTotal)]);
+      rows.push(['Résultat après dépenses suivies', String(financialReport.operatingResult)]);
+    }
+    const csv = '\uFEFF' + rows.map(row => row.map(value => '"' + String(value ?? '').replaceAll('"','""') + '"').join(';')).join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'restaumax-rapport-commandes.csv'; link.click(); URL.revokeObjectURL(url);
+    const link = document.createElement('a'); link.href = url; link.download = 'restaumax-rapport-financier.csv'; link.click(); URL.revokeObjectURL(url);
   };
 
   return <div className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
@@ -313,7 +392,38 @@ export const RestaurantAdminModuleView: React.FC<{
       </>}
       
       {module === 'reports' && <>
-        <div className="grid gap-4 sm:grid-cols-3"><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Commandes finalisées</p><p className="mt-2 text-3xl font-black">{completedOrders.length}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Montant des commandes finalisées</p><p className="mt-2 text-2xl font-black">{formatFCFA(salesTotal)}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Panier moyen</p><p className="mt-2 text-2xl font-black">{formatFCFA(completedOrders.length ? Math.round(salesTotal/completedOrders.length) : 0)}</p></div></div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-slate-500">Période : {financialReport ? new Date(financialReport.period.startAt).toLocaleDateString('fr-FR') + ' – ' + new Date(financialReport.period.endAt).toLocaleDateString('fr-FR') : '30 derniers jours'}</p>
+          <button type="button" onClick={()=>setReportRefreshKey(value=>value+1)} disabled={reportLoading} className="rounded-lg border px-3 py-2 text-xs font-bold">{reportLoading ? 'Actualisation…' : 'Actualiser les rapports'}</button>
+        </div>
+        {financialReport && <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Ventes encaissées TTC nettes</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.grossCollected)}</p><p className="mt-1 text-xs text-slate-500">{financialReport.paidOrderCount} commandes réglées</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Ventes hors taxes</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.netSales)}</p><p className="mt-1 text-xs text-slate-500">Taxes collectées : {formatFCFA(financialReport.taxCollected)}</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Coût des marchandises vendues</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.costOfGoodsSold)}</p><p className="mt-1 text-xs text-slate-500">{financialReport.costMovementCount} mouvements valorisés</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Marge brute</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.grossProfit)}</p><p className="mt-1 text-xs text-slate-500">{financialReport.grossMarginPercent} % du chiffre d’affaires HT</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Dépenses enregistrées</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.expenseTotal)}</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Résultat après dépenses suivies</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.operatingResult)}</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Commandes finalisées</p><p className="mt-2 text-2xl font-black">{financialReport.orderCount}</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Ticket moyen encaissé</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.paidOrderCount ? Math.round(financialReport.grossCollected / financialReport.paidOrderCount) : 0)}</p></div>
+          </div>
+          {!financialReport.costCoverageComplete && <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Valorisation partielle : {financialReport.missingCostMovementCount} mouvements sans coût unitaire et {financialReport.untrackedStockOrderCount} commandes avec recettes non suivies. Les marges seront entièrement fiables lorsque les fiches de stock auront des coûts renseignés et que les nouveaux mouvements seront valorisés.</p>}
+          {financialReport.cash && <section className="rounded-2xl border bg-white p-5">
+            <h2 className="mb-3 font-bold">Rapprochement de caisse et moyens de paiement</h2>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div><p className="text-xs text-slate-500">Sessions clôturées</p><p className="text-xl font-black">{financialReport.cash.closedSessionCount}</p></div>
+              <div><p className="text-xs text-slate-500">Écart cumulé de caisse</p><p className="text-xl font-black">{formatFCFA(financialReport.cash.cashVariance)}</p></div>
+              <div><p className="text-xs text-slate-500">Sessions avec écart</p><p className="text-xl font-black">{financialReport.cash.sessionsWithVariance}</p></div>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">{Object.entries(financialReport.cash.paymentMethodTotals).map(([method,amount])=><div key={method} className="flex justify-between border-b py-2 text-sm"><span>{method}</span><strong>{formatFCFA(amount)}</strong></div>)}</div>
+            {Object.keys(financialReport.cash.expenseByCategory).length > 0 && <div className="mt-4">
+              <h3 className="mb-2 text-sm font-bold">Dépenses par catégorie</h3>
+              {Object.entries(financialReport.cash.expenseByCategory).map(([category,amount])=><div key={category} className="flex justify-between border-b py-2 text-sm"><span>{category}</span><strong>{formatFCFA(amount)}</strong></div>)}
+            </div>}
+            <p className="mt-3 text-xs text-slate-500">Retraits de caisse suivis séparément : {formatFCFA(financialReport.cash.withdrawalTotal)}</p>
+          </section>}
+        </>}
+        {!financialReport && !reportLoading && <p className="rounded-xl border bg-white p-4 text-sm text-slate-500">Aucun rapport disponible pour cette période.</p>}
         <section className="rounded-2xl border bg-white p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-bold">Meilleures ventes (quantités)</h2><button onClick={exportCsv} className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white"><Download size={15}/> Exporter CSV</button></div>
           {bestSellers.map(([name,qty])=><div key={name} className="flex justify-between border-b py-3 text-sm last:border-0"><span>{name}</span><strong>{qty}</strong></div>)}
           {bestSellers.length===0 && <p className="text-sm text-slate-500">Aucune commande finalisée à analyser.</p>}
@@ -328,7 +438,9 @@ export const RestaurantAdminModuleView: React.FC<{
         <label className="text-sm font-semibold">Ville<input value={settings.city} onChange={e=>setSettings({...settings,city:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/></label>
         <label className="text-sm font-semibold">Téléphone<input value={settings.phone} onChange={e=>setSettings({...settings,phone:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/></label>
         <label className="text-sm font-semibold">Horaires d'ouverture<input value={settings.openingHours} onChange={e=>setSettings({...settings,openingHours:e.target.value})} placeholder="Ex. Lun–Dim : 11h–23h" className="mt-1 w-full rounded-lg border p-3"/></label>
-        <label className="text-sm font-semibold">Taux de taxe (%)<input type="number" min="0" max="100" step="0.01" value={settings.taxRatePercent} onChange={e=>setSettings({...settings,taxRatePercent:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/><span className="text-xs font-normal text-slate-500">Paramètre indicatif : non appliqué automatiquement aux prix/commandes.</span></label>
+        <label className="text-sm font-semibold">Taux de taxe (%)<input type="number" min="0" max="100" step="0.01" value={settings.taxRatePercent} onChange={e=>setSettings({...settings,taxRatePercent:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/><span className="text-xs font-normal text-slate-500">Appliqué automatiquement aux nouvelles commandes. Les commandes existantes conservent leur calcul historique.</span></label>
+        <label className="text-sm font-semibold">Seuil fidélité (FCFA par point)<input type="number" min="1" max="100000000" step="1" value={settings.loyaltyFcfaPerPoint} onChange={e=>setSettings({...settings,loyaltyFcfaPerPoint:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/><span className="text-xs font-normal text-slate-500">Par défaut : 1 point par 1 000 FCFA de sous-total, attribué à la commande entièrement réglée.</span></label>
+        <label className="text-sm font-semibold">Mode de taxe<select value={settings.taxMode} onChange={e=>setSettings({...settings,taxMode:e.target.value as 'exclusive'|'inclusive'})} className="mt-1 w-full rounded-lg border p-3"><option value="exclusive">Taxe ajoutée au prix affiché (HT)</option><option value="inclusive">Taxe incluse dans le prix affiché (TTC)</option></select></label>
         <label className="text-sm font-semibold">Format d'impression ticket<select value={settings.receiptPaperWidth} onChange={e=>setSettings({...settings,receiptPaperWidth:e.target.value as '58mm'|'80mm'})} className="mt-1 w-full rounded-lg border p-3"><option value="58mm">58 mm</option><option value="80mm">80 mm</option></select></label>
         <label className="text-sm font-semibold md:col-span-2">Pied de ticket<input value={settings.receiptFooter} onChange={e=>setSettings({...settings,receiptFooter:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/></label>
         <label className="flex items-center gap-3 rounded-xl bg-slate-50 p-4 text-sm font-bold md:col-span-2"><input type="checkbox" checked={settings.isOpen} onChange={e=>setSettings({...settings,isOpen:e.target.checked})}/> Restaurant ouvert aux commandes client</label>

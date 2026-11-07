@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 /**
  * RESTAUMAX — SERVEUR BACKEND SÉCURISÉ & PASSERELLE API RESTAUMAX
  *
@@ -39,6 +40,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
+import { getRestaurantFinancialReportWithDb } from './src/server/reportService.js';
+import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
@@ -589,6 +592,17 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     if (restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.isActive === false) throw new Error("Restaurant inactif ou indisponible : les commandes sont désactivées.");
     const snap = await restaurantRef.collection('menuItems').get();
     return snap.docs.map((d: any) => d.data());
+  },
+
+  async getRestaurantTaxConfig(restaurantSlug: string) {
+    if (!adminDb) throw new Error("Firebase Admin SDK non initialisé.");
+    const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
+    if (!restaurantSnap.exists) throw new Error('Restaurant introuvable.');
+    const restaurant = restaurantSnap.data() || {};
+    return {
+      taxRatePercent: restaurant.taxRatePercent === undefined ? 0 : Number(restaurant.taxRatePercent),
+      taxMode: restaurant.taxMode === 'inclusive' ? 'inclusive' as const : 'exclusive' as const
+    };
   },
 
   async getTables(restaurantSlug: string) {
@@ -1404,6 +1418,66 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
   }
 }
 
+export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  const secret = String(process.env.CRON_SECRET || '');
+  if (!secret) return { statusCode: 503, body: { success: false, error: 'CRON_SECRET doit être configuré avant activation de la facturation planifiée.' } };
+  const authorization = String(req?.headers?.authorization || '');
+  const expected = Buffer.from('Bearer ' + secret);
+  const supplied = Buffer.from(authorization);
+  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+    return { statusCode: 401, body: { success: false, error: 'Authentification de la tâche planifiée refusée.' } };
+  }
+  try {
+    const result = await runSubscriptionBillingCycleWithDb(adminDb, Date.now());
+    return { statusCode: 200, body: result };
+  } catch (error: any) {
+    console.error('[RestauMax subscription billing] Error:', error?.message || String(error));
+    return { statusCode: 500, body: { success: false, error: 'Le cycle de facturation des abonnements a échoué.' } };
+  }
+}
+
+export async function handleRestaurantReportsRequest(req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de rapports indisponible.' } };
+  if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const restaurantSlug = String(req.query?.restaurantSlug || '').trim();
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+    const [restaurantSnap, memberSnap] = await Promise.all([
+      adminDb.collection('restaurants').doc(restaurantSlug).get(),
+      adminDb.collection('managers').doc(decoded.uid).get()
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = memberSnap.exists ? memberSnap.data() : null;
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
+        !member || member.active !== true || member.restaurantSlug !== restaurantSlug ||
+        Number(member.sessionVersion || 0) !== Number(decoded.sessionVersion || 0)) {
+      return { statusCode: 403, body: { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' } };
+    }
+    const isOwner = member.role === 'owner' && restaurant.ownerUid === decoded.uid;
+    const permissions = Array.isArray(member.permissions) ? member.permissions : [];
+    const canViewReports = isOwner || permissions.includes('reports.view');
+    if (!canViewReports) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les rapports.' } };
+    const includeCashDetails = isOwner || permissions.includes('reports.cash.view');
+    const periodDays = Number(req.query?.periodDays || 30);
+    const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
+      periodDays, includeCashDetails
+    });
+    return { statusCode: 200, body: { success: true, report } };
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (/auth|token|revoked|expired/i.test(message)) return { statusCode: 401, body: { success: false, error: 'Session du personnel invalide. Reconnectez-vous.' } };
+    console.error('[RestauMax reports] Error:', message);
+    return { statusCode: 500, body: { success: false, error: 'Impossible de calculer les rapports financiers.' } };
+  }
+}
+
 export async function handleInventoryRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de stock indisponible : Firebase Admin non configuré.' } };
   if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
@@ -1557,6 +1631,21 @@ app.all('/api/payments', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handlePaymentsRequest(req.method === 'GET' ? undefined : req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.get('/api/subscriptions/billing-cycle', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleSubscriptionBillingCycleRequest(req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.get('/api/reports', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleRestaurantReportsRequest(req);
   return res.status(result.statusCode).json(result.body);
 });
 
