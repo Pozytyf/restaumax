@@ -46,7 +46,7 @@ import {
   subscribeToAuth,
   type User
 } from './lib/firebase';
-import { validateAndBuildOrder, generateClientOrderIdempotencyKey } from './utils/pricing';
+import { validateAndBuildOrder, generateClientOrderIdempotencyKey, calculateOrderTax } from './utils/pricing';
 import { 
   savePendingOrderIntent, 
   loadPendingOrderIntent, 
@@ -789,10 +789,15 @@ export default function App() {
       isUncertain: false
     });
 
-    const clientDeclaredTotal = clientCart.reduce(
+    const clientSubtotal = clientCart.reduce(
       (sum, item) => sum + (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1),
       0
     );
+    const clientDeclaredTotal = calculateOrderTax(
+      clientSubtotal,
+      Number(restaurant.taxRatePercent || 0),
+      restaurant.taxMode || 'exclusive'
+    ).totalAmount;
 
     const submitRes = await submitOrderWithServerValidation(activeRestaurantSlug, {
       cart: clientCart,
