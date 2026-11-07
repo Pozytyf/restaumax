@@ -591,6 +591,17 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     return snap.docs.map((d: any) => d.data());
   },
 
+  async getRestaurantTaxConfig(restaurantSlug: string) {
+    if (!adminDb) throw new Error("Firebase Admin SDK non initialisé.");
+    const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
+    if (!restaurantSnap.exists) throw new Error('Restaurant introuvable.');
+    const restaurant = restaurantSnap.data() || {};
+    return {
+      taxRatePercent: restaurant.taxRatePercent === undefined ? 0 : Number(restaurant.taxRatePercent),
+      taxMode: restaurant.taxMode === 'inclusive' ? 'inclusive' as const : 'exclusive' as const
+    };
+  },
+
   async getTables(restaurantSlug: string) {
     if (!adminDb) {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
