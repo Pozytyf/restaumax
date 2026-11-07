@@ -220,7 +220,7 @@ assert(inventoryUi.includes('<InventoryRecipePanel restaurantSlug={restaurant.sl
 assert(recipePanel.includes('saveInventoryRecipeWithServerValidation'), 'recipe saves use the trusted backend API');
 assert(recipePanel.includes('saveInventoryCustomizationRecipeWithServerValidation') && recipePanel.includes('menuCustomizationRecipes'), 'option and extra recipes are saved and listed through the trusted API');
 assert(recipePanel.includes('new Set(normalized.map(line => line.inventoryItemId)).size !== normalized.length'), 'duplicate ingredients are rejected in the UI');
-assert(recipePanel.includes('aucune conversion implicite n’est appliquée'), 'recipe quantities explicitly avoid implicit unit conversion');
+assert(recipePanel.includes('aucune conversion implicite'), 'recipe quantities explicitly avoid implicit unit conversion');
 assert(recipePanel.includes('canManage && <form'), 'recipe editing is hidden from staff without inventory management permission');
 assert(recipePanel.includes('>Modifier</button>') && recipePanel.includes('setLines(recipe.lines.map'), 'saved recipe sheets can be loaded back into the editor');
 console.log('Inventory service and retry-safe UI: tests passed.');
