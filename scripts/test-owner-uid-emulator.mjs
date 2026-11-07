@@ -29,6 +29,12 @@ try {
   await assertSucceeds(getDoc(doc(ownerA, 'restaurants/rest-a')));
   await assertFails(getDoc(doc(ownerB, 'restaurants/rest-a')));
   await assertSucceeds(updateDoc(doc(ownerA, 'restaurants/rest-a'), { name: 'Restaurant A modifié' }));
+  await assertSucceeds(updateDoc(doc(ownerA, 'restaurants/rest-a'), {
+    taxRatePercent: 18, taxMode: 'inclusive', loyaltyFcfaPerPoint: 500, receiptPaperWidth: '58mm'
+  }));
+  await assertFails(updateDoc(doc(ownerB, 'restaurants/rest-a'), {
+    taxMode: 'exclusive', loyaltyFcfaPerPoint: 1000
+  }));
   await assertFails(updateDoc(doc(ownerB, 'restaurants/rest-a'), { name: 'Tentative de prise de contrôle' }));
   await assertFails(updateDoc(doc(ownerA, 'restaurants/rest-a/orders/order-1'), { status: 'in_prep' }));
   await assertFails(updateDoc(doc(ownerB, 'restaurants/rest-a/orders/order-1'), { status: 'cancelled' }));
