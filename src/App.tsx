@@ -8,6 +8,7 @@ import {
   CashDrawerState, 
   PaymentRecord,
   PaymentMethod,
+  TicketStatus,
   TableStatus
 } from './types/pos';
 import { CHEZ_AWA_RESTAURANT } from './data/restaumaxData';
