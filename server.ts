@@ -50,6 +50,7 @@ import {
   IdempotencyReservationResult
 } from './src/server/orderService.js';
 import { getFinancialReportWithDb } from './src/server/financialReportService.js';
+import { reconcileSubscriptionBillingWithDb, markSubscriptionInvoicePaidWithDb } from './src/server/subscriptionService.js';
 import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, listClosedCashSessionsWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
 import { type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
 import { loadRestaurantPayDunyaConfig, saveRestaurantPayDunyaCredentials } from './src/server/paydunyaMerchantConfig.js';
@@ -1425,6 +1426,23 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
   }
 }
 
+export async function handleSubscriptionReconcileRequest(req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service d’abonnement indisponible.' } };
+  if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  const expectedSecret = String(process.env.RESTAUMAX_SUBSCRIPTION_CRON_SECRET || '');
+  const authorization = String(req?.headers?.authorization || '');
+  if (!expectedSecret || authorization !== 'Bearer ' + expectedSecret) {
+    return { statusCode: 401, body: { success: false, error: 'Authentification du planificateur invalide.' } };
+  }
+  try {
+    const result = await reconcileSubscriptionBillingWithDb(adminDb);
+    return { statusCode: result.success ? 200 : 500, body: result };
+  } catch (error: any) {
+    console.error('[RestauMax subscription billing] Reconciliation failed:', error?.message || String(error));
+    return { statusCode: 500, body: { success: false, error: 'Échec de la facturation récurrente.' } };
+  }
+}
+
 export async function handleFinancialReportRequest(req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de rapports indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
@@ -1601,6 +1619,13 @@ app.all('/api/payments', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handlePaymentsRequest(req.method === 'GET' ? undefined : req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.get('/api/subscription-reconcile', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleSubscriptionReconcileRequest(req);
   return res.status(result.statusCode).json(result.body);
 });
 
