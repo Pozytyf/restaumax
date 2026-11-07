@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ClientCartItem } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
+import { calculateOrderTax, type RestaurantTaxMode } from '../../utils/pricing';
 import { sounds } from '../../utils/audio';
 import { 
   X, 
@@ -20,6 +21,8 @@ import {
 interface CartDrawerProps {
   isOpen: boolean;
   restaurantName: string;
+  taxRatePercent?: number;
+  taxMode?: RestaurantTaxMode;
   onClose: () => void;
   cart: ClientCartItem[];
   tableNumber: string | null;
@@ -34,6 +37,8 @@ interface CartDrawerProps {
 export const CartDrawer: React.FC<CartDrawerProps> = ({
   isOpen,
   restaurantName,
+  taxRatePercent = 0,
+  taxMode = 'exclusive',
   onClose,
   cart,
   tableNumber,
@@ -52,6 +57,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const totalItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+  const taxBreakdown = calculateOrderTax(subtotal, taxRatePercent, taxMode);
 
   const handleOrderSubmission = async () => {
     if (isSubmitting || cart.length === 0 || !onConfirmOrder) return;
@@ -348,15 +354,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 <span className="font-bold tnum">{formatFCFA(subtotal)}</span>
               </div>
               <div className="flex justify-between text-slate-300">
-                <span>Frais de service & couverts</span>
-                <span className="font-bold text-emerald-400">Inclus</span>
+                <span>{taxMode === 'inclusive' ? 'Taxe incluse (' + taxRatePercent + ' %)' : 'Taxe (' + taxRatePercent + ' %)'}</span>
+                <span className="font-bold tnum">{formatFCFA(taxBreakdown.taxAmount)}</span>
               </div>
               <div className="pt-2 border-t border-slate-700 flex items-baseline justify-between">
                 <span className="text-xs uppercase font-extrabold tracking-wider text-slate-300">
                   Total à Payer
                 </span>
                 <span className="text-xl sm:text-2xl font-black text-white tracking-tight tnum">
-                  {formatFCFA(subtotal)}
+                  {formatFCFA(taxBreakdown.totalAmount)}
                 </span>
               </div>
             </div>
