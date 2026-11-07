@@ -121,7 +121,11 @@ service cloud.firestore {
       return data.keys().hasAll(['slug', 'name', 'isOpen'])
         && data.slug is string && data.slug.size() > 0 && data.slug.size() <= 100
         && data.name is string && data.name.size() > 0 && data.name.size() <= 200
-        && data.isOpen is bool;
+        && data.isOpen is bool
+        && (!data.keys().hasAny(['taxRatePercent']) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100))
+        && (!data.keys().hasAny(['taxMode']) || data.taxMode in ['exclusive', 'inclusive'])
+        && (!data.keys().hasAny(['loyaltyFcfaPerPoint']) || (data.loyaltyFcfaPerPoint is int && data.loyaltyFcfaPerPoint >= 1 && data.loyaltyFcfaPerPoint <= 100000000))
+        && (!data.keys().hasAny(['receiptPaperWidth']) || data.receiptPaperWidth in ['58mm', '80mm']);
     }
 
     function isValidMenuItem(data) {
@@ -190,8 +194,8 @@ service cloud.firestore {
         isValidId(restaurantSlug) && isValidRestaurant(incoming()) &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'tagline', 'address', 'city', 'phone', 'bannerUrl', 'logoUrl',
-          'openingHours', 'currency', 'country', 'isOpen', 'taxRatePercent',
-          'receiptFooter', 'receiptPaperWidth'
+          'openingHours', 'currency', 'country', 'isOpen', 'taxRatePercent', 'taxMode',
+          'loyaltyFcfaPerPoint', 'receiptFooter', 'receiptPaperWidth'
         ]);
       allow delete: if false;
 
