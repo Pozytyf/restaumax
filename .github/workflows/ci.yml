@@ -29,13 +29,10 @@ jobs:
       - name: Typecheck
         run: npm run lint
 
-      - name: Start Firestore Emulator and run strict integration suite
+      - name: Start Firestore Emulator and run the complete test suite
         env:
           FIRESTORE_EMULATOR_STRICT: "true"
-        run: npx --yes firebase-tools@14.22.0 emulators:exec --project demo-restaumax --only firestore --config firebase.json "npm run test:emulator"
-
-      - name: Run remaining automated tests
-        run: npm test
+        run: npx --yes firebase-tools@14.22.0 emulators:exec --project demo-restaumax --only firestore --config firebase.json "npm test"
 
       - name: Build production frontend
         run: npm run build
