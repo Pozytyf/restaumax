@@ -300,12 +300,29 @@ export const RestaurantAdminModuleView: React.FC<{
   };
 
   const exportCsv = () => {
-    const rows = [['N° commande','Date','Mode','Table','Statut','Montant FCFA'], ...completedOrders.map(o => [
-      o.orderNumber, new Date(o.createdAt).toISOString(), o.orderMode, o.tableNumber || '', o.status, String(o.totalAmount)
-    ])];
-    const csv = '\uFEFF' + rows.map(row => row.map(value => '"' + String(value).replaceAll('"','""') + '"').join(';')).join('\n');
+    const rows: string[][] = [
+      ['N° commande','Date','Mode','Table','Statut','Sous-total HT','Taxe','Mode taxe','Total TTC','Encaissé','Remboursé','Net encaissé'],
+      ...completedOrders.map(o => [
+        o.orderNumber, new Date(o.createdAt).toISOString(), o.orderMode, o.tableNumber || '', o.status,
+        String(o.subtotalAmount ?? o.totalAmount), String(o.taxAmount || 0), o.taxMode || 'exclusive',
+        String(o.totalAmount), String(o.paidAmount || 0), String(o.refundedAmount || 0),
+        String(o.netPaidAmount ?? Math.max(0, Number(o.paidAmount || 0) - Number(o.refundedAmount || 0)))
+      ])
+    ];
+    if (financialReport) {
+      rows.push([]);
+      rows.push(['Synthèse financière (30 derniers jours)','Montant FCFA']);
+      rows.push(['Ventes encaissées TTC nettes', String(financialReport.grossCollected)]);
+      rows.push(['Taxes collectées nettes', String(financialReport.taxCollected)]);
+      rows.push(['Ventes hors taxes', String(financialReport.netSales)]);
+      rows.push(['Coût des marchandises vendues', String(financialReport.costOfGoodsSold)]);
+      rows.push(['Marge brute', String(financialReport.grossProfit)]);
+      rows.push(['Dépenses', String(financialReport.expenseTotal)]);
+      rows.push(['Résultat après dépenses suivies', String(financialReport.operatingResult)]);
+    }
+    const csv = '\uFEFF' + rows.map(row => row.map(value => '"' + String(value ?? '').replaceAll('"','""') + '"').join(';')).join('\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'restaumax-rapport-commandes.csv'; link.click(); URL.revokeObjectURL(url);
+    const link = document.createElement('a'); link.href = url; link.download = 'restaumax-rapport-financier.csv'; link.click(); URL.revokeObjectURL(url);
   };
 
   return <div className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
