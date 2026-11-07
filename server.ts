@@ -40,6 +40,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
+import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
 import { 
   processOrderSubmission, 
@@ -1426,6 +1427,30 @@ export async function handleInventoryRequest(payload: unknown, req?: any): Promi
   }
 }
 
+export async function handleOrderStatusRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible : Firebase Admin non configuré.' } };
+  if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const input = payload && typeof payload === 'object' ? payload as any : {};
+    const restaurantSlug = String(input.restaurantSlug || '').trim();
+    const orderId = String(input.orderId || '').trim();
+    const targetStatus = input.status;
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(orderId)) {
+      return { statusCode: 400, body: { success: false, error: 'Restaurant ou commande invalide.' } };
+    }
+    const result = await transitionOrderStatusWithDb(adminDb, { restaurantSlug, orderId, targetStatus, actorUid: decoded.uid, sessionVersion: Number(decoded.sessionVersion || 0) });
+    if (result.success) return { statusCode: 200, body: result };
+    return { statusCode: result.error?.includes('Transition refusée') ? 409 : 403, body: result };
+  } catch (error: any) {
+    console.error('[RestauMax order status] Request failed:', error?.message || String(error));
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la transition de commande.' } };
+  }
+}
 export async function handleKitchenItemRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) {
     return { statusCode: 503, body: { success: false, error: 'Service cuisine indisponible : Firebase Admin non configuré.' } };
@@ -1483,6 +1508,13 @@ app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
 });
 
+app.post('/api/order-status', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleOrderStatusRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
 app.post('/api/kitchen-item', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Referrer-Policy', 'no-referrer');
