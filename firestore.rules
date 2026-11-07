@@ -337,15 +337,9 @@ service cloud.firestore {
         allow create: if false;
         allow get: if false;
         allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view'));
-        allow update: if isValidId(orderId) &&
-          incoming().id == orderId &&
-          incoming().id == existing().id &&
-          incoming().restaurantSlug == restaurantSlug &&
-          incoming().restaurantSlug == existing().restaurantSlug &&
-          incoming().orderNumber == existing().orderNumber &&
-          incoming().totalAmount == existing().totalAmount &&
-          incoming().items == existing().items &&
-          canUpdateOrder(restaurantSlug);
+        // All order status transitions and KDS progress are server-managed so stock
+        // consumption/restoration and the order state commit in one Admin SDK transaction.
+        allow update: if false;
         allow delete: if false;
       }
     }
