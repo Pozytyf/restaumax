@@ -243,8 +243,10 @@ async function run() {
       'La consommation d’ingrédient est calculée à partir de la recette et de la quantité vendue');
     const startedOrder = (await restaurantRef.collection('orders').doc(orderId).get()).data();
     check(startedOrder?.stockTrackingStatus === 'partial' &&
-      startedOrder?.stockUntrackedItemIds?.includes(menuItem.id),
-      'Les options et suppléments sans nomenclature dédiée sont signalés comme stock partiellement suivi');
+      startedOrder?.stockUntrackedItemIds?.includes('dish-integration:option:side:rice') &&
+      startedOrder?.stockUntrackedItemIds?.includes('dish-integration:option:cooking:well') &&
+      startedOrder?.stockUntrackedItemIds?.includes('dish-integration:extra:sauce'),
+      'Chaque option et supplément sans nomenclature dédiée est identifié précisément dans le suivi partiel');
 
     const kitchenTicket = mapRestauOrderToKitchenTicket(startedOrder);
     check(kitchenTicket.items[0]?.notes?.includes('Options :') &&
