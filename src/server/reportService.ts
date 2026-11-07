@@ -66,9 +66,15 @@ export function calculateRestaurantFinancialReport(
     const taxShare = total > 0 ? Math.min(netPaid, Math.round(orderTax * netPaid / total)) : 0;
     taxCollected += taxShare;
     netSales += Math.max(0, netPaid - taxShare);
-    for (const line of Array.isArray(order.items) ? order.items : []) {
-      const name = String(line.name || 'Article');
-      bestSellersMap.set(name, (bestSellersMap.get(name) || 0) + Math.max(0, Number(line.quantity) || 0));
+    // Les quantités vendues suivent les encaissements nets : une commande
+    // intégralement remboursée ne doit pas rester dans le classement.
+    const retainedShare = total > 0 ? netPaid / total : (paidBeforeRefund > 0 ? netPaid / paidBeforeRefund : 0);
+    if (retainedShare > 0) {
+      for (const line of Array.isArray(order.items) ? order.items : []) {
+        const name = String(line.name || 'Article');
+        const retainedQuantity = Math.max(0, Number(line.quantity) || 0) * retainedShare;
+        bestSellersMap.set(name, (bestSellersMap.get(name) || 0) + retainedQuantity);
+      }
     }
   }
 
@@ -154,21 +160,39 @@ export async function getRestaurantFinancialReportWithDb(
   if (!Number.isSafeInteger(periodDays) || periodDays < 1 || periodDays > 366) throw new Error('Période de rapport invalide.');
   const startAt = now - periodDays * 24 * 60 * 60 * 1000;
   const restaurantRef = db.collection('restaurants').doc(slug);
+  // Paginer jusqu'à épuisement : une limite fixe silencieuse faussait les
+  // rapports des restaurants ayant plus de 1 000 mouvements sur la période.
+  const readAll = async (query: any, pageSize = 1000) => {
+    const documents: any[] = [];
+    let cursor: any = null;
+    while (true) {
+      let pageQuery = query.limit(pageSize);
+      if (cursor) pageQuery = pageQuery.startAfter(cursor);
+      const page = await pageQuery.get();
+      documents.push(...page.docs);
+      if (page.size < pageSize) break;
+      cursor = page.docs[page.docs.length - 1];
+    }
+    return documents;
+  };
   const ranged = (name: string) => restaurantRef.collection(name)
     .where('createdAt', '>=', startAt).where('createdAt', '<=', now)
-    .orderBy('createdAt', 'desc').limit(1000);
-  const [ordersSnap, paymentsSnap, refundsSnap, stockSnap, cashMovementsSnap, cashSessionsSnap] = await Promise.all([
-    ranged('orders').get(), ranged('payments').get(), ranged('refunds').get(),
-    ranged('stockMovements').get(), ranged('cashMovements').get(),
-    restaurantRef.collection('cashSessions').orderBy('openedAt', 'desc').limit(500).get()
+    .orderBy('createdAt', 'desc');
+  const cashSessionsQuery = restaurantRef.collection('cashSessions')
+    .where('openedAt', '>=', startAt).where('openedAt', '<=', now)
+    .orderBy('openedAt', 'desc');
+  const [orders, payments, refunds, stockMovements, cashMovements, cashSessions] = await Promise.all([
+    readAll(ranged('orders')), readAll(ranged('payments')), readAll(ranged('refunds')),
+    readAll(ranged('stockMovements')), readAll(ranged('cashMovements')),
+    readAll(cashSessionsQuery)
   ]);
   const report = calculateRestaurantFinancialReport({
-    orders: ordersSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id })),
-    payments: paymentsSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id })),
-    refunds: refundsSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id })),
-    stockMovements: stockSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id })),
-    cashMovements: cashMovementsSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id })),
-    cashSessions: cashSessionsSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id })).filter((session: any) => Number(session.openedAt || 0) >= startAt && Number(session.openedAt || 0) <= now)
+    orders: orders.map((doc: any) => ({ ...doc.data(), id: doc.id })),
+    payments: payments.map((doc: any) => ({ ...doc.data(), id: doc.id })),
+    refunds: refunds.map((doc: any) => ({ ...doc.data(), id: doc.id })),
+    stockMovements: stockMovements.map((doc: any) => ({ ...doc.data(), id: doc.id })),
+    cashMovements: cashMovements.map((doc: any) => ({ ...doc.data(), id: doc.id })),
+    cashSessions: cashSessions.map((doc: any) => ({ ...doc.data(), id: doc.id }))
   }, { startAt, endAt: now, includeCashDetails: options.includeCashDetails === true });
   return report;
 }
