@@ -1,6 +1,6 @@
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
-import { validateSubscriptionInput } from './subscriptionService.js';
+import { validateSubscriptionInput, markSubscriptionInvoicePaidWithDb } from './subscriptionService.js';
 
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
@@ -172,7 +172,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (action === 'overview' || action === 'create_restaurant' || action === 'set_restaurant_status' || action === 'update_subscription' || action === 'delete_restaurant') {
+    if (action === 'overview' || action === 'create_restaurant' || action === 'set_restaurant_status' || action === 'update_subscription' || action === 'mark_subscription_invoice_paid' || action === 'delete_restaurant') {
       if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
 
       if (action === 'overview') {
@@ -379,6 +379,24 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           createdAt: now
         });
         return json(res, 200, { success: true, subscription: updatedSubscription });
+      }
+
+      if (action === 'mark_subscription_invoice_paid') {
+        const result = await markSubscriptionInvoicePaidWithDb(db, {
+          restaurantSlug: String(body.slug || ''),
+          invoiceId: String(body.invoiceId || ''),
+          actorUid: user.uid,
+          paymentReference: String(body.paymentReference || '')
+        });
+        if (!result.success) return json(res, 409, result);
+        await db.collection('admin_audit_logs').add({
+          action: 'reconcile_subscription_invoice_paid',
+          restaurantSlug: String(body.slug || ''),
+          invoiceId: String(body.invoiceId || ''),
+          paymentReference: String(body.paymentReference || '').slice(0, 160),
+          actorUid: user.uid, createdAt: Date.now()
+        });
+        return json(res, 200, result);
       }
 
       if (action === 'delete_restaurant') {
