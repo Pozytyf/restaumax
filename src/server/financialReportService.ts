@@ -34,7 +34,12 @@ export function calculateFinancialReport(input: FinancialReportInput): Financial
   const consumptions = Array.isArray(input.stockConsumptions) ? input.stockConsumptions : [];
 
   const completed = orders.filter(order => order.status === 'completed');
-  const grossOrderValueFcfa = completed.reduce((sum, order) => sum + amount(order.totalAmount), 0);
+  const grossOrderValueFcfa = completed.reduce((sum, order) => {
+    const subtotal = amount(order.subtotalAmount ?? order.totalAmount);
+    const tax = amount(order.taxAmount);
+    const salesExcludingTax = order.taxMode === 'inclusive' ? Math.max(0, subtotal - tax) : subtotal;
+    return sum + salesExcludingTax;
+  }, 0);
   const netPaymentAmount = (payment: Record<string, any>) => Math.max(0, amount(payment.paidAmount) - amount(payment.refundedAmount));
   const collectedFcfa = payments.reduce((sum, payment) => sum + netPaymentAmount(payment), 0);
   const outstandingFcfa = orders.filter(order => order.status !== 'cancelled')
