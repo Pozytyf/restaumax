@@ -587,10 +587,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           }
         }
         const serverRef = staffRef.doc(staffUid);
-        const serverSnap = await serverRef.get();
+        const [serverSnap, serverMembershipSnap] = await Promise.all([
+          serverRef.get(), db.collection('managers').doc(staffUid).get()
+        ]);
         const server = serverSnap.exists ? serverSnap.data() : null;
-        if (!server || server.role !== 'server' || server.active !== true || server.restaurantSlug !== slug) {
-          return json(res, 409, { success: false, error: 'Seul un serveur actif de ce restaurant peut recevoir des tables.' });
+        const serverMembership = serverMembershipSnap.exists ? serverMembershipSnap.data() : null;
+        if (!server || !serverMembership ||
+            server.role !== 'server' || serverMembership.role !== 'server' ||
+            server.active !== true || serverMembership.active !== true ||
+            server.restaurantSlug !== slug || serverMembership.restaurantSlug !== slug ||
+            Number(server.sessionVersion || 0) !== Number(serverMembership.sessionVersion || 0)) {
+          return json(res, 409, { success: false, error: 'Seul un serveur actif et correctement lié à ce restaurant peut recevoir des tables.' });
         }
         const tablesRef = db.collection('restaurants').doc(slug).collection('tables');
         const [previousAssignments, requestedSnapshots] = await Promise.all([
