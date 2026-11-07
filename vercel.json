@@ -41,5 +41,11 @@
       "source": "/payments/:path*",
       "destination": "/index.html"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/subscription-reconcile",
+      "schedule": "0 3 * * *"
+    }
   ]
 }
