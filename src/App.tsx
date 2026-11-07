@@ -56,6 +56,7 @@ import {
 import { formatFCFA } from './utils/format';
 import { sounds } from './utils/audio';
 import { mapRestauOrderToKitchenTicket } from './utils/kitchenTicket';
+export { mapRestauOrderToKitchenTicket } from './utils/kitchenTicket';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
 import { PaymentModal } from './components/pos/PaymentModal';
