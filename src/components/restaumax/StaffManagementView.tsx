@@ -15,7 +15,8 @@ const PERMISSIONS = [
 
 type StaffRole = 'owner'|'manager'|'cashier'|'server'|'kitchen';
 type EditableStaffRole = Exclude<StaffRole, 'owner'>;
-type StaffMember = { uid: string; email: string; displayName: string; role: StaffRole; permissions: string[]; active: boolean };\ntype StaffTable = { id: string; tableNumber?: string; section?: string; isActive?: boolean; assignedWaiter?: string | null };
+type StaffMember = { uid: string; email: string; displayName: string; role: StaffRole; permissions: string[]; active: boolean };
+type StaffTable = { id: string; tableNumber?: string; section?: string; isActive?: boolean; assignedWaiter?: string | null };
 const ROLE_LABELS: Record<StaffRole, string> = {
   owner: 'Propriétaire', manager: 'Manager', cashier: 'Caissier', server: 'Serveur', kitchen: 'Cuisine / Bar'
 };
@@ -34,7 +35,9 @@ const ROLE_DEFAULTS: Record<EditableStaffRole, string[]> = {
 const permissionLabel = (id: string) => PERMISSIONS.find(([permission]) => permission === id)?.[1] || id;
 
 export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () => void }> = ({ restaurantSlug, onBack }) => {
-  const [staff, setStaff] = useState<StaffMember[]>([]);\n  const [tables, setTables] = useState<StaffTable[]>([]);\n  const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string[]>>({});
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [tables, setTables] = useState<StaffTable[]>([]);
+  const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string[]>>({});
   const [actorRole, setActorRole] = useState<'owner'|'manager'|null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
