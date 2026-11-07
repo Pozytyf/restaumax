@@ -85,6 +85,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       const consumptionSnap = await tx.get(consumptionRef);
       const consumption = consumptionSnap.exists ? consumptionSnap.data() : null;
       let recipeLines: any[] = [];
+      const untrackedMenuItemIds: string[] = [];
       let inventorySnapshots: any[] = [];
       let inventoryRefs: any[] = [];
       let movementRefs: any[] = [];
@@ -96,12 +97,16 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         const aggregated = new Map<string, { quantity: number; unit: string; itemName: string }>();
         for (let i = 0; i < recipeSnaps.length; i++) {
           const recipeSnap = recipeSnaps[i];
-          if (!recipeSnap.exists) continue; // Plat sans fiche recette : aucune déduction implicite.
+          if (!recipeSnap.exists) { untrackedMenuItemIds.push(menuId); continue; } // Plat sans fiche recette : aucune déduction implicite.
           const recipe = recipeSnap.data();
           const menuId = menuIds[i];
           const portions = order.items
             .filter((item: any) => String(item.menuItemId || '') === menuId)
-            .reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+            .reduce((sum: number, item: any) => {
+              const quantity = Number(item.quantity);
+              if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) throw new Error('Quantité de commande invalide pour le calcul de stock.');
+              return sum + quantity;
+            }, 0);
           if (!Array.isArray(recipe.lines) || recipe.lines.length === 0) {
             return { success: false, error: `La fiche recette de ${menuId} est invalide.` };
           }
@@ -127,7 +132,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           inventoryItemId, quantity: Math.round(value.quantity * 1000) / 1000,
           unit: value.unit, itemName: value.itemName
         }));
-      } else if (targetStatus === 'cancelled' && consumption?.status === 'applied') {
+      } else if (targetStatus === 'cancelled' && ['applied', 'partial'].includes(String(consumption?.status || ''))) {
         recipeLines = Array.isArray(consumption.lines) ? consumption.lines : [];
       }
 
@@ -178,8 +183,9 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           });
         }
         tx.create(consumptionRef, {
-          orderId, restaurantSlug, status: recipeLines.length ? 'applied' : 'skipped',
-          lines: recipeLines, consumedAt: now, consumedBy: actorUid
+          orderId, restaurantSlug,
+          status: recipeLines.length ? (untrackedMenuItemIds.length ? 'partial' : 'applied') : 'skipped',
+          lines: recipeLines, untrackedMenuItemIds, consumedAt: now, consumedBy: actorUid
         });
       } else if (targetStatus === 'cancelled' && consumption?.status === 'applied' && !consumption.restoredAt) {
         for (let i = 0; i < recipeLines.length; i++) {
