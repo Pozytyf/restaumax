@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   encryptRestaurantPayDunyaCredentials,
   decryptRestaurantPayDunyaCredentials,
+  saveRestaurantPayDunyaCredentials,
   loadRestaurantPayDunyaConfig
 } from '../src/server/paydunyaMerchantConfig.ts';
 
@@ -16,6 +17,41 @@ const credentials = {
   token: 'merchant-token-test'
 };
 const encrypted = encryptRestaurantPayDunyaCredentials(credentials, env);
+
+// Exercise the same persistence path used by POST /api/payments. Credentials
+// must survive a fresh read, remain encrypted at rest, and stay tenant-isolated.
+const persisted = new Map();
+const persistenceDb = {
+  collection: (name) => ({
+    doc: (slug) => ({
+      collection: (subcollection) => ({
+        doc: (id) => ({
+          set: async (value, options) => {
+            const key = `${name}/${slug}/${subcollection}/${id}`;
+            persisted.set(key, { ...(persisted.get(key) || {}), ...structuredClone(value) });
+          },
+          get: async () => {
+            const value = persisted.get(`${name}/${slug}/${subcollection}/${id}`);
+            return { exists: Boolean(value), data: () => value };
+          }
+        })
+      })
+    })
+  })
+};
+await saveRestaurantPayDunyaCredentials(persistenceDb, 'alpha', credentials, env);
+const persistedAlpha = await loadRestaurantPayDunyaConfig(persistenceDb, 'alpha', env);
+assert.equal(persistedAlpha.success, true);
+if (persistedAlpha.success) assert.equal(persistedAlpha.data.privateKey, credentials.privateKey);
+const persistedRecord = persisted.get('restaurants/alpha/_private/paydunya');
+assert.equal(JSON.stringify(persistedRecord).includes(credentials.privateKey), false);
+await saveRestaurantPayDunyaCredentials(persistenceDb, 'beta', {
+  ...credentials, masterKey: 'different-merchant-master-key'
+}, env);
+const persistedBeta = await loadRestaurantPayDunyaConfig(persistenceDb, 'beta', env);
+assert.equal(persistedBeta.success, true);
+if (persistedBeta.success) assert.notEqual(persistedBeta.data.masterKey, credentials.masterKey);
+
 assert.equal(encrypted.algorithm, 'aes-256-gcm');
 assert.equal(JSON.stringify(encrypted).includes(credentials.masterKey), false);
 assert.deepEqual(decryptRestaurantPayDunyaCredentials(encrypted, env), credentials);
