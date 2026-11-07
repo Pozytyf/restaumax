@@ -130,8 +130,13 @@ managerDb.documents.set('managers/manager-1', { active: true, restaurantSlug: 'c
 assert.equal((await transitionOrderStatusWithDb(managerDb, { ...params, actorUid: 'manager-1', targetStatus: 'in_prep' })).success, true);
 
 const serverDb = base('ready');
+serverDb.documents.get('restaurants/chez-awa/orders/order-1').assignedWaiterUid = 'server-1';
 serverDb.documents.set('managers/server-1', { active: true, restaurantSlug: 'chez-awa', role: 'server', permissions: ['orders.serve'], sessionVersion: 4 });
-assert.equal((await transitionOrderStatusWithDb(serverDb, { ...params, actorUid: 'server-1', targetStatus: 'completed' })).success, true);
+assert.equal((await transitionOrderStatusWithDb(serverDb, { ...params, actorUid: 'server-1', targetStatus: 'completed' })).success, true,
+  'A server can complete an order assigned to them');
+serverDb.documents.set('managers/server-2', { active: true, restaurantSlug: 'chez-awa', role: 'server', permissions: ['orders.serve'], sessionVersion: 4 });
+assert.equal((await transitionOrderStatusWithDb(serverDb, { ...params, actorUid: 'server-2', targetStatus: 'completed' })).success, false,
+  'A server cannot complete an order assigned to another server');
 const kitchenDb = base();
 kitchenDb.documents.set('managers/kitchen-1', {
   active: true, restaurantSlug: 'chez-awa', role: 'kitchen', permissions: ['kitchen.access'], sessionVersion: 4
