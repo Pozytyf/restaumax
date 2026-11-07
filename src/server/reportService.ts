@@ -57,7 +57,7 @@ export function calculateRestaurantFinancialReport(
     const total = safeAmount(order.totalAmount);
     const recordedPaid = paidByOrder.get(orderId);
     const paidBeforeRefund = recordedPaid === undefined ? safeAmount(order.paidAmount) : recordedPaid;
-    const refunded = Math.min(paidBeforeRefund, refundsByOrder.get(orderId) || safeAmount(order.refundedAmount));
+    const refunded = Math.min(paidBeforeRefund, Math.max(refundsByOrder.get(orderId) || 0, safeAmount(order.refundedAmount)));
     const netPaid = Math.max(0, Math.min(total || paidBeforeRefund, paidBeforeRefund) - refunded);
     orderPaidNet.set(orderId, netPaid);
     if (netPaid > 0) completedPaidOrderCount++;
