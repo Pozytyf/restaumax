@@ -29,3 +29,34 @@ export function resolveRestauMaxApiRoute(value: unknown): RestauMaxApiRoute | nu
   const normalized = value.trim().split('/').filter(Boolean).join('/');
   return ROUTES_BY_PATH.get(normalized) ?? null;
 }
+
+/**
+ * Resolve a route from Vercel's rewritten query, raw request URL, or original
+ * public API path. Vercel adapters can expose rewritten query parameters in
+ * req.url while omitting them from req.query; accepting the original path keeps
+ * authenticated endpoints reachable without weakening the route allow-list.
+ */
+export function resolveRestauMaxApiRouteFromRequest(req: {
+  query?: Record<string, unknown>;
+  url?: string;
+  originalUrl?: string;
+}): RestauMaxApiRoute | null {
+  const queryValue = req?.query?.__restaumax_route;
+  const queryRoute = resolveRestauMaxApiRoute(queryValue);
+  if (queryRoute) return queryRoute;
+
+  for (const rawUrl of [req?.url, req?.originalUrl]) {
+    if (typeof rawUrl !== 'string' || !rawUrl.trim()) continue;
+    try {
+      const parsed = new URL(rawUrl, 'https://restaumax.invalid');
+      const routeFromUrl = resolveRestauMaxApiRoute(parsed.searchParams.get('__restaumax_route'));
+      if (routeFromUrl) return routeFromUrl;
+      const pathname = parsed.pathname.replace(/^\/api\//, '').replace(/^\/+|\/+$/g, '');
+      const routeFromPath = resolveRestauMaxApiRoute(pathname);
+      if (routeFromPath) return routeFromPath;
+    } catch {
+      // Ignore malformed URLs and try the next trusted request representation.
+    }
+  }
+  return null;
+}
