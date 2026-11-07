@@ -53,7 +53,7 @@ export function calculateOrderTax(
     ? Math.round(subtotalAmount - (subtotalAmount / (1 + taxRatePercent / 100)))
     : Math.round(subtotalAmount * taxRatePercent / 100);
   return {
-    subtotalAmount,
+    subtotalAmount: taxMode === 'inclusive' ? subtotalAmount - taxAmount : subtotalAmount,
     taxAmount,
     taxRatePercent,
     taxMode,
