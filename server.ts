@@ -604,6 +604,13 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     };
   },
 
+  async getCustomer(restaurantSlug: string, customerId: string) {
+    if (!adminDb) throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
+    const snap = await adminDb.collection('restaurants').doc(restaurantSlug)
+      .collection('customers').doc(customerId).get();
+    return snap.exists ? { id: snap.id, restaurantSlug } : null;
+  },
+
   async getTables(restaurantSlug: string) {
     if (!adminDb) {
       throw new Error("Opération refusée : Firebase Admin SDK n'est pas initialisé sur le serveur.");
