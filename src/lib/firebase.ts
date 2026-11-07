@@ -585,6 +585,7 @@ export interface CashSessionApiRecord {
   restaurantSlug: string;
   openedByUid: string;
   openedByName: string;
+  closedByName?: string;
   openingBalance: number;
   cashCollected: number;
   paymentCount: number;
