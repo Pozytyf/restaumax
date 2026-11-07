@@ -882,7 +882,7 @@ export async function handleTableQrManagement(req: any) {
         }
         restored = await issueTableQr(adminDb, restaurantSlug, tableId, parsedOrigin.origin, process.env);
       }
-      return { statusCode: 200, body: { success: true, url: restored.url, restored: hadPersistedQr, migrated: !hadPersistedQr } };
+      return { statusCode: 200, body: { success: true, url: restored.url, restored: hadPersistedQr, reissued: !hadPersistedQr } };
     }
     if (req.method === 'POST') {
       const rawOrigin = String(process.env.APP_ORIGIN || req.headers.origin || '');
