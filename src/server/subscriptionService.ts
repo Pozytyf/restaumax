@@ -110,6 +110,19 @@ export async function reconcileSubscriptionBillingWithDb(db: any, now = Date.now
             !['active', 'trial'].includes(String(sub.status)) ||
             Number(sub.nextBillingAt || 0) !== dueAt || dueAt > now) return 'skip';
         if (invoiceSnap.exists) return 'exists';
+        if (Number(sub.priceFcfa || 0) === 0) {
+          let nextPeriod = advanceSubscriptionPeriod(dueAt, cycle);
+          let advances = 0;
+          while (nextPeriod <= now && advances < 120) {
+            nextPeriod = advanceSubscriptionPeriod(nextPeriod, cycle);
+            advances += 1;
+          }
+          tx.update(subscriptionRef, {
+            status: 'active', startsAt: dueAt, endsAt: nextPeriod - 1,
+            nextBillingAt: nextPeriod, currentInvoiceId: null, graceEndsAt: null, updatedAt: now
+          });
+          return 'free_renewed';
+        }
         const gracePeriodDays = Number.isInteger(sub.gracePeriodDays) ? Math.min(30, Math.max(1, sub.gracePeriodDays)) : 7;
         const dueDate = now + gracePeriodDays * 24 * 60 * 60 * 1000;
         const periodEnd = advanceSubscriptionPeriod(dueAt, cycle);
