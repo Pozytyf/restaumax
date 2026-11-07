@@ -5,8 +5,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { transitionOrderStatusWithDb } from '../src/server/orderLifecycleService.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
-  console.log('Order lifecycle Firestore Emulator test skipped: emulator is not active.');
-  process.exit(0);
+  console.error('ÉCHEC : Firestore Emulator requis pour les tests de cycle de commande et de stock.');
+  process.exit(1);
 }
 
 const app = initializeApp({ projectId: 'demo-restaumax' }, 'order-lifecycle-emulator-test');

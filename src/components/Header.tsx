@@ -12,6 +12,7 @@ interface HeaderProps {
   kitchenTicketsCount: number;
   onNavigateToHub?: () => void;
   permissions?: string[];
+  canAccessCash?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,7 +23,8 @@ export const Header: React.FC<HeaderProps> = ({
   onQuickNewOrder,
   kitchenTicketsCount,
   onNavigateToHub,
-  permissions = []
+  permissions = [],
+  canAccessCash = false
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-[#101d2d] text-white border-b border-[#1f2e42] px-4 lg:px-8 py-3.5 shadow-sm">
@@ -91,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>}
 
-          {(permissions.includes('cash.view') || permissions.includes('cash.manage')) && <button
+          {(canAccessCash || permissions.includes('cash.view') || permissions.includes('cash.manage')) && <button
             onClick={() => onSelectRole('manager')}
             className={`px-3 py-1.5 text-xs lg:text-sm font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
               currentRole === 'manager'

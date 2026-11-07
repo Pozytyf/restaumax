@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   quality:
-    name: Typecheck, tests and production build
+    name: Typecheck, Firestore Emulator tests and production build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,14 +23,22 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Setup Java for Firebase Emulator
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Install dependencies
         run: npm ci
 
       - name: Typecheck
         run: npm run lint
 
-      - name: Run automated tests
-        run: npm test
+      - name: Start Firestore Emulator and run the complete test suite
+        env:
+          FIRESTORE_EMULATOR_STRICT: "true"
+        run: npx --yes firebase-tools@14.22.0 emulators:exec --project demo-restaumax --only firestore --config firebase.json "npm test"
 
       - name: Build production frontend
         run: npm run build

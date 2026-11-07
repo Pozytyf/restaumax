@@ -4,8 +4,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getRestaurantFinancialReportWithDb } from '../src/server/reportService.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
-  console.log('Financial report Firestore Emulator test skipped: emulator is not active.');
-  process.exit(0);
+  console.error('ÉCHEC : Firestore Emulator requis pour les tests de rapports financiers.');
+  process.exit(1);
 }
 const app = initializeApp({ projectId: 'demo-restaumax' }, 'financial-report-emulator-test');
 const db = getFirestore(app);

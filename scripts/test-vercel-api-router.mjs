@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   RESTAUMAX_API_ROUTES,
-  resolveRestauMaxApiRoute
+  resolveRestauMaxApiRoute,
+  resolveRestauMaxApiRouteFromRequest
 } from '../src/server/apiRouteMap.ts';
 
 const apiRoot = fileURLToPath(new URL('../api/', import.meta.url));
@@ -50,6 +51,7 @@ assert.deepEqual(Object.keys(vercel.functions), ['api/index.ts'], 'vercel.json d
 
 for (const route of RESTAUMAX_API_ROUTES) {
   assert.equal(resolveRestauMaxApiRoute(route.path), route, `Résolution incorrecte pour ${route.path}`);
+  assert.equal(resolveRestauMaxApiRoute(route.id), route, `Résolution incorrecte pour l’identifiant ${route.id}`);
   assert.equal(resolveRestauMaxApiRoute(` /api/${route.path}/ `), null, 'Le résolveur doit rejeter les chemins non fournis par la réécriture.');
   assert.deepEqual([...route.methods], expectedMethods[route.id], `Méthodes HTTP modifiées pour ${route.path}`);
 
@@ -71,6 +73,11 @@ assert.equal(
   'Le QR physique doit continuer à résoudre la table via le routeur central.'
 );
 
+assert.equal(resolveRestauMaxApiRouteFromRequest({ query: { __restaumax_route: 'tables-qr' } })?.id, 'tables-qr');
+assert.equal(resolveRestauMaxApiRouteFromRequest({ url: '/api/index?__restaumax_route=tables-qr' })?.id, 'tables-qr');
+assert.equal(resolveRestauMaxApiRouteFromRequest({ url: '/api/tables/qr' })?.id, 'tables-qr');
+assert.equal(resolveRestauMaxApiRouteFromRequest({ originalUrl: '/api/tables/qr' })?.id, 'tables-qr');
+assert.equal(resolveRestauMaxApiRouteFromRequest({ url: '/api/unknown' }), null);
 assert.equal(resolveRestauMaxApiRoute(undefined), null);
 assert.equal(resolveRestauMaxApiRoute(['orders']), null);
 assert.equal(resolveRestauMaxApiRoute('unknown'), null);

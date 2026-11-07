@@ -157,6 +157,11 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <p className="text-xs font-semibold text-slate-500">Fond d’ouverture</p>
                   <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.openingBalance)}</p>
                 </div>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-xs font-semibold text-emerald-800">Fond de caisse disponible</p>
+                  <p className="mt-1 text-lg font-black text-emerald-950">{formatFCFA(cashSession.openingBalance + cashSession.cashCollected - cashSession.cashOut)}</p>
+                  <p className="mt-1 text-[10px] text-emerald-800">Fond initial + espèces encaissées − sorties</p>
+                </div>
                 <div className="rounded-xl bg-slate-50 p-4">
                   <p className="text-xs font-semibold text-slate-500">Espèces encaissées</p>
                   <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.cashCollected)}</p>

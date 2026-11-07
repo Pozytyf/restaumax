@@ -4,8 +4,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { recordCashPaymentWithDb } from '../src/server/paymentService.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
-  console.log('Loyalty tax-base Firestore Emulator test skipped: emulator is not active.');
-  process.exit(0);
+  console.error('ÉCHEC : Firestore Emulator requis pour les tests de fidélité et taxes.');
+  process.exit(1);
 }
 const app = initializeApp({ projectId: 'demo-restaumax' }, 'loyalty-tax-base-emulator-test');
 const db = getFirestore(app);

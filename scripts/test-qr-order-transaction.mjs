@@ -14,8 +14,8 @@ function assert(condition, label) {
 
 async function run() {
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
-    console.log('QR ORDER TRANSACTION : ignoré (Firestore Emulator non actif).');
-    return;
+    console.error('ÉCHEC : Firestore Emulator requis pour les tests QR/commandes transactionnels.');
+    process.exit(1);
   }
 
   const config = JSON.parse(readFileSync(new URL('../firebase-applet-config.json', import.meta.url), 'utf8'));
