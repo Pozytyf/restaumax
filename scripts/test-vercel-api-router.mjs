@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   RESTAUMAX_API_ROUTES,
+  getRestauMaxRequestQueryParam,
   resolveRestauMaxApiRoute,
   resolveRestauMaxApiRouteFromRequest
 } from '../src/server/apiRouteMap.ts';
@@ -77,6 +78,20 @@ assert.equal(resolveRestauMaxApiRouteFromRequest({ query: { __restaumax_route: '
 assert.equal(resolveRestauMaxApiRouteFromRequest({ url: '/api/index?__restaumax_route=tables-qr' })?.id, 'tables-qr');
 assert.equal(resolveRestauMaxApiRouteFromRequest({ url: '/api/tables/qr' })?.id, 'tables-qr');
 assert.equal(resolveRestauMaxApiRouteFromRequest({ originalUrl: '/api/tables/qr' })?.id, 'tables-qr');
+assert.equal(
+  getRestauMaxRequestQueryParam({
+    query: { __restaumax_route: 'tables-resolve-qr' },
+    url: '/api/index?__restaumax_route=tables-resolve-qr&token=opaque-qr-token'
+  }, 'token'),
+  'opaque-qr-token',
+  'Le jeton QR est récupéré dans req.url même si Vercel ne le fournit pas dans req.query.'
+);
+assert.equal(
+  getRestauMaxRequestQueryParam({ url: '/api/index?token=from-original-url' }, 'token'),
+  'from-original-url',
+  'Le jeton QR est récupéré depuis l’URL brute en l’absence de req.query.'
+);
+assert.equal(getRestauMaxRequestQueryParam({ query: { token: 'parsed-token' }, url: '/api/index?token=raw-token' }, 'token'), 'parsed-token');
 assert.equal(resolveRestauMaxApiRouteFromRequest({ url: '/api/unknown' }), null);
 assert.equal(resolveRestauMaxApiRoute(undefined), null);
 assert.equal(resolveRestauMaxApiRoute(['orders']), null);
