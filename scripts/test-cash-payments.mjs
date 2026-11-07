@@ -40,7 +40,7 @@ async function run() {
     });
     await orderRef.set({
       id: 'order-main', orderNumber: '#CMD-001', restaurantSlug: slug, orderMode: 'sur_place',
-      tableNumber: '4', totalAmount: 9500, paidAmount: 0, currency: 'FCFA', status: 'pending',
+      tableNumber: '4', totalAmount: 9500, subtotalAmount: 8000, taxRatePercent: 18.75, taxMode: 'exclusive', taxAmount: 1500, taxPaidAmount: 0, paidAmount: 0, currency: 'FCFA', status: 'pending',
       items: [{ name: 'Poulet test', quantity: 1, unitPrice: 9500 }]
     });
     await concurrentOrderRef.set({
@@ -92,7 +92,7 @@ async function run() {
     console.log('\n--- Encaissement partiel et idempotence ---');
     const partial = await recordCashPaymentWithDb(db, input('order-main', 3000, 'cash-partial-0001'));
     assert(partial.success === true && partial.payment?.paidAmount === 3000 &&
-      partial.order?.remainingAmount === 6500 && partial.order?.paymentStatus === 'partial',
+      partial.order?.remainingAmount === 6500 && partial.order?.paymentStatus === 'partial' && partial.payment?.taxAmount === 474,
       'Un encaissement partiel enregistre le montant reçu et le solde restant');
 
     const replay = await recordCashPaymentWithDb(db, input('order-main', 3000, 'cash-partial-0001'));
@@ -127,7 +127,7 @@ async function run() {
     const finalPayment = await recordCashPaymentWithDb(db, input('order-main', 7000, 'cash-final-0001'));
     assert(finalPayment.success === true && finalPayment.payment?.paidAmount === 6500 &&
       finalPayment.payment?.changeAmount === 500 && finalPayment.order?.remainingAmount === 0 &&
-      finalPayment.order?.paymentStatus === 'paid',
+      finalPayment.order?.paymentStatus === 'paid' && finalPayment.payment?.taxAmount === 1026 && finalPayment.order?.taxPaidAmount === 1500,
       'Le paiement final règle le solde exact et calcule la monnaie à rendre');
 
     const alreadyPaid = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-after-paid-01'));
