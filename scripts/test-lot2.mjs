@@ -555,7 +555,7 @@ async function runTests() {
 
   // Test 4.3: Restriction stricte des modifications d'ordres KDS
   assert(rulesContent.includes('allow update: if false;'), 'Les transitions de commande sont interdites au SDK client et passent par le backend transactionnel');
-  assert(rulesContent.includes('incoming().totalAmount == existing().totalAmount'), 'Empêche toute altération du montant après commande');
+  assert(rulesContent.includes('allow update: if false;'), 'Le SDK client ne peut modifier aucun champ d’une commande, notamment les montants');
 
   // ==========================================================================
   // SECTION 5 : CORRECTION E — Tables réelles uniquement dans le générateur QR
