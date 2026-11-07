@@ -19,12 +19,22 @@ function addBillingCycle(timestamp: number, cycle: 'monthly' | 'yearly') {
 }
 
 async function revokeActiveTableSessions(db: any, slug: string, now: number, reason: string) {
-  const sessions = await db.collection('restaurants').doc(slug)
-    .collection('table_sessions').where('status', '==', 'active').get();
-  for (let offset = 0; offset < sessions.docs.length; offset += 400) {
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const [sessions, tokens] = await Promise.all([
+    restaurantRef.collection('table_sessions').where('status', '==', 'active').get(),
+    restaurantRef.collection('table_qr_tokens').where('status', '==', 'active').get()
+  ]);
+  const targets = [
+    ...sessions.docs.map((doc: any) => ({ ref: doc.ref, type: 'table_session' })),
+    ...tokens.docs.map((doc: any) => ({ ref: doc.ref, type: 'table_qr_token' }))
+  ];
+  for (let offset = 0; offset < targets.length; offset += 400) {
     const batch = db.batch();
-    sessions.docs.slice(offset, offset + 400).forEach((session: any) => {
-      batch.update(session.ref, { status: 'revoked', revokedAt: now, revokedReason: reason });
+    targets.slice(offset, offset + 400).forEach((target: any) => {
+      batch.update(target.ref, {
+        status: 'revoked', revokedAt: now, revokedReason: reason,
+        ...(target.type === 'table_qr_token' ? { updatedAt: now } : {})
+      });
     });
     await batch.commit();
   }
