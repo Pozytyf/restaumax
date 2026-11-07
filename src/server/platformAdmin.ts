@@ -520,8 +520,19 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
       };
       if (action === 'staff_list') {
-        const [snap, tablesSnap] = await Promise.all([staffRef.get(), db.collection('restaurants').doc(slug).collection('tables').get()]);
-        return json(res, 200, { success: true, actorRole: actor.role, staff: snap.docs.map((d: any) => d.data()), tables: tablesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })) });
+        const [snap, tablesSnap, actorMembership] = await Promise.all([
+          staffRef.get(),
+          db.collection('restaurants').doc(slug).collection('tables').get(),
+          actor.role === 'manager' ? db.collection('managers').doc(user.uid).get() : Promise.resolve(null)
+        ]);
+        const canAssignTables = actor.role === 'owner' ||
+          (actorMembership?.exists === true && Array.isArray(actorMembership.data()?.permissions) &&
+            actorMembership.data().permissions.includes('tables.manage'));
+        return json(res, 200, {
+          success: true, actorRole: actor.role, canAssignTables,
+          staff: snap.docs.map((d: any) => d.data()),
+          tables: tablesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+        });
       }
 
       if (action === 'create_staff') {
