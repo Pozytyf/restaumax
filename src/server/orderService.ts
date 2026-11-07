@@ -374,47 +374,76 @@ export async function processOrderSubmission(
     }
     const qty = rawQty;
 
-    // Validation des options obligatoires et facultatives
+    // Validation multi-groupes : le POS encode les choix dans l'ordre du catalogue.
     const requiredGroups = (catalogItem.optionGroups || []).filter(g => g.required);
     let verifiedSelectedOption: RestauOrderItem['selectedOption'] = undefined;
+    const selectedGroupIds = line.selectedOption?.groupId
+      ? String(line.selectedOption.groupId).split('+')
+      : [];
+    const selectedOptionIds = line.selectedOption?.optionId
+      ? String(line.selectedOption.optionId).split('+')
+      : [];
 
-    if (requiredGroups.length > 0 && !line.selectedOption) {
-      return { 
-        success: false, 
-        error: `Une option obligatoire (${requiredGroups.map(g => g.name).join(', ')}) est requise pour "${catalogItem.name}".` 
+    if (selectedGroupIds.length !== selectedOptionIds.length ||
+        new Set(selectedGroupIds).size !== selectedGroupIds.length ||
+        selectedGroupIds.some(id => !id) ||
+        selectedOptionIds.some(id => !id)) {
+      return {
+        success: false,
+        error: `La sélection d'options pour "${catalogItem.name}" est invalide.`
       };
     }
 
-    if (line.selectedOption) {
-      const targetGroup = (catalogItem.optionGroups || []).find(g => g.id === line.selectedOption!.groupId);
+    const resolvedSelections: Array<{
+      groupId: string; groupName: string; optionId: string; optionName: string; extraPrice: number;
+    }> = [];
+    for (let index = 0; index < selectedGroupIds.length; index += 1) {
+      const targetGroup = (catalogItem.optionGroups || []).find(g => g.id === selectedGroupIds[index]);
       if (!targetGroup) {
-        return { 
-          success: false, 
-          error: `Le groupe d'options spécifié pour "${catalogItem.name}" n'existe pas.` 
+        return {
+          success: false,
+          error: `Le groupe d'options "${selectedGroupIds[index]}" spécifié pour "${catalogItem.name}" n'existe pas.`
         };
       }
-
-      const targetOption = targetGroup.options.find(o => o.id === line.selectedOption!.optionId);
+      const targetOption = targetGroup.options.find(o => o.id === selectedOptionIds[index]);
       if (!targetOption) {
-        return { 
-          success: false, 
-          error: `L'option "${line.selectedOption.optionId}" est introuvable dans le groupe "${targetGroup.name}".` 
+        return {
+          success: false,
+          error: `L'option "${selectedOptionIds[index]}" est introuvable dans le groupe "${targetGroup.name}".`
         };
       }
-
       if (typeof targetOption.extraPrice !== 'number' || !Number.isFinite(targetOption.extraPrice) || targetOption.extraPrice < 0) {
         return {
           success: false,
           error: `Donnée de catalogue corrompue : L'option "${targetOption.name}" possède un surcoût invalide (${targetOption.extraPrice}).`
         };
       }
-
-      verifiedSelectedOption = {
+      resolvedSelections.push({
         groupId: targetGroup.id,
         groupName: targetGroup.name,
         optionId: targetOption.id,
         optionName: targetOption.name,
         extraPrice: targetOption.extraPrice
+      });
+    }
+
+    const missingRequiredGroups = requiredGroups.filter(group =>
+      !resolvedSelections.some(selection => selection.groupId === group.id)
+    );
+    if (missingRequiredGroups.length > 0) {
+      return {
+        success: false,
+        error: `Une option obligatoire (${missingRequiredGroups.map(g => g.name).join(', ')}) est requise pour "${catalogItem.name}".`
+      };
+    }
+
+    if (resolvedSelections.length > 0) {
+      verifiedSelectedOption = {
+        groupId: resolvedSelections.map(selection => selection.groupId).join('+'),
+        groupName: resolvedSelections.map(selection => selection.groupName).join(' / '),
+        optionId: resolvedSelections.map(selection => selection.optionId).join('+'),
+        optionName: resolvedSelections.map(selection => `${selection.groupName}: ${selection.optionName}`).join(' · '),
+        extraPrice: resolvedSelections.reduce((sum, selection) => sum + selection.extraPrice, 0)
       };
     }
 
@@ -453,6 +482,7 @@ export async function processOrderSubmission(
     const trustedUnitPrice = trustedBasePrice + optionExtraPrice + extrasCost;
     const lineTotal = trustedUnitPrice * qty;
 
+    const sanitizedPrepNotes = sanitizeNote(line.prepNotes, 150);
     verifiedItems.push({
       id: `line-${orderId}-${i}`,
       menuItemId: catalogItem.id,
@@ -461,9 +491,9 @@ export async function processOrderSubmission(
       unitPrice: trustedUnitPrice,
       quantity: qty,
       totalPrice: lineTotal,
-      selectedOption: verifiedSelectedOption,
-      selectedExtras: verifiedExtrasList.length > 0 ? verifiedExtrasList : undefined,
-      prepNotes: sanitizeNote(line.prepNotes, 150)
+      ...(verifiedSelectedOption ? { selectedOption: verifiedSelectedOption } : {}),
+      ...(verifiedExtrasList.length > 0 ? { selectedExtras: verifiedExtrasList } : {}),
+      ...(sanitizedPrepNotes ? { prepNotes: sanitizedPrepNotes } : {})
     });
   }
 
@@ -479,6 +509,7 @@ export async function processOrderSubmission(
   }
 
   // 11. Construction de la commande confirmée avec identifiants stables et traçabilité
+  const sanitizedCustomerNote = sanitizeNote(customerNote, 150);
   const confirmedOrder: RestauOrder = {
     id: orderId,
     orderNumber,
@@ -490,7 +521,7 @@ export async function processOrderSubmission(
     totalAmount: grandTotal,
     currency: 'FCFA',
     status: 'pending',
-    customerNote: sanitizeNote(customerNote, 150),
+    ...(sanitizedCustomerNote ? { customerNote: sanitizedCustomerNote } : {}),
     createdAt: now,
     createdAtIso: new Date(now).toISOString(),
     idempotencyKey: cleanKey,

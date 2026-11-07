@@ -1,3 +1,5 @@
+> **Mise à jour du 2026-11-07 :** cet audit décrit un état historique. Pour les critères réellement validés et les lacunes encore ouvertes, consulter [le bilan de recette du 7 novembre 2026](./RECETTE_FONCTIONNELLE_2026-11-07.md). Les constats ci-dessous ne doivent pas être interprétés comme l'état courant sans cette mise à jour.
+
 # Audit fonctionnel RestauMax — parcours opérationnels
 
 Date : 2026-11-05  
