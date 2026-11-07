@@ -7,6 +7,7 @@ import {
   OrderMode 
 } from '../types/restaumax.js';
 import { calculateOrderTotal, calculateOrderTax, sanitizeNote, type RestaurantTaxMode } from '../utils/pricing.js';
+import { normalizeCustomerPhone } from './loyaltyService.js';
 
 export interface OrderSubmissionPayload {
   restaurantSlug: string;
@@ -32,6 +33,8 @@ export interface OrderSubmissionPayload {
   tableNumber: string | null;
   tableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string };
   customerNote?: string;
+  customerName?: string;
+  customerPhone?: string;
   declaredTotal?: number;
   idempotencyKey?: string;
 }
@@ -104,6 +107,13 @@ export interface ExecuteOrderTransactionResult {
  */
 export function deriveIdempotencyIdentifiers(restaurantSlug: string, idempotencyKey: string) {
   const cleanSlug = restaurantSlug.trim();
+  const cleanCustomerName = String(customerName || '').trim().slice(0, 80);
+  const cleanCustomerPhone = String(customerPhone || '').trim().slice(0, 32);
+  const customerPhoneNormalized = cleanCustomerPhone ? normalizeCustomerPhone(cleanCustomerPhone) : null;
+  if ((cleanCustomerName || cleanCustomerPhone) &&
+      (cleanCustomerName.length < 2 || !customerPhoneNormalized)) {
+    return { success: false, error: 'Pour la fidélité, indiquez un nom (2 caractères minimum) et un numéro ivoirien valide à 10 chiffres.' };
+  }
   const cleanKey = idempotencyKey.trim();
   const namespacedKey = `${cleanSlug}:${cleanKey}`;
   const hash = crypto.createHash('sha256').update(namespacedKey).digest('hex');
@@ -123,12 +133,16 @@ export function computeOrderSignature(payload: {
   orderMode: OrderMode;
   tableNumber: string | null;
   customerNote?: string;
+  customerName?: string;
+  customerPhone?: string;
   cart: OrderSubmissionPayload['cart'];
 }): string {
   const cleanSlug = (payload.restaurantSlug || '').trim();
   const cleanMode = payload.orderMode;
   const cleanTable = (payload.tableNumber || '').trim();
   const cleanNote = (payload.customerNote || '').trim();
+  const cleanCustomerName = String(payload.customerName || '').trim().toLowerCase();
+  const cleanCustomerPhone = normalizeCustomerPhone(payload.customerPhone) || '';
 
   const canonicalItems = (payload.cart || [])
     .map(c => {
@@ -146,7 +160,7 @@ export function computeOrderSignature(payload: {
     .sort()
     .join('|');
 
-  const rawString = `${cleanSlug}::${cleanMode}::${cleanTable}::${cleanNote}::${canonicalItems}`;
+  const rawString = `${cleanSlug}::${cleanMode}::${cleanTable}::${cleanNote}::${cleanCustomerName}::${cleanCustomerPhone}::${canonicalItems}`;
   return crypto.createHash('sha256').update(rawString).digest('hex');
 }
 
@@ -195,7 +209,9 @@ export async function processOrderSubmission(
     orderMode, 
     tableNumber, 
     tableSession,
-    customerNote, 
+    customerNote,
+    customerName,
+    customerPhone,
     declaredTotal, 
     idempotencyKey 
   } = payload;
@@ -239,6 +255,8 @@ export async function processOrderSubmission(
     orderMode,
     tableNumber,
     customerNote,
+    customerName: cleanCustomerName,
+    customerPhone: customerPhoneNormalized || '',
     cart
   });
 
@@ -543,6 +561,9 @@ export async function processOrderSubmission(
     currency: 'FCFA',
     status: 'pending',
     ...(sanitizedCustomerNote ? { customerNote: sanitizedCustomerNote } : {}),
+    ...(cleanCustomerName ? { customerName: cleanCustomerName } : {}),
+    ...(cleanCustomerPhone ? { customerPhone: cleanCustomerPhone } : {}),
+    ...(customerPhoneNormalized ? { customerPhoneNormalized } : {}),
     createdAt: now,
     createdAtIso: new Date(now).toISOString(),
     idempotencyKey: cleanKey,
