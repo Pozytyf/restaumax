@@ -4,6 +4,7 @@ import {
   buildSessionCookie, buildCsrfCookie, readCookie, validateCsrf, requestHasValidOrigin, isTrustedQrNavigation,
   authorizeTableManager
 } from '../src/server/tableSecurityService.ts';
+import { resolveTableQrOrigin } from '../src/server/tableQrOrigin.ts';
 
 process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
@@ -173,6 +174,16 @@ async function run() {
   const restoredQr = await getActiveTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   assert(restoredQr?.url === issued.url && restoredQr.token === token,
     'URL QR identique restaurée après rechargement sans rotation ni changement du jeton');
+  const previewQrOrigin = resolveTableQrOrigin({
+    headers: {
+      host: 'restaumax-preview.vercel.app',
+      'x-forwarded-host': 'restaumax-preview.vercel.app',
+      'x-forwarded-proto': 'https'
+    }
+  }, { VERCEL_ENV: 'preview', APP_ORIGIN: 'https://restaumax.vercel.app' });
+  const previewRestoredQr = await getActiveTableQr(db, 'chez-awa', 'table-4', previewQrOrigin);
+  assert(previewRestoredQr?.token === token && previewRestoredQr.url.startsWith('https://restaumax-preview.vercel.app/q/'),
+    'La restauration d’un QR existant en Preview conserve le domaine Preview au lieu du domaine Production');
   assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 1, 'Version QR incrémentée sur la table');
 
   // Two tenants may use the same local table ID, but QR resolution must remain
