@@ -66,6 +66,8 @@ export interface KitchenTicket {
   createdAt: Date;
   status: TicketStatus;
   items: KitchenItem[];
+  stockTrackingStatus?: 'applied' | 'partial' | 'skipped' | 'restored';
+  stockUntrackedItemIds?: string[];
   urgent?: boolean;
 }
 
