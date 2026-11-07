@@ -105,7 +105,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         });
         tx.update(subscriptionRef, {
           status: 'past_due', pastDueAt: now, currentInvoiceId: invoiceId,
-          gracePeriodDays, updatedAt: now
+          currentInvoiceAmountFcfa: amount, gracePeriodDays, updatedAt: now
         });
         tx.create(db.collection('admin_audit_logs').doc(`sub_invoice_${hash(slug + ':' + invoiceId)}`), {
           action: 'create_recurring_subscription_invoice', restaurantSlug: slug,
@@ -213,7 +213,7 @@ export async function settleSubscriptionInvoiceWithDb(
     tx.update(invoiceRef, updatedInvoice);
     tx.update(subscriptionRef, {
       status: 'active', startsAt: periodStart, endsAt: periodEnd, nextBillingAt: periodEnd,
-      currentInvoiceId: null, pastDueAt: null, suspendedAt: null,
+      currentInvoiceId: null, currentInvoiceAmountFcfa: null, pastDueAt: null, suspendedAt: null,
       suspensionReason: null, lastInvoicePaidAt: now, lastPaymentReference: paymentReference,
       updatedAt: now, updatedBy: input.actorUid
     });
