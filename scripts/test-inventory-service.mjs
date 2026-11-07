@@ -45,7 +45,7 @@ const common = { restaurantSlug: 'chez-awa', actorUid: 'owner-1', sessionVersion
 const recipeSeed = () => {
   const db = seed();
   db.documents.set('restaurants/chez-awa/menuItems/grill-1', {
-    id: 'grill-1', name: 'Poulet braisé', restaurantSlug: 'chez-awa'
+    id: 'grill-1', name: 'Poulet braisé', restaurantSlug: 'chez-awa', optionGroups: [{ id: 'side', name: 'Accompagnement', options: [{ id: 'rice-extra', name: 'Riz supplémentaire' }] }], availableExtras: [{ id: 'cheese', name: 'Fromage' }]
   });
   return db;
 };
@@ -156,6 +156,28 @@ const recipe = await manageInventoryWithDb(recipeDb, {
 assert.equal(recipe.success, true);
 assert.equal(recipe.lineCount, 1);
 assert.equal(recipeDb.documents.get('restaurants/chez-awa/menuRecipes/grill-1').lines[0].unit, 'kg');
+const optionRecipe = await manageInventoryWithDb(recipeDb, {
+  ...common, action: 'save_recipe', menuItemId: 'grill-1',
+  recipeTargetType: 'option', recipeTargetId: 'side:rice-extra',
+  recipeLines: [{ inventoryItemId: 'rice', quantityPerDish: 0.1 }]
+});
+assert.equal(optionRecipe.success, true);
+assert.equal(optionRecipe.targetType, 'option');
+const optionRecipeId = 'custom_' + createHash('sha256').update('grill-1:option:side:rice-extra').digest('hex').slice(0, 32);
+assert.equal(recipeDb.documents.get('restaurants/chez-awa/menuRecipes/' + optionRecipeId).lines[0].quantityPerDish, 0.1);
+const extraRecipe = await manageInventoryWithDb(recipeDb, {
+  ...common, action: 'save_recipe', menuItemId: 'grill-1',
+  recipeTargetType: 'extra', recipeTargetId: 'cheese',
+  recipeLines: [{ inventoryItemId: 'rice', quantityPerDish: 0.05 }]
+});
+assert.equal(extraRecipe.success, true);
+const invalidOptionRecipe = await manageInventoryWithDb(recipeSeed(), {
+  ...common, action: 'save_recipe', menuItemId: 'grill-1',
+  recipeTargetType: 'option', recipeTargetId: 'side:unknown',
+  recipeLines: [{ inventoryItemId: 'rice', quantityPerDish: 0.1 }]
+});
+assert.equal(invalidOptionRecipe.success, false, 'Recipes cannot be attached to an option outside the selected menu item');
+
 assert.equal(recipeDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10, 'saving a recipe must never change stock');
 const duplicateRecipeIngredient = await manageInventoryWithDb(recipeSeed(), {
   ...common, action: 'save_recipe', menuItemId: 'grill-1',
