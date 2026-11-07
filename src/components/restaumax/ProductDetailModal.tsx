@@ -9,13 +9,15 @@ interface ProductDetailModalProps {
   onClose: () => void;
   onAddToCart: (cartItem: ClientCartItem) => boolean | void;
   isAvailable?: boolean;
+  initialQuantity?: number;
 }
 
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   item,
   onClose,
   onAddToCart,
-  isAvailable = true
+  isAvailable = true,
+  initialQuantity = 1
 }) => {
   const [quantity, setQuantity] = useState<number>(1);
   const [selectedOptionsByGroup, setSelectedOptionsByGroup] = useState<Record<string, SelectedOption>>({});
@@ -27,7 +29,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   // Initialize defaults whenever item changes
   useEffect(() => {
     if (item) {
-      setQuantity(1);
+      setQuantity(Math.max(1, Math.floor(initialQuantity || 1)));
       setPrepNotes('');
       setValidationError(null);
       setIsSubmitting(false);
