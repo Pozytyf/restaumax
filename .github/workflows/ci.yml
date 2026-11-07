@@ -2,7 +2,7 @@ name: RestauMax CI
 
 on:
   push:
-    branches: [main, fix/authorization-refunds-platform-audit, test/github-app-token-compatibility]
+    branches: [main, fix/authorization-refunds-platform-audit]
   pull_request:
     branches: [main]
 
