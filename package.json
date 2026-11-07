@@ -13,7 +13,7 @@
     "test:lot1": "node scripts/test-lot1.mjs",
     "test:lot2": "tsx scripts/test-lot2.mjs",
     "test:qr": "tsx scripts/test-table-security.mjs",
-    "test:emulator": "tsx scripts/test-firestore-emulator-ambiguous.mjs && tsx scripts/test-qr-order-transaction.mjs",
+    "test:emulator": "tsx scripts/test-firestore-emulator-ambiguous.mjs && tsx scripts/test-qr-order-transaction.mjs && npm run test:order-lifecycle-emulator",
     "test:intent": "tsx scripts/test-client-intent.mjs",
     "test:subscriptions": "tsx scripts/test-subscription-validation.mjs",
     "test:github-token": "node scripts/test-github-installation-token.mjs",
@@ -27,7 +27,8 @@
     "test:kitchen": "tsx scripts/test-kitchen-item-service.mjs",
     "test:inventory": "tsx scripts/test-inventory-service.mjs",
     "test:roles": "tsx scripts/test-role-authorization.mjs",
-    "test:order-lifecycle": "tsx scripts/test-order-lifecycle-stock.mjs"
+    "test:order-lifecycle": "tsx scripts/test-order-lifecycle-stock.mjs",
+    "test:order-lifecycle-emulator": "node scripts/test-order-lifecycle-emulator.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
