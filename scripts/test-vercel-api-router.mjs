@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   RESTAUMAX_API_ROUTES,
-  resolveRestauMaxApiRoute
+  resolveRestauMaxApiRoute,
+  resolveRestauMaxApiRouteFromRequest
 } from '../src/server/apiRouteMap.ts';
 
 const apiRoot = fileURLToPath(new URL('../api/', import.meta.url));
@@ -71,6 +72,11 @@ assert.equal(
   'Le QR physique doit continuer à résoudre la table via le routeur central.'
 );
 
+assert.equal(resolveRestauMaxApiRouteFromRequest({ query: { __restaumax_route: 'tables-qr' } })?.id, 'tables-qr');
+assert.equal(resolveRestauMaxApiRouteFromRequest({ url: '/api/index?__restaumax_route=tables-qr' })?.id, 'tables-qr');
+assert.equal(resolveRestauMaxApiRouteFromRequest({ url: '/api/tables/qr' })?.id, 'tables-qr');
+assert.equal(resolveRestauMaxApiRouteFromRequest({ originalUrl: '/api/tables/qr' })?.id, 'tables-qr');
+assert.equal(resolveRestauMaxApiRouteFromRequest({ url: '/api/unknown' }), null);
 assert.equal(resolveRestauMaxApiRoute(undefined), null);
 assert.equal(resolveRestauMaxApiRoute(['orders']), null);
 assert.equal(resolveRestauMaxApiRoute('unknown'), null);
