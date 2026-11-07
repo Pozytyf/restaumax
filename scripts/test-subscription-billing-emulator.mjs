@@ -66,6 +66,9 @@ try {
     actorUid: 'super-admin-test', now: now + 8 * 86400000 + 2000
   });
   assert.equal(settlementReplay.success && settlementReplay.idempotentReplay, true, 'Le rapprochement est idempotent');
+  const subscriptionPayments = await subscriptionRef.collection('payments').get();
+  assert.equal(subscriptionPayments.size, 1, 'Le règlement possède une seule écriture financière append-only');
+  assert.equal(subscriptionPayments.docs[0].data().method, 'manual');
 
   const nonRenewSlug = 'subscription-no-renew-emulator';
   const nonRenewRef = db.collection('restaurantSubscriptions').doc(nonRenewSlug);
@@ -82,7 +85,7 @@ try {
   assert.equal(noRenew.restaurantsSuspended, 1, 'Un abonnement sans renouvellement est suspendu à échéance');
   assert.equal((await nonRenewRestaurant.get()).data().suspensionReason, 'subscription_nonrenewal');
 
-  console.log('Subscription billing Firestore Emulator tests passed: 20 assertions.');
+  console.log('Subscription billing Firestore Emulator tests passed: 22 assertions.');
 } finally {
   await app.delete();
 }
