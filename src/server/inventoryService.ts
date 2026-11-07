@@ -8,6 +8,8 @@ export interface InventoryRequestParams {
   idempotencyKey?: string;
   itemId?: string;
   menuItemId?: string;
+  recipeTargetType?: 'menu_item' | 'option' | 'extra';
+  recipeTargetId?: string;
   recipeLines?: Array<{ inventoryItemId: string; quantityPerDish: number }>;
   name?: string;
   unit?: string;
@@ -181,10 +183,15 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
 
     if (params.action === 'save_recipe') {
       const menuItemId = String(params.menuItemId || '');
+      const targetType = params.recipeTargetType || 'menu_item';
+      const targetId = String(params.recipeTargetId || menuItemId);
       const recipeLines = params.recipeLines;
       if (!/^[a-zA-Z0-9_-]{1,160}$/.test(menuItemId) ||
+          !['menu_item', 'option', 'extra'].includes(targetType) ||
+          !/^[a-zA-Z0-9_:-]{1,240}$/.test(targetId) ||
+          (targetType === 'menu_item' && targetId !== menuItemId) ||
           !Array.isArray(recipeLines) || recipeLines.length < 1 || recipeLines.length > 30) {
-        return { success: false, error: 'Fiche recette invalide : sélectionnez un plat et au moins un ingrédient.' };
+        return { success: false, error: 'Fiche recette invalide : cible et ingrédients obligatoires.' };
       }
       const seenInventoryIds = new Set<string>();
       for (const line of recipeLines) {
@@ -201,7 +208,8 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
 
       const restaurantRef = db.collection('restaurants').doc(slug);
       const menuItemRef = restaurantRef.collection('menuItems').doc(menuItemId);
-      const recipeRef = restaurantRef.collection('menuRecipes').doc(menuItemId);
+      const recipeDocId = targetType === 'menu_item' ? menuItemId : 'custom_' + digest(menuItemId + ':' + targetType + ':' + targetId);
+      const recipeRef = restaurantRef.collection('menuRecipes').doc(recipeDocId);
       const inventoryRefs = recipeLines.map(line =>
         restaurantRef.collection('inventoryItems').doc(String(line.inventoryItemId))
       );
@@ -214,6 +222,17 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
         ]);
         if (!menuItemSnap.exists || menuItemSnap.data().restaurantSlug !== slug) {
           return { success: false, error: 'Plat introuvable dans le catalogue de ce restaurant.' };
+        }
+        const menuItem = menuItemSnap.data();
+        if (targetType === 'option') {
+          const [groupId, optionId] = targetId.split(':');
+          const group = (menuItem.optionGroups || []).find((entry: any) => entry.id === groupId);
+          if (!group || !(group.options || []).some((entry: any) => entry.id === optionId)) {
+            return { success: false, error: 'Option introuvable dans le plat sélectionné.' };
+          }
+        }
+        if (targetType === 'extra' && !(menuItem.availableExtras || []).some((entry: any) => entry.id === targetId)) {
+          return { success: false, error: 'Supplément introuvable dans le plat sélectionné.' };
         }
         const resolvedLines = recipeLines.map((line, index) => {
           const snap = inventorySnaps[index];
@@ -229,14 +248,20 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
           };
         });
         const now = Date.now();
+        const targetLabel = targetType === 'menu_item'
+          ? String(menuItem.name || '')
+          : targetType === 'option'
+            ? String((menuItem.optionGroups || []).flatMap((group: any) => group.options || []).find((option: any) => targetId.endsWith(':' + option.id))?.name || targetId)
+            : String((menuItem.availableExtras || []).find((extra: any) => extra.id === targetId)?.name || targetId);
         tx.set(recipeRef, {
-          menuItemId,
-          menuItemName: String(menuItemSnap.data().name || ''),
+          menuItemId, targetType, targetId,
+          menuItemName: String(menuItem.name || ''),
+          targetLabel,
           lines: resolvedLines,
           updatedAt: now,
           updatedBy: uid
         });
-        return { success: true, menuItemId, lineCount: resolvedLines.length, idempotentReplay: false };
+        return { success: true, menuItemId, targetType, targetId, lineCount: resolvedLines.length, idempotentReplay: false };
       });
     }
 
