@@ -1,4 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { MenuItem, Category, CartItem, Table } from '../../types/pos';
 import { RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
@@ -34,7 +36,7 @@ interface PosViewProps {
   onClearCart: () => void;
   discountPercent: number;
   onSetDiscountPercent: (discount: number) => void;
-  onSendToKitchen: () => void;
+  onSendToKitchen: (customerId?: string) => void;
   isSendingOrder: boolean;
   onOpenPayment: () => void;
   serverName: string;
@@ -44,6 +46,7 @@ interface PosViewProps {
   isExistingOrder?: boolean;
   taxRatePercent?: number;
   taxMode?: 'exclusive' | 'inclusive';
+  canSelectCustomer?: boolean;
 }
 
 const CATEGORIES: { id: Category; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
@@ -79,11 +82,33 @@ export const PosView: React.FC<PosViewProps> = ({
   alreadyPaidAmount = 0,
   isExistingOrder = false,
   taxRatePercent = 0,
-  taxMode = 'exclusive'
+  taxMode = 'exclusive',
+  canSelectCustomer = false
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<Category>('tous');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<MenuItem | null>(null);
+  const [customers, setCustomers] = useState<Array<{ id: string; name: string; phone: string }>>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+
+  useEffect(() => {
+    if (!canSelectCustomer) {
+      setCustomers([]);
+      setSelectedCustomerId('');
+      return;
+    }
+    return onSnapshot(collection(db, 'restaurants', restaurantSlug, 'customers'), snapshot => {
+      setCustomers(snapshot.docs.map(entry => ({
+        id: entry.id,
+        name: String(entry.data().name || ''),
+        phone: String(entry.data().phone || '')
+      })).filter(customer => customer.name && customer.phone)
+        .sort((a, b) => a.name.localeCompare(b.name)));
+    }, error => {
+      console.warn('[RestauMax POS] Customer list unavailable:', error.message);
+      setCustomers([]);
+    });
+  }, [restaurantSlug, canSelectCustomer]);
  
   // Cart item count map for badge display on item cards
   const cartCounts = useMemo(() => {
@@ -327,6 +352,9 @@ export const PosView: React.FC<PosViewProps> = ({
           isExistingOrder={isExistingOrder}
           taxRatePercent={taxRatePercent}
           taxMode={taxMode}
+          customers={customers}
+          selectedCustomerId={selectedCustomerId}
+          onSelectCustomer={setSelectedCustomerId}
         />
       </div>
 
