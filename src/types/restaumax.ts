@@ -127,6 +127,12 @@ export interface RestauOrder {
   tableNumber: string | null;
   items: RestauOrderItem[];
   itemsCount: number;
+  customerName?: string;
+  customerPhone?: string;
+  customerPhoneNormalized?: string;
+  loyaltyPointsAwarded?: number;
+  loyaltyCustomerId?: string;
+  loyaltyAwardedAt?: number;
   totalAmount: number; // final amount due in FCFA, including configured tax
   subtotalAmount?: number;
   taxAmount?: number;
