@@ -274,8 +274,8 @@ service cloud.firestore {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
         // Customization recipes are written only through the trusted inventory API.
         allow create, update: if false;
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
-          isValidId(recipeId);
+        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(recipeId) &&
+          !existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuItems/$(resource.data.menuItemId));
       }
 
       match /stockMovements/{movementId} {
