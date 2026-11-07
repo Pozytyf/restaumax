@@ -63,3 +63,30 @@ export function resolveRestauMaxApiRouteFromRequest(req: {
   }
   return null;
 }
+
+/**
+ * Read a rewritten query parameter from the parsed Vercel query or the raw
+ * request URL. Vercel may expose the route marker in req.query while leaving
+ * other rewritten parameters (notably the opaque QR token) only in req.url.
+ */
+export function getRestauMaxRequestQueryParam(
+  req: { query?: Record<string, unknown>; url?: string; originalUrl?: string },
+  name: string
+): string | null {
+  const direct = req?.query?.[name];
+  if (typeof direct === 'string' && direct.length > 0) return direct;
+  if (Array.isArray(direct) && direct.length === 1 && typeof direct[0] === 'string' && direct[0].length > 0) {
+    return direct[0];
+  }
+
+  for (const rawUrl of [req?.url, req?.originalUrl]) {
+    if (typeof rawUrl !== 'string' || !rawUrl.trim()) continue;
+    try {
+      const value = new URL(rawUrl, 'https://restaumax.invalid').searchParams.get(name);
+      if (value) return value;
+    } catch {
+      // Ignore malformed URLs and try the next request representation.
+    }
+  }
+  return null;
+}
