@@ -396,6 +396,12 @@ export async function processPayDunyaInvoiceCallbackWithDb(
     const now = Date.now();
     const paidAmount = alreadyPaid + Number(intent.amount);
     const remainingAmount = total - paidAmount;
+    const totalTaxAmount = Math.max(0, Number(order.taxAmount || 0));
+    const previouslyPaidTax = Math.max(0, Number(order.taxPaidAmount || 0));
+    const cumulativeTaxPaid = remainingAmount === 0
+      ? totalTaxAmount
+      : Math.round(totalTaxAmount * paidAmount / total);
+    const taxPaidThisPayment = Math.max(0, cumulativeTaxPaid - previouslyPaidTax);
     let loyaltyPointsAwarded = 0;
     let loyaltyAwardAt: number | undefined;
     if (remainingAmount === 0 && typeof order.customerId === 'string' && order.customerId) {
@@ -438,7 +444,7 @@ export async function processPayDunyaInvoiceCallbackWithDb(
       subtotalAmount: Number(order.subtotalAmount ?? total),
       taxRatePercent: Number(order.taxRatePercent || 0),
       taxMode: order.taxMode === 'inclusive' ? 'inclusive' : 'exclusive',
-      taxAmount: Number(order.taxAmount || 0),
+      taxAmount: taxPaidThisPayment,
       loyaltyPointsAwarded,
       items: Array.isArray(order.items) ? order.items : [], createdAt: now,
       providerTransactionReference: clean((invoice as any).transactionId, 128) || null
@@ -448,6 +454,7 @@ export async function processPayDunyaInvoiceCallbackWithDb(
       paidAmount, remainingAmount,
       paymentStatus: remainingAmount === 0 ? 'paid' : 'partial',
       lastPaymentAt: now, lastPaymentId: paymentId,
+      taxPaidAmount: cumulativeTaxPaid,
       ...(loyaltyAwardAt ? { loyaltyAwardedAt: loyaltyAwardAt, loyaltyPointsAwarded } : {}),
       pendingPayDunyaIntentId: null, pendingPayDunyaAmount: null
     });
