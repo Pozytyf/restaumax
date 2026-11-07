@@ -35,25 +35,33 @@ export function calculateFinancialReport(input: FinancialReportInput): Financial
 
   const completed = orders.filter(order => order.status === 'completed');
   const grossOrderValueFcfa = completed.reduce((sum, order) => sum + amount(order.totalAmount), 0);
-  const collectedFcfa = payments.reduce((sum, payment) => sum + amount(payment.paidAmount), 0);
+  const netPaymentAmount = (payment: Record<string, any>) => Math.max(0, amount(payment.paidAmount) - amount(payment.refundedAmount));
+  const collectedFcfa = payments.reduce((sum, payment) => sum + netPaymentAmount(payment), 0);
   const outstandingFcfa = orders.filter(order => order.status !== 'cancelled')
     .reduce((sum, order) => sum + amount(order.remainingAmount ?? Math.max(0, amount(order.totalAmount) - amount(order.paidAmount))), 0);
-  const taxCollectedFcfa = payments.reduce((sum, payment) => sum + amount(payment.taxAmount), 0);
+  const taxCollectedFcfa = payments.reduce((sum, payment) => {
+    const paid = amount(payment.paidAmount);
+    const refunded = amount(payment.refundedAmount);
+    const refundedTax = paid > 0 ? Math.round(amount(payment.taxAmount) * Math.min(paid, refunded) / paid) : 0;
+    return sum + Math.max(0, amount(payment.taxAmount) - refundedTax);
+  }, 0);
   const cashCollectedFcfa = payments.filter(payment =>
     payment.method === 'especes' || payment.method === 'cash'
-  ).reduce((sum, payment) => sum + amount(payment.paidAmount), 0);
+  ).reduce((sum, payment) => sum + netPaymentAmount(payment), 0);
   const otherCollectedFcfa = Math.max(0, collectedFcfa - cashCollectedFcfa);
   const expensesFcfa = movements.filter(movement => movement.movementType === 'expense')
     .reduce((sum, movement) => sum + amount(movement.amount), 0);
   const withdrawalsFcfa = movements.filter(movement => movement.movementType === 'withdrawal')
     .reduce((sum, movement) => sum + amount(movement.amount), 0);
+  const completedOrderIds = new Set(completed.map(order => String(order.id || '')));
   const costOfGoodsFcfa = consumptions.filter(consumption =>
+    completedOrderIds.has(String(consumption.orderId || '')) &&
     !['restored', 'skipped'].includes(String(consumption.status || ''))
   ).reduce((sum, consumption) => sum + (Array.isArray(consumption.lines)
     ? consumption.lines.reduce((lineSum: number, line: any) =>
         lineSum + amount(line.lineCost ?? Math.round(Number(line.quantity || 0) * Number(line.unitCost || 0))), 0)
     : 0), 0);
-  const grossMarginFcfa = collectedFcfa - costOfGoodsFcfa;
+  const grossMarginFcfa = grossOrderValueFcfa - costOfGoodsFcfa;
   const operatingResultFcfa = grossMarginFcfa - expensesFcfa;
   return {
     completedOrders: completed.length,
@@ -69,7 +77,7 @@ export function calculateFinancialReport(input: FinancialReportInput): Financial
     cashCollectedFcfa,
     otherCollectedFcfa,
     cashNetAfterMovementsFcfa: cashCollectedFcfa - expensesFcfa - withdrawalsFcfa,
-    grossMarginPercent: collectedFcfa > 0 ? Math.round((grossMarginFcfa / collectedFcfa) * 10000) / 100 : 0
+    grossMarginPercent: grossOrderValueFcfa > 0 ? Math.round((grossMarginFcfa / grossOrderValueFcfa) * 10000) / 100 : 0
   };
 }
 
