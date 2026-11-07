@@ -1,13 +1,17 @@
 import { createHash } from 'node:crypto';
 
 export interface InventoryRequestParams {
-  action: 'create' | 'move' | 'update' | 'save_recipe' | 'archive';
+  action: 'create' | 'move' | 'update' | 'save_recipe' | 'save_customization_recipe' | 'archive';
   restaurantSlug: string;
   actorUid: string;
   sessionVersion: number;
   idempotencyKey?: string;
   itemId?: string;
   menuItemId?: string;
+  customizationType?: 'option' | 'extra';
+  groupId?: string;
+  optionId?: string;
+  extraId?: string;
   recipeLines?: Array<{ inventoryItemId: string; quantityPerDish: number }>;
   name?: string;
   unit?: string;
@@ -237,6 +241,80 @@ export async function manageInventoryWithDb(db: any, params: InventoryRequestPar
           updatedBy: uid
         });
         return { success: true, menuItemId, lineCount: resolvedLines.length, idempotentReplay: false };
+      });
+    }
+
+    if (params.action === 'save_customization_recipe') {
+      const menuItemId = String(params.menuItemId || '');
+      const customizationType = params.customizationType;
+      const groupId = String(params.groupId || '');
+      const optionId = String(params.optionId || '');
+      const extraId = String(params.extraId || '');
+      const targetId = customizationType === 'option' ? optionId : extraId;
+      const recipeLines = params.recipeLines;
+      if (!/^[a-zA-Z0-9_-]{1,160}$/.test(menuItemId) ||
+          !['option', 'extra'].includes(String(customizationType)) ||
+          (customizationType === 'option' && (!/^[a-zA-Z0-9_-]{1,160}$/.test(groupId) || !/^[a-zA-Z0-9_-]{1,160}$/.test(optionId) || Boolean(extraId))) ||
+          (customizationType === 'extra' && (!/^[a-zA-Z0-9_-]{1,160}$/.test(extraId) || Boolean(groupId) || Boolean(optionId))) ||
+          !Array.isArray(recipeLines) || recipeLines.length < 1 || recipeLines.length > 30) {
+        return { success: false, error: 'Fiche de stock de personnalisation invalide.' };
+      }
+      const seenInventoryIds = new Set<string>();
+      for (const line of recipeLines) {
+        const inventoryItemId = String(line?.inventoryItemId || '');
+        const quantity = line?.quantityPerDish;
+        if (!/^[a-zA-Z0-9_-]{1,160}$/.test(inventoryItemId) ||
+            seenInventoryIds.has(inventoryItemId) ||
+            typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0 || quantity > 1000 ||
+            Math.round(quantity * 1000) !== quantity * 1000) {
+          return { success: false, error: 'Chaque composant doit être unique avec une quantité positive (maximum 3 décimales).' };
+        }
+        seenInventoryIds.add(inventoryItemId);
+      }
+      const restaurantRef = db.collection('restaurants').doc(slug);
+      const menuItemRef = restaurantRef.collection('menuItems').doc(menuItemId);
+      const inventoryRefs = recipeLines.map(line => restaurantRef.collection('inventoryItems').doc(String(line.inventoryItemId)));
+      const recipeId = digest(`${customizationType}:${menuItemId}:${groupId}:${targetId}`);
+      const recipeRef = restaurantRef.collection('menuCustomizationRecipes').doc(recipeId);
+      return await db.runTransaction(async (tx: any) => {
+        const authz = await authorizeInventoryTransaction(tx, db, slug, uid, params.sessionVersion);
+        if (!authz.ok) return { success: false, error: authz.error };
+        const [menuItemSnap, ...inventorySnaps] = await Promise.all([
+          tx.get(menuItemRef), ...inventoryRefs.map((ref: any) => tx.get(ref))
+        ]);
+        if (!menuItemSnap.exists || menuItemSnap.data().restaurantSlug !== slug) {
+          return { success: false, error: 'Plat introuvable dans le catalogue de ce restaurant.' };
+        }
+        const menuItem = menuItemSnap.data();
+        let targetName = '';
+        if (customizationType === 'option') {
+          const group = (Array.isArray(menuItem.optionGroups) ? menuItem.optionGroups : []).find((entry: any) => entry.id === groupId);
+          const option = group?.options?.find((entry: any) => entry.id === optionId);
+          if (!option) return { success: false, error: 'Groupe ou option introuvable dans le catalogue officiel.' };
+          targetName = `${String(group.name || '')} · ${String(option.name || '')}`;
+        } else {
+          const extra = (Array.isArray(menuItem.availableExtras) ? menuItem.availableExtras : []).find((entry: any) => entry.id === extraId);
+          if (!extra) return { success: false, error: 'Supplément introuvable dans le catalogue officiel.' };
+          targetName = String(extra.name || '');
+        }
+        const resolvedLines = recipeLines.map((line, index) => {
+          const snap = inventorySnaps[index];
+          if (!snap?.exists || snap.data().active === false) throw new Error('Un composant de stock est introuvable ou archivé.');
+          const item = snap.data();
+          return {
+            inventoryItemId: String(line.inventoryItemId), itemName: String(item.name || ''),
+            unit: String(item.unit || ''), quantityPerDish: Number(line.quantityPerDish)
+          };
+        });
+        const now = Date.now();
+        tx.set(recipeRef, {
+          id: recipeId, menuItemId, menuItemName: String(menuItem.name || ''),
+          customizationType, groupId: customizationType === 'option' ? groupId : null,
+          optionId: customizationType === 'option' ? optionId : null,
+          extraId: customizationType === 'extra' ? extraId : null,
+          targetName, lines: resolvedLines, updatedAt: now, updatedBy: uid
+        });
+        return { success: true, recipeId, menuItemId, targetName, lineCount: resolvedLines.length };
       });
     }
 
