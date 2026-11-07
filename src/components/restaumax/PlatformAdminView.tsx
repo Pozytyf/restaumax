@@ -120,7 +120,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       startsOn: dateInputFromTimestamp(subscription.startsAt),
       endsOn: dateInputFromTimestamp(subscription.endsAt),
       notes: subscription.notes || '',
-      autoRenew: subscription.autoRenew !== false,
+      autoRenew: subscription.billingCycle === 'custom' ? false : subscription.autoRenew !== false,
       gracePeriodDays: String(subscription.gracePeriodDays ?? 7)
     });
   };
@@ -312,7 +312,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/>
         </label>
         <label className="text-sm">Périodicité
-          <select value={subscriptionForm.billingCycle} onChange={e=>setSubscriptionForm({...subscriptionForm,billingCycle:e.target.value})}
+          <select value={subscriptionForm.billingCycle} onChange={e=>setSubscriptionForm({...subscriptionForm,billingCycle:e.target.value,autoRenew:e.target.value==='custom'?false:subscriptionForm.autoRenew})}
             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3">
             <option value="monthly">Mensuelle</option><option value="yearly">Annuelle</option><option value="custom">Personnalisée</option>
           </select>
