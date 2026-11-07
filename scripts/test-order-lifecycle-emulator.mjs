@@ -123,6 +123,33 @@ try {
   assert.equal((await inventoryRef.get()).data().quantity, 5, 'Cancellation restores base and option ingredients');
   assert.equal((await oilRef.get()).data().quantity, 2, 'Cancellation restores supplement ingredients');
 
+  const serverUid = 'server-assigned-test';
+  const otherServerUid = 'server-other-test';
+  await Promise.all([
+    db.collection('managers').doc(serverUid).set({
+      active: true, restaurantSlug: slug, role: 'server', sessionVersion: 2,
+      permissions: ['orders.view', 'tables.view', 'pos.access', 'orders.serve']
+    }),
+    db.collection('managers').doc(otherServerUid).set({
+      active: true, restaurantSlug: slug, role: 'server', sessionVersion: 2,
+      permissions: ['orders.view', 'tables.view', 'pos.access', 'orders.serve']
+    }),
+    restaurantRef.collection('orders').doc('order-server-assigned').set({
+      id: 'order-server-assigned', restaurantSlug: slug, status: 'ready',
+      tableNumber: '4', assignedWaiterUid: serverUid, items: []
+    })
+  ]);
+  const assignedServe = await transitionOrderStatusWithDb(db, {
+    restaurantSlug: slug, orderId: 'order-server-assigned', actorUid: serverUid,
+    sessionVersion: 2, targetStatus: 'completed'
+  });
+  assert.equal(assignedServe.success, true, 'A server can complete an order assigned to their table');
+  const foreignServe = await transitionOrderStatusWithDb(db, {
+    restaurantSlug: slug, orderId: 'order-server-assigned', actorUid: otherServerUid,
+    sessionVersion: 2, targetStatus: 'completed'
+  });
+  assert.equal(foreignServe.success, false, 'A server cannot complete an order assigned to another server');
+
   console.log('Order lifecycle Firestore Emulator transaction tests passed.');
 } finally {
   await app.delete();
