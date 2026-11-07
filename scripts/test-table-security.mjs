@@ -175,6 +175,22 @@ async function run() {
     'URL QR identique restaurée après rechargement sans rotation ni changement du jeton');
   assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 1, 'Version QR incrémentée sur la table');
 
+  // Two tenants may use the same local table ID, but QR resolution must remain
+  // bound to the restaurant stored with each token.
+  db.store.set('restaurants/restaumax-demo', {
+    slug: 'restaumax-demo', status: 'active', isActive: true, isOpen: true, ownerUid: 'demo-owner'
+  });
+  db.store.set('restaurants/restaumax-demo/tables/table-4', {
+    id: 'table-4', tableNumber: 'D-4', isActive: true, qrVersion: 0
+  });
+  const demoIssued = await issueTableQr(db, 'restaumax-demo', 'table-4', 'https://restaumax.example');
+  const demoResolved = await resolveTableQr(db, demoIssued.token);
+  const chezResolved = await resolveTableQr(db, token);
+  assert(demoResolved.restaurantSlug === 'restaumax-demo' && demoResolved.tableNumber === 'D-4',
+    'Le QR Démo ouvre uniquement la table D-4 du restaurant Démo');
+  assert(chezResolved.restaurantSlug === 'chez-awa' && chezResolved.tableNumber === '4',
+    'Le QR Chez Awa reste lié à sa propre table 4 malgré le même identifiant dans Démo');
+
   // Legacy QR records predate encrypted persistence. A restore must refuse
   // to reconstruct plaintext from the hash alone; the manager then rotates once.
   db.store.set('restaurants/chez-awa/tables/table-legacy', {
