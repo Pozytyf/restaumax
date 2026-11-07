@@ -54,6 +54,7 @@ import {
   updatePendingOrderIntentUncertainty 
 } from './utils/orderIntentStorage';
 import { formatFCFA } from './utils/format';
+import { getPosCartConfigurationKey, toClientCartItem } from './utils/posCart';
 import { sounds } from './utils/audio';
 import { mapRestauOrderToKitchenTicket } from './utils/kitchenTicket';
 export { mapRestauOrderToKitchenTicket } from './utils/kitchenTicket';
@@ -223,7 +224,7 @@ export default function App() {
       price: dish.price,
       description: dish.description,
       imageUrl: dish.imageUrl,
-      available: dish.available !== false,
+      available: dish.available === true,
       prepTimeMinutes: dish.prepTimeMinutes,
       course: dish.category === 'entrees'
         ? 'entree'
@@ -232,7 +233,9 @@ export default function App() {
           : dish.category === 'desserts'
             ? 'dessert'
             : 'plat',
-      tags: dish.tags
+      tags: dish.tags,
+      optionGroups: dish.optionGroups,
+      availableExtras: dish.availableExtras
     })));
   }, [activeMenuItems]);
 
@@ -911,18 +914,73 @@ export default function App() {
     setCart([]);
   };
 
-  const handleAddToCart = (dish: MenuItem) => {
-    if (pendingPosOrder) { window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.'); return; }
+  const handleAddToCart = (configuredItem: ClientCartItem): boolean => {
+    if (pendingPosOrder) {
+      window.alert('Terminez le règlement de la commande en cours avant de modifier le panier.');
+      return false;
+    }
+    const dish = menuItems.find((item) => item.id === configuredItem.menuItemId);
+    if (!dish || dish.available !== true) return false;
+    if (!Number.isInteger(configuredItem.quantity) || configuredItem.quantity < 1 || configuredItem.quantity > 50) return false;
+
+    const requestedGroupIds = configuredItem.selectedOption?.groupId.split('+') || [];
+    const requestedOptionIds = configuredItem.selectedOption?.optionId.split('+') || [];
+    if (requestedGroupIds.length !== requestedOptionIds.length ||
+        new Set(requestedGroupIds).size !== requestedGroupIds.length) return false;
+
+    const resolvedOptions = requestedGroupIds.map((groupId, index) => {
+      const group = dish.optionGroups?.find((candidate) => candidate.id === groupId);
+      const option = group?.options.find((candidate) => candidate.id === requestedOptionIds[index]);
+      return group && option ? {
+        groupId: group.id, groupName: group.name, optionId: option.id,
+        optionName: option.name, extraPrice: option.extraPrice
+      } : null;
+    });
+    if (resolvedOptions.some((option) => option === null)) return false;
+    if ((dish.optionGroups || []).some((group) =>
+      group.required && !resolvedOptions.some((option) => option?.groupId === group.id)
+    )) return false;
+
+    const verifiedOptions = resolvedOptions.filter((option): option is NonNullable<typeof option> => option !== null);
+    const verifiedSelectedOption: ClientCartItem['selectedOption'] = verifiedOptions.length === 0
+      ? undefined
+      : {
+          groupId: verifiedOptions.map((option) => option.groupId).join('+'),
+          groupName: verifiedOptions.map((option) => option.groupName).join(' / '),
+          optionId: verifiedOptions.map((option) => option.optionId).join('+'),
+          optionName: verifiedOptions.map((option) => `${option.groupName}: ${option.optionName}`).join(' · '),
+          extraPrice: verifiedOptions.reduce((sum, option) => sum + option.extraPrice, 0)
+        };
+
+    const requestedExtraIds = (configuredItem.selectedExtras || []).map((extra) => extra.extraId);
+    if (new Set(requestedExtraIds).size !== requestedExtraIds.length) return false;
+    const verifiedExtras = requestedExtraIds.map((extraId) => {
+      const extra = dish.availableExtras?.find((candidate) => candidate.id === extraId);
+      return extra ? { extraId: extra.id, name: extra.name, price: extra.price } : null;
+    });
+    if (verifiedExtras.some((extra) => extra === null)) return false;
+    const selectedExtras = verifiedExtras.filter((extra): extra is NonNullable<typeof extra> => extra !== null);
+    const prepNotes = (configuredItem.prepNotes || '').trim().slice(0, 150);
+
     setCart((prev) => {
-      const existing = prev.find((item) => item.menuItem.id === dish.id);
+      const key = getPosCartConfigurationKey(verifiedSelectedOption, selectedExtras);
+      const existing = prev.find((item) =>
+        item.menuItem.id === dish.id &&
+        getPosCartConfigurationKey(item.selectedOption, item.selectedExtras || []) === key &&
+        (item.specialInstructions || '') === prepNotes
+      );
       if (existing) {
         return prev.map((item) =>
-          item.menuItem.id === dish.id ? { ...item, quantity: item.quantity + 1 } : item
+          item.id === existing.id ? { ...item, quantity: item.quantity + configuredItem.quantity } : item
         );
-      } else {
-        return [...prev, { id: `ci-${Date.now()}-${dish.id}`, menuItem: dish, quantity: 1, course: dish.course }];
       }
+      return [...prev, {
+        id: configuredItem.id, menuItem: dish, quantity: configuredItem.quantity,
+        selectedOption: verifiedSelectedOption, selectedExtras,
+        specialInstructions: prepNotes, course: dish.course
+      }];
     });
+    return true;
   };
 
   const handleUpdateQuantity = (itemId: string, delta: number) => {
@@ -958,17 +1016,7 @@ export default function App() {
 
     setIsSubmittingPosOrder(true);
     try {
-      const clientCart: ClientCartItem[] = cart.map((item) => ({
-        id: item.id,
-        menuItemId: item.menuItem.id,
-        name: item.menuItem.name,
-        basePrice: item.menuItem.price,
-        unitPrice: item.menuItem.price,
-        quantity: item.quantity,
-        selectedExtras: [],
-        prepNotes: item.specialInstructions,
-        imageUrl: item.menuItem.imageUrl
-      }));
+      const clientCart: ClientCartItem[] = cart.map(toClientCartItem);
 
       const result = await submitPosOrderWithServerValidation(activeRestaurantSlug, {
         cart: clientCart,
@@ -1123,17 +1171,7 @@ export default function App() {
     try {
       let order = pendingPosOrder;
       if (!order) {
-        const clientCart: ClientCartItem[] = cart.map((item) => ({
-          id: item.id,
-          menuItemId: item.menuItem.id,
-          name: item.menuItem.name,
-          basePrice: item.menuItem.price,
-          unitPrice: item.menuItem.price,
-          quantity: item.quantity,
-          selectedExtras: [],
-          prepNotes: item.specialInstructions,
-          imageUrl: item.menuItem.imageUrl
-        }));
+        const clientCart: ClientCartItem[] = cart.map(toClientCartItem);
 
         const orderResult = await submitPosOrderWithServerValidation(activeRestaurantSlug, {
           cart: clientCart,
@@ -1671,6 +1709,7 @@ export default function App() {
           <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {currentRole === 'pos' && userPermissions.includes('pos.access') && (
               <PosView
+                restaurantSlug={activeRestaurantSlug}
                 menuItems={menuItems}
                 cart={cart}
                 selectedTable={selectedTable}
