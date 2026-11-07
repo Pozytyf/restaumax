@@ -18,7 +18,7 @@
     "test:subscriptions": "tsx scripts/test-subscription-validation.mjs",
     "test:github-token": "node scripts/test-github-installation-token.mjs",
     "test:paydunya": "node scripts/test-paydunya-service.mjs && tsx scripts/test-paydunya-payment-flow.mjs && tsx scripts/test-paydunya-merchant-config.mjs",
-    "test": "npm run test:kitchen && npm run test:inventory && npm run test:roles && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation && npm run test:order-lifecycle && npm run test:security-regression",
+    "test": "npm run test:kitchen && npm run test:inventory && npm run test:roles && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:tax && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation && npm run test:order-lifecycle && npm run test:security-regression",
     "seed:local": "node scripts/seed-catalog.mjs",
     "test:refund-client": "node scripts/test-refund-client-routing.mjs",
     "test:onboarding": "node scripts/test-onboarding-reset-email.mjs",
@@ -30,7 +30,8 @@
     "test:order-lifecycle": "tsx scripts/test-order-lifecycle-stock.mjs",
     "test:order-lifecycle-emulator": "tsx scripts/test-order-lifecycle-emulator.mjs",
     "test:order-kds-cash": "tsx scripts/test-order-kds-cash-integration.mjs",
-    "test:security-regression": "node scripts/test-firestore-owner-rule.mjs && tsx scripts/test-full-role-boundaries.mjs && tsx scripts/test-owner-refund-binding.mjs && tsx scripts/test-platform-overview-sanitization.mjs"
+    "test:security-regression": "node scripts/test-firestore-owner-rule.mjs && tsx scripts/test-full-role-boundaries.mjs && tsx scripts/test-owner-refund-binding.mjs && tsx scripts/test-platform-overview-sanitization.mjs",
+    "test:tax": "tsx scripts/test-tax-calculation.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
