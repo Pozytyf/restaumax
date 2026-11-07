@@ -81,7 +81,7 @@ assert.equal((await transitionOrderStatusWithDb(restoreDb, { ...params, targetSt
 assert.equal((await transitionOrderStatusWithDb(restoreDb, { ...params, targetStatus: 'cancelled' })).success, true);
 assert.equal(restoreDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 assert.equal(restoreDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'restored');
-const restoreMovement = [...restoreDb.documents.entries()].find(([path]) => path.includes('/stockMovements/order_') && path.includes('order-1'));
+const restoreMovement = [...restoreDb.documents.entries()].find(([path, value]) => path.includes('/stockMovements/order_') && value.orderId === 'order-1' && value.delta > 0);
 assert.equal(restoreMovement?.[1].delta, 0.5);
 const cancelReplay = await transitionOrderStatusWithDb(restoreDb, { ...params, targetStatus: 'cancelled' });
 assert.equal(cancelReplay.idempotentReplay, true);
