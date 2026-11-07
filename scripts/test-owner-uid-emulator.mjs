@@ -30,7 +30,7 @@ try {
   await assertFails(getDoc(doc(ownerB, 'restaurants/rest-a')));
   await assertSucceeds(updateDoc(doc(ownerA, 'restaurants/rest-a'), { name: 'Restaurant A modifié' }));
   await assertFails(updateDoc(doc(ownerB, 'restaurants/rest-a'), { name: 'Tentative de prise de contrôle' }));
-  await assertSucceeds(updateDoc(doc(ownerA, 'restaurants/rest-a/orders/order-1'), { status: 'in_prep' }));
+  await assertFails(updateDoc(doc(ownerA, 'restaurants/rest-a/orders/order-1'), { status: 'in_prep' }));
   await assertFails(updateDoc(doc(ownerB, 'restaurants/rest-a/orders/order-1'), { status: 'cancelled' }));
   console.log('Firestore ownerUid emulator tests passed.');
 } finally {
