@@ -554,7 +554,7 @@ async function runTests() {
   assert(rulesContent.includes("allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view')"), 'Liste des commandes privée et réservée au gérant du restaurant');
 
   // Test 4.3: Restriction stricte des modifications d'ordres KDS
-  assert(rulesContent.includes("changed.hasOnly(['status', 'statusUpdatedAt', 'kitchenNotes'])"), 'Mise à jour de commande limitée strictement aux statuts opérationnels par la fonction canUpdateOrder');
+  assert(rulesContent.includes('allow update: if false;'), 'Les transitions de commande sont interdites au SDK client et passent par le backend transactionnel');
   assert(rulesContent.includes('incoming().totalAmount == existing().totalAmount'), 'Empêche toute altération du montant après commande');
 
   // ==========================================================================
@@ -828,13 +828,10 @@ async function runTests() {
   // Scénario 8: Règles Firestore multi-tenant et mise à jour KDS préservées
   assert(
     rulesContent.includes("hasRestaurantPermission(restaurantSlug, 'orders.view')") &&
-    rulesContent.includes('function canUpdateOrder(targetSlug)') &&
-    rulesContent.includes("'orders.manage' in permissions") &&
-    rulesContent.includes("'orders.cancel' in permissions") &&
-    rulesContent.includes("'kitchen.access' in permissions") &&
-    rulesContent.includes("'orders.serve' in permissions") &&
-    rulesContent.includes("changed.hasOnly(['status', 'statusUpdatedAt', 'kitchenNotes'])"),
-    'Scénario 8 : Multi-tenant préservé et transitions KDS encadrées par rôle'
+    rulesContent.includes('allow update: if false;') &&
+    fs.readFileSync(path.resolve('server.ts'), 'utf-8').includes("app.post('/api/order-status'") &&
+    fs.readFileSync(path.resolve('src/server/orderLifecycleService.ts'), 'utf-8').includes('transitionOrderStatusWithDb'),
+    'Scénario 8 : Multi-tenant préservé et transitions KDS transactionnelles côté serveur'
   );
 
   // Scénario 9: Préservation du panier client en cas d'échec
