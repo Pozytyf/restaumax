@@ -166,7 +166,7 @@ export async function getRestaurantFinancialReportWithDb(
     refunds: refundsSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id })),
     stockMovements: stockSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id })),
     cashMovements: cashMovementsSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id })),
-    cashSessions: cashSessionsSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id }))
+    cashSessions: cashSessionsSnap.docs.map((doc: any) => ({ ...doc.data(), id: doc.id })).filter((session: any) => Number(session.openedAt || 0) >= startAt && Number(session.openedAt || 0) <= now)
   }, { startAt, endAt: now, includeCashDetails: options.includeCashDetails === true });
   return report;
 }
