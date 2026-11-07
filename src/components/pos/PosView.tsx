@@ -354,7 +354,7 @@ export const PosView: React.FC<PosViewProps> = ({
           taxMode={taxMode}
           customers={customers}
           selectedCustomerId={selectedCustomerId}
-          onSelectCustomer={setSelectedCustomerId}
+          onSelectCustomer={canSelectCustomer ? setSelectedCustomerId : undefined}
         />
       </div>
 
