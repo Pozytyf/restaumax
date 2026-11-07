@@ -1,0 +1,88 @@
+import assert from 'node:assert/strict';
+import { initializeApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { runSubscriptionBillingCycleWithDb, settleSubscriptionInvoiceWithDb } from '../src/server/subscriptionBillingService.ts';
+
+if (!process.env.FIRESTORE_EMULATOR_HOST) {
+  console.log('Subscription billing Firestore Emulator test skipped: emulator is not active.');
+  process.exit(0);
+}
+const app = initializeApp({ projectId: 'demo-restaumax' }, 'subscription-billing-emulator-test');
+const db = getFirestore(app);
+const now = Date.now();
+const slug = 'subscription-cycle-emulator';
+const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
+const restaurantRef = db.collection('restaurants').doc(slug);
+
+try {
+  await Promise.all([
+    restaurantRef.set({ slug, status: 'active', isOpen: true, ownerUid: 'owner-subscription-test', tableSessionVersion: 3 }),
+    subscriptionRef.set({
+      planName: 'Pro', priceFcfa: 25000, currency: 'XOF', billingCycle: 'monthly',
+      status: 'active', startsAt: now - 30 * 86400000, endsAt: now - 1000,
+      nextBillingAt: now - 1000, autoRenew: true, gracePeriodDays: 7
+    })
+  ]);
+
+  const first = await runSubscriptionBillingCycleWithDb(db, now);
+  assert.equal(first.invoicesCreated, 1, 'Une facture récurrente est créée à échéance');
+  const subscription = (await subscriptionRef.get()).data();
+  assert.equal(subscription.status, 'past_due');
+  assert.equal(subscription.currentInvoiceId.startsWith('subinv_'), true);
+  const invoiceRef = subscriptionRef.collection('invoices').doc(subscription.currentInvoiceId);
+  const invoice = (await invoiceRef.get()).data();
+  assert.equal(invoice.amountFcfa, 25000);
+  assert.equal(invoice.status, 'open');
+
+  const replay = await runSubscriptionBillingCycleWithDb(db, now + 86400000);
+  assert.equal(replay.invoicesCreated, 0, 'Une exécution répétée ne crée pas une seconde facture');
+  const invoices = await subscriptionRef.collection('invoices').get();
+  assert.equal(invoices.size, 1);
+
+  const beforeGrace = await runSubscriptionBillingCycleWithDb(db, now + 6 * 86400000);
+  assert.equal(beforeGrace.restaurantsSuspended, 0, 'Le restaurant reste accessible pendant le délai de grâce');
+  assert.equal((await restaurantRef.get()).data().status, 'active');
+
+  const afterGrace = await runSubscriptionBillingCycleWithDb(db, now + 8 * 86400000);
+  assert.equal(afterGrace.restaurantsSuspended, 1, 'Le restaurant est suspendu automatiquement après le délai de grâce');
+  const suspended = (await restaurantRef.get()).data();
+  assert.equal(suspended.status, 'suspended');
+  assert.equal(suspended.suspensionReason, 'subscription_past_due');
+  assert.equal(suspended.tableSessionVersion, 4);
+
+  const settled = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
+    amountFcfa: 25000, paymentReference: 'TRANSFER-RECEIPT-2026-001',
+    actorUid: 'super-admin-test', now: now + 8 * 86400000 + 1000
+  });
+  assert.equal(settled.success, true, 'Une facture payée est rapprochée et l’abonnement renouvelé');
+  const renewed = (await subscriptionRef.get()).data();
+  assert.equal(renewed.status, 'active');
+  assert.equal(renewed.nextBillingAt, renewed.endsAt);
+  assert.equal((await restaurantRef.get()).data().status, 'active', 'Un paiement réactive un restaurant suspendu uniquement pour impayé');
+  const settlementReplay = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
+    amountFcfa: 25000, paymentReference: 'TRANSFER-RECEIPT-2026-001',
+    actorUid: 'super-admin-test', now: now + 8 * 86400000 + 2000
+  });
+  assert.equal(settlementReplay.success && settlementReplay.idempotentReplay, true, 'Le rapprochement est idempotent');
+
+  const nonRenewSlug = 'subscription-no-renew-emulator';
+  const nonRenewRef = db.collection('restaurantSubscriptions').doc(nonRenewSlug);
+  const nonRenewRestaurant = db.collection('restaurants').doc(nonRenewSlug);
+  await Promise.all([
+    nonRenewRestaurant.set({ slug: nonRenewSlug, status: 'active', isOpen: true, tableSessionVersion: 0 }),
+    nonRenewRef.set({
+      planName: 'Custom', priceFcfa: 10000, billingCycle: 'custom', status: 'active',
+      startsAt: now - 10000, endsAt: now - 1, nextBillingAt: now - 1,
+      autoRenew: false, gracePeriodDays: 7
+    })
+  ]);
+  const noRenew = await runSubscriptionBillingCycleWithDb(db, now + 9 * 86400000);
+  assert.equal(noRenew.restaurantsSuspended, 1, 'Un abonnement sans renouvellement est suspendu à échéance');
+  assert.equal((await nonRenewRestaurant.get()).data().suspensionReason, 'subscription_nonrenewal');
+
+  console.log('Subscription billing Firestore Emulator tests passed: 17 assertions.');
+} finally {
+  await app.delete();
+}
