@@ -181,11 +181,22 @@ async function run() {
         selectedExtras: [{ extraId: 'sauce', name: 'Prix falsifié', price: 0 }]
       }]
     }, provider);
-    check(clientPriceTampering.success === true &&
-      clientPriceTampering.order?.totalAmount === 6800 &&
-      clientPriceTampering.order?.items?.[0]?.selectedExtras?.[0]?.name === 'Sauce maison' &&
+    if (!clientPriceTampering.success) {
+      console.error('Détail du rejet de prix client :', clientPriceTampering.error || clientPriceTampering);
+    } else {
+      console.log('Résultat serveur après falsification client :', JSON.stringify({
+        totalAmount: clientPriceTampering.order?.totalAmount,
+        selectedOption: clientPriceTampering.order?.items?.[0]?.selectedOption,
+        selectedExtras: clientPriceTampering.order?.items?.[0]?.selectedExtras
+      }));
+    }
+    check(clientPriceTampering.success === true,
+      'Le serveur accepte la commande après avoir ignoré les prix client');
+    check(clientPriceTampering.order?.totalAmount === 6800,
+      'Le total serveur reste calculé depuis le catalogue officiel');
+    check(clientPriceTampering.order?.items?.[0]?.selectedExtras?.[0]?.name === 'Sauce maison' &&
       clientPriceTampering.order?.items?.[0]?.selectedExtras?.[0]?.price === 1000,
-      'Le serveur ignore les prix et libellés client et applique ceux du catalogue officiel');
+      'Le serveur remplace le libellé et le prix du supplément par ceux du catalogue');
 
     console.log('\n--- Création réelle de la commande POS ---');
     const created = await processOrderSubmission(payload, provider);
