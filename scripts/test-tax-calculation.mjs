@@ -60,5 +60,16 @@ const tampered = await processOrderSubmission(payload('tax-tampered-0001', 1000)
 check(tampered.success === false, 'Un total client qui omet la taxe ajoutée est rejeté.');
 const invalidConfig = await processOrderSubmission(payload('tax-invalid-0001', 1000), makeProvider(140, 'exclusive'));
 check(invalidConfig.success === false, 'Le serveur refuse un taux fiscal hors limites.');
+const identifiedOrder = await processOrderSubmission({
+  ...payload('tax-loyalty-identity-0001', 1000),
+  customerName: 'Awa Traoré', customerPhone: '+225 07 00 00 00 00'
+}, makeProvider(0, 'exclusive'));
+check(identifiedOrder.success === true && identifiedOrder.order?.customerPhoneNormalized === '0700000000',
+  'Le serveur normalise le téléphone client pour la fidélité.');
+const invalidCustomer = await processOrderSubmission({
+  ...payload('tax-loyalty-invalid-0001', 1000),
+  customerName: 'Awa', customerPhone: '12345'
+}, makeProvider(0, 'exclusive'));
+check(invalidCustomer.success === false, 'Une identité fidélité incomplète ou un téléphone invalide est refusé.');
 
-console.log('\nRésultats taxe : ' + passed + '/' + passed + ' réussis.');
+console.log('\nRésultats taxe et identité client : ' + passed + '/' + passed + ' réussis.');
