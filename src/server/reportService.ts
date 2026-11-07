@@ -66,14 +66,14 @@ export function calculateRestaurantFinancialReport(
     const taxShare = total > 0 ? Math.min(netPaid, Math.round(orderTax * netPaid / total)) : 0;
     taxCollected += taxShare;
     netSales += Math.max(0, netPaid - taxShare);
-    // Les quantités vendues suivent les encaissements nets : une commande
-    // intégralement remboursée ne doit pas rester dans le classement.
-    const retainedShare = paidBeforeRefund > 0 ? Math.min(1, netPaid / paidBeforeRefund) : 0;
-    if (retainedShare > 0) {
+    // Les remboursements partiels ne précisent pas quels articles ont été
+    // retournés : ne pas inventer des quantités fractionnaires. Une commande
+    // totalement remboursée est exclue du classement des ventes nettes.
+    if (netPaid > 0) {
       for (const line of Array.isArray(order.items) ? order.items : []) {
         const name = String(line.name || 'Article');
-        const retainedQuantity = Math.max(0, Number(line.quantity) || 0) * retainedShare;
-        bestSellersMap.set(name, (bestSellersMap.get(name) || 0) + retainedQuantity);
+        const quantity = Math.max(0, Number(line.quantity) || 0);
+        bestSellersMap.set(name, (bestSellersMap.get(name) || 0) + quantity);
       }
     }
   }
