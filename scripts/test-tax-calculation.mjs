@@ -16,7 +16,7 @@ const exclusive = calculateOrderTax(1000, 18, 'exclusive');
 check(exclusive.subtotalAmount === 1000 && exclusive.taxAmount === 180 && exclusive.totalAmount === 1180,
   'Le mode HT ajoute la taxe au sous-total.');
 const inclusive = calculateOrderTax(1180, 18, 'inclusive');
-check(inclusive.subtotalAmount === 1180 && inclusive.taxAmount === 180 && inclusive.totalAmount === 1180,
+check(inclusive.subtotalAmount === 1000 && inclusive.taxAmount === 180 && inclusive.totalAmount === 1180,
   'Le mode TTC extrait la taxe sans augmenter le prix affiché.');
 check(calculateOrderTax(999, 7.5, 'exclusive').taxAmount === 75, 'La taxe est arrondie au FCFA le plus proche.');
 for (const invalid of [
@@ -53,7 +53,7 @@ check(ht.success === true && ht.order?.subtotalAmount === 1000 && ht.order?.taxA
   ht.order?.totalAmount === 1180 && ht.order?.taxMode === 'exclusive',
   'Le serveur persiste sous-total, taxe et total en mode HT.');
 const ttc = await processOrderSubmission(payload('tax-inclusive-0001', 1000), makeProvider(18, 'inclusive'));
-check(ttc.success === true && ttc.order?.subtotalAmount === 1000 && ttc.order?.taxAmount === 153 &&
+check(ttc.success === true && ttc.order?.subtotalAmount === 847 && ttc.order?.taxAmount === 153 &&
   ttc.order?.totalAmount === 1000 && ttc.order?.taxMode === 'inclusive',
   'Le serveur extrait la taxe du prix TTC sans la facturer deux fois.');
 const tampered = await processOrderSubmission(payload('tax-tampered-0001', 1000), makeProvider(18, 'exclusive'));
