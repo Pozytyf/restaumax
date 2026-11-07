@@ -25,6 +25,42 @@ export function calculateItemUnitPrice(
   return safeBase + optionCost + extrasCost;
 }
 
+export type RestaurantTaxMode = 'exclusive' | 'inclusive';
+
+export interface OrderTaxBreakdown {
+  subtotalAmount: number;
+  taxAmount: number;
+  taxRatePercent: number;
+  taxMode: RestaurantTaxMode;
+  totalAmount: number;
+}
+
+/**
+ * Tax calculation is performed in whole FCFA. Exclusive adds tax to the
+ * menu subtotal; inclusive extracts the tax portion from prices already TTC.
+ */
+export function calculateOrderTax(
+  subtotalAmount: number,
+  taxRatePercent = 0,
+  taxMode: RestaurantTaxMode = 'exclusive'
+): OrderTaxBreakdown {
+  if (!Number.isSafeInteger(subtotalAmount) || subtotalAmount < 0 ||
+      !Number.isFinite(taxRatePercent) || taxRatePercent < 0 || taxRatePercent > 100 ||
+      !['exclusive', 'inclusive'].includes(taxMode)) {
+    throw new Error('Paramètres de calcul de taxe invalides.');
+  }
+  const taxAmount = taxMode === 'inclusive'
+    ? Math.round(subtotalAmount - (subtotalAmount / (1 + taxRatePercent / 100)))
+    : Math.round(subtotalAmount * taxRatePercent / 100);
+  return {
+    subtotalAmount,
+    taxAmount,
+    taxRatePercent,
+    taxMode,
+    totalAmount: taxMode === 'inclusive' ? subtotalAmount : subtotalAmount + taxAmount
+  };
+}
+
 /**
  * Calcule le montant total d'une commande à partir des lignes recalculées
  */
