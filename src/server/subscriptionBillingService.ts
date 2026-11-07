@@ -34,6 +34,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
   if (!db) throw new Error('Firestore indisponible.');
   const subscriptions = await db.collection('restaurantSubscriptions').get();
   let invoicesCreated = 0;
+  let freePlansRenewed = 0;
   let restaurantsSuspended = 0;
   let skipped = 0;
 
@@ -112,6 +113,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         return 'created';
       });
       if (result === 'created') invoicesCreated++;
+      else if (result === 'free_renewed') freePlansRenewed++;
       else if (result === 'suspended') {
         await revokeActiveTableSessions(db, slug, now, 'subscription_nonrenewal');
         restaurantsSuspended++;
@@ -158,7 +160,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
     }
   }
 
-  return { success: true, subscriptionsScanned: subscriptions.size, invoicesCreated, restaurantsSuspended, skipped };
+  return { success: true, subscriptionsScanned: subscriptions.size, invoicesCreated, freePlansRenewed, restaurantsSuspended, skipped };
 }
 
 export async function settleSubscriptionInvoiceWithDb(
