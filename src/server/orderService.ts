@@ -298,6 +298,7 @@ export async function processOrderSubmission(
   // 7. Validation obligatoire des tables réelles pour les commandes sur place
   let cleanTableNumber: string | null = null;
   let validatedTableId: string | undefined;
+  let assignedWaiterUid: string | null = null;
   if (orderMode === 'sur_place') {
     if (!tableNumber || typeof tableNumber !== 'string' || !tableNumber.trim()) {
       return { success: false, error: "Le numéro de table est obligatoire pour une commande sur place." };
@@ -339,6 +340,7 @@ export async function processOrderSubmission(
       };
     }
     validatedTableId = matched.id;
+    assignedWaiterUid = typeof matched.assignedWaiter === 'string' ? matched.assignedWaiter : null;
   }
 
   // 8. Validation stricte du catalogue et de chaque ligne
@@ -551,6 +553,7 @@ export async function processOrderSubmission(
     restaurantSlug: cleanSlug,
     orderMode,
     tableNumber: orderMode === 'sur_place' ? cleanTableNumber : null,
+    assignedWaiterUid: orderMode === 'sur_place' ? assignedWaiterUid : null,
     items: verifiedItems,
     itemsCount: verifiedItems.reduce((acc, it) => acc + it.quantity, 0),
     totalAmount: taxBreakdown.totalAmount,
