@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { transitionOrderStatusWithDb } from '../src/server/orderLifecycleService.ts';
@@ -75,6 +76,38 @@ try {
   assert.equal(shortage.success, false, 'Insufficient stock refuses the preparation transition');
   assert.equal((await shortageRef.get()).data().status, 'pending', 'Order status remains unchanged after stock refusal');
   assert.equal((await inventoryRef.get()).data().quantity, 0.1, 'No partial stock movement is written');
+
+  // Selected option and extra recipes are consumed and restored with the base dish.
+  const customOrderId = 'order-stock-customizations';
+  const customOrderRef = restaurantRef.collection('orders').doc(customOrderId);
+  const optionDocId = 'custom_' + createHash('sha256').update('dish-1:option:side:rice-extra').digest('hex').slice(0, 32);
+  const extraDocId = 'custom_' + createHash('sha256').update('dish-1:extra:cheese').digest('hex').slice(0, 32);
+  await Promise.all([
+    inventoryRef.update({ quantity: 5 }),
+    restaurantRef.collection('menuRecipes').doc(optionDocId).set({
+      menuItemId: 'dish-1', targetType: 'option', targetId: 'side:rice-extra',
+      lines: [{ inventoryItemId: 'rice', itemName: 'Riz', unit: 'kg', quantityPerDish: 0.1 }]
+    }),
+    restaurantRef.collection('menuRecipes').doc(extraDocId).set({
+      menuItemId: 'dish-1', targetType: 'extra', targetId: 'cheese',
+      lines: [{ inventoryItemId: 'rice', itemName: 'Riz', unit: 'kg', quantityPerDish: 0.05 }]
+    }),
+    customOrderRef.set({
+      id: customOrderId, restaurantSlug: slug, status: 'pending', kitchenItemsCompletedCount: 1,
+      items: [{ menuItemId: 'dish-1', quantity: 2,
+        selectedOption: { groupId: 'side', optionId: 'rice-extra' },
+        selectedExtras: [{ extraId: 'cheese', name: 'Fromage' }] }]
+    })
+  ]);
+  const customStart = await transitionOrderStatusWithDb(db, { ...params, orderId: customOrderId, targetStatus: 'in_prep' });
+  assert.equal(customStart.success, true);
+  assert.equal((await inventoryRef.get()).data().quantity, 4.3, 'Base, option and extra component quantities are deducted together');
+  assert.equal((await customOrderRef.get()).data().stockTrackingStatus, 'applied', 'A fully mapped customized dish is not marked partial');
+  const customConsumption = await restaurantRef.collection('stockOrderConsumptions').doc(customOrderId).get();
+  assert.equal(customConsumption.data().lines[0].quantity, 0.7, 'Quantities from base, option and extra recipes are aggregated');
+  const customCancel = await transitionOrderStatusWithDb(db, { ...params, orderId: customOrderId, targetStatus: 'cancelled' });
+  assert.equal(customCancel.success, true);
+  assert.equal((await inventoryRef.get()).data().quantity, 5, 'Cancellation restores every customized component exactly');
 
   console.log('Order lifecycle Firestore Emulator transaction tests passed.');
 } finally {
