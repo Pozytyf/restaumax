@@ -57,6 +57,13 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
     const status = String(initial.status || '');
     const nextBillingAt = Number(initial.nextBillingAt || initial.endsAt || 0);
 
+    if (status === 'suspended' &&
+        ['subscription_past_due', 'subscription_nonrenewal'].includes(String(initial.suspensionReason || ''))) {
+      await revokeActiveTableSessions(db, slug, now, String(initial.suspensionReason));
+      skipped++;
+      continue;
+    }
+
     if (['active', 'trial'].includes(status) && nextBillingAt > 0 && nextBillingAt <= now) {
       const invoiceId = invoiceIdFor(slug, String(initial.billingCycle || ''), nextBillingAt);
       const result = await db.runTransaction(async (tx: any) => {
