@@ -129,6 +129,14 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
             });
           }
         }
+        for (const item of order.items as any[]) {
+          const menuId = String(item.menuItemId || '');
+          const hasUnmappedCustomization = Boolean(item.selectedOption) || (Array.isArray(item.selectedExtras) && item.selectedExtras.length > 0);
+          const untrackedId = menuId || String(item.id || 'ligne-sans-id');
+          if ((hasUnmappedCustomization || !menuId) && !untrackedMenuItemIds.includes(untrackedId)) {
+            untrackedMenuItemIds.push(untrackedId);
+          }
+        }
         recipeLines = [...aggregated.entries()].map(([inventoryItemId, value]) => ({
           inventoryItemId, quantity: Math.round(value.quantity * 1000) / 1000,
           unit: value.unit, itemName: value.itemName
