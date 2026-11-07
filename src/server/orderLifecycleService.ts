@@ -85,7 +85,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       const consumptionSnap = await tx.get(consumptionRef);
       const consumption = consumptionSnap.exists ? consumptionSnap.data() : null;
       let recipeLines: any[] = [];
-      const untrackedMenuItemIds: string[] = [];
+      const untrackedItemIds: string[] = [];
       let inventorySnapshots: any[] = [];
       let inventoryRefs: any[] = [];
       let movementRefs: any[] = [];
@@ -98,7 +98,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         for (let i = 0; i < recipeSnaps.length; i++) {
           const recipeSnap = recipeSnaps[i];
           const menuId = menuIds[i];
-          if (!recipeSnap.exists) { untrackedMenuItemIds.push(menuId); continue; } // Plat sans fiche recette : aucune déduction implicite.
+          if (!recipeSnap.exists) { untrackedItemIds.push(menuId); continue; } // Plat sans fiche recette : aucune déduction implicite.
           const recipe = recipeSnap.data();
           const portions = order.items
             .filter((item: any) => String(item.menuItemId || '') === menuId)
@@ -133,8 +133,8 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           const menuId = String(item.menuItemId || '');
           const hasUnmappedCustomization = Boolean(item.selectedOption) || (Array.isArray(item.selectedExtras) && item.selectedExtras.length > 0);
           const untrackedId = menuId || String(item.id || 'ligne-sans-id');
-          if ((hasUnmappedCustomization || !menuId) && !untrackedMenuItemIds.includes(untrackedId)) {
-            untrackedMenuItemIds.push(untrackedId);
+          if ((hasUnmappedCustomization || !menuId) && !untrackedItemIds.includes(untrackedId)) {
+            untrackedItemIds.push(untrackedId);
           }
         }
         recipeLines = [...aggregated.entries()].map(([inventoryItemId, value]) => ({
@@ -193,8 +193,8 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         }
         tx.create(consumptionRef, {
           orderId, restaurantSlug,
-          status: recipeLines.length ? (untrackedMenuItemIds.length ? 'partial' : 'applied') : 'skipped',
-          lines: recipeLines, untrackedMenuItemIds, consumedAt: now, consumedBy: actorUid
+          status: recipeLines.length ? (untrackedItemIds.length ? 'partial' : 'applied') : 'skipped',
+          lines: recipeLines, untrackedItemIds, consumedAt: now, consumedBy: actorUid
         });
       } else if (targetStatus === 'cancelled' && ['applied', 'partial'].includes(String(consumption?.status || '')) && !consumption.restoredAt) {
         for (let i = 0; i < recipeLines.length; i++) {
@@ -219,8 +219,8 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
 
       const orderUpdate: Record<string, any> = { status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid };
       if (order.status === 'pending' && targetStatus === 'in_prep') {
-        orderUpdate.stockTrackingStatus = recipeLines.length ? (untrackedMenuItemIds.length ? 'partial' : 'applied') : 'skipped';
-        orderUpdate.stockUntrackedMenuItemIds = untrackedMenuItemIds;
+        orderUpdate.stockTrackingStatus = recipeLines.length ? (untrackedItemIds.length ? 'partial' : 'applied') : 'skipped';
+        orderUpdate.stockUntrackedItemIds = untrackedItemIds;
       }
       if (targetStatus === 'cancelled' && ['applied', 'partial'].includes(String(consumption?.status || '')) && !consumption.restoredAt) {
         orderUpdate.stockTrackingStatus = 'restored';
