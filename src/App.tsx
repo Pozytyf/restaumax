@@ -1406,7 +1406,7 @@ export default function App() {
         await updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus);
       } catch (err) {
         console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
-        window.alert("La mise à jour a été refusée. Vérifiez les droits du compte et réessayez.");
+        window.alert(err instanceof Error && err.message ? err.message : "La mise à jour a été refusée. Vérifiez les droits du compte et réessayez.");
         return;
       }
     }
