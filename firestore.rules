@@ -280,7 +280,7 @@ service cloud.firestore {
       // Create: STRICTLY FORBIDDEN from client SDK (must go through trusted server backend /api/orders)
       // Direct reads are denied: customer confirmation is returned by POST /api/orders.
       // List: restricted strictly to authorized restaurant personnel.
-      // Update: restricted strictly to authorized managers of this restaurant, and limited to operational status fields
+      // Update: forbidden from the client SDK; the trusted server performs atomic lifecycle and stock writes
       // Delete: STRICTLY FORBIDDEN (audit trail preserved)
       // Payment records are server-managed only. Client SDK writes cannot
       // create, collect, alter, or refund a payment.
