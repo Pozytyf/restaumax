@@ -157,6 +157,41 @@ assert.equal(recipe.success, true);
 assert.equal(recipe.lineCount, 1);
 assert.equal(recipeDb.documents.get('restaurants/chez-awa/menuRecipes/grill-1').lines[0].unit, 'kg');
 assert.equal(recipeDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10, 'saving a recipe must never change stock');
+const customizationDb = recipeSeed();
+customizationDb.documents.set('restaurants/chez-awa/menuItems/grill-1', {
+  id: 'grill-1', name: 'Poulet braisé', restaurantSlug: 'chez-awa',
+  optionGroups: [{ id: 'side', name: 'Accompagnement', options: [{ id: 'rice-option', name: 'Riz' }] }],
+  availableExtras: [{ id: 'cheese', name: 'Fromage' }]
+});
+const optionRecipe = await manageInventoryWithDb(customizationDb, {
+  ...common, action: 'save_customization_recipe', menuItemId: 'grill-1',
+  customizationType: 'option', groupId: 'side', optionId: 'rice-option',
+  recipeLines: [{ inventoryItemId: 'rice', quantityPerDish: 0.1 }]
+});
+assert.equal(optionRecipe.success, true);
+const optionRecipeId = createHash('sha256').update('option:grill-1:side:rice-option').digest('hex').slice(0,32);
+assert.equal(customizationDb.documents.get('restaurants/chez-awa/menuCustomizationRecipes/' + optionRecipeId).targetName, 'Accompagnement · Riz');
+const extraRecipe = await manageInventoryWithDb(customizationDb, {
+  ...common, action: 'save_customization_recipe', menuItemId: 'grill-1',
+  customizationType: 'extra', extraId: 'cheese',
+  recipeLines: [{ inventoryItemId: 'rice', quantityPerDish: 0.05 }]
+});
+assert.equal(extraRecipe.success, true);
+const extraRecipeId = createHash('sha256').update('extra:grill-1::cheese').digest('hex').slice(0,32);
+assert.equal(customizationDb.documents.get('restaurants/chez-awa/menuCustomizationRecipes/' + extraRecipeId).lines[0].quantityPerDish, 0.05);
+const invalidCustomization = await manageInventoryWithDb(customizationDb, {
+  ...common, action: 'save_customization_recipe', menuItemId: 'grill-1',
+  customizationType: 'extra', extraId: 'not-in-catalog',
+  recipeLines: [{ inventoryItemId: 'rice', quantityPerDish: 0.05 }]
+});
+assert.equal(invalidCustomization.success, false);
+const forbiddenCustomization = await manageInventoryWithDb(customizationDb, {
+  ...common, actorUid: 'cashier-1', action: 'save_customization_recipe', menuItemId: 'grill-1',
+  customizationType: 'extra', extraId: 'cheese',
+  recipeLines: [{ inventoryItemId: 'rice', quantityPerDish: 0.05 }]
+});
+assert.equal(forbiddenCustomization.success, false);
+
 const duplicateRecipeIngredient = await manageInventoryWithDb(recipeSeed(), {
   ...common, action: 'save_recipe', menuItemId: 'grill-1',
   recipeLines: [
@@ -183,6 +218,7 @@ assert(firebaseSource.includes('retryable: true'), 'network failures are disting
 const recipePanel = fs.readFileSync(new URL('../src/components/restaumax/InventoryRecipePanel.tsx', import.meta.url), 'utf8');
 assert(inventoryUi.includes('<InventoryRecipePanel restaurantSlug={restaurant.slug}'), 'stock module mounts the recipe management panel');
 assert(recipePanel.includes('saveInventoryRecipeWithServerValidation'), 'recipe saves use the trusted backend API');
+assert(recipePanel.includes('saveInventoryCustomizationRecipeWithServerValidation') && recipePanel.includes('menuCustomizationRecipes'), 'option and extra recipes are saved and listed through the trusted API');
 assert(recipePanel.includes('new Set(normalized.map(line => line.inventoryItemId)).size !== normalized.length'), 'duplicate ingredients are rejected in the UI');
 assert(recipePanel.includes('aucune conversion implicite n’est appliquée'), 'recipe quantities explicitly avoid implicit unit conversion');
 assert(recipePanel.includes('canManage && <form'), 'recipe editing is hidden from staff without inventory management permission');
