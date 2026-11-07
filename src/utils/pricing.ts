@@ -38,6 +38,42 @@ export function calculateOrderTotal(
   }, 0);
 }
 
+export type TaxCalculationMode = 'exclusive' | 'inclusive';
+
+export interface TaxBreakdown {
+  subtotalAmount: number;
+  taxRatePercent: number;
+  taxMode: TaxCalculationMode;
+  taxAmount: number;
+  totalAmount: number;
+}
+
+/** Calculate FCFA tax from a server-controlled restaurant rate and mode. */
+export function calculateTaxBreakdown(
+  subtotalAmount: number,
+  taxRatePercent = 0,
+  taxMode: TaxCalculationMode = 'exclusive'
+): TaxBreakdown {
+  const subtotal = Math.max(0, Math.round(Number(subtotalAmount) || 0));
+  const rate = Number(taxRatePercent);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+    throw new Error('Taux de taxe invalide : la valeur doit être comprise entre 0 et 100 %.');
+  }
+  if (taxMode !== 'exclusive' && taxMode !== 'inclusive') {
+    throw new Error('Mode de taxe invalide.');
+  }
+  const taxAmount = rate === 0 ? 0 : taxMode === 'inclusive'
+    ? Math.round(subtotal * rate / (100 + rate))
+    : Math.round(subtotal * rate / 100);
+  return {
+    subtotalAmount: subtotal,
+    taxRatePercent: rate,
+    taxMode,
+    taxAmount,
+    totalAmount: taxMode === 'inclusive' ? subtotal : subtotal + taxAmount
+  };
+}
+
 // NOTE D'ARCHITECTURE SUR L'IDEMPOTENCE:
 // Ce cache en mémoire local sert uniquement de garde-fou transitoire côté client
 // contre les double-clics rapides au sein du même navigateur (15s TTL).
