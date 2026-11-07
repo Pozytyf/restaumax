@@ -87,6 +87,8 @@ export interface PaymentRecord {
   subtotal: number;
   discount: number;
   tax: number;
+  taxRatePercent?: number;
+  taxMode?: 'exclusive' | 'inclusive';
   total: number;
   paidAmount: number;
   tenderedAmount?: number;
