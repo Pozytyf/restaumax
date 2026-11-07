@@ -93,6 +93,7 @@ const paid = await markSubscriptionInvoicePaidWithDb(db, {
 assert.equal(paid.success, true);
 assert.equal(db.docs.get(invoicePath).status, 'paid');
 assert.equal(db.docs.get('restaurantSubscriptions/' + slug).status, 'active');
+assert.equal(db.docs.get('restaurantSubscriptions/' + slug).nextBillingAt, invoice.billingPeriodEnd, 'Invoice settlement advances to the end of the paid period without skipping a month');
 assert.equal(db.docs.get('restaurants/' + slug).status, 'active');
 const paidReplay = await markSubscriptionInvoicePaidWithDb(db, {
   restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
