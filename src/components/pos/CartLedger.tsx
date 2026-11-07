@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CartItem, Table } from '../../types/pos';
 import { formatFCFA } from '../../utils/format';
 import { getPosCartLineUnitPrice } from '../../utils/posCart';
+import { calculateTaxBreakdown } from '../../utils/pricing';
 import { sounds } from '../../utils/audio';
 import { 
   Trash2, 
@@ -32,6 +33,8 @@ interface CartLedgerProps {
   serverName: string;
   alreadyPaidAmount?: number;
   isExistingOrder?: boolean;
+  taxRatePercent?: number;
+  taxMode?: 'exclusive' | 'inclusive';
 }
 
 export const CartLedger: React.FC<CartLedgerProps> = ({
@@ -50,7 +53,9 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
   onOpenPayment,
   serverName,
   alreadyPaidAmount = 0,
-  isExistingOrder = false
+  isExistingOrder = false,
+  taxRatePercent = 0,
+  taxMode = 'exclusive'
 }) => {
   const [editingNotesItemId, setEditingNotesItemId] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState('');
@@ -59,8 +64,10 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
   // Calculations
   const subtotal = cart.reduce((sum, item) => sum + getPosCartLineUnitPrice(item) * item.quantity, 0);
   const discountAmount = Math.round((subtotal * discountPercent) / 100);
-  const taxAmount = 0; // Tax included or 0% in standard restaurant display
-  const grandTotal = Math.max(0, subtotal - discountAmount + taxAmount);
+  const taxableSubtotal = Math.max(0, subtotal - discountAmount);
+  const taxBreakdown = calculateTaxBreakdown(taxableSubtotal, taxRatePercent, taxMode);
+  const taxAmount = taxBreakdown.taxAmount;
+  const grandTotal = taxBreakdown.totalAmount;
   const remainingDue = Math.max(0, grandTotal - alreadyPaidAmount);
   const totalItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -307,6 +314,12 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
             <div className="flex justify-between text-amber-300 font-medium">
               <span>Remise ({discountPercent}%)</span>
               <span className="font-bold tnum">-{formatFCFA(discountAmount)}</span>
+            </div>
+          )}
+          {taxRatePercent > 0 && (
+            <div className="flex justify-between text-slate-300 font-medium">
+              <span>Taxe ({taxRatePercent}% · {taxMode === 'inclusive' ? 'incluse' : 'en sus'})</span>
+              <span className="tnum">{formatFCFA(taxAmount)}</span>
             </div>
           )}
           {alreadyPaidAmount > 0 && (
