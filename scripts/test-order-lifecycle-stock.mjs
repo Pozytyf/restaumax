@@ -113,6 +113,13 @@ assert.equal((await transitionOrderStatusWithDb(partialDb, { ...params, targetSt
 assert.equal(partialDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10, 'Partial consumption restores only tracked ingredients');
 assert.equal(partialDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'restored');
 
+const customizedDb = base();
+customizedDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].selectedExtras = [{ id: 'extra-cheese', name: 'Fromage' }];
+assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'in_prep' })).success, true);
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'partial', 'Custom extras without component recipes are flagged instead of silently omitted');
+assert.deepEqual(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockUntrackedItemIds, ['dish-1']);
+assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 const mismatchedOwnerDb = base();
 mismatchedOwnerDb.documents.set('managers/owner-2', { active: true, restaurantSlug: 'chez-awa', role: 'owner', sessionVersion: 4 });
 assert.equal((await transitionOrderStatusWithDb(mismatchedOwnerDb, { ...params, actorUid: 'owner-2', targetStatus: 'in_prep' })).success, false, 'Owner role without ownerUid binding is rejected');
