@@ -51,6 +51,7 @@ assert.deepEqual(Object.keys(vercel.functions), ['api/index.ts'], 'vercel.json d
 
 for (const route of RESTAUMAX_API_ROUTES) {
   assert.equal(resolveRestauMaxApiRoute(route.path), route, `Résolution incorrecte pour ${route.path}`);
+  assert.equal(resolveRestauMaxApiRoute(route.id), route, `Résolution incorrecte pour l’identifiant ${route.id}`);
   assert.equal(resolveRestauMaxApiRoute(` /api/${route.path}/ `), null, 'Le résolveur doit rejeter les chemins non fournis par la réécriture.');
   assert.deepEqual([...route.methods], expectedMethods[route.id], `Méthodes HTTP modifiées pour ${route.path}`);
 
