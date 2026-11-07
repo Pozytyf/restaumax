@@ -190,7 +190,7 @@ service cloud.firestore {
         isValidId(restaurantSlug) && isValidRestaurant(incoming()) &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'tagline', 'address', 'city', 'phone', 'bannerUrl', 'logoUrl',
-          'openingHours', 'currency', 'country', 'isOpen', 'taxRatePercent',
+          'openingHours', 'currency', 'country', 'isOpen', 'taxRatePercent', 'taxMode',
           'receiptFooter', 'receiptPaperWidth'
         ]);
       allow delete: if false;
