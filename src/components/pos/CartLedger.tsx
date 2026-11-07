@@ -27,7 +27,7 @@ interface CartLedgerProps {
   onClearCart: () => void;
   discountPercent: number;
   onSetDiscountPercent: (discount: number) => void;
-  onSendToKitchen: () => void;
+  onSendToKitchen: (customerId?: string) => void;
   isSendingOrder: boolean;
   onOpenPayment: () => void;
   serverName: string;
@@ -35,6 +35,9 @@ interface CartLedgerProps {
   isExistingOrder?: boolean;
   taxRatePercent?: number;
   taxMode?: 'exclusive' | 'inclusive';
+  customers?: Array<{ id: string; name: string; phone: string }>;
+  selectedCustomerId?: string;
+  onSelectCustomer?: (customerId: string) => void;
 }
 
 export const CartLedger: React.FC<CartLedgerProps> = ({
@@ -55,7 +58,10 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
   alreadyPaidAmount = 0,
   isExistingOrder = false,
   taxRatePercent = 0,
-  taxMode = 'exclusive'
+  taxMode = 'exclusive',
+  customers = [],
+  selectedCustomerId = '',
+  onSelectCustomer
 }) => {
   const [editingNotesItemId, setEditingNotesItemId] = useState<string | null>(null);
   const [noteInput, setNoteInput] = useState('');
@@ -112,6 +118,17 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
             </button>
           )}
         </div>
+
+        {onSelectCustomer && (
+          <label className="block text-[11px] font-bold text-slate-600 uppercase mb-2">
+            Client fidélité (facultatif)
+            <select value={selectedCustomerId} onChange={e=>onSelectCustomer(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 bg-white p-2.5 text-sm font-medium normal-case">
+              <option value="">Vente sans client associé</option>
+              {customers.map(customer=><option key={customer.id} value={customer.id}>{customer.name} · {customer.phone}</option>)}
+            </select>
+            <span className="mt-1 block text-[10px] font-normal normal-case text-slate-500">Les points sont crédités automatiquement lorsque la commande est entièrement encaissée.</span>
+          </label>
+        )}
 
         {/* Table & Server Assignment */}
         <div className="grid grid-cols-2 gap-2">
