@@ -374,7 +374,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             <div className="space-y-1.5 text-xs">
               <div className="flex justify-between text-slate-300">
                 <span>Sous-total articles</span>
-                <span className="font-bold tnum">{formatFCFA(subtotal)}</span>
+                <span className="font-bold tnum">{formatFCFA(taxBreakdown.subtotalAmount)}</span>
               </div>
               <div className="flex justify-between text-slate-300">
                 <span>{taxMode === 'inclusive' ? 'Taxe incluse (' + taxRatePercent + ' %)' : 'Taxe (' + taxRatePercent + ' %)'}</span>
