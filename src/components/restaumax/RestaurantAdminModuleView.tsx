@@ -408,6 +408,10 @@ export const RestaurantAdminModuleView: React.FC<{
               <div><p className="text-xs text-slate-500">Sessions avec écart</p><p className="text-xl font-black">{financialReport.cash.sessionsWithVariance}</p></div>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">{Object.entries(financialReport.cash.paymentMethodTotals).map(([method,amount])=><div key={method} className="flex justify-between border-b py-2 text-sm"><span>{method}</span><strong>{formatFCFA(amount)}</strong></div>)}</div>
+            {Object.keys(financialReport.cash.expenseByCategory).length > 0 && <div className="mt-4">
+              <h3 className="mb-2 text-sm font-bold">Dépenses par catégorie</h3>
+              {Object.entries(financialReport.cash.expenseByCategory).map(([category,amount])=><div key={category} className="flex justify-between border-b py-2 text-sm"><span>{category}</span><strong>{formatFCFA(amount)}</strong></div>)}
+            </div>}
             <p className="mt-3 text-xs text-slate-500">Retraits de caisse suivis séparément : {formatFCFA(financialReport.cash.withdrawalTotal)}</p>
           </section>}
         </>}
