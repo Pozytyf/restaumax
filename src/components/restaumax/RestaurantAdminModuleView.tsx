@@ -14,7 +14,7 @@ type InventoryItem = { id: string; name: string; unit: string; quantity: number;
 type StockMovement = { id: string; itemName: string; unit: string; quantityBefore: number; delta: number; quantityAfter: number; reason: string; createdAt: number; createdBy: string };
 
 const normalizeCustomerPhone = (value: string) => {
-  const digits = value.replace(/\\D/g, '');
+  const digits = value.replace(/\D/g, '');
   const local = digits.startsWith('225') && digits.length === 13 ? digits.slice(3) : digits;
   return /^[0-9]{10}$/.test(local) ? local : '';
 };
@@ -92,6 +92,8 @@ export const RestaurantAdminModuleView: React.FC<{
       name: restaurant.name, tagline: restaurant.tagline || '', address: restaurant.address || '',
       city: restaurant.city || '', phone: restaurant.phone || '', openingHours: restaurant.openingHours || '',
       isOpen: restaurant.isOpen, taxRatePercent: String(restaurant.taxRatePercent ?? 0),
+      taxMode: restaurant.taxMode || 'exclusive',
+      loyaltyFcfaPerPoint: String(restaurant.loyaltyFcfaPerPoint ?? 1000),
       receiptFooter: restaurant.receiptFooter || '', receiptPaperWidth: restaurant.receiptPaperWidth || '80mm'
     });
   }, [restaurant]);
