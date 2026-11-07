@@ -1792,6 +1792,10 @@ export default function App() {
             discountPercent={discountPercent}
             alreadyPaidAmount={pendingPosPaidAmount}
             orderTotalAmount={pendingPosOrder?.totalAmount}
+            orderSubtotalAmount={pendingPosOrder?.subtotalAmount}
+            orderTaxAmount={pendingPosOrder?.taxAmount}
+            orderTaxRatePercent={pendingPosOrder?.taxRatePercent}
+            orderTaxMode={pendingPosOrder?.taxMode}
             guestAccounts={pendingPosOrder?.guestAccounts}
             isSubmitting={isSubmittingPayment}
             onConfirmPayment={handleConfirmPayment}
