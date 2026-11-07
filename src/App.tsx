@@ -771,7 +771,7 @@ export default function App() {
     window.location.assign(result.checkoutUrl);
   };
 
-  const handleClientOrderConfirm = async (customerNote?: string): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
+  const handleClientOrderConfirm = async (customerNote?: string, customer?: { name?: string; phone?: string }): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
     if (tableSessionExpected && !tableSession) {
       return { success: false, error: 'La session de cette table est indisponible ou a été révoquée. Scannez à nouveau le QR code physique.' };
     }
@@ -785,6 +785,8 @@ export default function App() {
       cart: clientCart,
       idempotencyKey: clientOrderIdempotencyKey,
       customerNote,
+      customerName: customer?.name,
+      customerPhone: customer?.phone,
       timestamp: Date.now(),
       isUncertain: false
     });
@@ -805,6 +807,8 @@ export default function App() {
       tableNumber: tableSession?.tableNumber || null,
       csrfToken: tableSession?.csrfToken,
       customerNote,
+      customerName: customer?.name,
+      customerPhone: customer?.phone,
       idempotencyKey: clientOrderIdempotencyKey,
       allowedTables: restauTables.length > 0 ? restauTables : undefined,
       declaredTotal: clientDeclaredTotal,
