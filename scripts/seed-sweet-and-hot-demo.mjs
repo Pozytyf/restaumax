@@ -9,6 +9,8 @@
  * Dry-run par défaut. L'écriture exige explicitement --apply.
  * Credentials attendus dans FIREBASE_SERVICE_ACCOUNT_JSON (secret CI), jamais dans Git.
  */
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   getAppletFirebaseConfig,
   validateServiceAccountCredentials,
@@ -157,7 +159,8 @@ async function main() {
   console.log(JSON.stringify(result, null, 2));
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))) {
+const currentFilePath = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(currentFilePath)) {
   main().catch((error) => {
     console.error('Import catalogue interrompu :', error.message);
     process.exitCode = 1;
