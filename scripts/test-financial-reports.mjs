@@ -3,7 +3,7 @@ import { calculateFinancialReport } from '../src/server/financialReportService.t
 
 const report = calculateFinancialReport({
   orders: [
-    { status: 'completed', totalAmount: 1180, paidAmount: 1180, remainingAmount: 0 },
+    { id: 'order-1', status: 'completed', totalAmount: 1180, paidAmount: 1180, remainingAmount: 0 },
     { status: 'pending', totalAmount: 5000, paidAmount: 1000, remainingAmount: 4000 },
     { status: 'cancelled', totalAmount: 700, paidAmount: 0, remainingAmount: 0 }
   ],
@@ -16,9 +16,9 @@ const report = calculateFinancialReport({
     { movementType: 'withdrawal', amount: 1000 }
   ],
   stockConsumptions: [
-    { status: 'applied', lines: [{ quantity: 2, unitCost: 300, lineCost: 600 }, { quantity: 1, unitCost: 200, lineCost: 200 }] },
-    { status: 'restored', lines: [{ lineCost: 900 }] },
-    { status: 'skipped', lines: [] }
+    { orderId: 'order-1', status: 'applied', lines: [{ quantity: 2, unitCost: 300, lineCost: 600 }, { quantity: 1, unitCost: 200, lineCost: 200 }] },
+    { orderId: 'order-cancelled', status: 'restored', lines: [{ lineCost: 900 }] },
+    { orderId: 'order-untracked', status: 'skipped', lines: [] }
   ]
 });
 assert.equal(report.completedOrders, 1);
