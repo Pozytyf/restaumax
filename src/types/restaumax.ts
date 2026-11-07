@@ -73,6 +73,7 @@ export interface RestaurantInfo {
   isOpen: boolean;
   openingHours: string;
   taxRatePercent?: number;
+  taxMode?: 'exclusive' | 'inclusive';
   receiptFooter?: string;
   receiptPaperWidth?: '58mm' | '80mm';
 }
@@ -126,7 +127,11 @@ export interface RestauOrder {
   tableNumber: string | null;
   items: RestauOrderItem[];
   itemsCount: number;
-  totalAmount: number; // in FCFA
+  totalAmount: number; // payable total in FCFA
+  subtotalAmount?: number;
+  taxRatePercent?: number;
+  taxMode?: 'exclusive' | 'inclusive';
+  taxAmount?: number;
   paidAmount?: number;
   remainingAmount?: number;
   paymentStatus?: 'partial' | 'paid' | 'unpaid';
