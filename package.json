@@ -18,7 +18,7 @@
     "test:subscriptions": "tsx scripts/test-subscription-validation.mjs",
     "test:github-token": "node scripts/test-github-installation-token.mjs",
     "test:paydunya": "node scripts/test-paydunya-service.mjs && tsx scripts/test-paydunya-payment-flow.mjs && tsx scripts/test-paydunya-merchant-config.mjs",
-    "test": "npm run test:kitchen && npm run test:inventory && npm run test:roles && npm run test:vercel-api-router && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:tax && npm run test:reports && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation && npm run test:order-lifecycle && npm run test:security-regression",
+    "test": "npm run test:kitchen && npm run test:inventory && npm run test:roles && npm run test:vercel-api-router && npm run test:cash && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:tax && npm run test:reports && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation && npm run test:order-lifecycle && npm run test:security-regression",
     "seed:local": "node scripts/seed-catalog.mjs",
     "test:refund-client": "node scripts/test-refund-client-routing.mjs",
     "test:onboarding": "node scripts/test-onboarding-reset-email.mjs",
@@ -37,7 +37,8 @@
     "test:loyalty-refund-emulator": "tsx scripts/test-loyalty-refund-emulator.mjs",
     "test:loyalty-tax-base-emulator": "tsx scripts/test-loyalty-tax-base-emulator.mjs",
     "test:financial-report-emulator": "tsx scripts/test-financial-report-emulator.mjs",
-    "test:vercel-api-router": "tsx scripts/test-vercel-api-router.mjs"
+    "test:vercel-api-router": "tsx scripts/test-vercel-api-router.mjs",
+    "test:cash": "tsx scripts/test-cash-payments.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
