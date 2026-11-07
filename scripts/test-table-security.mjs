@@ -167,7 +167,7 @@ async function run() {
   const storedToken = db.store.get('restaurants/chez-awa/table_qr_tokens/' + tokenHash);
   assert(/^[A-Za-z0-9_-]{43}$/.test(token), 'Jeton QR aléatoire de 256 bits au format Base64URL');
   assert(issued.url.startsWith('https://restaumax.example/q/'), 'URL QR opaque /q/<token>');
-  assert(storedToken?.tokenHash === tokenHash && !JSON.stringify(storedToken).includes(token), 'Seule l’empreinte SHA-256 du jeton est stockée');
+  assert(storedToken?.tokenHash === tokenHash && !JSON.stringify(storedToken).includes(token), 'Le jeton brut n’est jamais stocké en clair (empreinte SHA-256 + enveloppe chiffrée)');
   assert(storedToken?.encryptedToken?.algorithm === 'aes-256-gcm' && !JSON.stringify(storedToken).includes(token),
     'Jeton récupérable uniquement depuis son enveloppe AES-256-GCM chiffrée côté serveur');
   const restoredQr = await getActiveTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
