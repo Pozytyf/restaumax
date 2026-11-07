@@ -437,6 +437,8 @@ export async function submitOrderWithServerValidation(
     tableNumber: string | null;
     idempotencyKey: string;
     customerNote?: string;
+    customerName?: string;
+    customerPhone?: string;
     allowedTables?: RestaurantTable[];
     declaredTotal?: number;
     fallbackCatalog?: RestauMenuItem[];
@@ -456,6 +458,8 @@ export async function submitOrderWithServerValidation(
         restaurantSlug,
         orderMode: params.orderMode,
         customerNote: params.customerNote,
+        customerName: params.customerName,
+        customerPhone: params.customerPhone,
         declaredTotal: params.declaredTotal,
         idempotencyKey: params.idempotencyKey,
         cart: params.cart,
