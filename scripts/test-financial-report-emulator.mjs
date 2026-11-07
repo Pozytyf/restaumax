@@ -69,7 +69,26 @@ try {
     /Période de rapport invalide/
   );
 
-  console.log('Financial report Firestore Emulator tests passed: 12 assertions.');
+
+  // Vérifie que le rapport ne tronque pas silencieusement les périodes
+  // contenant plus de 1 000 commandes.
+  for (let offset = 0; offset < 1001; offset += 400) {
+    const batch = db.batch();
+    for (let index = offset; index < Math.min(offset + 400, 1001); index++) {
+      batch.set(restaurantRef.collection('orders').doc(`bulk-order-${String(index).padStart(4, '0')}`), {
+        id: `bulk-order-${index}`, status: 'completed', createdAt,
+        totalAmount: 1, paidAmount: 1, taxAmount: 0, stockTrackingStatus: 'applied', items: []
+      });
+    }
+    await batch.commit();
+  }
+  const paginated = await getRestaurantFinancialReportWithDb(db, slug, {
+    periodDays: 30, now
+  });
+  assert.equal(paginated.orderCount, 1002, 'Toutes les commandes sont incluses au-delà de la première page de 1 000 documents.');
+  assert.equal(paginated.grossCollected, 2001, 'Les montants des pages suivantes sont intégrés au rapport.');
+
+  console.log('Financial report Firestore Emulator tests passed: 14 assertions.');
 } finally {
   await app.delete();
 }
