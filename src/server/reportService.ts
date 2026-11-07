@@ -89,7 +89,7 @@ export function calculateRestaurantFinancialReport(
     costOfGoodsSold += -delta * Number(movement.unitCost);
   }
   costOfGoodsSold = Math.max(0, Math.round(costOfGoodsSold));
-  const untrackedStockOrderCount = completedOrders.filter(order => ['partial', 'skipped'].includes(String(order.stockTrackingStatus || ''))).length;
+  const untrackedStockOrderCount = completedOrders.filter(order => !['applied'].includes(String(order.stockTrackingStatus || ''))).length;
   const grossProfit = Math.round(netSales - costOfGoodsSold);
   const grossMarginPercent = netSales > 0 ? Math.round((grossProfit / netSales) * 10000) / 100 : 0;
 
