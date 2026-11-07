@@ -124,7 +124,7 @@ export const RestaurantAdminModuleView: React.FC<{
       return () => { active = false; stopOrders(); };
     }
     return undefined;
-  }, [module, restaurant.slug]);
+  }, [module, restaurant.slug, reportRefreshKey]);
 
   useEffect(() => {
     setSettings({
