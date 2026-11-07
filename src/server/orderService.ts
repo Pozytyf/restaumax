@@ -107,6 +107,7 @@ export interface ExecuteOrderTransactionResult {
  */
 export function deriveIdempotencyIdentifiers(restaurantSlug: string, idempotencyKey: string) {
   const cleanSlug = restaurantSlug.trim();
+  const cleanKey = idempotencyKey.trim();
   const cleanCustomerName = String(customerName || '').trim().slice(0, 80);
   const cleanCustomerPhone = String(customerPhone || '').trim().slice(0, 32);
   const customerPhoneNormalized = cleanCustomerPhone ? normalizeCustomerPhone(cleanCustomerPhone) : null;
@@ -114,7 +115,7 @@ export function deriveIdempotencyIdentifiers(restaurantSlug: string, idempotency
       (cleanCustomerName.length < 2 || !customerPhoneNormalized)) {
     return { success: false, error: 'Pour la fidélité, indiquez un nom (2 caractères minimum) et un numéro ivoirien valide à 10 chiffres.' };
   }
-  const cleanKey = idempotencyKey.trim();
+
   const namespacedKey = `${cleanSlug}:${cleanKey}`;
   const hash = crypto.createHash('sha256').update(namespacedKey).digest('hex');
   return {
