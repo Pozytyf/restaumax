@@ -502,6 +502,8 @@ export async function submitPosOrderWithServerValidation(
     tableNumber: string | null;
     idempotencyKey: string;
     customerNote?: string;
+    customerName?: string;
+    customerPhone?: string;
   }
 ): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
@@ -521,6 +523,8 @@ export async function submitPosOrderWithServerValidation(
         orderMode: params.orderMode,
         tableNumber: params.tableNumber,
         customerNote: params.customerNote,
+        customerName: params.customerName,
+        customerPhone: params.customerPhone,
         idempotencyKey: params.idempotencyKey,
         cart: params.cart,
       }),
