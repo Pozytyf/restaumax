@@ -150,9 +150,20 @@ async function main() {
   }
   const config = getAppletFirebaseConfig();
   validateTarget(config);
-  const rawCredentials = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!rawCredentials) throw new Error('Secret FIREBASE_SERVICE_ACCOUNT_JSON manquant.');
-  const credentials = validateServiceAccountCredentials(JSON.parse(rawCredentials), TARGET.projectId);
+  let credentials = null;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    credentials = validateServiceAccountCredentials(
+      JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON),
+      TARGET.projectId,
+    );
+  } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    credentials = validateServiceAccountCredentials(
+      process.env.GOOGLE_APPLICATION_CREDENTIALS,
+      TARGET.projectId,
+    );
+  } else {
+    throw new Error('Authentification Google absente : utilisez ADC via GOOGLE_APPLICATION_CREDENTIALS ou FIREBASE_SERVICE_ACCOUNT_JSON.');
+  }
   const app = initAdminApp(credentials, TARGET.projectId, 'sweet-hot-demo-seed');
   const db = initAdminFirestore(app, TARGET.databaseId);
   const result = await seedSweetAndHotDemo(db, { apply });
