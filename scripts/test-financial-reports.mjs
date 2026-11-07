@@ -3,7 +3,7 @@ import { calculateFinancialReport, getFinancialReportWithDb } from '../src/serve
 
 const report = calculateFinancialReport({
   orders: [
-    { id: 'order-1', status: 'completed', totalAmount: 1180, paidAmount: 1180, remainingAmount: 0 },
+    { id: 'order-1', status: 'completed', totalAmount: 1180, subtotalAmount: 1000, taxMode: 'exclusive', taxAmount: 180, paidAmount: 1180, remainingAmount: 0 },
     { status: 'pending', totalAmount: 5000, paidAmount: 1000, remainingAmount: 4000 },
     { status: 'cancelled', totalAmount: 700, paidAmount: 0, remainingAmount: 0 }
   ],
@@ -22,19 +22,19 @@ const report = calculateFinancialReport({
   ]
 });
 assert.equal(report.completedOrders, 1);
-assert.equal(report.grossOrderValueFcfa, 1180);
+assert.equal(report.grossOrderValueFcfa, 1000);
 assert.equal(report.collectedFcfa, 2180);
 assert.equal(report.outstandingFcfa, 4000);
 assert.equal(report.taxCollectedFcfa, 180);
 assert.equal(report.costOfGoodsFcfa, 800);
-assert.equal(report.grossMarginFcfa, 380);
+assert.equal(report.grossMarginFcfa, 200);
 assert.equal(report.expensesFcfa, 2500);
 assert.equal(report.withdrawalsFcfa, 1000);
-assert.equal(report.operatingResultFcfa, -2120);
+assert.equal(report.operatingResultFcfa, -2300);
 assert.equal(report.cashCollectedFcfa, 1180);
 assert.equal(report.otherCollectedFcfa, 1000);
 assert.equal(report.cashNetAfterMovementsFcfa, -2320);
-assert.equal(report.grossMarginPercent, 32.2);
+assert.equal(report.grossMarginPercent, 20);
 class ReportDb {
   constructor(seed) { this.docs = new Map(Object.entries(seed)); }
   ref(path) {
