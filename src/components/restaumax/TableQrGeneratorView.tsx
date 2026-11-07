@@ -123,6 +123,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     const restore = async () => {
       setIsGenerating(true);
       setQrGenerationError(null);
+      setQrMigrationNotice(null);
       try {
         const user = auth.currentUser;
         if (!user) throw new Error('Votre session gestionnaire a expiré. Reconnectez-vous.');
@@ -214,6 +215,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     if (!window.confirm(`Révoquer tous les QR actifs de la table ${currentTable.tableNumber} ? Les sessions clients ouvertes sur cette table seront également invalidées.`)) return;
     qrActionInFlightRef.current = true;
     setFormError(null);
+    setQrMigrationNotice(null);
     setIsRevoking(true);
     // Hide the old QR immediately: a network failure can happen after the
     // server has committed the revocation, so retaining it would be misleading.
