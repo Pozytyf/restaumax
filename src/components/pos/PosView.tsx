@@ -92,6 +92,10 @@ export const PosView: React.FC<PosViewProps> = ({
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
 
   useEffect(() => {
+    if (cart.length === 0) setSelectedCustomerId('');
+  }, [cart.length]);
+
+  useEffect(() => {
     if (!canSelectCustomer) {
       setCustomers([]);
       setSelectedCustomerId('');
