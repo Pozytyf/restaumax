@@ -28,7 +28,7 @@
     "test:inventory": "tsx scripts/test-inventory-service.mjs",
     "test:roles": "tsx scripts/test-role-authorization.mjs",
     "test:order-lifecycle": "tsx scripts/test-order-lifecycle-stock.mjs",
-    "test:order-lifecycle-emulator": "node scripts/test-order-lifecycle-emulator.mjs"
+    "test:order-lifecycle-emulator": "tsx scripts/test-order-lifecycle-emulator.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
