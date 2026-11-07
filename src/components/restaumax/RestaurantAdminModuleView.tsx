@@ -18,7 +18,7 @@ type FinancialReport = {
   grossCollected: number; taxCollected: number; netSales: number;
   costOfGoodsSold: number; grossProfit: number; grossMarginPercent: number;
   expenseTotal: number; operatingResult: number;
-  costCoverageComplete: boolean; costMovementCount: number; missingCostMovementCount: number;
+  costCoverageComplete: boolean; untrackedStockOrderCount: number; costMovementCount: number; missingCostMovementCount: number;
   bestSellers: Array<{ name: string; quantity: number }>;
   cash?: {
     paymentMethodTotals: Record<string, number>;
@@ -399,7 +399,7 @@ export const RestaurantAdminModuleView: React.FC<{
             <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Commandes finalisées</p><p className="mt-2 text-2xl font-black">{financialReport.orderCount}</p></div>
             <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Ticket moyen encaissé</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.paidOrderCount ? Math.round(financialReport.grossCollected / financialReport.paidOrderCount) : 0)}</p></div>
           </div>
-          {!financialReport.costCoverageComplete && <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Valorisation partielle : {financialReport.missingCostMovementCount} anciens mouvements de stock ne contiennent pas de coût unitaire historique. Les marges seront entièrement fiables lorsque les fiches de stock auront des coûts renseignés et que les nouveaux mouvements seront valorisés.</p>}
+          {!financialReport.costCoverageComplete && <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Valorisation partielle : {financialReport.missingCostMovementCount} mouvements sans coût unitaire et {financialReport.untrackedStockOrderCount} commandes avec recettes non suivies. Les marges seront entièrement fiables lorsque les fiches de stock auront des coûts renseignés et que les nouveaux mouvements seront valorisés.</p>}
           {financialReport.cash && <section className="rounded-2xl border bg-white p-5">
             <h2 className="mb-3 font-bold">Rapprochement de caisse et moyens de paiement</h2>
             <div className="grid gap-3 sm:grid-cols-3">
