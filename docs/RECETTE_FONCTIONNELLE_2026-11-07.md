@@ -133,7 +133,7 @@ L'audit complémentaire a identifié deux défauts de persistance qui n'étaient
 - Les QR physiques étaient générés avec un jeton aléatoire dont seule l'empreinte était conservée. L'URL ne pouvait donc pas être restaurée après rechargement de l'écran. Le correctif conserve désormais le jeton sous forme chiffrée AES-256-GCM côté serveur et permet de restaurer le QR existant sans rotation. La révocation explicite reste effective.
 - Les règles Firestore refusaient les champs `taxMode` et `loyaltyFcfaPerPoint` du formulaire de paramètres du restaurant. Une mise à jour qui contenait ces champs était rejetée, même si les autres champs étaient valides. La liste des champs autorisés et leurs validations de type sont désormais alignées sur le formulaire.
 
-La configuration Vercel Production a également été complétée avec les clés secrètes de chiffrement nécessaires au stockage des identifiants PayDunya et des jetons QR. Les valeurs restent sensibles et ne sont pas consignées dans ce document. Une nouvelle version déployée est nécessaire pour que les fonctions hébergées les utilisent.
+La configuration Vercel Production a également été complétée avec les clés secrètes de chiffrement nécessaires au stockage des identifiants PayDunya et des jetons QR. Les valeurs restent sensibles et ne sont pas consignées dans ce document. Une nouvelle version déployée est nécessaire pour que les fonctions hébergées les utilisent. Le secret `CRON_SECRET` du cycle quotidien d'abonnements a également été créé en Production ; le Cron ne sera effectivement activé qu'après déploiement d'une version contenant ces correctifs.
 
 ## Conclusion
 
