@@ -51,6 +51,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isRevoking, setIsRevoking] = useState<boolean>(false);
   const [qrGenerationError, setQrGenerationError] = useState<string | null>(null);
+  const [qrMigrationNotice, setQrMigrationNotice] = useState<string | null>(null);
   const [qrRevokedForTableId, setQrRevokedForTableId] = useState<string | null>(null);
   const qrActionInFlightRef = useRef(false);
 
@@ -141,6 +142,9 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
           setQrForTableId(table.id);
           setQrUrl(data.url);
           setQrGenerationError(null);
+          setQrMigrationNotice(data.migrated === true
+            ? 'Ce QR a été migré vers le nouveau stockage sécurisé. Réimprimez ce QR et remplacez toute ancienne version affichée sur la table.'
+            : null);
         }
       } catch (err: any) {
         if (active) setQrGenerationError(err?.message || 'Impossible de restaurer le QR sécurisé.');
@@ -158,6 +162,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     qrActionInFlightRef.current = true;
     setQrGenerationError(null);
     setQrRevokedForTableId(null);
+    setQrMigrationNotice(null);
     setIsGenerating(true);
     // A rotation invalidates the previous token on the server before the new
     // URL is returned, so never keep displaying or exporting the old QR.
@@ -459,6 +464,13 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
             </span>
           </div>
         </div>
+
+        {qrMigrationNotice && currentTable && (
+          <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-semibold text-amber-900">
+            <p className="font-bold">QR code migré</p>
+            <p>{qrMigrationNotice}</p>
+          </div>
+        )}
 
         {qrGenerationError && currentTable && (
           <div role="alert" className="bg-rose-50 rounded-2xl border border-rose-200 p-4 text-rose-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
