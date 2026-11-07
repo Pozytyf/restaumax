@@ -156,7 +156,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
               }
             }
             for (const extra of Array.isArray(item.selectedExtras) ? item.selectedExtras : []) {
-              const extraId = String(extra.extraId || '');
+              const extraId = String(extra.extraId || extra.id || '');
               if (!validId(extraId)) throw new Error(`Supplément invalide pour ${menuId}.`);
               const recipeId = hash(`extra:${menuId}::${extraId}`);
               const recipeRef = restaurantRef.collection('menuCustomizationRecipes').doc(recipeId);
