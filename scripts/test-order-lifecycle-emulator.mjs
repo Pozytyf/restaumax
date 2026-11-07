@@ -46,6 +46,7 @@ try {
   assert.equal((await inventoryRef.get()).data().quantity, 4.6, 'Concurrent start calls consume stock only once');
   assert.equal((await orderRef.get()).data().status, 'in_prep');
   assert.equal((await consumptionRef.get()).data().status, 'applied');
+  assert.equal((await orderRef.get()).data().stockTrackingStatus, 'applied');
 
   const ready = await transitionOrderStatusWithDb(db, { ...params, targetStatus: 'ready' });
   assert.equal(ready.success, true);
@@ -53,6 +54,7 @@ try {
   assert.equal(cancelled.success, true);
   assert.equal((await inventoryRef.get()).data().quantity, 5, 'Cancellation restores exactly the consumed quantity');
   assert.equal((await consumptionRef.get()).data().status, 'restored');
+  assert.equal((await orderRef.get()).data().stockTrackingStatus, 'restored');
 
   const movementSnapshot = await restaurantRef.collection('stockMovements').where('orderId', '==', orderId).get();
   assert.equal(movementSnapshot.size, 2, 'One append-only consumption and one restoration movement are recorded');
