@@ -4,8 +4,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { runSubscriptionBillingCycleWithDb, settleSubscriptionInvoiceWithDb } from '../src/server/subscriptionBillingService.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
-  console.log('Subscription billing Firestore Emulator test skipped: emulator is not active.');
-  process.exit(0);
+  console.error('ÉCHEC : Firestore Emulator requis pour les tests de facturation récurrente.');
+  process.exit(1);
 }
 const app = initializeApp({ projectId: 'demo-restaumax' }, 'subscription-billing-emulator-test');
 const db = getFirestore(app);
