@@ -1,18 +1,19 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   RESTAUMAX_API_ROUTES,
   resolveRestauMaxApiRoute
 } from '../src/server/apiRouteMap.ts';
 
-const apiRoot = new URL('../api/', import.meta.url);
+const apiRoot = fileURLToPath(new URL('../api/', import.meta.url));
 const apiFiles = [];
 function collectApiFiles(directory, prefix = '') {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) collectApiFiles(join(directory, entry.name), relative);
-    else if (/\\.(?:[cm]?js|ts)$/.test(entry.name)) apiFiles.push(relative);
+    else if (entry.name.endsWith('.js') || entry.name.endsWith('.mjs') || entry.name.endsWith('.cjs') || entry.name.endsWith('.ts')) apiFiles.push(relative);
   }
 }
 collectApiFiles(apiRoot);
