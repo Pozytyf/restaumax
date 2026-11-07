@@ -91,15 +91,15 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       let movementRefs: any[] = [];
 
       if (order.status === 'pending' && targetStatus === 'in_prep') {
-        const menuIds = [...new Set(order.items.map((item: any) => String(item.menuItemId || '')).filter(Boolean))];
+        const menuIds: string[] = Array.from(new Set<string>((order.items as any[]).map((item: any) => String(item.menuItemId || '')).filter((id: string) => id.length > 0)));
         const recipeRefs = menuIds.map((id: string) => restaurantRef.collection('menuRecipes').doc(id));
         const recipeSnaps = await Promise.all(recipeRefs.map((ref: any) => tx.get(ref)));
         const aggregated = new Map<string, { quantity: number; unit: string; itemName: string }>();
         for (let i = 0; i < recipeSnaps.length; i++) {
           const recipeSnap = recipeSnaps[i];
+          const menuId = menuIds[i];
           if (!recipeSnap.exists) { untrackedMenuItemIds.push(menuId); continue; } // Plat sans fiche recette : aucune déduction implicite.
           const recipe = recipeSnap.data();
-          const menuId = menuIds[i];
           const portions = order.items
             .filter((item: any) => String(item.menuItemId || '') === menuId)
             .reduce((sum: number, item: any) => {
