@@ -175,6 +175,23 @@ async function run() {
     'URL QR identique restaurée après rechargement sans rotation ni changement du jeton');
   assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 1, 'Version QR incrémentée sur la table');
 
+  // Legacy QR records predate encrypted persistence. A restore must refuse
+  // to reconstruct plaintext from the hash alone; the manager then rotates once.
+  db.store.set('restaurants/chez-awa/tables/table-legacy', {
+    id: 'table-legacy', tableNumber: 'L', isActive: true, qrVersion: 0
+  });
+  const legacyIssued = await issueTableQr(db, 'chez-awa', 'table-legacy', 'https://restaumax.example');
+  const legacyHash = crypto.createHash('sha256').update(legacyIssued.token).digest('hex');
+  const legacyRef = 'restaurants/chez-awa/table_qr_tokens/' + legacyHash;
+  const legacyRecord = { ...db.store.get(legacyRef) };
+  delete legacyRecord.encryptedToken;
+  db.store.set(legacyRef, legacyRecord);
+  assert(await getActiveTableQr(db, 'chez-awa', 'table-legacy', 'https://restaumax.example') === null,
+    'Un ancien jeton sans enveloppe chiffrée ne peut pas être restauré depuis son hash seul');
+  const migratedIssued = await issueTableQr(db, 'chez-awa', 'table-legacy', 'https://restaumax.example');
+  assert(migratedIssued.token !== legacyIssued.token,
+    'La migration d’un ancien QR émet un nouveau jeton et invalide l’ancien');
+
   const resolved = await resolveTableQr(db, token);
   const session = await getActiveTableSession(db, resolved.sessionSecret);
   assert(session?.tableNumber === '4', 'Résolution QR et création de session liée à la table');
