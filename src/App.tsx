@@ -1004,7 +1004,7 @@ export default function App() {
     );
   };
 
-  const handleSendToKitchen = async () => {
+  const handleSendToKitchen = async (customerId?: string) => {
     if (pendingPosOrder) { window.alert('Une commande avec un solde restant est en cours d’encaissement. Terminez-la avant de créer une autre commande depuis ce panier.'); return; }
     if (cart.length === 0 || isSubmittingPosOrder) return;
 
@@ -1023,6 +1023,7 @@ export default function App() {
         orderMode: selectedTable ? 'sur_place' : 'a_emporter',
         tableNumber: selectedTable?.number || null,
         idempotencyKey: posOrderIdempotencyKey,
+        customerId,
         customerNote: `Commande saisie au comptoir par ${serverName}`
       });
 
@@ -1710,6 +1711,7 @@ export default function App() {
             {currentRole === 'pos' && userPermissions.includes('pos.access') && (
               <PosView
                 restaurantSlug={activeRestaurantSlug}
+                canSelectCustomer={isRestaurantOwner || userPermissions.includes('customers.view')}
                 taxRatePercent={Number(restaurant?.taxRatePercent || 0)}
                 taxMode={restaurant?.taxMode || 'exclusive'}
                 menuItems={menuItems}
