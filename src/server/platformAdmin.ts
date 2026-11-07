@@ -463,7 +463,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!uid) return;
         const previous = byUid.get(uid) || {
           uid, email: '', displayName: '', role: raw?.role || 'staff',
-          active: raw?.active === true, accountLinked: true, emailConflict: false,
+          active: raw?.active === true, activeKnown: typeof raw?.active === 'boolean', accountLinked: true, emailConflict: false,
           sources: [], emailValues: []
         };
         const email = typeof raw?.email === 'string' ? raw.email.trim().toLowerCase() : '';
@@ -472,7 +472,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         previous.email = email || previous.email;
         previous.displayName = String(raw?.displayName || raw?.ownerName || previous.displayName || '');
         previous.role = raw?.role === 'owner' || previous.role === 'owner' ? 'owner' : (raw?.role || previous.role);
-        previous.active = raw?.active === true || previous.active;
+        if (typeof raw?.active === 'boolean') { previous.active = raw.active; previous.activeKnown = true; }
         if (!previous.sources.includes(source)) previous.sources.push(source);
         byUid.set(uid, previous);
       };
@@ -482,11 +482,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const ownerEmail = typeof restaurant.ownerEmail === 'string' ? restaurant.ownerEmail.trim().toLowerCase() : '';
       const ownerName = String(restaurant.ownerName || '').trim();
       if (ownerUid) {
-        addAccount({ uid: ownerUid, email: ownerEmail, displayName: ownerName, role: 'owner', active: true }, 'restaurants.owner');
+        addAccount({ uid: ownerUid, email: ownerEmail, displayName: ownerName, role: 'owner' }, 'restaurants.owner');
       } else if (ownerEmail || ownerName) {
         byUid.set('unlinked-owner', {
           uid: 'unlinked-owner', email: ownerEmail, displayName: ownerName,
-          role: 'owner', active: false, accountLinked: false, emailConflict: false,
+          role: 'owner', active: false, activeKnown: false, accountLinked: false, emailConflict: false,
           sources: ['restaurants.owner'], emailValues: ownerEmail ? [ownerEmail] : []
         });
       }
