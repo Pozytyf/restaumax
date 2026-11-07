@@ -25,9 +25,17 @@ class DocRef {
     this.db.store.set(this.path, { ...old, ...data });
   }
 }
+class QueryRef {
+  constructor(db, path, field, value, max = 10) { this.db = db; this.path = path; this.field = field; this.value = value; this.max = max; }
+  limit(max) { return new QueryRef(this.db, this.path, this.field, this.value, max); }
+}
 class CollectionRef {
   constructor(db, path) { this.db = db; this.path = path; }
   doc(id) { return new DocRef(this.db, `${this.path}/${id}`); }
+  where(field, operator, value) {
+    if (operator !== '==') throw new Error('FakeDb supports equality queries only');
+    return new QueryRef(this.db, this.path, field, value);
+  }
 }
 class FakeDb {
   constructor() { this.store = new Map(); }
@@ -36,7 +44,20 @@ class FakeDb {
   read(path) { return this.store.get(path); }
   async runTransaction(fn) {
     const tx = {
-      get: async (ref) => new Snapshot(ref, this.store.get(ref.path)),
+      get: async (ref) => {
+        if (ref instanceof QueryRef) {
+          const prefix = ref.path + '/';
+          const docs = [...this.store.entries()]
+            .filter(([path, value]) => path.startsWith(prefix) && !path.slice(prefix.length).includes('/') && value?.[ref.field] === ref.value)
+            .slice(0, ref.max)
+            .map(([path, value]) => {
+              const docRef = new DocRef(this, path);
+              return { id: docRef.id, ref: docRef, exists: true, data: () => value };
+            });
+          return { docs, empty: docs.length === 0, size: docs.length };
+        }
+        return new Snapshot(ref, this.store.get(ref.path));
+      },
       create: (ref, value) => {
         if (this.store.has(ref.path)) throw new Error('already exists: ' + ref.path);
         this.store.set(ref.path, structuredClone(value));
@@ -63,14 +84,15 @@ if (!configResult.success) throw new Error(configResult.error);
 const config = configResult.data;
 const db = new FakeDb();
 db.seed('restaurants/maquis-awa', {
-  status: 'active', isActive: true, ownerUid: 'owner-1', name: 'Maquis Awa'
+  status: 'active', isActive: true, ownerUid: 'owner-1', name: 'Maquis Awa', loyaltyFcfaPerPoint: 1000
 });
 db.seed('managers/manager-1', {
   active: true, restaurantSlug: 'maquis-awa', role: 'manager', sessionVersion: 3
 });
 db.seed('restaurants/maquis-awa/orders/order-100', {
   id: 'order-100', restaurantSlug: 'maquis-awa', orderNumber: 'CMD-100',
-  status: 'pending', totalAmount: 7500, paidAmount: 0, currency: 'FCFA',
+  status: 'pending', totalAmount: 7500, subtotalAmount: 7500, paidAmount: 0, currency: 'FCFA',
+  customerName: 'Client PayDunya', customerPhone: '+225 07 00 00 00 00', customerPhoneNormalized: '0700000000',
   items: [{ name: 'Attiéké poisson', quantity: 1, unitPrice: 7500, totalPrice: 7500 }]
 });
 let passed = 0;
@@ -159,6 +181,15 @@ assert(storedPayment?.method === 'paydunya' && storedPayment.payerPhoneVerified 
   'Le paiement conserve uniquement le téléphone confirmé et le canal unique de la facture');
 assert(db.read('restaurants/maquis-awa/orders/order-100').paidAmount === 7500,
   'Le montant payé est appliqué atomiquement à la commande');
+assert(db.read('restaurants/maquis-awa/orders/order-100').loyaltyPointsAwarded === 7,
+  'Les points de fidélité sont attribués automatiquement après règlement Mobile Money intégral');
+const loyaltyCustomer = db.read('restaurants/maquis-awa/customers/loyalty_' +
+  createHash('sha256').update('0700000000').digest('hex').slice(0, 32));
+assert(loyaltyCustomer?.loyaltyPoints === 7,
+  'Le compte client reçoit les points issus du paiement PayDunya');
+assert(db.read('restaurants/maquis-awa/loyaltyLedger/order_' +
+  createHash('sha256').update('order-100').digest('hex').slice(0, 32))?.points === 7,
+  'Le journal fidélité enregistre une seule attribution liée à la commande');
 const replay = await processPayDunyaInvoiceCallbackWithDb(db, config, callback, async () => ({
   ok: true, json: async () => ({
     response_code: '00', hash: signedHash,
