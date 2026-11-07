@@ -117,5 +117,5 @@ assert(appSource.includes('updateKitchenItemCompletionWithServerValidation('), '
 assert(appSource.includes("completed: order.kitchenItemCompletion?.[String(idx)] === true"), 'KDS state is restored from Firestore snapshots');
 assert(kdsView.includes("if (ticket.status !== 'in_prep') return;"), 'KDS line progress is locked after the ticket is ready');
 assert(kdsView.includes('if (!ticket.items.every(item => item.completed))'), 'KDS cannot dispatch a ticket with unfinished lines');
-assert(rulesSource.includes("existing().get('kitchenItemsCompletedCount', 0) == existing().items.size()"), 'Firestore requires every line to be complete before ready');
+assert(rulesSource.includes('allow update: if false;'), 'Firestore prevents client-side status and KDS writes; the server validates completed lines');
 console.log('KDS item progress service, API and transition checks passed.');
