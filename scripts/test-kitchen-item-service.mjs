@@ -115,6 +115,12 @@ assert(apiSource.includes('handleKitchenItemRequest(req.body, req)'), 'Vercel AP
 assert(firebaseSource.includes("fetch('/api/kitchen-item'"), 'Client persists KDS progress through the trusted API');
 assert(appSource.includes('updateKitchenItemCompletionWithServerValidation('), 'KDS UI uses the trusted persistence helper');
 assert(appSource.includes('err instanceof Error && err.message'), 'KDS surfaces the precise server-side stock or transition rejection');
+const kdsStartHandler = appSource.indexOf('const handleToggleKdsItem');
+const stockStartCall = appSource.indexOf("await updateOrderStatus(activeRestaurantSlug, orderId, 'in_prep')", kdsStartHandler);
+const firstLinePersist = appSource.indexOf('updateKitchenItemCompletionWithServerValidation(', kdsStartHandler);
+assert(kdsStartHandler > 0 && stockStartCall > kdsStartHandler && firstLinePersist > stockStartCall, 'The first KDS action starts preparation and checks stock before marking a line complete');
+assert(appSource.includes('stockTrackingStatus: order.stockTrackingStatus'), 'KDS tickets receive the server-computed stock tracking state');
+assert(kdsView.includes('STOCK PARTIEL') && kdsView.includes('STOCK NON SUIVI'), 'KDS visibly flags incomplete or missing recipe tracking');
 assert(appSource.includes("completed: order.kitchenItemCompletion?.[String(idx)] === true"), 'KDS state is restored from Firestore snapshots');
 assert(kdsView.includes("if (ticket.status !== 'in_prep') return;"), 'KDS line progress is locked after the ticket is ready');
 assert(kdsView.includes('if (!ticket.items.every(item => item.completed))'), 'KDS cannot dispatch a ticket with unfinished lines');
