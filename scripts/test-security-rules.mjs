@@ -198,6 +198,20 @@ try {
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/staff/manager-b'),{permissions:['settings.manage']}), 'Un caissier ne peut pas modifier les permissions du personnel');
   await denies(updateDoc(order(a('cashier-cancel'),'rest-a','order-cashier'),{status:'cancelled'}), 'Même un caissier autorisé doit passer par le backend transactionnel pour annuler');
 
+  // Tax and loyalty settings are owner-controlled and validated at the Firestore boundary.
+  await allows(updateDoc(doc(a('owner-a'), 'restaurants/rest-a'), {
+    taxRatePercent: 18, taxMode: 'exclusive', loyaltyPointsPer1000: 2
+  }), 'Le propriétaire peut configurer le taux de taxe, son mode et le barème fidélité');
+  await denies(updateDoc(doc(a('owner-a'), 'restaurants/rest-a'), {
+    taxRatePercent: 180
+  }), 'Un taux de taxe supérieur à 100 % est refusé par les règles Firestore');
+  await denies(updateDoc(doc(a('owner-a'), 'restaurants/rest-a'), {
+    taxMode: 'arbitrary'
+  }), 'Un mode de taxe non reconnu est refusé par les règles Firestore');
+  await denies(updateDoc(doc(a('owner-a'), 'restaurants/rest-a'), {
+    loyaltyPointsPer1000: 101
+  }), 'Un barème fidélité hors limite est refusé par les règles Firestore');
+
   // 4. Kitchen cannot cancel orders or collect payments.
   await denies(updateDoc(order(a('kitchen-a'),'rest-a'),{status:'cancelled'}), 'Cuisine/Bar ne peut pas annuler une commande');
   await denies(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'in_prep'}), 'Cuisine/Bar démarre la préparation uniquement via le backend transactionnel');
