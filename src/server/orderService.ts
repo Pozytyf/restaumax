@@ -509,6 +509,7 @@ export async function processOrderSubmission(
   }
 
   // 11. Construction de la commande confirmée avec identifiants stables et traçabilité
+  const sanitizedCustomerNote = sanitizeNote(customerNote, 150);
   const confirmedOrder: RestauOrder = {
     id: orderId,
     orderNumber,
@@ -520,7 +521,7 @@ export async function processOrderSubmission(
     totalAmount: grandTotal,
     currency: 'FCFA',
     status: 'pending',
-    ...(sanitizeNote(customerNote, 150) ? { customerNote: sanitizeNote(customerNote, 150) } : {}),
+    ...(sanitizedCustomerNote ? { customerNote: sanitizedCustomerNote } : {}),
     createdAt: now,
     createdAtIso: new Date(now).toISOString(),
     idempotencyKey: cleanKey,
