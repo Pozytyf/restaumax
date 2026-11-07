@@ -4,7 +4,7 @@ import { calculateRestaurantFinancialReport } from '../src/server/reportService.
 const report = calculateRestaurantFinancialReport({
   orders: [{
     id: 'order-1', status: 'completed', totalAmount: 1180, subtotalAmount: 1000,
-    taxAmount: 180, paidAmount: 1180,
+    taxAmount: 180, paidAmount: 1180, stockTrackingStatus: 'applied',
     items: [{ name: 'Poulet braisé', quantity: 2 }]
   }],
   payments: [
@@ -44,7 +44,7 @@ const limited = calculateRestaurantFinancialReport({
 assert.equal(Object.hasOwn(limited, 'cash'), false, 'Les détails de caisse sont omis sans permission dédiée.');
 
 const missingCosts = calculateRestaurantFinancialReport({
-  orders: [{ id: 'order-2', status: 'completed', totalAmount: 500, paidAmount: 500, items: [] }],
+  orders: [{ id: 'order-2', status: 'completed', totalAmount: 500, paidAmount: 500, stockTrackingStatus: 'applied', items: [] }],
   payments: [{ id: 'p2', orderId: 'order-2', method: 'especes', paidAmount: 500 }],
   refunds: [], stockMovements: [{ orderId: 'order-2', delta: -1, unitCost: null }],
   cashMovements: [], cashSessions: []
