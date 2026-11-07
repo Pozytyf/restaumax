@@ -209,7 +209,15 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         tx.update(consumptionRef, { status: 'restored', restoredAt: now, restoredBy: actorUid });
       }
 
-      tx.update(orderRef, { status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid });
+      const orderUpdate: Record<string, any> = { status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid };
+      if (order.status === 'pending' && targetStatus === 'in_prep') {
+        orderUpdate.stockTrackingStatus = recipeLines.length ? (untrackedMenuItemIds.length ? 'partial' : 'applied') : 'skipped';
+        orderUpdate.stockUntrackedMenuItemIds = untrackedMenuItemIds;
+      }
+      if (targetStatus === 'cancelled' && ['applied', 'partial'].includes(String(consumption?.status || '')) && !consumption.restoredAt) {
+        orderUpdate.stockTrackingStatus = 'restored';
+      }
+      tx.update(orderRef, orderUpdate);
       return { success: true, status: targetStatus, idempotentReplay: false, stockLines: recipeLines.length };
     });
   } catch (error: any) {
