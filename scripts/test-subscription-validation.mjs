@@ -38,6 +38,10 @@ assert(validateSubscriptionInput({ ...valid, billingCycle: 'weekly' }).success =
 assert(validateSubscriptionInput({ ...valid, status: 'enabled' }).success === false, 'Un statut inconnu est refusé');
 assert(validateSubscriptionInput({ ...valid, startsAt: 0 }).success === false, 'Une date de début invalide est refusée');
 assert(validateSubscriptionInput({ ...valid, endsAt: valid.startsAt }).success === false, 'Une fin antérieure ou égale au début est refusée');
+assert(validateSubscriptionInput({ ...valid, gracePeriodDays: 61 }).success === false, 'Un délai de grâce supérieur à 60 jours est refusé');
+assert(validateSubscriptionInput({ ...valid, nextBillingAt: -1 }).success === false, 'Une prochaine échéance invalide est refusée');
+assert(validateSubscriptionInput({ ...valid, billingCycle: 'custom' }).success === false, 'Un cycle personnalisé ne peut pas activer le renouvellement automatique');
+assert(validateSubscriptionInput({ ...valid, billingCycle: 'custom', autoRenew: false }).success === true, 'Un cycle personnalisé sans renouvellement automatique est accepté');
 
 console.log('\n--- Indicateurs d’abonnement plateforme ---');
 const metrics = calculateSubscriptionMetrics([
