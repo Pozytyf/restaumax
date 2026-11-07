@@ -1,0 +1,29 @@
+name: GitHub App installation token compatibility
+
+on:
+  push:
+    branches: [test/github-app-token-compatibility]
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/server/githubInstallationToken.mjs"
+      - "scripts/test-github-installation-token.mjs"
+      - ".github/workflows/github-token-compatibility.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    name: Classic and stateless token compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - name: Test both installation token formats
+        run: node scripts/test-github-installation-token.mjs
