@@ -49,8 +49,22 @@ try {
   const storedOrder = (await restaurantRef.collection('orders').doc(orderId).get()).data();
   assert.equal(storedOrder.taxAmount, 200, 'La taxe reste séparée dans la commande');
   assert.equal(storedOrder.totalAmount, 1180, 'Le total TTC est conservé');
+  await restaurantRef.update({ loyaltyFcfaPerPoint: 0 });
+  await restaurantRef.collection('orders').doc('order-invalid-loyalty-config').set({
+    id: 'order-invalid-loyalty-config', restaurantSlug: slug, orderNumber: '#CMD-CONFIG',
+    totalAmount: 2000, subtotalAmount: 2000, taxAmount: 0, paidAmount: 0,
+    status: 'pending', customerName: 'Client Configuration',
+    customerPhone: '07 00 00 00 03', customerPhoneNormalized: '0700000003',
+    items: [{ name: 'Plat', quantity: 1, unitPrice: 2000 }]
+  });
+  const invalidConfigPayment = await recordCashPaymentWithDb(db, {
+    restaurantSlug: slug, orderId: 'order-invalid-loyalty-config', actorUid: uid, sessionVersion: 1,
+    amountTendered: 2000, idempotencyKey: 'cash-invalid-loyalty-config-001'
+  });
+  assert.equal(invalidConfigPayment.success, true, 'Une configuration fidélité invalide ne bloque pas un encaissement légitime');
+  assert.equal(invalidConfigPayment.order?.loyaltyAwardStatus, 'skipped_invalid_amount_or_configuration');
 
-  console.log('Loyalty tax-base Firestore Emulator tests passed: 5 assertions.');
+  console.log('Loyalty tax-base Firestore Emulator tests passed: 7 assertions.');
 } finally {
   await app.delete();
 }
