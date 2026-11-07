@@ -1604,6 +1604,14 @@ app.all('/api/payments', async (req, res) => {
   return res.status(result.statusCode).json(result.body);
 });
 
+app.get('/api/financial-reports', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleFinancialReportRequest(req);
+  return res.status(result.statusCode).json(result.body);
+});
+
 app.post('/api/inventory', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Referrer-Policy', 'no-referrer');
