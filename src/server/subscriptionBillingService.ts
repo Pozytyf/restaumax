@@ -18,6 +18,18 @@ function addBillingCycle(timestamp: number, cycle: 'monthly' | 'yearly') {
   return date.getTime();
 }
 
+async function revokeActiveTableSessions(db: any, slug: string, now: number, reason: string) {
+  const sessions = await db.collection('restaurants').doc(slug)
+    .collection('table_sessions').where('status', '==', 'active').get();
+  for (let offset = 0; offset < sessions.docs.length; offset += 400) {
+    const batch = db.batch();
+    sessions.docs.slice(offset, offset + 400).forEach((session: any) => {
+      batch.update(session.ref, { status: 'revoked', revokedAt: now, revokedReason: reason });
+    });
+    await batch.commit();
+  }
+}
+
 export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now()) {
   if (!db) throw new Error('Firestore indisponible.');
   const subscriptions = await db.collection('restaurantSubscriptions').get();
@@ -86,7 +98,10 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         return 'created';
       });
       if (result === 'created') invoicesCreated++;
-      else if (result === 'suspended') restaurantsSuspended++;
+      else if (result === 'suspended') {
+        await revokeActiveTableSessions(db, slug, now, 'subscription_nonrenewal');
+        restaurantsSuspended++;
+      }
       else skipped++;
       continue;
     }
@@ -122,8 +137,10 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         });
         return 'suspended';
       });
-      if (result === 'suspended') restaurantsSuspended++;
-      else skipped++;
+      if (result === 'suspended') {
+        await revokeActiveTableSessions(db, slug, now, 'subscription_past_due');
+        restaurantsSuspended++;
+      } else skipped++;
     }
   }
 
