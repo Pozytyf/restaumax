@@ -636,6 +636,32 @@ async function cashSessionRequest(
   }
 }
 
+export async function getFinancialReportWithServerValidation(
+  restaurantSlug: string,
+  from?: number,
+  to?: number
+): Promise<{ success: true; from: number; to: number; report: Record<string, number> } | { success: false; error: string }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const params = new URLSearchParams({ restaurantSlug });
+    if (from !== undefined) params.set('from', String(from));
+    if (to !== undefined) params.set('to', String(to));
+    const response = await fetch('/api/financial-reports?' + params.toString(), {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + idToken },
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Rapport financier indisponible.' };
+    return { success: true, from: Number(data.from), to: Number(data.to), report: data.report || {} };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau pendant le chargement des rapports.' };
+  }
+}
+
 export async function getCashSessionWithServerValidation(restaurantSlug: string) {
   return cashSessionRequest(restaurantSlug);
 }
