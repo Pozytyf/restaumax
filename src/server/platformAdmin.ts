@@ -211,6 +211,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             gracePeriodDays: Number.isSafeInteger(raw.gracePeriodDays) ? raw.gracePeriodDays : 7,
             autoRenew: raw.autoRenew !== false,
             currentInvoiceId: typeof raw.currentInvoiceId === 'string' ? raw.currentInvoiceId : null,
+            currentInvoiceAmountFcfa: Number.isSafeInteger(raw.currentInvoiceAmountFcfa) ? raw.currentInvoiceAmountFcfa : null,
             pastDueAt: Number.isFinite(raw.pastDueAt) ? raw.pastDueAt : null
           };
           return {
