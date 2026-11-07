@@ -1,20 +1,82 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/*.ts": {
-      "includeFiles": "firebase-applet-config.json"
-    },
-    "api/payments/*.ts": {
-      "includeFiles": "firebase-applet-config.json"
-    },
-    "api/subscriptions/*.ts": {
+    "api/index.ts": {
       "includeFiles": "firebase-applet-config.json"
     }
   },
   "rewrites": [
     {
       "source": "/q/:token",
-      "destination": "/api/tables/resolve-qr?token=:token"
+      "destination": "/api/index?__restaumax_route=tables-resolve-qr&token=:token"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/api/index?__restaumax_route=health"
+    },
+    {
+      "source": "/api/inventory",
+      "destination": "/api/index?__restaumax_route=inventory"
+    },
+    {
+      "source": "/api/kitchen-item",
+      "destination": "/api/index?__restaumax_route=kitchen-item"
+    },
+    {
+      "source": "/api/order-status",
+      "destination": "/api/index?__restaumax_route=order-status"
+    },
+    {
+      "source": "/api/orders",
+      "destination": "/api/index?__restaumax_route=orders"
+    },
+    {
+      "source": "/api/payments",
+      "destination": "/api/index?__restaumax_route=payments"
+    },
+    {
+      "source": "/api/platform-admin",
+      "destination": "/api/index?__restaumax_route=platform-admin"
+    },
+    {
+      "source": "/api/pos-orders",
+      "destination": "/api/index?__restaumax_route=pos-orders"
+    },
+    {
+      "source": "/api/reports",
+      "destination": "/api/index?__restaumax_route=reports"
+    },
+    {
+      "source": "/api/table-session",
+      "destination": "/api/index?__restaumax_route=table-session"
+    },
+    {
+      "source": "/api/payments/customer-paydunya",
+      "destination": "/api/index?__restaumax_route=customer-paydunya"
+    },
+    {
+      "source": "/api/payments/customer-paydunya-reconcile",
+      "destination": "/api/index?__restaumax_route=customer-paydunya-reconcile"
+    },
+    {
+      "source": "/api/payments/paydunya-callback",
+      "destination": "/api/index?__restaumax_route=paydunya-callback"
+    },
+    {
+      "source": "/api/payments/paydunya-disbursement-callback",
+      "destination": "/api/index?__restaumax_route=paydunya-disbursement-callback"
+    },
+    {
+      "source": "/api/subscriptions/billing-cycle",
+      "destination": "/api/index?__restaumax_route=subscription-billing-cycle"
+    },
+    {
+      "source": "/api/tables/qr",
+      "destination": "/api/index?__restaumax_route=tables-qr"
+    },
+    {
+      "source": "/api/tables/resolve-qr",
+      "destination": "/api/index?__restaumax_route=tables-resolve-qr"
     },
     {
       "source": "/r/:path*",
