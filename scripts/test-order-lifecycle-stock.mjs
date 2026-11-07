@@ -187,11 +187,11 @@ assert.equal(missingCustomizationDb.documents.get('restaurants/chez-awa/stockOrd
 assert(missingCustomizationDb.documents.get('restaurants/chez-awa/orders/order-1').stockUntrackedItemIds.includes('dish-1:option:side:rice'));
 
 const source = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
-const api = fs.readFileSync(new URL('../api/order-status.ts', import.meta.url), 'utf8');
+const api = fs.readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8');
 const client = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 assert(source.includes("app.post('/api/order-status'"), 'Express exposes the transactional lifecycle API');
-assert(api.includes('handleOrderStatusRequest(req.body, req)'), 'Vercel function exposes the transactional lifecycle API');
+assert(api.includes("case 'order-status'") && api.includes('handleOrderStatusRequest(req.body, req)'), 'Central Vercel function exposes the transactional lifecycle API');
 assert(client.includes("fetch('/api/order-status'"), 'the browser uses the trusted lifecycle API');
 assert(rules.includes('allow update: if false;'), 'direct client order updates are disabled');
 console.log('Order lifecycle stock consumption/restoration tests passed.');

@@ -2011,13 +2011,15 @@ async function runTests() {
   );
 
   // Vérification du verrou HTTP 503 si Firebase Admin SDK n'est pas initialisé.
-  // server.ts expose statusCode: 503 ; api/orders.ts transmet ce code à la réponse HTTP.
-  const ordersApiContent = fs.readFileSync(path.resolve('api/orders.ts'), 'utf-8');
+  // server.ts expose statusCode: 503 ; le routeur Vercel central transmet ce code à la réponse HTTP.
+  const ordersApiContent = fs.readFileSync(path.resolve('api/index.ts'), 'utf-8');
   assert(
     serverTsContent.includes('if (!adminDb)') &&
     serverTsContent.includes('statusCode: 503') &&
+    ordersApiContent.includes("case 'orders'") &&
+    ordersApiContent.includes('handleOrderSubmission(req.body, req)') &&
     ordersApiContent.includes('res.status(result.statusCode)'),
-    '7.4.b : server.ts refuse les commandes sans Firebase Admin (503) et api/orders.ts transmet le statut HTTP'
+    '7.4.b : server.ts refuse les commandes sans Firebase Admin (503) et le routeur Vercel central transmet le statut HTTP'
   );
 
   // Vérification de l'écriture de commande exclusive via Firebase Admin SDK
