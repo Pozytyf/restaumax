@@ -77,6 +77,20 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         }
         const amount = Number(sub.priceFcfa);
         if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000000) return 'skip';
+        const cycle = String(sub.billingCycle || '');
+        if (amount === 0 && (cycle === 'monthly' || cycle === 'yearly')) {
+          const periodStart = Math.max(Number(sub.endsAt || now), now);
+          const periodEnd = addBillingCycle(periodStart, cycle);
+          tx.update(subscriptionRef, {
+            status: 'active', startsAt: periodStart, endsAt: periodEnd, nextBillingAt: periodEnd,
+            pastDueAt: null, currentInvoiceId: null, lastInvoicePaidAt: now,
+            lastPaymentReference: 'free-plan-renewal', updatedAt: now
+          });
+          tx.create(db.collection('admin_audit_logs').doc(`sub_free_renew_${hash(slug + ':' + invoiceId)}`), {
+            action: 'renew_free_subscription', restaurantSlug: slug, createdAt: now
+          });
+          return 'free_renewed';
+        }
         const gracePeriodDays = Number.isSafeInteger(sub.gracePeriodDays) && sub.gracePeriodDays >= 0 && sub.gracePeriodDays <= 60
           ? sub.gracePeriodDays : 7;
         const invoiceRef = subscriptionRef.collection('invoices').doc(invoiceId);
