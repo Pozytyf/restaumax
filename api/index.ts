@@ -18,7 +18,7 @@ import {
   handleSubscriptionBillingCycleRequest,
   handleTableQrManagement
 } from '../server.ts';
-import { resolveRestauMaxApiRouteFromRequest } from '../src/server/apiRouteMap.ts';
+import { getRestauMaxRequestQueryParam, resolveRestauMaxApiRouteFromRequest } from '../src/server/apiRouteMap.ts';
 
 function setPrivateApiHeaders(res: any) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -137,7 +137,7 @@ export default async function handler(req: any, res: any) {
     }
     case 'tables-resolve-qr': {
       res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'");
-      const token = String(req.query?.token || '');
+      const token = getRestauMaxRequestQueryParam(req, 'token') || '';
       const result = await handleResolveTableQr(token, req);
       if (result.cookies) res.setHeader('Set-Cookie', result.cookies);
       if (result.location) return res.redirect(result.statusCode, result.location);
