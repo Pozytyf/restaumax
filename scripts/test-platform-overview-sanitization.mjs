@@ -42,3 +42,17 @@ assert(staffManagement.includes('multiple size=') && staffManagement.includes("a
 assert(menuView.includes('divide-y') && menuView.includes('Quantité') && menuView.includes('initialQuantity'), 'customer menu is a list with quantity selectors and passes the selected quantity');
 assert(productModal.includes('initialQuantity = 1'), 'product configuration preserves the quantity selected in the menu list');
 console.log('Server table assignment and customer menu list regression checks passed.');
+
+const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+const firebaseClient = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
+const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const orderService = fs.readFileSync(new URL('../src/server/orderService.ts', import.meta.url), 'utf8');
+const orderTypes = fs.readFileSync(new URL('../src/types/restaumax.ts', import.meta.url), 'utf8');
+assert(firestoreRules.includes("resource.data.get('assignedWaiter', '') == request.auth.uid"), 'Firestore restricts server table reads to the assigned server');
+assert(firestoreRules.includes("resource.data.get('assignedWaiterUid', '') == request.auth.uid"), 'Firestore restricts server order reads to the assigned server');
+assert(firebaseClient.includes("where('assignedWaiter', '==', assignedWaiterUid)"), 'server table subscription queries only assigned tables');
+assert(firebaseClient.includes("where('assignedWaiterUid', '==', assignedWaiterUid)"), 'server order subscription queries only assigned orders');
+assert(appSource.includes("authRestaurantRole === 'server' ? authUser?.uid : undefined"), 'the authenticated server identity scopes realtime subscriptions');
+assert(orderService.includes("assignedWaiterUid = typeof matched.assignedWaiter === 'string'"), 'new table orders inherit the current table assignment');
+assert(orderTypes.includes('assignedWaiterUid?: string | null'), 'orders expose the assigned server field');
+console.log('Assigned server table/order isolation regression checks passed.');
