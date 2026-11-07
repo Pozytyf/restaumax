@@ -13,7 +13,7 @@
     "test:lot1": "node scripts/test-lot1.mjs",
     "test:lot2": "tsx scripts/test-lot2.mjs",
     "test:qr": "tsx scripts/test-table-security.mjs",
-    "test:emulator": "tsx scripts/test-firestore-emulator-ambiguous.mjs && tsx scripts/test-qr-order-transaction.mjs && npm run test:order-lifecycle-emulator && npm run test:subscription-billing-emulator && npm run test:loyalty-refund-emulator && npm run test:loyalty-tax-base-emulator",
+    "test:emulator": "tsx scripts/test-firestore-emulator-ambiguous.mjs && tsx scripts/test-qr-order-transaction.mjs && npm run test:order-lifecycle-emulator && npm run test:subscription-billing-emulator && npm run test:loyalty-refund-emulator && npm run test:loyalty-tax-base-emulator && npm run test:financial-report-emulator",
     "test:intent": "tsx scripts/test-client-intent.mjs",
     "test:subscriptions": "tsx scripts/test-subscription-validation.mjs",
     "test:github-token": "node scripts/test-github-installation-token.mjs",
@@ -35,7 +35,8 @@
     "test:reports": "tsx scripts/test-financial-report.mjs",
     "test:subscription-billing-emulator": "tsx scripts/test-subscription-billing-emulator.mjs",
     "test:loyalty-refund-emulator": "tsx scripts/test-loyalty-refund-emulator.mjs",
-    "test:loyalty-tax-base-emulator": "tsx scripts/test-loyalty-tax-base-emulator.mjs"
+    "test:loyalty-tax-base-emulator": "tsx scripts/test-loyalty-tax-base-emulator.mjs",
+    "test:financial-report-emulator": "tsx scripts/test-financial-report-emulator.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
