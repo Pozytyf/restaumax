@@ -396,6 +396,34 @@ export async function processPayDunyaInvoiceCallbackWithDb(
     const now = Date.now();
     const paidAmount = alreadyPaid + Number(intent.amount);
     const remainingAmount = total - paidAmount;
+    let loyaltyPointsAwarded = 0;
+    let loyaltyAwardAt: number | undefined;
+    if (remainingAmount === 0 && typeof order.customerId === 'string' && order.customerId) {
+      const customerRef = restaurantRef.collection('customers').doc(order.customerId);
+      const loyaltyMarkerRef = restaurantRef.collection('loyaltyTransactions').doc(orderId);
+      const [customerSnap, loyaltyMarkerSnap] = await Promise.all([
+        tx.get(customerRef), tx.get(loyaltyMarkerRef)
+      ]);
+      if (!loyaltyMarkerSnap.exists && customerSnap.exists) {
+        const customer = customerSnap.data();
+        const configuredRate = Number(restaurantSnap.data()?.loyaltyPointsPer1000 ?? 1);
+        const pointsPerThousand = Number.isSafeInteger(configuredRate) && configuredRate >= 0 && configuredRate <= 100
+          ? configuredRate : 1;
+        loyaltyPointsAwarded = Math.floor(total / 1000) * pointsPerThousand;
+        if (loyaltyPointsAwarded > 0) {
+          loyaltyAwardAt = now;
+          tx.update(customerRef, {
+            loyaltyPoints: Math.max(0, Number(customer.loyaltyPoints || 0)) + loyaltyPointsAwarded,
+            lifetimeSpend: Math.max(0, Number(customer.lifetimeSpend || 0)) + total,
+            lastVisitAt: now, updatedAt: now
+          });
+          tx.create(loyaltyMarkerRef, {
+            restaurantSlug: slug, orderId, customerId: order.customerId,
+            points: loyaltyPointsAwarded, amountFcfa: total, createdAt: now
+          });
+        }
+      }
+    }
     const payment = {
       id: paymentId, restaurantSlug: slug, orderId, orderNumber: order.orderNumber || orderId,
       tableNumber: order.tableNumber || null, actorUid: intent.actorUid,
@@ -407,6 +435,11 @@ export async function processPayDunyaInvoiceCallbackWithDb(
       changeAmount: 0, totalAmount: total, previouslyPaidAmount: alreadyPaid,
       remainingBefore: total - alreadyPaid, remainingAfter: remainingAmount,
       paymentStatus: remainingAmount === 0 ? 'paid' : 'partial',
+      subtotalAmount: Number(order.subtotalAmount ?? total),
+      taxRatePercent: Number(order.taxRatePercent || 0),
+      taxMode: order.taxMode === 'inclusive' ? 'inclusive' : 'exclusive',
+      taxAmount: Number(order.taxAmount || 0),
+      loyaltyPointsAwarded,
       items: Array.isArray(order.items) ? order.items : [], createdAt: now,
       providerTransactionReference: clean((invoice as any).transactionId, 128) || null
     };
@@ -415,6 +448,7 @@ export async function processPayDunyaInvoiceCallbackWithDb(
       paidAmount, remainingAmount,
       paymentStatus: remainingAmount === 0 ? 'paid' : 'partial',
       lastPaymentAt: now, lastPaymentId: paymentId,
+      ...(loyaltyAwardAt ? { loyaltyAwardedAt: loyaltyAwardAt, loyaltyPointsAwarded } : {}),
       pendingPayDunyaIntentId: null, pendingPayDunyaAmount: null
     });
     tx.update(intentRef, {
