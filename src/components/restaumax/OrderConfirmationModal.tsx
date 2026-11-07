@@ -96,7 +96,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
               <div className="font-extrabold text-xs sm:text-sm text-slate-900 flex items-center gap-1.5">
                 {order.orderMode === 'sur_place' && order.tableNumber ? (
                   <>
-                    <MapPin size={15} className="text-[#ff6500]" />
+                    <MapPin size={15} className="text-[#9a3412]" />
                     <span>Table {order.tableNumber}</span>
                   </>
                 ) : (
@@ -136,7 +136,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                 <div key={item.id || idx} className="py-2.5 first:pt-0 last:pb-0 flex items-start justify-between gap-3 text-xs">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-md bg-orange-100 text-[#ff6500] font-black text-[11px] flex items-center justify-center shrink-0 tnum">
+                      <span className="w-5 h-5 rounded-md bg-orange-100 text-[#9a3412] font-black text-[11px] flex items-center justify-center shrink-0 tnum">
                         {item.quantity}×
                       </span>
                       <span className="font-bold text-slate-900 leading-snug">
@@ -148,7 +148,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                       <p className="text-[11px] text-slate-500 ml-7 mt-0.5">
                         ↳ {item.selectedOption.optionName}
                         {item.selectedOption.extraPrice > 0 && (
-                          <span className="text-[#ff6500] font-bold ml-1">
+                          <span className="text-[#9a3412] font-bold ml-1">
                             (+{formatFCFA(item.selectedOption.extraPrice)})
                           </span>
                         )}
@@ -156,7 +156,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                     )}
 
                     {item.selectedExtras && item.selectedExtras.length > 0 && (
-                      <p className="text-[10px] text-slate-400 ml-7 mt-0.5">
+                      <p className="text-[10px] text-slate-600 ml-7 mt-0.5">
                         Extras : {item.selectedExtras.map(e => `${e.name} (+${formatFCFA(e.price)})`).join(', ')}
                       </p>
                     )}
@@ -181,11 +181,11 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                 <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
                   Total Commande
                 </span>
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-slate-600">
                   Prix configurés par le restaurant · Mobile Money sur QR de table ou caisse
                 </span>
               </div>
-              <span className="text-lg sm:text-xl font-black text-[#ff6500] tnum">
+              <span className="text-lg sm:text-xl font-black text-[#9a3412] tnum">
                 {formatFCFA(order.totalAmount)}
               </span>
             </div>
@@ -261,7 +261,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
               sounds.playTap();
               onClose();
             }}
-            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#ff6500] hover:bg-[#e05800] text-white text-xs font-black shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-95"
+            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#c2410c] hover:bg-[#9a3412] text-white text-xs font-black shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-95"
           >
             <span>Retour au menu</span>
             <ArrowRight size={14} />
