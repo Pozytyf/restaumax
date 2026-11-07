@@ -1429,7 +1429,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
 export async function handleSubscriptionReconcileRequest(req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service d’abonnement indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
-  const expectedSecret = String(process.env.RESTAUMAX_SUBSCRIPTION_CRON_SECRET || '');
+  const expectedSecret = String(process.env.CRON_SECRET || process.env.RESTAUMAX_SUBSCRIPTION_CRON_SECRET || '');
   const authorization = String(req?.headers?.authorization || '');
   if (!expectedSecret || authorization !== 'Bearer ' + expectedSecret) {
     return { statusCode: 401, body: { success: false, error: 'Authentification du planificateur invalide.' } };
