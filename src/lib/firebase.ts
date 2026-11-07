@@ -1013,6 +1013,14 @@ export async function saveInventoryRecipeWithServerValidation(
   return inventoryRequest(restaurantSlug, { action: 'save_recipe', menuItemId, recipeLines });
 }
 
+export async function saveInventoryCustomizationRecipeWithServerValidation(
+  restaurantSlug: string,
+  target: { menuItemId: string; customizationType: 'option' | 'extra'; groupId?: string; optionId?: string; extraId?: string },
+  recipeLines: Array<{ inventoryItemId: string; quantityPerDish: number }>
+): Promise<InventoryApiResult> {
+  return inventoryRequest(restaurantSlug, { action: 'save_customization_recipe', ...target, recipeLines });
+}
+
 export async function updateInventoryItemWithServerValidation(
   restaurantSlug: string,
   itemId: string,
