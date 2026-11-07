@@ -140,6 +140,20 @@ async function run() {
     const loyaltyLedger = await restaurantRef.collection('loyaltyLedger').where('orderId', '==', 'order-main').get();
     assert(loyaltyLedger.size === 1, 'Le journal de fidélité conserve une seule écriture par commande');
 
+    const taxedOrderRef = restaurantRef.collection('orders').doc('order-taxed');
+    await taxedOrderRef.set({
+      id: 'order-taxed', orderNumber: '#CMD-TAX', restaurantSlug: slug,
+      totalAmount: 1180, subtotalAmount: 1180, taxAmount: 200, paidAmount: 0,
+      currency: 'FCFA', status: 'pending',
+      customerName: 'Client Taxe', customerPhone: '07 00 00 00 02', customerPhoneNormalized: '0700000002',
+      items: [{ name: 'Plat TTC', quantity: 1, unitPrice: 1180 }]
+    });
+    const taxedPayment = await recordCashPaymentWithDb(db, input('order-taxed', 1180, 'cash-taxed-order-001'));
+    assert(taxedPayment.success === true && !taxedPayment.order?.loyaltyPointsAwarded,
+      'Les points sont calculés sur les ventes hors taxes, pas sur la taxe encaissée');
+    const taxedCustomer = await restaurantRef.collection('customers').where('phoneNormalized', '==', '0700000002').get();
+    assert(taxedCustomer.empty, 'Aucun compte fidélité inutile n’est créé lorsque le montant HT est sous le seuil');
+
     const refundFinal = await refundCashPaymentWithDb(db, {
       restaurantSlug: slug, paymentId: finalPayment.payment.id, actorUid: uid, sessionVersion: 3,
       amount: 6500, reason: 'Remboursement de recette de test', idempotencyKey: 'refund-final-6500',
