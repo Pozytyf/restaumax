@@ -118,7 +118,7 @@ const customizedDb = base();
 customizedDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].selectedExtras = [{ id: 'extra-cheese', name: 'Fromage' }];
 assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'in_prep' })).success, true);
 assert.equal(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'partial', 'Custom extras without component recipes are flagged instead of silently omitted');
-assert.deepEqual(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockUntrackedItemIds, ['dish-1']);
+assert.deepEqual(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockUntrackedItemIds, ['dish-1:extra:extra-cheese']);
 assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'cancelled' })).success, true);
 assert.equal(customizedDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 const mismatchedOwnerDb = base();
