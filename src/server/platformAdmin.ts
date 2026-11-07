@@ -636,10 +636,44 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             }
           });
         });
+        const affectedTables = new Map<string, any>();
+        previousAssignments.docs.forEach((doc: any) => affectedTables.set(doc.id, doc.data()));
+        requestedSnapshots.forEach((snap: any) => affectedTables.set(snap.id, snap.data()));
+        let activeOrdersSynchronized = true;
+        try {
+          for (const [tableId, tableData] of affectedTables.entries()) {
+            const tableNumber = String(tableData?.tableNumber || '').trim();
+            if (!tableNumber) continue;
+            const ordersSnap = await db.collection('restaurants').doc(slug).collection('orders')
+              .where('tableNumber', '==', tableNumber).get();
+            const targetWaiterUid = requestedIds.includes(tableId) ? staffUid : null;
+            const activeOrders = ordersSnap.docs.filter((doc: any) =>
+              ['pending', 'in_prep', 'ready'].includes(String(doc.data()?.status || ''))
+            );
+            for (let offset = 0; offset < activeOrders.length; offset += 400) {
+              const batch = db.batch();
+              activeOrders.slice(offset, offset + 400).forEach((doc: any) => batch.update(doc.ref, {
+                assignedWaiterUid: targetWaiterUid,
+                waiterAssignmentUpdatedAt: Date.now(),
+                waiterAssignmentUpdatedBy: user.uid
+              }));
+              await batch.commit();
+            }
+          }
+        } catch {
+          activeOrdersSynchronized = false;
+        }
         await db.collection('admin_audit_logs').add({
           action: 'assign_server_tables', restaurantSlug: slug, targetUid: staffUid,
-          tableIds: requestedIds, actorUid: user.uid, createdAt: Date.now()
+          tableIds: requestedIds, actorUid: user.uid, createdAt: Date.now(),
+          activeOrdersSynchronized
         });
+        if (!activeOrdersSynchronized) {
+          return json(res, 503, {
+            success: false, assignmentSaved: true,
+            error: 'Les tables sont affectées, mais le transfert de certaines commandes en cours n’a pas été finalisé. Actualisez les commandes et réessayez.'
+          });
+        }
         return json(res, 200, { success: true, uid: staffUid, tableIds: requestedIds });
       }
 
