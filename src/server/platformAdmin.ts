@@ -205,7 +205,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             billingCycle: typeof raw.billingCycle === 'string' ? raw.billingCycle : null,
             priceFcfa: Number.isSafeInteger(raw.priceFcfa) ? raw.priceFcfa : null,
             startsAt: Number.isFinite(raw.startsAt) ? raw.startsAt : null,
-            endsAt: Number.isFinite(raw.endsAt) ? raw.endsAt : null
+            endsAt: Number.isFinite(raw.endsAt) ? raw.endsAt : null,
+            autoRenew: raw.autoRenew === true,
+            nextBillingAt: Number.isFinite(raw.nextBillingAt) ? raw.nextBillingAt : null,
+            gracePeriodDays: Number.isInteger(raw.gracePeriodDays) ? raw.gracePeriodDays : 7,
+            currentInvoiceId: typeof raw.currentInvoiceId === 'string' ? raw.currentInvoiceId : null
           };
           return {
             slug: d.id,
