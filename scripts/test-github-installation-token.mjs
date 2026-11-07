@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {
   createGitHubInstallationAuthorizationHeader,
   isGitHubInstallationToken,
-} from "../src/server/githubInstallationToken.ts";
+} from "../src/server/githubInstallationToken.mjs";
 
 // Classic stateful opaque installation token fixture.
 const classicToken = `ghs_${"a".repeat(36)}`;
