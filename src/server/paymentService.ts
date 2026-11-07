@@ -235,6 +235,38 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
     const remainingAmount = totalAmount - paidAmount;
     const paymentStatus = remainingAmount === 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
     const guestPaidAmount = guestPreviouslyPaidAmount + acceptedAmount;
+
+    let loyaltyPointsAwarded = 0;
+    let loyaltyAwardAt: number | undefined;
+    let loyaltyCustomerRef: any = null;
+    let loyaltyMarkerRef: any = null;
+    if (paymentStatus === 'paid' && typeof order.customerId === 'string' && order.customerId) {
+      loyaltyCustomerRef = restaurantRef.collection('customers').doc(order.customerId);
+      loyaltyMarkerRef = restaurantRef.collection('loyaltyTransactions').doc(orderId);
+      const [customerSnap, loyaltyMarkerSnap] = await Promise.all([
+        tx.get(loyaltyCustomerRef), tx.get(loyaltyMarkerRef)
+      ]);
+      if (!loyaltyMarkerSnap.exists && customerSnap.exists) {
+        const customer = customerSnap.data();
+        const configuredRate = Number(restaurant.loyaltyPointsPer1000 ?? 1);
+        const pointsPerThousand = Number.isSafeInteger(configuredRate) && configuredRate >= 0 && configuredRate <= 100
+          ? configuredRate : 1;
+        loyaltyPointsAwarded = Math.floor(totalAmount / 1000) * pointsPerThousand;
+        if (loyaltyPointsAwarded > 0) {
+          loyaltyAwardAt = Date.now();
+          tx.update(loyaltyCustomerRef, {
+            loyaltyPoints: Math.max(0, Number(customer.loyaltyPoints || 0)) + loyaltyPointsAwarded,
+            lifetimeSpend: Math.max(0, Number(customer.lifetimeSpend || 0)) + totalAmount,
+            lastVisitAt: loyaltyAwardAt,
+            updatedAt: loyaltyAwardAt
+          });
+          tx.create(loyaltyMarkerRef, {
+            restaurantSlug: slug, orderId, customerId: order.customerId,
+            points: loyaltyPointsAwarded, amountFcfa: totalAmount, createdAt: loyaltyAwardAt
+          });
+        }
+      }
+    }
     const guestRemainingAfter = guestShareAmount - guestPaidAmount;
     const updatedGuestAccount: Record<string, any> = {
       ...selectedGuest,
@@ -281,6 +313,11 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       guestRemainingBefore,
       guestRemainingAfter,
       items: Array.isArray(order.items) ? order.items : [],
+      subtotalAmount: Number(order.subtotalAmount ?? order.totalAmount),
+      taxRatePercent: Number(order.taxRatePercent || 0),
+      taxMode: order.taxMode === 'inclusive' ? 'inclusive' : 'exclusive',
+      taxAmount: Number(order.taxAmount || 0),
+      loyaltyPointsAwarded,
       createdAt: now
     };
 
@@ -292,7 +329,8 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       remainingAmount,
       paymentStatus,
       lastPaymentAt: now,
-      lastPaymentId: paymentId
+      lastPaymentId: paymentId,
+      ...(loyaltyAwardAt ? { loyaltyAwardedAt: loyaltyAwardAt, loyaltyPointsAwarded } : {})
     };
 
     tx.create(paymentRef, payment);
@@ -311,7 +349,8 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       remainingAmount,
       paymentStatus,
       lastPaymentAt: now,
-      lastPaymentId: paymentId
+      lastPaymentId: paymentId,
+      ...(loyaltyAwardAt ? { loyaltyAwardedAt: loyaltyAwardAt, loyaltyPointsAwarded } : {})
     });
     tx.update(cashSessionRef, {
       cashCollected: Number(cashSession.cashCollected || 0) + acceptedAmount,
