@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { transitionOrderStatusWithDb } from '../src/server/orderLifecycleService.ts';
 
 class FakeDb {
@@ -138,6 +139,52 @@ kitchenDb.documents.set('managers/kitchen-1', {
 assert.equal((await transitionOrderStatusWithDb(kitchenDb, {
   ...params, actorUid: 'kitchen-1', targetStatus: 'in_prep'
 })).success, true);
+
+const customizedDb = base();
+customizedDb.documents.set('restaurants/chez-awa/inventoryItems/oil', {
+  id: 'oil', name: 'Huile', unit: 'L', quantity: 5, active: true
+});
+const recipeId = (type, menuId, groupId, targetId) =>
+  createHash('sha256').update(`${type}:${menuId}:${groupId}:${targetId}`).digest('hex').slice(0, 32);
+customizedDb.documents.set('restaurants/chez-awa/menuRecipes/dish-1', {
+  menuItemId: 'dish-1', lines: [{ inventoryItemId: 'rice', itemName: 'Riz', unit: 'kg', quantityPerDish: 0.25 }]
+});
+customizedDb.documents.set('restaurants/chez-awa/menuCustomizationRecipes/' + recipeId('option','dish-1','side','rice'), {
+  customizationType: 'option', menuItemId: 'dish-1', groupId: 'side', optionId: 'rice',
+  targetName: 'Accompagnement · Riz', lines: [{ inventoryItemId: 'rice', itemName: 'Riz', unit: 'kg', quantityPerDish: 0.1 }]
+});
+customizedDb.documents.set('restaurants/chez-awa/menuCustomizationRecipes/' + recipeId('option','dish-1','cooking','grill'), {
+  customizationType: 'option', menuItemId: 'dish-1', groupId: 'cooking', optionId: 'grill',
+  targetName: 'Cuisson · Grillé', lines: [{ inventoryItemId: 'oil', itemName: 'Huile', unit: 'L', quantityPerDish: 0.05 }]
+});
+customizedDb.documents.set('restaurants/chez-awa/menuCustomizationRecipes/' + recipeId('extra','dish-1','','cheese'), {
+  customizationType: 'extra', menuItemId: 'dish-1', extraId: 'cheese',
+  targetName: 'Fromage', lines: [{ inventoryItemId: 'rice', itemName: 'Riz', unit: 'kg', quantityPerDish: 0.05 }]
+});
+customizedDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].selectedOption = {
+  groupId: 'side+cooking', optionId: 'rice+grill', groupName: 'Accompagnement / Cuisson',
+  optionName: 'Riz / Grillé', extraPrice: 0
+};
+customizedDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].selectedExtras = [{ extraId: 'cheese', name: 'Fromage', price: 500 }];
+const customizedStart = await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'in_prep' });
+assert.equal(customizedStart.success, true);
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 9.2);
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/inventoryItems/oil').quantity, 4.9);
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'applied');
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'applied');
+assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'ready' })).success, true);
+assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/inventoryItems/oil').quantity, 5);
+
+const missingCustomizationDb = base();
+missingCustomizationDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].selectedOption = {
+  groupId: 'side', optionId: 'rice', groupName: 'Accompagnement', optionName: 'Riz', extraPrice: 0
+};
+const missingCustomization = await transitionOrderStatusWithDb(missingCustomizationDb, { ...params, targetStatus: 'in_prep' });
+assert.equal(missingCustomization.success, true);
+assert.equal(missingCustomizationDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'partial');
+assert(missingCustomizationDb.documents.get('restaurants/chez-awa/orders/order-1').stockUntrackedItemIds.includes('dish-1:option:side:rice'));
 
 const source = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
 const api = fs.readFileSync(new URL('../api/order-status.ts', import.meta.url), 'utf8');
