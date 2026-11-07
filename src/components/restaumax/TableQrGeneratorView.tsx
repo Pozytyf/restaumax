@@ -51,6 +51,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isRevoking, setIsRevoking] = useState<boolean>(false);
   const [qrGenerationError, setQrGenerationError] = useState<string | null>(null);
+  const [qrRevokedForTableId, setQrRevokedForTableId] = useState<string | null>(null);
 
   // New table modal form state
   const [isNewTableModalOpen, setIsNewTableModalOpen] = useState(false);
@@ -110,10 +111,51 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     return () => { active = false; };
   }, [canonicalUrl]);
 
+  // Restore the already-issued QR when the table view is reopened or refreshed.
+  // The API decrypts the server-only token envelope; it never exposes it to Firestore clients.
+  useEffect(() => {
+    const table = currentTable;
+    if (!table || isGenerating || isRevoking ||
+        qrForTableId === table.id || qrRevokedForTableId === table.id) return;
+    let active = true;
+    const restore = async () => {
+      setIsGenerating(true);
+      setQrGenerationError(null);
+      try {
+        const user = auth.currentUser;
+        if (!user) throw new Error('Votre session gestionnaire a expiré. Reconnectez-vous.');
+        const idToken = await user.getIdToken();
+        const params = new URLSearchParams({ restaurantSlug: restaurant.slug, tableId: table.id });
+        const response = await fetch(`/api/tables/qr?${params.toString()}`, {
+          method: 'GET',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { Authorization: 'Bearer ' + idToken }
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success || typeof data.url !== 'string') {
+          throw new Error(data.error || 'Impossible de restaurer le QR sécurisé.');
+        }
+        if (active) {
+          setQrForTableId(table.id);
+          setQrUrl(data.url);
+          setQrGenerationError(null);
+        }
+      } catch (err: any) {
+        if (active) setQrGenerationError(err?.message || 'Impossible de restaurer le QR sécurisé.');
+      } finally {
+        if (active) setIsGenerating(false);
+      }
+    };
+    void restore();
+    return () => { active = false; };
+  }, [restaurant.slug, currentTable?.id, qrForTableId, qrRevokedForTableId, isGenerating, isRevoking]);
+
   // Generate a secure QR for a persisted table. The same routine is used by
   // automatic creation and by the manual retry/renew action.
   const generateQrForTable = async (table: RestaurantTable): Promise<boolean> => {
     setQrGenerationError(null);
+    setQrRevokedForTableId(null);
     setIsGenerating(true);
     // A rotation invalidates the previous token on the server before the new
     // URL is returned, so never keep displaying or exporting the old QR.
@@ -186,6 +228,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
       setQrForTableId(null);
       setQrDataUrl('');
       setQrSvgString('');
+      setQrRevokedForTableId(currentTable.id);
       sounds.playSuccess();
     } catch (err: any) {
       setFormError(err?.message || 'Erreur lors de la révocation du QR.');
