@@ -502,7 +502,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }
 
     // Owner and authorized manager staff administration, strictly scoped to one active restaurant.
-    if (action === 'staff_list' || action === 'create_staff' || action === 'update_staff' || action === 'disable_staff' || action === 'set_staff_status' || action === 'delete_staff') {
+    if (action === 'staff_list' || action === 'create_staff' || action === 'assign_server_tables' || action === 'update_staff' || action === 'disable_staff' || action === 'set_staff_status' || action === 'delete_staff') {
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '');
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
       const actor = await requireStaffAdministrator(db, user, slug);
@@ -510,8 +510,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       const staffRef = db.collection('restaurants').doc(slug).collection('staff');
       if (action === 'staff_list') {
-        const snap = await staffRef.get();
-        return json(res, 200, { success: true, actorRole: actor.role, staff: snap.docs.map((d: any) => d.data()) });
+        const [snap, tablesSnap] = await Promise.all([staffRef.get(), db.collection('restaurants').doc(slug).collection('tables').get()]);
+        return json(res, 200, { success: true, actorRole: actor.role, staff: snap.docs.map((d: any) => d.data()), tables: tablesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })) });
       }
 
       if (action === 'create_staff') {
@@ -542,6 +542,70 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           if (newUser?.uid) await auth.deleteUser(newUser.uid).catch(() => undefined);
           throw error;
         }
+      }
+
+      if (action === 'assign_server_tables') {
+        const staffUid = String(body.uid || '').trim();
+        const requestedIds = Array.isArray(body.tableIds)
+          ? [...new Set(body.tableIds.map((id: unknown) => String(id || '').trim()).filter(Boolean))]
+          : null;
+        if (!staffUid || !requestedIds || requestedIds.length > 30) {
+          return json(res, 400, { success: false, error: 'Serveur ou liste de tables invalide (30 tables maximum).' });
+        }
+        if (actor.role === 'manager') {
+          const managerSnap = await db.collection('managers').doc(user.uid).get();
+          if (!managerSnap.exists || !Array.isArray(managerSnap.data()?.permissions) ||
+              !managerSnap.data().permissions.includes('tables.manage')) {
+            return json(res, 403, { success: false, error: 'La permission tables.manage est requise pour affecter les tables.' });
+          }
+        }
+        const serverRef = staffRef.doc(staffUid);
+        const serverSnap = await serverRef.get();
+        const server = serverSnap.exists ? serverSnap.data() : null;
+        if (!server || server.role !== 'server' || server.active !== true || server.restaurantSlug !== slug) {
+          return json(res, 409, { success: false, error: 'Seul un serveur actif de ce restaurant peut recevoir des tables.' });
+        }
+        const tablesRef = db.collection('restaurants').doc(slug).collection('tables');
+        const [previousAssignments, requestedSnapshots] = await Promise.all([
+          tablesRef.where('assignedWaiter', '==', staffUid).get(),
+          Promise.all(requestedIds.map((id: string) => tablesRef.doc(id).get()))
+        ]);
+        if (requestedSnapshots.some((snap: any) => !snap.exists || snap.data()?.isActive !== true)) {
+          return json(res, 400, { success: false, error: 'Une ou plusieurs tables sont introuvables ou inactives.' });
+        }
+        const refsByPath = new Map<string, any>();
+        previousAssignments.docs.forEach((doc: any) => refsByPath.set(doc.ref.path, doc.ref));
+        requestedSnapshots.forEach((snap: any) => refsByPath.set(snap.ref.path, snap.ref));
+        const refs = [...refsByPath.values()];
+        await db.runTransaction(async (tx: any) => {
+          const snapshots = await Promise.all(refs.map((ref: any) => tx.get(ref)));
+          const requestedSet = new Set(requestedIds);
+          snapshots.forEach((snap: any, index: number) => {
+            if (!snap.exists) throw new Error('Une table a été supprimée pendant l’affectation.');
+            const data = snap.data() || {};
+            const tableId = refs[index].id;
+            if (requestedSet.has(tableId)) {
+              tx.update(refs[index], {
+                assignedWaiter: staffUid,
+                assignedWaiterName: String(server.displayName || ''),
+                assignmentUpdatedAt: Date.now(),
+                assignmentUpdatedBy: user.uid
+              });
+            } else if (data.assignedWaiter === staffUid) {
+              tx.update(refs[index], {
+                assignedWaiter: null,
+                assignedWaiterName: null,
+                assignmentUpdatedAt: Date.now(),
+                assignmentUpdatedBy: user.uid
+              });
+            }
+          });
+        });
+        await db.collection('admin_audit_logs').add({
+          action: 'assign_server_tables', restaurantSlug: slug, targetUid: staffUid,
+          tableIds: requestedIds, actorUid: user.uid, createdAt: Date.now()
+        });
+        return json(res, 200, { success: true, uid: staffUid, tableIds: requestedIds });
       }
 
       const staffUid = String(body.uid || '').trim();
