@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 /**
  * RESTAUMAX — SERVEUR BACKEND SÉCURISÉ & PASSERELLE API RESTAUMAX
  *
@@ -40,6 +41,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
 import { getRestaurantFinancialReportWithDb } from './src/server/reportService.js';
+import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
@@ -1416,6 +1418,26 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
   }
 }
 
+export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  const secret = String(process.env.CRON_SECRET || '');
+  if (!secret) return { statusCode: 503, body: { success: false, error: 'CRON_SECRET doit être configuré avant activation de la facturation planifiée.' } };
+  const authorization = String(req?.headers?.authorization || '');
+  const expected = Buffer.from('Bearer ' + secret);
+  const supplied = Buffer.from(authorization);
+  if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
+    return { statusCode: 401, body: { success: false, error: 'Authentification de la tâche planifiée refusée.' } };
+  }
+  try {
+    const result = await runSubscriptionBillingCycleWithDb(adminDb, Date.now());
+    return { statusCode: 200, body: result };
+  } catch (error: any) {
+    console.error('[RestauMax subscription billing] Error:', error?.message || String(error));
+    return { statusCode: 500, body: { success: false, error: 'Le cycle de facturation des abonnements a échoué.' } };
+  }
+}
+
 export async function handleRestaurantReportsRequest(req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de rapports indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
@@ -1609,6 +1631,13 @@ app.all('/api/payments', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handlePaymentsRequest(req.method === 'GET' ? undefined : req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.get('/api/subscriptions/billing-cycle', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleSubscriptionBillingCycleRequest(req);
   return res.status(result.statusCode).json(result.body);
 });
 
