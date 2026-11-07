@@ -11,6 +11,22 @@ function assert(condition, label) {
 }
 
 async function run() {
+  const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  const managerViewSource = readFileSync(new URL('../src/components/manager/ManagerView.tsx', import.meta.url), 'utf8');
+  assert(
+    appSource.includes("isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view')"),
+    'Le module caisse reste accessible aux propriétaires et gérants autorisés même sans permission explicite redondante'
+  );
+  assert(
+    managerViewSource.includes('Fond de caisse disponible') &&
+    managerViewSource.includes('cashSession.openingBalance + cashSession.cashCollected - cashSession.cashOut'),
+    'Le tiroir affiche le fond de caisse disponible calculé depuis la session persistée'
+  );
+  assert(
+    managerViewSource.includes('Clôturer la session et rapprocher') &&
+    managerViewSource.includes('onCloseCashSession(amount)'),
+    'Le responsable dispose d’une action visible de clôture avec comptage physique'
+  );
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
     console.error('ÉCHEC : Firestore Emulator requis pour les tests de caisse et sessions.');
     process.exit(1);
