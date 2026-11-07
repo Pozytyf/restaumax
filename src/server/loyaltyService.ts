@@ -49,7 +49,7 @@ export async function awardLoyaltyPointsInTransaction(input: LoyaltyAwardInput):
   const ledgerRef = restaurantRef.collection('loyaltyLedger').doc(`order_${hash(String(order.id || orderRef.id))}`);
   const deterministicCustomerRef = customersRef.doc(`loyalty_${hash(phone)}`);
   const customerQuery = customersRef.where('phoneNormalized', '==', phone).limit(1);
-  const rawPhoneQuery = customersRef.where('phone', '==', String(order.customerPhone || '')).limit(1);
+  const rawPhoneQuery = customersRef.where('phone', '==', String(order.customerPhone || phone)).limit(1);
   const digitsPhoneQuery = customersRef.where('phone', '==', phone).limit(1);
   const [ledgerSnap, matchingCustomers, rawPhoneMatches, digitsPhoneMatches, fallbackCustomerSnap] = await Promise.all([
     tx.get(ledgerRef), tx.get(customerQuery), tx.get(rawPhoneQuery),
