@@ -36,7 +36,7 @@ export interface ClientMenuViewProps {
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
-  onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
+  onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
@@ -456,11 +456,11 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         onClearCart={onClearCart}
         isUncertain={isUncertain}
         onResetUncertainty={onResetUncertainty}
-        onConfirmOrder={async (note) => {
+        onConfirmOrder={async (note, customer) => {
           if (!onConfirmOrder) {
             return { success: false, error: "Fonction de commande non configurée." };
           }
-          const res = await onConfirmOrder(note);
+          const res = await onConfirmOrder(note, customer);
           if (res.success && res.order) {
             setIsCartOpen(false);
             setConfirmedOrder(res.order);
