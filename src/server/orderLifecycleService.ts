@@ -91,24 +91,51 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       let movementRefs: any[] = [];
 
       if (order.status === 'pending' && targetStatus === 'in_prep') {
-        const menuIds: string[] = Array.from(new Set<string>((order.items as any[]).map((item: any) => String(item.menuItemId || '')).filter((id: string) => id.length > 0)));
-        const recipeRefs = menuIds.map((id: string) => restaurantRef.collection('menuRecipes').doc(id));
+        const recipeTargets: Array<{ docId: string; targetKey: string; menuItemId: string; quantity: number }> = [];
+        for (const item of order.items as any[]) {
+          const menuId = String(item.menuItemId || '');
+          const quantity = Number(item.quantity);
+          if (!validId(menuId) || !Number.isInteger(quantity) || quantity < 1 || quantity > 50) {
+            untrackedItemIds.push(String(item.id || 'ligne-sans-id'));
+            continue;
+          }
+          recipeTargets.push({ docId: menuId, targetKey: 'menu:' + menuId, menuItemId: menuId, quantity });
+          const groupIds = item.selectedOption?.groupId ? String(item.selectedOption.groupId).split('+') : [];
+          const optionIds = item.selectedOption?.optionId ? String(item.selectedOption.optionId).split('+') : [];
+          if (groupIds.length !== optionIds.length) {
+            untrackedItemIds.push('options:' + menuId);
+          } else {
+            for (let index = 0; index < groupIds.length; index += 1) {
+              const targetId = groupIds[index] + ':' + optionIds[index];
+              const docId = 'custom_' + hash(menuId + ':option:' + targetId);
+              recipeTargets.push({ docId, targetKey: 'option:' + menuId + ':' + targetId, menuItemId: menuId, quantity });
+            }
+          }
+          for (const extra of Array.isArray(item.selectedExtras) ? item.selectedExtras : []) {
+            const extraId = String(extra.extraId || '');
+            if (!validId(extraId)) {
+              untrackedItemIds.push('extra:' + menuId);
+              continue;
+            }
+            const docId = 'custom_' + hash(menuId + ':extra:' + extraId);
+            recipeTargets.push({ docId, targetKey: 'extra:' + menuId + ':' + extraId, menuItemId: menuId, quantity });
+          }
+        }
+
+        const uniqueTargets = Array.from(new Map(recipeTargets.map(target => [target.docId, target])).values());
+        const recipeRefs = uniqueTargets.map(target => restaurantRef.collection('menuRecipes').doc(target.docId));
         const recipeSnaps = await Promise.all(recipeRefs.map((ref: any) => tx.get(ref)));
         const aggregated = new Map<string, { quantity: number; unit: string; itemName: string }>();
-        for (let i = 0; i < recipeSnaps.length; i++) {
-          const recipeSnap = recipeSnaps[i];
-          const menuId = menuIds[i];
-          if (!recipeSnap.exists) { untrackedItemIds.push(menuId); continue; } // Plat sans fiche recette : aucune déduction implicite.
+        for (let index = 0; index < uniqueTargets.length; index += 1) {
+          const target = uniqueTargets[index];
+          const recipeSnap = recipeSnaps[index];
+          if (!recipeSnap.exists) {
+            if (!untrackedItemIds.includes(target.targetKey)) untrackedItemIds.push(target.targetKey);
+            continue;
+          }
           const recipe = recipeSnap.data();
-          const portions = order.items
-            .filter((item: any) => String(item.menuItemId || '') === menuId)
-            .reduce((sum: number, item: any) => {
-              const quantity = Number(item.quantity);
-              if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) throw new Error('Quantité de commande invalide pour le calcul de stock.');
-              return sum + quantity;
-            }, 0);
           if (!Array.isArray(recipe.lines) || recipe.lines.length === 0) {
-            return { success: false, error: `La fiche recette de ${menuId} est invalide.` };
+            return { success: false, error: 'Fiche recette invalide : ' + target.targetKey };
           }
           for (const line of recipe.lines) {
             const inventoryItemId = String(line.inventoryItemId || '');
@@ -116,31 +143,24 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
             if (!validId(inventoryItemId) || !Number.isFinite(perDish) || perDish <= 0 ||
                 Math.round(perDish * 1000) !== perDish * 1000 ||
                 !line.unit || !String(line.itemName || '')) {
-              return { success: false, error: `Une ligne de recette du plat ${menuId} est invalide.` };
+              return { success: false, error: 'Une ligne de recette est invalide : ' + target.targetKey };
             }
             const existing = aggregated.get(inventoryItemId);
             if (existing && existing.unit !== String(line.unit)) {
               return { success: false, error: 'Unités incohérentes pour un même ingrédient.' };
             }
             aggregated.set(inventoryItemId, {
-              quantity: (existing?.quantity || 0) + perDish * portions,
+              quantity: (existing?.quantity || 0) + perDish * target.quantity,
               unit: String(line.unit),
               itemName: String(line.itemName)
             });
           }
         }
-        for (const item of order.items as any[]) {
-          const menuId = String(item.menuItemId || '');
-          const hasUnmappedCustomization = Boolean(item.selectedOption) || (Array.isArray(item.selectedExtras) && item.selectedExtras.length > 0);
-          const untrackedId = menuId || String(item.id || 'ligne-sans-id');
-          if ((hasUnmappedCustomization || !menuId) && !untrackedItemIds.includes(untrackedId)) {
-            untrackedItemIds.push(untrackedId);
-          }
-        }
-        recipeLines = [...aggregated.entries()].map(([inventoryItemId, value]) => ({
+        recipeLines = Array.from(aggregated.entries()).map(([inventoryItemId, value]) => ({
           inventoryItemId, quantity: Math.round(value.quantity * 1000) / 1000,
           unit: value.unit, itemName: value.itemName
         }));
+      }
       } else if (targetStatus === 'cancelled' && ['applied', 'partial'].includes(String(consumption?.status || ''))) {
         recipeLines = Array.isArray(consumption.lines) ? consumption.lines : [];
       }
