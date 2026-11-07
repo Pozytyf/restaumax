@@ -9,7 +9,7 @@ const report = calculateFinancialReport({
   ],
   payments: [
     { method: 'especes', paidAmount: 1180, taxAmount: 180 },
-    { method: 'mobile_money', paidAmount: 1000, taxAmount: 0 }
+    { method: 'mobile_money', paidAmount: 1000, refundedAmount: 200, taxAmount: 0 }
   ],
   cashMovements: [
     { movementType: 'expense', amount: 2500 },
@@ -23,7 +23,7 @@ const report = calculateFinancialReport({
 });
 assert.equal(report.completedOrders, 1);
 assert.equal(report.grossOrderValueFcfa, 1000);
-assert.equal(report.collectedFcfa, 2180);
+assert.equal(report.collectedFcfa, 1980);
 assert.equal(report.outstandingFcfa, 4000);
 assert.equal(report.taxCollectedFcfa, 180);
 assert.equal(report.costOfGoodsFcfa, 800);
@@ -32,7 +32,7 @@ assert.equal(report.expensesFcfa, 2500);
 assert.equal(report.withdrawalsFcfa, 1000);
 assert.equal(report.operatingResultFcfa, -2300);
 assert.equal(report.cashCollectedFcfa, 1180);
-assert.equal(report.otherCollectedFcfa, 1000);
+assert.equal(report.otherCollectedFcfa, 800);
 assert.equal(report.cashNetAfterMovementsFcfa, -2320);
 assert.equal(report.grossMarginPercent, 20);
 class ReportDb {
