@@ -163,6 +163,7 @@ export default function App() {
   const [tables, setTables] = useState<Table[]>([]);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [posCustomer, setPosCustomer] = useState({ name: '', phone: '' });
   const [discountPercent, setDiscountPercent] = useState<number>(0);
   const [kitchenTickets, setKitchenTickets] = useState<KitchenTicket[]>([]);
   const [restauOrders, setRestauOrders] = useState<RestauOrder[]>([]);
@@ -1032,7 +1033,9 @@ export default function App() {
         orderMode: selectedTable ? 'sur_place' : 'a_emporter',
         tableNumber: selectedTable?.number || null,
         idempotencyKey: posOrderIdempotencyKey,
-        customerNote: `Commande saisie au comptoir par ${serverName}`
+        customerNote: `Commande saisie au comptoir par ${serverName}`,
+        customerName: posCustomer.name.trim() || undefined,
+        customerPhone: posCustomer.phone.trim() || undefined
       });
 
       if (!result.success) {
@@ -1187,7 +1190,9 @@ export default function App() {
           orderMode: selectedTable ? 'sur_place' : 'a_emporter',
           tableNumber: selectedTable?.number || null,
           idempotencyKey: posOrderIdempotencyKey,
-          customerNote: `Commande saisie au comptoir par ${serverName}`
+          customerNote: `Commande saisie au comptoir par ${serverName}`,
+          customerName: posCustomer.name.trim() || undefined,
+          customerPhone: posCustomer.phone.trim() || undefined
         });
 
         if (!orderResult.success) {
@@ -1719,6 +1724,11 @@ export default function App() {
             {currentRole === 'pos' && userPermissions.includes('pos.access') && (
               <PosView
                 restaurantSlug={activeRestaurantSlug}
+                taxRatePercent={Number(restaurant.taxRatePercent || 0)}
+                taxMode={restaurant.taxMode || 'exclusive'}
+                customerName={posCustomer.name}
+                customerPhone={posCustomer.phone}
+                onCustomerChange={(field,value)=>setPosCustomer(current=>({...current,[field]:value}))}
                 menuItems={menuItems}
                 cart={cart}
                 selectedTable={selectedTable}
