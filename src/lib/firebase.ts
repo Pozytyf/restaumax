@@ -1008,9 +1008,13 @@ export async function createInventoryItemWithServerValidation(
 export async function saveInventoryRecipeWithServerValidation(
   restaurantSlug: string,
   menuItemId: string,
-  recipeLines: Array<{ inventoryItemId: string; quantityPerDish: number }>
+  recipeLines: Array<{ inventoryItemId: string; quantityPerDish: number }>,
+  recipeTargetType: 'menu_item' | 'option' | 'extra' = 'menu_item',
+  recipeTargetId = menuItemId
 ): Promise<InventoryApiResult> {
-  return inventoryRequest(restaurantSlug, { action: 'save_recipe', menuItemId, recipeLines });
+  return inventoryRequest(restaurantSlug, {
+    action: 'save_recipe', menuItemId, recipeLines, recipeTargetType, recipeTargetId
+  });
 }
 
 export async function updateInventoryItemWithServerValidation(
