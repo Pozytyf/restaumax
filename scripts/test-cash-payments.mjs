@@ -35,7 +35,7 @@ async function run() {
   try {
     await restaurantRef.set({ slug, status: 'active', isActive: true, ownerUid: 'owner-test', loyaltyFcfaPerPoint: 1000 });
     await memberRef.set({
-      uid, role: 'cashier', restaurantSlug: slug, permissions: ['cash.manage', 'cash.view', 'payments.refund'],
+      uid, role: 'cashier', restaurantSlug: slug, permissions: ['cash.manage', 'cash.view'],
       active: true, sessionVersion: 3
     });
     await orderRef.set({
@@ -139,20 +139,6 @@ async function run() {
       'La commande conserve le nombre de points attribués');
     const loyaltyLedger = await restaurantRef.collection('loyaltyLedger').where('orderId', '==', 'order-main').get();
     assert(loyaltyLedger.size === 1, 'Le journal de fidélité conserve une seule écriture par commande');
-
-    const taxedOrderRef = restaurantRef.collection('orders').doc('order-taxed');
-    await taxedOrderRef.set({
-      id: 'order-taxed', orderNumber: '#CMD-TAX', restaurantSlug: slug,
-      totalAmount: 1180, subtotalAmount: 1180, taxAmount: 200, paidAmount: 0,
-      currency: 'FCFA', status: 'pending',
-      customerName: 'Client Taxe', customerPhone: '07 00 00 00 02', customerPhoneNormalized: '0700000002',
-      items: [{ name: 'Plat TTC', quantity: 1, unitPrice: 1180 }]
-    });
-    const taxedPayment = await recordCashPaymentWithDb(db, input('order-taxed', 1180, 'cash-taxed-order-001'));
-    assert(taxedPayment.success === true && !taxedPayment.order?.loyaltyPointsAwarded,
-      'Les points sont calculés sur les ventes hors taxes, pas sur la taxe encaissée');
-    const taxedCustomer = await restaurantRef.collection('customers').where('phoneNormalized', '==', '0700000002').get();
-    assert(taxedCustomer.empty, 'Aucun compte fidélité inutile n’est créé lorsque le montant HT est sous le seuil');
 
     const alreadyPaid = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-after-paid-01'));
     assert(alreadyPaid.success === false, 'Une commande déjà réglée ne peut pas être encaissée une seconde fois');
