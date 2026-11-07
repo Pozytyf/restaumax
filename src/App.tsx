@@ -8,7 +8,6 @@ import {
   CashDrawerState, 
   PaymentRecord,
   PaymentMethod,
-  TicketStatus,
   TableStatus
 } from './types/pos';
 import { CHEZ_AWA_RESTAURANT } from './data/restaumaxData';
@@ -55,6 +54,7 @@ import {
 } from './utils/orderIntentStorage';
 import { formatFCFA } from './utils/format';
 import { sounds } from './utils/audio';
+import { mapRestauOrderToKitchenTicket } from './utils/kitchenTicket';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
 import { PaymentModal } from './components/pos/PaymentModal';
@@ -72,50 +72,6 @@ import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
 import { QrScannerModal } from './components/restaumax/QrScannerModal';
 import { PlatformAdminView } from './components/restaumax/PlatformAdminView';
 
-/**
- * Mappe de façon déterministe et stable une commande Firestore RestauOrder vers un ticket KDS KitchenTicket
- */
-export function mapRestauOrderToKitchenTicket(
-  order: RestauOrder
-): KitchenTicket {
-  let ticketStatus: TicketStatus = 'in_prep';
-  if (order.status === 'ready') ticketStatus = 'ready';
-  else if (order.status === 'completed') ticketStatus = 'served';
-  else if (order.status === 'cancelled') ticketStatus = 'cancelled';
-  else ticketStatus = 'in_prep';
-
-  return {
-    id: `ord-${order.id}`,
-    ticketNumber: order.orderNumber,
-    tableNumber: order.tableNumber ? `Table ${order.tableNumber}` : 'À emporter',
-    orderType: order.orderMode === 'sur_place' ? 'sur_place' : 'emporter',
-    waiter: order.customerNote?.startsWith('Commande saisie au comptoir par ') ? 'Personnel POS' : 'QR Menu Client',
-    createdAt: new Date(order.createdAt),
-    status: ticketStatus,
-    stockTrackingStatus: order.stockTrackingStatus,
-    stockUntrackedItemIds: order.stockUntrackedItemIds,
-    items: order.items.map((it, idx) => {
-      const notesArr: string[] = [];
-      if (it.selectedOption?.optionName) {
-        notesArr.push(`Option: ${it.selectedOption.optionName}`);
-      }
-      if (it.selectedExtras && it.selectedExtras.length > 0) {
-        notesArr.push(`Extras: ${it.selectedExtras.map(e => e.name).join(', ')}`);
-      }
-      if (it.prepNotes) {
-        notesArr.push(`Note: ${it.prepNotes}`);
-      }
-      return {
-        id: `ki-${order.id}-${idx}`,
-        name: it.name,
-        quantity: it.quantity,
-        course: 'plat',
-        notes: notesArr.join(' · '),
-        completed: order.kitchenItemCompletion?.[String(idx)] === true
-      };
-    })
-  };
-}
 
 export default function App() {
   // Navigation / Routing State
