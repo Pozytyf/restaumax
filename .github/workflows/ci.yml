@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   quality:
-    name: Typecheck, tests and production build
+    name: Typecheck, Firestore Emulator tests and production build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,7 +29,12 @@ jobs:
       - name: Typecheck
         run: npm run lint
 
-      - name: Run automated tests
+      - name: Start Firestore Emulator and run strict integration suite
+        env:
+          FIRESTORE_EMULATOR_STRICT: "true"
+        run: npx --yes firebase-tools@14.22.0 emulators:exec --project demo-restaumax --only firestore --config firebase.json "npm run test:emulator"
+
+      - name: Run remaining automated tests
         run: npm test
 
       - name: Build production frontend
