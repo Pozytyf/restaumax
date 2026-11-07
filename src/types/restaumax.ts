@@ -134,6 +134,7 @@ export interface RestauOrder {
   loyaltyPointsAwarded?: number;
   loyaltyCustomerId?: string;
   loyaltyAwardedAt?: number;
+  loyaltyAwardStatus?: string;
   totalAmount: number; // final amount due in FCFA, including configured tax
   subtotalAmount?: number;
   taxAmount?: number;
