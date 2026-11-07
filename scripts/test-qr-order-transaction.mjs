@@ -3,7 +3,9 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { computeOrderSignature, deriveIdempotencyIdentifiers } from '../src/server/orderService.ts';
 import { executeOrderTransactionWithDb } from '../server.ts';
-import { issueTableQr, resolveTableQr, getActiveTableSession, revokeTableQr } from '../src/server/tableSecurityService.ts';
+import { issueTableQr, getActiveTableQr, resolveTableQr, getActiveTableSession, revokeTableQr } from '../src/server/tableSecurityService.ts';
+
+process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
 let passed = 0;
 let failed = 0;
@@ -71,6 +73,8 @@ async function run() {
     // Real Firestore Emulator lifecycle: issue, resolve, revoke and concurrent rotation.
     await qrLifecycleTableRef.set({ id: qrLifecycleTableId, tableNumber: 'QR-Lifecycle', isActive: true, qrVersion: 0 });
     const issuedQr = await issueTableQr(db, slug, qrLifecycleTableId, 'https://restaumax.example');
+    const restoredQr = await getActiveTableQr(db, slug, qrLifecycleTableId, 'https://restaumax.example');
+    assert(restoredQr?.url === issuedQr.url, 'La restauration conserve exactement le QR déjà émis, sans rotation');
     const resolvedQr = await resolveTableQr(db, issuedQr.token);
     assert((await getActiveTableSession(db, resolvedQr.sessionSecret))?.tableId === qrLifecycleTableId,
       'Le QR émis ouvre une session réelle liée à la bonne table dans Firestore Emulator');
