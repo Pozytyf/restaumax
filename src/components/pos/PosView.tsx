@@ -42,6 +42,8 @@ interface PosViewProps {
   onCollectOrder: (order: RestauOrder) => void;
   alreadyPaidAmount?: number;
   isExistingOrder?: boolean;
+  taxRatePercent?: number;
+  taxMode?: 'exclusive' | 'inclusive';
 }
 
 const CATEGORIES: { id: Category; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
@@ -75,7 +77,9 @@ export const PosView: React.FC<PosViewProps> = ({
   unpaidOrders,
   onCollectOrder,
   alreadyPaidAmount = 0,
-  isExistingOrder = false
+  isExistingOrder = false,
+  taxRatePercent = 0,
+  taxMode = 'exclusive'
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<Category>('tous');
   const [searchQuery, setSearchQuery] = useState('');
@@ -321,6 +325,8 @@ export const PosView: React.FC<PosViewProps> = ({
           serverName={serverName}
           alreadyPaidAmount={alreadyPaidAmount}
           isExistingOrder={isExistingOrder}
+          taxRatePercent={taxRatePercent}
+          taxMode={taxMode}
         />
       </div>
 
