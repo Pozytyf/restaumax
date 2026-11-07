@@ -204,7 +204,7 @@ export async function getActiveTableQr(
   if (token.length < 30 || token.length > 100 || sha256(token) !== data.tokenHash) {
     throw new Error('Le QR enregistré ne correspond plus à son empreinte de sécurité.');
   }
-  return { token, url: `${origin.replace(/\\/+$/, '')}/q/${token}` };
+  return { token, url: `${origin.replace(/\/+$/, '')}/q/${token}` };
 }
 
 export async function revokeTableQr(db: any, restaurantSlug: string, tableId: string) {
