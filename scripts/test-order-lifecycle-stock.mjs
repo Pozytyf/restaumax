@@ -108,7 +108,7 @@ partialDb.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompl
 assert.equal((await transitionOrderStatusWithDb(partialDb, { ...params, targetStatus: 'in_prep' })).success, true);
 assert.equal(partialDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'partial');
 assert.equal(partialDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'partial');
-assert.deepEqual(partialDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').untrackedMenuItemIds, ['dish-untracked']);
+assert.deepEqual(partialDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').untrackedItemIds, ['dish-untracked']);
 assert.equal((await transitionOrderStatusWithDb(partialDb, { ...params, targetStatus: 'cancelled' })).success, true);
 assert.equal(partialDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10, 'Partial consumption restores only tracked ingredients');
 assert.equal(partialDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'restored');
