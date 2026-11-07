@@ -52,4 +52,4 @@ const missingCosts = calculateRestaurantFinancialReport({
 assert.equal(missingCosts.costCoverageComplete, false, 'Les coûts historiques manquants sont signalés au lieu d’être inventés.');
 assert.equal(missingCosts.missingCostMovementCount, 1);
 
-console.log('Financial report calculation tests passed: 15 assertions.');
+console.log('Financial report calculation tests passed: 16 assertions.');
