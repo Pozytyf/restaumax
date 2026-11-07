@@ -3,7 +3,7 @@ import {
   addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, updateDoc
 } from 'firebase/firestore';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings } from 'lucide-react';
-import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
+import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation, getFinancialReportWithServerValidation } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { InventoryRecipePanel } from './InventoryRecipePanel';
@@ -31,6 +31,8 @@ export const RestaurantAdminModuleView: React.FC<{
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [orders, setOrders] = useState<RestauOrder[]>([]);
+  const [financialReport, setFinancialReport] = useState<Record<string, number> | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -73,6 +75,11 @@ export const RestaurantAdminModuleView: React.FC<{
       return () => { unsubscribeItems(); unsubscribeMovements(); };
     }
     if (module === 'reports') {
+      setReportLoading(true);
+      void getFinancialReportWithServerValidation(restaurant.slug).then(result => {
+        if (result.success) setFinancialReport(result.report);
+        else setError(result.error);
+      }).finally(() => setReportLoading(false));
       return onSnapshot(query(collection(db, 'restaurants', restaurant.slug, 'orders')), snap => {
         setOrders(snap.docs.map(d => d.data() as RestauOrder));
       }, err => setError(err.message));
@@ -313,11 +320,25 @@ export const RestaurantAdminModuleView: React.FC<{
       </>}
       
       {module === 'reports' && <>
-        <div className="grid gap-4 sm:grid-cols-3"><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Commandes finalisées</p><p className="mt-2 text-3xl font-black">{completedOrders.length}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Montant des commandes finalisées</p><p className="mt-2 text-2xl font-black">{formatFCFA(salesTotal)}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Panier moyen</p><p className="mt-2 text-2xl font-black">{formatFCFA(completedOrders.length ? Math.round(salesTotal/completedOrders.length) : 0)}</p></div></div>
+        <div className="mb-3 flex items-center justify-between"><p className="text-xs text-slate-500">Période : 30 derniers jours · données serveur du restaurant</p><button type="button" onClick={()=>{setReportLoading(true);void getFinancialReportWithServerValidation(restaurant.slug).then(result=>result.success?setFinancialReport(result.report):setError(result.error)).finally(()=>setReportLoading(false));}} className="rounded-lg border px-3 py-2 text-xs font-bold"><RefreshCw size={13} className="inline mr-1"/> Actualiser</button></div>
+        {reportLoading && <p role="status" className="text-sm text-slate-500">Calcul des rapports financiers…</p>}
+        {financialReport && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            ['Encaissements réels', financialReport.collectedFcfa],
+            ['Coût matières consommées', financialReport.costOfGoodsFcfa],
+            ['Marge brute estimée', financialReport.grossMarginFcfa],
+            ['Dépenses', financialReport.expensesFcfa],
+            ['Résultat après dépenses', financialReport.operatingResultFcfa],
+            ['Créances restantes', financialReport.outstandingFcfa],
+            ['Taxes enregistrées', financialReport.taxCollectedFcfa],
+            ['Net caisse après sorties', financialReport.cashNetAfterMovementsFcfa]
+          ].map(([label,value])=><div key={String(label)} className="rounded-2xl border bg-white p-4"><p className="text-xs text-slate-500">{label}</p><p className="mt-2 text-xl font-black">{formatFCFA(Number(value || 0))}</p></div>)}
+        </div>}
+        <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-2xl border bg-white p-4"><p className="text-xs text-slate-500">Commandes terminées</p><p className="mt-2 text-2xl font-black">{financialReport?.completedOrders ?? completedOrders.length}</p></div><div className="rounded-2xl border bg-white p-4"><p className="text-xs text-slate-500">Valeur commandes terminées</p><p className="mt-2 text-xl font-black">{formatFCFA(Number(financialReport?.grossOrderValueFcfa ?? salesTotal))}</p></div><div className="rounded-2xl border bg-white p-4"><p className="text-xs text-slate-500">Marge brute estimée</p><p className="mt-2 text-xl font-black">{Number(financialReport?.grossMarginPercent || 0).toFixed(2)} %</p></div></div>
         <section className="rounded-2xl border bg-white p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-bold">Meilleures ventes (quantités)</h2><button onClick={exportCsv} className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white"><Download size={15}/> Exporter CSV</button></div>
           {bestSellers.map(([name,qty])=><div key={name} className="flex justify-between border-b py-3 text-sm last:border-0"><span>{name}</span><strong>{qty}</strong></div>)}
           {bestSellers.length===0 && <p className="text-sm text-slate-500">Aucune commande finalisée à analyser.</p>}
-          <p className="mt-4 text-xs text-amber-700">Les montants affichés sont calculés à partir des commandes au statut « terminée ». Ils ne constituent pas un rapprochement des encaissements ni une analyse de marge comptable.</p>
+          <p className="mt-4 text-xs text-amber-700">La marge est estimée à partir des coûts unitaires instantanés enregistrés au démarrage de préparation. Les consommations sans recette et les dépenses non saisies ne sont pas estimées.</p>
         </section>
       </>}
 
