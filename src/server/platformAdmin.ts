@@ -510,13 +510,31 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       const staffRef = db.collection('restaurants').doc(slug).collection('staff');
       const releaseServerTables = async (uid: string) => {
-        const assigned = await db.collection('restaurants').doc(slug).collection('tables').where('assignedWaiter', '==', uid).get();
+        const restaurantRef = db.collection('restaurants').doc(slug);
+        const assigned = await restaurantRef.collection('tables').where('assignedWaiter', '==', uid).get();
         for (let offset = 0; offset < assigned.docs.length; offset += 400) {
           const batch = db.batch();
           assigned.docs.slice(offset, offset + 400).forEach((doc: any) => batch.set(doc.ref, {
             assignedWaiter: null, assignedWaiterName: null, assignmentUpdatedAt: Date.now(), assignmentUpdatedBy: user.uid
           }, { merge: true }));
           await batch.commit();
+        }
+        for (const tableDoc of assigned.docs) {
+          const tableNumber = String(tableDoc.data()?.tableNumber || '').trim();
+          if (!tableNumber) continue;
+          const orders = await restaurantRef.collection('orders').where('tableNumber', '==', tableNumber).get();
+          const activeOrders = orders.docs.filter((doc: any) =>
+            ['pending', 'in_prep', 'ready'].includes(String(doc.data()?.status || ''))
+          );
+          for (let offset = 0; offset < activeOrders.length; offset += 400) {
+            const batch = db.batch();
+            activeOrders.slice(offset, offset + 400).forEach((doc: any) => batch.update(doc.ref, {
+              assignedWaiterUid: null,
+              waiterAssignmentUpdatedAt: Date.now(),
+              waiterAssignmentUpdatedBy: user.uid
+            }));
+            await batch.commit();
+          }
         }
       };
       if (action === 'staff_list') {
