@@ -197,6 +197,12 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           if (String(item.unit || '') !== line.unit) {
             return { success: false, error: `Unité différente pour ${line.itemName} : stock ${item.unit}, recette ${line.unit}. Aucune conversion automatique.` };
           }
+          const unitCost = Number(item.unitCost || 0);
+          if (!Number.isSafeInteger(unitCost) || unitCost < 0) {
+            return { success: false, error: `Coût unitaire invalide pour ${line.itemName}.` };
+          }
+          line.unitCost = unitCost;
+          line.lineCost = Math.round(Number(line.quantity) * unitCost);
           const before = Number(item.quantity);
           if (!Number.isFinite(before) || before < line.quantity) {
             return { success: false, error: `Stock insuffisant pour ${line.itemName} (requis : ${line.quantity} ${line.unit}).` };
@@ -206,12 +212,6 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         for (let i = 0; i < recipeLines.length; i++) {
           const line = recipeLines[i];
           const item = inventorySnaps[i].data();
-          const unitCost = Number(item.unitCost || 0);
-          if (!Number.isSafeInteger(unitCost) || unitCost < 0) {
-            return { success: false, error: `Coût unitaire invalide pour ${line.itemName}.` };
-          }
-          line.unitCost = unitCost;
-          line.lineCost = Math.round(Number(line.quantity) * unitCost);
           const before = Number(item.quantity);
           const after = Math.round((before - line.quantity) * 1000) / 1000;
           tx.update(inventoryRefs[i], { quantity: after, updatedAt: now });
