@@ -630,8 +630,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         requestedSnapshots.forEach((snap: any) => refsByPath.set(snap.ref.path, snap.ref));
         const refs = [...refsByPath.values()];
         const ordersRef = db.collection('restaurants').doc(slug).collection('orders');
+        const serverMembershipRef = db.collection('managers').doc(staffUid);
         await db.runTransaction(async (tx: any) => {
-          const snapshots = await Promise.all(refs.map((ref: any) => tx.get(ref)));
+          const [snapshots, freshServerMembershipSnap] = await Promise.all([
+            Promise.all(refs.map((ref: any) => tx.get(ref))),
+            tx.get(serverMembershipRef)
+          ]);
+          const freshServerMembership = freshServerMembershipSnap.exists ? freshServerMembershipSnap.data() : null;
+          if (!freshServerMembership || freshServerMembership.active !== true ||
+              freshServerMembership.role !== 'server' || freshServerMembership.restaurantSlug !== slug) {
+            throw new Error('Le serveur a été suspendu ou modifié pendant l’affectation.');
+          }
           if (snapshots.some((snap: any) => !snap.exists)) {
             throw new Error('Une table a été supprimée pendant l’affectation.');
           }
