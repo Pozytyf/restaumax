@@ -148,51 +148,6 @@ service cloud.firestore {
         && data.isActive is bool;
     }
 
-    function isValidOrderTransition(fromStatus, toStatus) {
-      return (fromStatus == 'pending' && toStatus in ['in_prep', 'cancelled']) ||
-        (fromStatus == 'in_prep' && toStatus in ['ready', 'cancelled']) ||
-        (fromStatus == 'ready' && toStatus in ['completed', 'cancelled']);
-    }
-
-    function canUpdateOrder(targetSlug) {
-      let memberPath = /databases/$(database)/documents/managers/$(request.auth.uid);
-      let member = get(memberPath).data;
-      let changed = incoming().diff(existing()).affectedKeys();
-      let role = member.get('role', '');
-      let permissions = member.get('permissions', []);
-      let statusChanged = changed.hasAny(['status']);
-      let isVerifiedOwner = role == 'owner' &&
-        get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.ownerUid == request.auth.uid;
-      let canManage = isVerifiedOwner ||
-        (role == 'manager' && permissions is list && 'orders.manage' in permissions);
-      let canCancel = role == 'cashier' && permissions is list && 'orders.cancel' in permissions;
-      let canKitchen = role == 'kitchen' && permissions is list && 'kitchen.access' in permissions;
-      let canServe = role == 'server' && permissions is list && 'orders.serve' in permissions;
-
-      return isSignedIn() &&
-        exists(memberPath) &&
-        isRestaurantActive(targetSlug) &&
-        member.get('restaurantSlug', '') == targetSlug &&
-        member.get('active', false) == true &&
-        request.auth.token.get('sessionVersion', 0) == member.get('sessionVersion', 0) &&
-        role in ['owner', 'manager', 'cashier', 'server', 'kitchen'] &&
-        changed.hasOnly(['status', 'statusUpdatedAt', 'kitchenNotes']) &&
-        (!changed.hasAny(['kitchenNotes']) || canManage || canKitchen) &&
-        (!changed.hasAny(['statusUpdatedAt']) || statusChanged) &&
-        (
-          (statusChanged &&
-            ((canManage && isValidOrderTransition(existing().status, incoming().status) &&
-               (incoming().status != 'ready' || existing().get('kitchenItemsCompletedCount', 0) == existing().items.size())) ||
-             (canCancel && existing().status in ['pending', 'in_prep', 'ready'] && incoming().status == 'cancelled') ||
-             (canKitchen &&
-               ((existing().status == 'pending' && incoming().status == 'in_prep') ||
-                (existing().status == 'in_prep' && incoming().status == 'ready' &&
-                 existing().get('kitchenItemsCompletedCount', 0) == existing().items.size()))) ||
-             (canServe && existing().status == 'ready' && incoming().status == 'completed'))) ||
-          (!statusChanged && changed.hasAny(['kitchenNotes']) && (canManage || canKitchen))
-        );
-    }
-
     function isValidOrder(data) {
       return data.keys().hasAll(['id', 'orderNumber', 'restaurantSlug', 'orderMode', 'items', 'totalAmount', 'status'])
         && data.id is string && data.id.size() > 0 && data.id.size() <= 128
@@ -325,7 +280,7 @@ service cloud.firestore {
       // Create: STRICTLY FORBIDDEN from client SDK (must go through trusted server backend /api/orders)
       // Direct reads are denied: customer confirmation is returned by POST /api/orders.
       // List: restricted strictly to authorized restaurant personnel.
-      // Update: restricted strictly to authorized managers of this restaurant, and limited to operational status fields
+      // Update: forbidden from the client SDK; the trusted server performs atomic lifecycle and stock writes
       // Delete: STRICTLY FORBIDDEN (audit trail preserved)
       // Payment records are server-managed only. Client SDK writes cannot
       // create, collect, alter, or refund a payment.
@@ -337,15 +292,9 @@ service cloud.firestore {
         allow create: if false;
         allow get: if false;
         allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view'));
-        allow update: if isValidId(orderId) &&
-          incoming().id == orderId &&
-          incoming().id == existing().id &&
-          incoming().restaurantSlug == restaurantSlug &&
-          incoming().restaurantSlug == existing().restaurantSlug &&
-          incoming().orderNumber == existing().orderNumber &&
-          incoming().totalAmount == existing().totalAmount &&
-          incoming().items == existing().items &&
-          canUpdateOrder(restaurantSlug);
+        // All order status transitions and KDS progress are server-managed so stock
+        // consumption/restoration and the order state commit in one Admin SDK transaction.
+        allow update: if false;
         allow delete: if false;
       }
     }

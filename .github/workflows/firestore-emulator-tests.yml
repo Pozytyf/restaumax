@@ -45,6 +45,7 @@ jobs:
         run: |
           npm run test:lot1
           npm run test:lot2
+          npm run test:order-lifecycle
           npm run test:qr
 
       - name: 4. Tests transactionnels et règles de sécurité sur le véritable Firestore Emulator

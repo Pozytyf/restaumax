@@ -1079,12 +1079,22 @@ export async function updateOrderStatus(
   orderId: string,
   status: RestauOrder['status']
 ): Promise<void> {
-  const path = `restaurants/${restaurantSlug}/orders/${orderId}`;
   try {
-    const orderRef = doc(db, 'restaurants', restaurantSlug, 'orders', orderId);
-    await setDoc(orderRef, { status, statusUpdatedAt: Date.now() }, { merge: true });
-  } catch (err) {
-    handleFirestoreError(err, OperationType.UPDATE, path);
+    const user = auth.currentUser;
+    if (!user) throw new Error('Connexion du personnel requise.');
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/order-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, orderId, status })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) throw new Error(data.error || 'Transition de commande refusée.');
+  } catch (err: any) {
+    console.error('Erreur appel /api/order-status:', err);
+    throw new Error(err?.message || 'Erreur réseau pendant la mise à jour de la commande.');
   }
 }
 

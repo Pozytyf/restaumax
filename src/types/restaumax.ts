@@ -145,6 +145,9 @@ export interface RestauOrder {
   kitchenItemsCompletedCount?: number;
   kitchenItemUpdatedAt?: number;
   kitchenItemUpdatedBy?: string;
+  /** Server-computed stock result after entering preparation. */
+  stockTrackingStatus?: 'applied' | 'partial' | 'skipped' | 'restored';
+  stockUntrackedItemIds?: string[];
   idempotencyKey?: string;
   idempotencyDocId?: string;
   contentSignature?: string;

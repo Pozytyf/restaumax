@@ -196,18 +196,18 @@ try {
   check(!deletedDish.exists() && !deletedRecipe.exists(), 'La suppression atomique ne laisse aucune recette orpheline');
 
   await denies(updateDoc(doc(a('cashier-a'),'restaurants/rest-a/staff/manager-b'),{permissions:['settings.manage']}), 'Un caissier ne peut pas modifier les permissions du personnel');
-  await allows(updateDoc(order(a('cashier-cancel'),'rest-a','order-cashier'),{status:'cancelled'}), 'Un caissier peut annuler uniquement si le droit explicite orders.cancel lui est accordé');
+  await denies(updateDoc(order(a('cashier-cancel'),'rest-a','order-cashier'),{status:'cancelled'}), 'Même un caissier autorisé doit passer par le backend transactionnel pour annuler');
 
   // 4. Kitchen cannot cancel orders or collect payments.
   await denies(updateDoc(order(a('kitchen-a'),'rest-a'),{status:'cancelled'}), 'Cuisine/Bar ne peut pas annuler une commande');
-  await allows(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'in_prep'}), 'Cuisine/Bar peut démarrer la préparation');
-  await allows(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'ready'}), 'Cuisine/Bar peut marquer une commande prête');
+  await denies(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'in_prep'}), 'Cuisine/Bar démarre la préparation uniquement via le backend transactionnel');
+  await denies(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'ready'}), 'Cuisine/Bar marque une commande prête uniquement via le backend transactionnel');
   await denies(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen-incomplete'),{status:'ready'}), 'Cuisine/Bar ne peut pas déclarer prête une commande avec des lignes non terminées');
   await denies(updateDoc(order(a('manager-a'),'rest-a','order-manager-incomplete'),{status:'ready'}), 'Le manager ne peut pas contourner le pointage des lignes cuisine');
   await denies(updateDoc(order(a('owner-a'),'rest-a','order-owner-incomplete'),{status:'ready'}), 'Le propriétaire ne peut pas contourner le pointage des lignes cuisine');
   await denies(updateDoc(order(a('owner-a'),'rest-a','order-owner-incomplete'),{kitchenItemsCompletedCount:1}), 'Le compteur de lignes terminées est modifiable uniquement par le backend');
   await denies(updateDoc(order(a('kitchen-a'),'rest-a','order-kitchen'),{status:'completed'}), 'Cuisine/Bar ne peut pas déclarer une commande servie');
-  await allows(updateDoc(order(a('server-a'),'rest-a','order-server'),{status:'completed'}), 'Le serveur peut confirmer la remise d’une commande prête');
+  await denies(updateDoc(order(a('server-a'),'rest-a','order-server'),{status:'completed'}), 'Le serveur confirme la remise uniquement via le backend transactionnel');
   await denies(setDoc(doc(a('kitchen-a'),'restaurants/rest-a/payments/payment-2'),{amount:1000}), 'Cuisine/Bar ne peut pas encaisser');
 
   // 5. A manager cannot change ownership or another manager's account.

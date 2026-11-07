@@ -92,6 +92,8 @@ export function mapRestauOrderToKitchenTicket(
     waiter: order.customerNote?.startsWith('Commande saisie au comptoir par ') ? 'Personnel POS' : 'QR Menu Client',
     createdAt: new Date(order.createdAt),
     status: ticketStatus,
+    stockTrackingStatus: order.stockTrackingStatus,
+    stockUntrackedItemIds: order.stockUntrackedItemIds,
     items: order.items.map((it, idx) => {
       const notesArr: string[] = [];
       if (it.selectedOption?.optionName) {
@@ -1354,6 +1356,17 @@ export default function App() {
         window.alert('Ligne de préparation invalide.');
         return;
       }
+      const currentOrder = restauOrders.find(order => order.id === orderId);
+      if (currentOrder?.status === 'pending') {
+        try {
+          // The first KDS action starts preparation and consumes recipe stock atomically.
+          await updateOrderStatus(activeRestaurantSlug, orderId, 'in_prep');
+        } catch (err) {
+          console.warn('Démarrage cuisine refusé par le contrôle de stock:', err);
+          window.alert(err instanceof Error && err.message ? err.message : 'Préparation bloquée : vérifiez les stocks et les recettes.');
+          return;
+        }
+      }
       const result = await updateKitchenItemCompletionWithServerValidation(
         activeRestaurantSlug, orderId, itemId, itemIndex, completed
       );
@@ -1406,7 +1419,7 @@ export default function App() {
         await updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus);
       } catch (err) {
         console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
-        window.alert("La mise à jour a été refusée. Vérifiez les droits du compte et réessayez.");
+        window.alert(err instanceof Error && err.message ? err.message : "La mise à jour a été refusée. Vérifiez les droits du compte et réessayez.");
         return;
       }
     }
