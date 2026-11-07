@@ -83,4 +83,4 @@ const crossTenantReport = await getFinancialReportWithDb(reportDb, {
   restaurantSlug: 'tenant-b', actorUid: 'owner-a', sessionVersion: 2, from: 1, to: 2000
 });
 assert.equal(crossTenantReport.success, false, 'A restaurant owner cannot read another tenant reports');
-console.log('Financial report aggregation tests passed: 16/16.');
+console.log('Financial report aggregation and tenant isolation tests passed: 18/18.');
