@@ -28,3 +28,17 @@ assert(accountAudit.includes('accountLinked: false'), 'unlinked owner metadata i
 console.log('Super-admin restaurant account audit and owner-email reconciliation checks passed.');
 
 assert(accountAudit.includes('activeKnown'), 'account audit does not infer Firebase active status from the restaurant owner pointer');
+
+const staffManagement = fs.readFileSync(new URL('../src/components/restaumax/StaffManagementView.tsx', import.meta.url), 'utf8');
+const menuView = fs.readFileSync(new URL('../src/components/restaumax/ClientMenuView.tsx', import.meta.url), 'utf8');
+const productModal = fs.readFileSync(new URL('../src/components/restaumax/ProductDetailModal.tsx', import.meta.url), 'utf8');
+assert(source.includes("action === 'assign_server_tables'"), 'table assignment is a dedicated server action');
+assert(source.includes("managerSnap.data().permissions.includes('tables.manage')"), 'managers need tables.manage to assign tables');
+assert(source.includes("server.role !== 'server' || server.active !== true"), 'only an active server can receive table assignments');
+assert(source.includes("assignedWaiter: staffUid"), 'each table stores one canonical assigned server UID');
+assert(source.includes("assignedWaiter: null"), 'old assignments can be released during reassignment or account lifecycle changes');
+assert(source.includes("db.runTransaction(async (tx: any)"), 'table assignments are persisted transactionally');
+assert(staffManagement.includes('multiple size=') && staffManagement.includes("action: 'assign_server_tables'"), 'manager UI supports assigning multiple tables to one server');
+assert(menuView.includes('divide-y') && menuView.includes('Quantité') && menuView.includes('initialQuantity'), 'customer menu is a list with quantity selectors and passes the selected quantity');
+assert(productModal.includes('initialQuantity = 1'), 'product configuration preserves the quantity selected in the menu list');
+console.log('Server table assignment and customer menu list regression checks passed.');
