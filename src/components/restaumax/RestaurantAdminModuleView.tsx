@@ -9,9 +9,15 @@ import { formatFCFA } from '../../utils/format';
 import { InventoryRecipePanel } from './InventoryRecipePanel';
 
 type ModuleId = 'customers' | 'inventory' | 'reports' | 'settings';
-type Customer = { id: string; name: string; phone: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
+type Customer = { id: string; name: string; phone: string; phoneNormalized?: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
 type InventoryItem = { id: string; name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier?: string; updatedAt: number; active?: boolean };
 type StockMovement = { id: string; itemName: string; unit: string; quantityBefore: number; delta: number; quantityAfter: number; reason: string; createdAt: number; createdBy: string };
+
+const normalizeCustomerPhone = (value: string) => {
+  const digits = value.replace(/\\D/g, '');
+  const local = digits.startsWith('225') && digits.length === 13 ? digits.slice(3) : digits;
+  return /^[0-9]{10}$/.test(local) ? local : '';
+};
 
 const titles: Record<ModuleId, string> = {
   customers: 'Clients et fidélité',
@@ -48,6 +54,7 @@ export const RestaurantAdminModuleView: React.FC<{
     name: restaurant.name, tagline: restaurant.tagline || '', address: restaurant.address || '',
     city: restaurant.city || '', phone: restaurant.phone || '', openingHours: restaurant.openingHours || '',
     isOpen: restaurant.isOpen, taxRatePercent: String(restaurant.taxRatePercent ?? 0), taxMode: restaurant.taxMode || 'exclusive',
+    loyaltyFcfaPerPoint: String(restaurant.loyaltyFcfaPerPoint ?? 1000),
     receiptFooter: restaurant.receiptFooter || '', receiptPaperWidth: restaurant.receiptPaperWidth || '80mm'
   });
 
@@ -99,9 +106,14 @@ export const RestaurantAdminModuleView: React.FC<{
 
   const addCustomer = async (event: React.FormEvent) => {
     event.preventDefault(); setLoading(true); setError(''); setNotice('');
+    const phoneNormalized = normalizeCustomerPhone(customerForm.phone);
+    if (!phoneNormalized || customerForm.name.trim().length < 2) {
+      setError('Renseignez un nom valide et un numéro ivoirien à 10 chiffres (indicatif +225 accepté).');
+      setLoading(false); return;
+    }
     try {
       await addDoc(collection(db, 'restaurants', restaurant.slug, 'customers'), {
-        ...customerForm, name: customerForm.name.trim(), phone: customerForm.phone.trim(),
+        ...customerForm, name: customerForm.name.trim(), phone: customerForm.phone.trim(), phoneNormalized,
         email: customerForm.email.trim(), loyaltyPoints: 0, createdAt: Date.now(), updatedAt: Date.now()
       });
       setCustomerForm({ name: '', phone: '', email: '', notes: '' }); setNotice('Client enregistré.');
@@ -229,7 +241,9 @@ export const RestaurantAdminModuleView: React.FC<{
   const saveSettings = async (event: React.FormEvent) => {
     event.preventDefault(); setLoading(true); setError(''); setNotice('');
     const taxRatePercent = Number(settings.taxRatePercent);
-    if (!settings.name.trim() || !Number.isFinite(taxRatePercent) || taxRatePercent < 0 || taxRatePercent > 100) {
+    const loyaltyFcfaPerPoint = Number(settings.loyaltyFcfaPerPoint);
+    if (!settings.name.trim() || !Number.isFinite(taxRatePercent) || taxRatePercent < 0 || taxRatePercent > 100 ||
+        !Number.isSafeInteger(loyaltyFcfaPerPoint) || loyaltyFcfaPerPoint < 1 || loyaltyFcfaPerPoint > 100000000) {
       setError('Nom du restaurant ou taux de taxe invalide (0 à 100 %).'); setLoading(false); return;
     }
     try {
@@ -237,7 +251,7 @@ export const RestaurantAdminModuleView: React.FC<{
         ...restaurant, name: settings.name.trim(), tagline: settings.tagline.trim(),
         address: settings.address.trim(), city: settings.city.trim(), phone: settings.phone.trim(),
         openingHours: settings.openingHours.trim(), isOpen: settings.isOpen,
-        taxRatePercent, taxMode: settings.taxMode, receiptFooter: settings.receiptFooter.trim(),
+        taxRatePercent, taxMode: settings.taxMode, loyaltyFcfaPerPoint, receiptFooter: settings.receiptFooter.trim(),
         receiptPaperWidth: settings.receiptPaperWidth as '58mm' | '80mm'
       });
       setNotice('Paramètres enregistrés dans Firestore.');
@@ -329,6 +343,7 @@ export const RestaurantAdminModuleView: React.FC<{
         <label className="text-sm font-semibold">Téléphone<input value={settings.phone} onChange={e=>setSettings({...settings,phone:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/></label>
         <label className="text-sm font-semibold">Horaires d'ouverture<input value={settings.openingHours} onChange={e=>setSettings({...settings,openingHours:e.target.value})} placeholder="Ex. Lun–Dim : 11h–23h" className="mt-1 w-full rounded-lg border p-3"/></label>
         <label className="text-sm font-semibold">Taux de taxe (%)<input type="number" min="0" max="100" step="0.01" value={settings.taxRatePercent} onChange={e=>setSettings({...settings,taxRatePercent:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/><span className="text-xs font-normal text-slate-500">Appliqué automatiquement aux nouvelles commandes. Les commandes existantes conservent leur calcul historique.</span></label>
+        <label className="text-sm font-semibold">Seuil fidélité (FCFA par point)<input type="number" min="1" max="100000000" step="1" value={settings.loyaltyFcfaPerPoint} onChange={e=>setSettings({...settings,loyaltyFcfaPerPoint:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/><span className="text-xs font-normal text-slate-500">Par défaut : 1 point par 1 000 FCFA de sous-total, attribué à la commande entièrement réglée.</span></label>
         <label className="text-sm font-semibold">Mode de taxe<select value={settings.taxMode} onChange={e=>setSettings({...settings,taxMode:e.target.value as 'exclusive'|'inclusive'})} className="mt-1 w-full rounded-lg border p-3"><option value="exclusive">Taxe ajoutée au prix affiché (HT)</option><option value="inclusive">Taxe incluse dans le prix affiché (TTC)</option></select></label>
         <label className="text-sm font-semibold">Format d'impression ticket<select value={settings.receiptPaperWidth} onChange={e=>setSettings({...settings,receiptPaperWidth:e.target.value as '58mm'|'80mm'})} className="mt-1 w-full rounded-lg border p-3"><option value="58mm">58 mm</option><option value="80mm">80 mm</option></select></label>
         <label className="text-sm font-semibold md:col-span-2">Pied de ticket<input value={settings.receiptFooter} onChange={e=>setSettings({...settings,receiptFooter:e.target.value})} className="mt-1 w-full rounded-lg border p-3"/></label>
