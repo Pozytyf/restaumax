@@ -81,11 +81,25 @@ try {
       autoRenew: false, gracePeriodDays: 7
     })
   ]);
+  const freeSlug = 'subscription-free-emulator';
+  const freeRef = db.collection('restaurantSubscriptions').doc(freeSlug);
+  const freeRestaurant = db.collection('restaurants').doc(freeSlug);
+  await Promise.all([
+    freeRestaurant.set({ slug: freeSlug, status: 'active', isOpen: true }),
+    freeRef.set({
+      planName: 'Gratuit', priceFcfa: 0, billingCycle: 'monthly', status: 'active',
+      startsAt: now - 30 * 86400000, endsAt: now - 1, nextBillingAt: now - 1, autoRenew: true
+    })
+  ]);
+
   const noRenew = await runSubscriptionBillingCycleWithDb(db, now + 9 * 86400000);
   assert.equal(noRenew.restaurantsSuspended, 1, 'Un abonnement sans renouvellement est suspendu à échéance');
   assert.equal((await nonRenewRestaurant.get()).data().suspensionReason, 'subscription_nonrenewal');
+  assert.equal(noRenew.freePlansRenewed, 1, 'Un abonnement gratuit est renouvelé sans facture ni paiement');
+  assert.equal((await freeRef.get()).data().status, 'active');
+  assert.equal((await freeRef.collection('invoices').get()).size, 0);
 
-  console.log('Subscription billing Firestore Emulator tests passed: 22 assertions.');
+  console.log('Subscription billing Firestore Emulator tests passed: 25 assertions.');
 } finally {
   await app.delete();
 }
