@@ -151,6 +151,28 @@ async function run() {
     const recent = await listRecentCashPaymentsWithDb(db, slug, 100);
     assert(recent.length === 3, 'Le journal retourne les trois encaissements réellement persistés');
 
+    console.log('\n--- Attribution automatique de fidélité ---');
+    await restaurantRef.collection('customers').doc('client-loyalty').set({
+      name: 'Client Fidélité', phone: '+2250102030405', loyaltyPoints: 0, lifetimeSpend: 0
+    });
+    await restaurantRef.collection('orders').doc('order-loyalty').set({
+      id: 'order-loyalty', orderNumber: '#CMD-LOYALTY', restaurantSlug: slug,
+      totalAmount: 2500, subtotalAmount: 2500, taxAmount: 0, paidAmount: 0,
+      remainingAmount: 2500, currency: 'FCFA', status: 'pending',
+      customerId: 'client-loyalty', items: [{ name: 'Plat fidélité', quantity: 1, unitPrice: 2500 }]
+    });
+    const loyaltyPayment = await recordCashPaymentWithDb(db, input('order-loyalty', 2500, 'cash-loyalty-0001'));
+    const loyaltyCustomer = (await restaurantRef.collection('customers').doc('client-loyalty').get()).data();
+    const loyaltyMarker = await restaurantRef.collection('loyaltyTransactions').doc('order-loyalty').get();
+    assert(loyaltyPayment.success === true && loyaltyPayment.payment?.loyaltyPointsAwarded === 2 &&
+      loyaltyCustomer?.loyaltyPoints === 2 && loyaltyCustomer?.lifetimeSpend === 2500 &&
+      loyaltyMarker.exists,
+      'Les points sont crédités atomiquement à la dernière échéance de paiement');
+    const loyaltyReplay = await recordCashPaymentWithDb(db, input('order-loyalty', 2500, 'cash-loyalty-0001'));
+    assert(loyaltyReplay.success === true && loyaltyReplay.idempotentReplay === true &&
+      (await restaurantRef.collection('customers').doc('client-loyalty').get()).data().loyaltyPoints === 2,
+      'Un rejeu du paiement ne crédite jamais les points une seconde fois');
+
     console.log('\n--- Sorties de caisse et rapprochement ---');
     const overspend = await recordCashMovementWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
