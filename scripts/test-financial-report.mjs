@@ -51,5 +51,12 @@ const missingCosts = calculateRestaurantFinancialReport({
 }, { startAt: 1, endAt: 2, includeCashDetails: false });
 assert.equal(missingCosts.costCoverageComplete, false, 'Les coûts historiques manquants sont signalés au lieu d’être inventés.');
 assert.equal(missingCosts.missingCostMovementCount, 1);
+const untrackedOrder = calculateRestaurantFinancialReport({
+  orders: [{ id: 'order-3', status: 'completed', totalAmount: 500, paidAmount: 500, stockTrackingStatus: 'skipped', items: [] }],
+  payments: [{ id: 'p3', orderId: 'order-3', method: 'especes', paidAmount: 500 }],
+  refunds: [], stockMovements: [], cashMovements: [], cashSessions: []
+}, { startAt: 1, endAt: 2, includeCashDetails: false });
+assert.equal(untrackedOrder.costCoverageComplete, false, 'Les commandes sans recette suivie rendent la couverture de marge incomplète');
+assert.equal(untrackedOrder.untrackedStockOrderCount, 1);
 
-console.log('Financial report calculation tests passed: 16 assertions.');
+console.log('Financial report calculation tests passed: 18 assertions.');
