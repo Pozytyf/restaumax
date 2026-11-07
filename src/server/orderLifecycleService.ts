@@ -188,7 +188,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           status: recipeLines.length ? (untrackedMenuItemIds.length ? 'partial' : 'applied') : 'skipped',
           lines: recipeLines, untrackedMenuItemIds, consumedAt: now, consumedBy: actorUid
         });
-      } else if (targetStatus === 'cancelled' && consumption?.status === 'applied' && !consumption.restoredAt) {
+      } else if (targetStatus === 'cancelled' && ['applied', 'partial'].includes(String(consumption?.status || '')) && !consumption.restoredAt) {
         for (let i = 0; i < recipeLines.length; i++) {
           if (!inventorySnaps[i]?.exists) return { success: false, error: 'Un ingrédient consommé est introuvable : restauration bloquée.' };
           if (movementSnaps[i]?.exists) return { success: false, error: 'Mouvement de restauration déjà présent : contrôle requis.' };
