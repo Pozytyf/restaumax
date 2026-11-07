@@ -68,7 +68,7 @@ export function calculateRestaurantFinancialReport(
     netSales += Math.max(0, netPaid - taxShare);
     // Les quantités vendues suivent les encaissements nets : une commande
     // intégralement remboursée ne doit pas rester dans le classement.
-    const retainedShare = total > 0 ? netPaid / total : (paidBeforeRefund > 0 ? netPaid / paidBeforeRefund : 0);
+    const retainedShare = paidBeforeRefund > 0 ? Math.min(1, netPaid / paidBeforeRefund) : 0;
     if (retainedShare > 0) {
       for (const line of Array.isArray(order.items) ? order.items : []) {
         const name = String(line.name || 'Article');
