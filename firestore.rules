@@ -270,6 +270,14 @@ service cloud.firestore {
           !existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuItems/$(menuItemId));
       }
 
+      match /menuCustomizationRecipes/{recipeId} {
+        allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
+        // Customization recipes are written only through the trusted inventory API.
+        allow create, update: if false;
+        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
+          isValidId(recipeId);
+      }
+
       match /stockMovements/{movementId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
         // Append-only from the trusted Admin SDK transaction; no client writes.
