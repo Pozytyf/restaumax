@@ -59,7 +59,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       const canKitchen = (member.role === 'kitchen' && permissions.includes('kitchen.access')) ||
         (member.role === 'manager' && (permissions.includes('kitchen.access') || canManage));
       const canCancel = member.role === 'cashier' && permissions.includes('orders.cancel');
-      const canServe = member.role === 'server' && permissions.includes('orders.serve');
+      const canServe = member.role === 'server' && permissions.includes('orders.serve') && order.assignedWaiterUid === actorUid;
 
       const allowed = isOwner || canManage ||
         (targetStatus === 'in_prep' && canKitchen) ||
@@ -267,7 +267,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       }
       tx.update(orderRef, orderUpdate);
       return { success: true, status: targetStatus, idempotentReplay: false, stockLines: recipeLines.length };
-    });
+    }, { maxAttempts: 10 });
   } catch (error: any) {
     console.error('[RestauMax order lifecycle] Transaction failed:', error?.message || String(error));
     return { success: false, error: 'Impossible de mettre à jour la commande et son stock. Réessayez.' };

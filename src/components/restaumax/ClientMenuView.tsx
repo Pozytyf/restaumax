@@ -15,10 +15,11 @@ import {
   Salad, 
   Cookie, 
   Wine, 
-  PlusCircle, 
+  PlusCircle,
+  Plus,
+  Minus, 
   Clock, 
-  ChevronRight, 
-  Info,
+    Info,
   Phone,
   ArrowLeft
 } from 'lucide-react';
@@ -119,6 +120,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('tous');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeItemModal, setActiveItemModal] = useState<RestauMenuItem | null>(null);
+  const [quantityByDish, setQuantityByDish] = useState<Record<string, number>>({});
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [confirmedOrder, setConfirmedOrder] = useState<RestauOrder | null>(null);
 
@@ -321,74 +323,35 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {filteredItems.map((dish) => (
-                <div
-                  key={dish.id}
-                  onClick={() => {
-                    sounds.playTap();
-                    setActiveItemModal(dish);
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setActiveItemModal(dish);
-                    }
-                  }}
-                  className="group bg-white rounded-2xl border border-slate-200/90 hover:border-slate-300 p-3.5 shadow-2xs hover:shadow-md transition-all cursor-pointer flex gap-3 text-left active:scale-[0.99]"
-                >
-                  {/* Dish Thumbnail */}
-                  <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl bg-slate-100 overflow-hidden shrink-0">
-                    <img
-                      src={dish.imageUrl}
-                      alt={dish.name}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      loading="lazy"
-                    />
-                    <span className="absolute bottom-1.5 left-1.5 text-[9px] font-bold text-white bg-black/60 backdrop-blur-2xs px-1.5 py-0.5 rounded tnum">
-                      {dish.prepTimeMinutes}m
-                    </span>
-                  </div>
-
-                  {/* Dish Details */}
-                  <div className="flex-1 min-w-0 flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-start justify-between gap-1">
-                        <h3 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-[#ff6500] transition-colors line-clamp-1 leading-snug">
-                          {dish.name}
-                        </h3>
-                      </div>
-                      <p className="text-[11px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">
-                        {dish.description}
-                      </p>
+            <div className="divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              {filteredItems.map((dish) => {
+                const quantity = Math.max(1, quantityByDish[dish.id] || 1);
+                return <div key={dish.id} className="flex items-center gap-3 p-3 sm:p-4">
+                  <img src={dish.imageUrl} alt="" referrerPolicy="no-referrer" loading="lazy"
+                    className="h-16 w-16 shrink-0 rounded-xl bg-slate-100 object-cover sm:h-20 sm:w-20" />
+                  <button type="button" onClick={() => { sounds.playTap(); setActiveItemModal(dish); }}
+                    className="min-w-0 flex-1 text-left">
+                    <span className="block truncate text-sm font-bold text-slate-900">{dish.name}</span>
+                    <span className="mt-1 line-clamp-2 block text-xs leading-relaxed text-slate-500">{dish.description}</span>
+                    <span className="mt-1 block text-sm font-black text-[#ff6500]">{formatFCFA(dish.price)}</span>
+                  </button>
+                  <div className="flex shrink-0 flex-col items-center gap-1">
+                    <span className="text-[10px] font-semibold text-slate-500">Quantité</span>
+                    <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50">
+                      <button type="button" aria-label={`Diminuer la quantité de ${dish.name}`} disabled={quantity <= 1}
+                        onClick={() => setQuantityByDish(current => ({ ...current, [dish.id]: Math.max(1, quantity - 1) }))}
+                        className="flex h-8 w-8 items-center justify-center text-slate-700 disabled:opacity-30"><Minus size={13}/></button>
+                      <span className="w-6 text-center text-xs font-bold tabular-nums">{quantity}</span>
+                      <button type="button" aria-label={`Augmenter la quantité de ${dish.name}`}
+                        onClick={() => setQuantityByDish(current => ({ ...current, [dish.id]: quantity + 1 }))}
+                        className="flex h-8 w-8 items-center justify-center text-slate-700"><Plus size={13}/></button>
                     </div>
-
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-xs sm:text-sm font-black text-[#ff6500] tnum">
-                        {formatFCFA(dish.price)}
-                      </span>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          sounds.playTap();
-                          setActiveItemModal(dish);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-orange-50 group-hover:bg-[#ff6500] text-[#ff6500] group-hover:text-white font-bold text-[11px] transition-colors flex items-center gap-1"
-                      >
-                        <span>Choisir</span>
-                        <ChevronRight size={12} />
-                      </button>
-                    </div>
+                    <button type="button" onClick={() => { sounds.playTap(); setActiveItemModal(dish); }}
+                      className="mt-1 rounded-lg bg-orange-50 px-2.5 py-1.5 text-[11px] font-bold text-[#ff6500]">Ajouter</button>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                </div>;
+              })}
+            </div>          )}
         </div>
       </div>
 
@@ -435,6 +398,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         return (
           <ProductDetailModal
             item={activeItemModal}
+            initialQuantity={activeItemModal ? Math.max(1, quantityByDish[activeItemModal.id] || 1) : 1}
             isAvailable={isDishCurrentlyAvailable}
             onClose={() => setActiveItemModal(null)}
             onAddToCart={onAddToCart}

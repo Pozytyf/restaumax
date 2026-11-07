@@ -16,6 +16,7 @@ const PERMISSIONS = [
 type StaffRole = 'owner'|'manager'|'cashier'|'server'|'kitchen';
 type EditableStaffRole = Exclude<StaffRole, 'owner'>;
 type StaffMember = { uid: string; email: string; displayName: string; role: StaffRole; permissions: string[]; active: boolean };
+type StaffTable = { id: string; tableNumber?: string; section?: string; isActive?: boolean; assignedWaiter?: string | null };
 const ROLE_LABELS: Record<StaffRole, string> = {
   owner: 'Propriétaire', manager: 'Manager', cashier: 'Caissier', server: 'Serveur', kitchen: 'Cuisine / Bar'
 };
@@ -35,7 +36,10 @@ const permissionLabel = (id: string) => PERMISSIONS.find(([permission]) => permi
 
 export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () => void }> = ({ restaurantSlug, onBack }) => {
   const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [tables, setTables] = useState<StaffTable[]>([]);
+  const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string[]>>({});
   const [actorRole, setActorRole] = useState<'owner'|'manager'|null>(null);
+  const [canAssignTables, setCanAssignTables] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -59,7 +63,7 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
-    try { const token = await auth.currentUser?.getIdToken(true); const response = await fetch(`/api/platform-admin?action=staff_list&slug=${encodeURIComponent(restaurantSlug)}`, { headers: { Authorization: `Bearer ${token}` } }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Lecture impossible.'); setStaff(result.staff || []); setActorRole(result.actorRole === 'manager' || result.actorRole === 'owner' ? result.actorRole : null); }
+    try { const token = await auth.currentUser?.getIdToken(true); const response = await fetch(`/api/platform-admin?action=staff_list&slug=${encodeURIComponent(restaurantSlug)}`, { headers: { Authorization: `Bearer ${token}` } }); const result = await response.json(); if (!response.ok || !result.success) throw new Error(result.error || 'Lecture impossible.'); setStaff(result.staff || []); setTables((result.tables || []).filter((table: StaffTable) => table.isActive !== false)); setAssignmentDrafts(Object.fromEntries((result.staff || []).filter((member: StaffMember) => member.role === 'server').map((member: StaffMember) => [member.uid, (result.tables || []).filter((table: StaffTable) => table.assignedWaiter === member.uid).map((table: StaffTable) => table.id)]))); setActorRole(result.actorRole === 'manager' || result.actorRole === 'owner' ? result.actorRole : null); setCanAssignTables(result.canAssignTables === true); }
     catch (e: any) { setError(e.message || 'Impossible de charger le personnel.'); }
     finally { setLoading(false); }
   }, [request, restaurantSlug]);
@@ -78,6 +82,17 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
       setForm({ name: '', email: '', role: 'cashier', permissions: ROLE_DEFAULTS.cashier });
       await refresh();
     } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const saveTableAssignments = async (member: StaffMember) => {
+    setLoading(true); setError(''); setNotice('');
+    try {
+      const tableIds = assignmentDrafts[member.uid] || [];
+      await request({ action: 'assign_server_tables', slug: restaurantSlug, uid: member.uid, tableIds });
+      setNotice(`Affectation enregistrée : ${tableIds.length} table(s) pour ${member.displayName}.`);
+      await refresh();
+    } catch (e: any) { setError(e.message || 'Affectation impossible.'); }
     finally { setLoading(false); }
   };
 
@@ -153,6 +168,18 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
         <div className="flex items-center justify-between border-b border-slate-200 p-4"><h2 className="font-bold">Comptes du restaurant</h2><button onClick={refresh} disabled={loading} className="flex items-center gap-2 text-sm"><RefreshCw size={14}/> Actualiser</button></div>
         {staff.map(member=><div key={member.uid} className="border-b border-slate-100 p-4 last:border-0">
           <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold">{member.displayName} {member.role === 'owner' && <span className="text-xs text-orange-600">· Propriétaire</span>}</p><p className="text-xs text-slate-500">{member.email} · {ROLE_LABELS[member.role] || member.role}</p><p className="mt-1 text-xs text-slate-500">{member.permissions?.length || 0} autorisation(s) · {member.active ? 'Actif' : 'Suspendu'}</p></div>{member.role !== 'owner' && !(actorRole === 'manager' && member.role === 'manager') && <div className="flex flex-wrap gap-2">{member.active && <button onClick={()=>beginEdit(member)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold">Modifier les droits</button>}{member.active ? <button disabled={loading} onClick={()=>setMemberStatus(member,'suspended')} className="flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700"><UserX size={14}/> Suspendre</button> : <button disabled={loading} onClick={()=>setMemberStatus(member,'active')} className="flex items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-xs font-bold text-emerald-700"><UserCheck size={14}/> Réactiver</button>}<button disabled={loading} onClick={()=>deleteMember(member)} className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-600"><Trash2 size={14}/> Supprimer</button></div>}</div>
+          {canAssignTables && member.role === 'server' && member.active && <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <label className="mb-2 block text-xs font-bold text-slate-700">Tables attribuées à ce serveur (sélection multiple)</label>
+            <select multiple size={Math.min(5, Math.max(3, tables.length))} value={assignmentDrafts[member.uid] || []}
+              onChange={event => setAssignmentDrafts(current => ({ ...current, [member.uid]: Array.from(event.target.selectedOptions, option => option.value) }))}
+              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm" aria-label={`Tables gérées par ${member.displayName}`}>
+              {tables.map(table => <option key={table.id} value={table.id}>
+                Table {table.tableNumber || table.id}{table.section ? ` · ${table.section}` : ''}{table.assignedWaiter && table.assignedWaiter !== member.uid ? ' · actuellement attribuée à un autre serveur (réaffectation)' : ''}
+              </option>)}
+            </select>
+            <p className="mt-1 text-[11px] text-slate-500">Une table ne peut être affectée qu’à un seul serveur. L’enregistrement réaffecte les tables sélectionnées et libère les anciennes tables de ce serveur.</p>
+            <button disabled={loading} onClick={() => saveTableAssignments(member)} className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white">Enregistrer les tables</button>
+          </div>}
           {editingUid === member.uid && <div className="mt-4 space-y-3 rounded-xl bg-slate-50 p-4"><select value={editRole} onChange={e=>{const role=e.target.value as EditableStaffRole;setEditRole(role);setEditPermissions(ROLE_DEFAULTS[role]);}} className="rounded-lg border border-slate-300 bg-white p-2 text-sm">{actorRole === 'owner' && <option value="manager">Manager</option>}<option value="cashier">Caissier</option><option value="server">Serveur</option><option value="kitchen">Cuisine / Bar</option></select><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{PERMISSIONS.filter(([id])=>(actorRole === 'owner' ? ROLE_CEILINGS[editRole] : ROLE_DEFAULTS[editRole]).includes(id)).map(([id,label])=><label key={id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editPermissions.includes(id)} onChange={()=>toggleEditPermission(id)}/>{label}</label>)}</div>{actorRole === 'manager' && member.role !== 'owner' && (() => {
             const basePermissions = ROLE_DEFAULTS[member.role as EditableStaffRole] || [];
             const ownerExtras = member.permissions.filter(permission => !basePermissions.includes(permission));

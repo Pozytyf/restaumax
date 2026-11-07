@@ -446,17 +446,117 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       }
     }
 
+    // Super-admin account audit is deliberately read-only and limited to identity/linkage fields.
+    if (action === 'staff_list' && isSuperAdmin(user)) {
+      const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '').trim();
+      if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
+      const restaurantSnap = await db.collection('restaurants').doc(slug).get();
+      if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
+      const restaurant = restaurantSnap.data() || {};
+      const [staffSnap, managersSnap] = await Promise.all([
+        db.collection('restaurants').doc(slug).collection('staff').get(),
+        db.collection('managers').where('restaurantSlug', '==', slug).get()
+      ]);
+      const byUid = new Map<string, any>();
+      const addAccount = (raw: any, source: string) => {
+        const uid = String(raw?.uid || raw?.id || '').trim();
+        if (!uid) return;
+        const previous = byUid.get(uid) || {
+          uid, email: '', displayName: '', role: raw?.role || 'staff',
+          active: raw?.active === true, activeKnown: typeof raw?.active === 'boolean', accountLinked: true, emailConflict: false,
+          sources: [], emailValues: []
+        };
+        const email = typeof raw?.email === 'string' ? raw.email.trim().toLowerCase() : '';
+        if (email && !previous.emailValues.includes(email)) previous.emailValues.push(email);
+        previous.emailConflict = previous.emailValues.length > 1;
+        previous.email = email || previous.email;
+        previous.displayName = String(raw?.displayName || raw?.ownerName || previous.displayName || '');
+        previous.role = raw?.role === 'owner' || previous.role === 'owner' ? 'owner' : (raw?.role || previous.role);
+        if (typeof raw?.active === 'boolean') { previous.active = raw.active; previous.activeKnown = true; }
+        if (!previous.sources.includes(source)) previous.sources.push(source);
+        byUid.set(uid, previous);
+      };
+      staffSnap.docs.forEach((doc: any) => addAccount({ ...doc.data(), uid: doc.id }, 'restaurant.staff'));
+      managersSnap.docs.forEach((doc: any) => addAccount({ ...doc.data(), uid: doc.id }, 'managers'));
+      const ownerUid = String(restaurant.ownerUid || '').trim();
+      const ownerEmail = typeof restaurant.ownerEmail === 'string' ? restaurant.ownerEmail.trim().toLowerCase() : '';
+      const ownerName = String(restaurant.ownerName || '').trim();
+      if (ownerUid) {
+        addAccount({ uid: ownerUid, email: ownerEmail, displayName: ownerName, role: 'owner' }, 'restaurants.owner');
+      } else if (ownerEmail || ownerName) {
+        byUid.set('unlinked-owner', {
+          uid: 'unlinked-owner', email: ownerEmail, displayName: ownerName,
+          role: 'owner', active: false, activeKnown: false, accountLinked: false, emailConflict: false,
+          sources: ['restaurants.owner'], emailValues: ownerEmail ? [ownerEmail] : []
+        });
+      }
+      const accounts = [...byUid.values()].map(({ emailValues, ...account }) => ({
+        ...account, readOnly: true
+      }));
+      return json(res, 200, {
+        success: true, actorRole: 'super_admin', restaurant: {
+          slug, name: String(restaurant.name || ''), status: String(restaurant.status || 'unknown'),
+          ownerUid: ownerUid || null, ownerEmail: ownerEmail || null, ownerName: ownerName || null
+        }, staff: accounts
+      });
+    }
+
     // Owner and authorized manager staff administration, strictly scoped to one active restaurant.
-    if (action === 'staff_list' || action === 'create_staff' || action === 'update_staff' || action === 'disable_staff' || action === 'set_staff_status' || action === 'delete_staff') {
+    if (action === 'staff_list' || action === 'create_staff' || action === 'assign_server_tables' || action === 'update_staff' || action === 'disable_staff' || action === 'set_staff_status' || action === 'delete_staff') {
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '');
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
       const actor = await requireStaffAdministrator(db, user, slug);
       if (!actor) return json(res, 403, { success: false, error: 'Gestion du personnel non autorisée pour ce restaurant.' });
 
       const staffRef = db.collection('restaurants').doc(slug).collection('staff');
+      const releaseServerTables = async (uid: string) => {
+        const restaurantRef = db.collection('restaurants').doc(slug);
+        const assigned = await restaurantRef.collection('tables').where('assignedWaiter', '==', uid).get();
+        for (let offset = 0; offset < assigned.docs.length; offset += 400) {
+          const batch = db.batch();
+          assigned.docs.slice(offset, offset + 400).forEach((doc: any) => batch.set(doc.ref, {
+            assignedWaiter: null, assignedWaiterName: null, assignmentUpdatedAt: Date.now(), assignmentUpdatedBy: user.uid
+          }, { merge: true }));
+          await batch.commit();
+        }
+        for (const tableDoc of assigned.docs) {
+          const tableNumber = String(tableDoc.data()?.tableNumber || '').trim();
+          if (!tableNumber) continue;
+          const orders = await restaurantRef.collection('orders').where('tableNumber', '==', tableNumber).get();
+          const activeOrders = orders.docs.filter((doc: any) =>
+            ['pending', 'in_prep', 'ready'].includes(String(doc.data()?.status || ''))
+          );
+          for (let offset = 0; offset < activeOrders.length; offset += 400) {
+            const batch = db.batch();
+            activeOrders.slice(offset, offset + 400).forEach((doc: any) => batch.update(doc.ref, {
+              assignedWaiterUid: null,
+              waiterAssignmentUpdatedAt: Date.now(),
+              waiterAssignmentUpdatedBy: user.uid
+            }));
+            await batch.commit();
+          }
+        }
+      };
       if (action === 'staff_list') {
-        const snap = await staffRef.get();
-        return json(res, 200, { success: true, actorRole: actor.role, staff: snap.docs.map((d: any) => d.data()) });
+        const actorMembership = actor.role === 'manager'
+          ? await db.collection('managers').doc(user.uid).get()
+          : null;
+        const actorPermissions = Array.isArray(actorMembership?.data()?.permissions)
+          ? actorMembership.data().permissions
+          : [];
+        const canViewTables = actor.role === 'owner' || actorPermissions.includes('tables.view') || actorPermissions.includes('tables.manage');
+        const canAssignTables = actor.role === 'owner' || actorPermissions.includes('tables.manage');
+        const [snap, tablesSnap] = await Promise.all([
+          staffRef.get(),
+          canViewTables
+            ? db.collection('restaurants').doc(slug).collection('tables').get()
+            : Promise.resolve({ docs: [] })
+        ]);
+        return json(res, 200, {
+          success: true, actorRole: actor.role, canAssignTables,
+          staff: snap.docs.map((d: any) => d.data()),
+          tables: tablesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+        });
       }
 
       if (action === 'create_staff') {
@@ -487,6 +587,105 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           if (newUser?.uid) await auth.deleteUser(newUser.uid).catch(() => undefined);
           throw error;
         }
+      }
+
+      if (action === 'assign_server_tables') {
+        const staffUid = String(body.uid || '').trim();
+        const requestedIds: string[] | null = Array.isArray(body.tableIds)
+          ? [...new Set((body.tableIds as unknown[]).map((id) => String(id || '').trim()).filter((id) => id.length > 0))]
+          : null;
+        if (!staffUid || !requestedIds || requestedIds.length > 30) {
+          return json(res, 400, { success: false, error: 'Serveur ou liste de tables invalide (30 tables maximum).' });
+        }
+        if (actor.role === 'manager') {
+          const managerSnap = await db.collection('managers').doc(user.uid).get();
+          if (!managerSnap.exists || !Array.isArray(managerSnap.data()?.permissions) ||
+              !managerSnap.data().permissions.includes('tables.manage')) {
+            return json(res, 403, { success: false, error: 'La permission tables.manage est requise pour affecter les tables.' });
+          }
+        }
+        const serverRef = staffRef.doc(staffUid);
+        const [serverSnap, serverMembershipSnap] = await Promise.all([
+          serverRef.get(), db.collection('managers').doc(staffUid).get()
+        ]);
+        const server = serverSnap.exists ? serverSnap.data() : null;
+        const serverMembership = serverMembershipSnap.exists ? serverMembershipSnap.data() : null;
+        if (!server || !serverMembership ||
+            server.role !== 'server' || serverMembership.role !== 'server' ||
+            server.active !== true || serverMembership.active !== true ||
+            server.restaurantSlug !== slug || serverMembership.restaurantSlug !== slug ||
+            Number(server.sessionVersion || 0) !== Number(serverMembership.sessionVersion || 0)) {
+          return json(res, 409, { success: false, error: 'Seul un serveur actif et correctement lié à ce restaurant peut recevoir des tables.' });
+        }
+        const tablesRef = db.collection('restaurants').doc(slug).collection('tables');
+        const [previousAssignments, requestedSnapshots] = await Promise.all([
+          tablesRef.where('assignedWaiter', '==', staffUid).get(),
+          Promise.all(requestedIds.map((id: string) => tablesRef.doc(id).get()))
+        ]);
+        if (requestedSnapshots.some((snap: any) => !snap.exists || snap.data()?.isActive !== true)) {
+          return json(res, 400, { success: false, error: 'Une ou plusieurs tables sont introuvables ou inactives.' });
+        }
+        const refsByPath = new Map<string, any>();
+        previousAssignments.docs.forEach((doc: any) => refsByPath.set(doc.ref.path, doc.ref));
+        requestedSnapshots.forEach((snap: any) => refsByPath.set(snap.ref.path, snap.ref));
+        const refs = [...refsByPath.values()];
+        const ordersRef = db.collection('restaurants').doc(slug).collection('orders');
+        const serverMembershipRef = db.collection('managers').doc(staffUid);
+        await db.runTransaction(async (tx: any) => {
+          const [snapshots, freshServerMembershipSnap] = await Promise.all([
+            Promise.all(refs.map((ref: any) => tx.get(ref))),
+            tx.get(serverMembershipRef)
+          ]);
+          const freshServerMembership = freshServerMembershipSnap.exists ? freshServerMembershipSnap.data() : null;
+          if (!freshServerMembership || freshServerMembership.active !== true ||
+              freshServerMembership.role !== 'server' || freshServerMembership.restaurantSlug !== slug) {
+            throw new Error('Le serveur a été suspendu ou modifié pendant l’affectation.');
+          }
+          if (snapshots.some((snap: any) => !snap.exists)) {
+            throw new Error('Une table a été supprimée pendant l’affectation.');
+          }
+          const orderSnapshots = await Promise.all(snapshots.map((snap: any) => {
+            const tableNumber = String(snap.data()?.tableNumber || '').trim();
+            return tableNumber ? tx.get(ordersRef.where('tableNumber', '==', tableNumber)) : Promise.resolve(null);
+          }));
+          const requestedSet = new Set(requestedIds);
+          const now = Date.now();
+          snapshots.forEach((snap: any, index: number) => {
+            const data = snap.data() || {};
+            const tableId = refs[index].id;
+            const isRequested = requestedSet.has(tableId);
+            if (isRequested && data.isActive !== true) {
+              throw new Error('Une table sélectionnée est devenue inactive.');
+            }
+            const currentWaiterUid = typeof data.assignedWaiter === 'string' ? data.assignedWaiter : null;
+            const targetWaiterUid = isRequested ? staffUid : (currentWaiterUid === staffUid ? null : currentWaiterUid);
+            if (isRequested || currentWaiterUid === staffUid) {
+              tx.update(refs[index], {
+                assignedWaiter: targetWaiterUid,
+                assignedWaiterName: targetWaiterUid === staffUid ? String(server.displayName || '') : null,
+                assignmentUpdatedAt: now,
+                assignmentUpdatedBy: user.uid
+              });
+            }
+            const orders = orderSnapshots[index]?.docs || [];
+            orders.forEach((orderDoc: any) => {
+              if (['pending', 'in_prep', 'ready'].includes(String(orderDoc.data()?.status || '')) &&
+                  orderDoc.data()?.assignedWaiterUid !== targetWaiterUid) {
+                tx.update(orderDoc.ref, {
+                  assignedWaiterUid: targetWaiterUid,
+                  waiterAssignmentUpdatedAt: now,
+                  waiterAssignmentUpdatedBy: user.uid
+                });
+              }
+            });
+          });
+        });
+        await db.collection('admin_audit_logs').add({
+          action: 'assign_server_tables', restaurantSlug: slug, targetUid: staffUid,
+          tableIds: requestedIds, actorUid: user.uid, createdAt: Date.now(),
+          activeOrdersSynchronized: true
+        });
+        return json(res, 200, { success: true, uid: staffUid, tableIds: requestedIds });
       }
 
       const staffUid = String(body.uid || '').trim();
@@ -528,6 +727,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const authUser = await auth.getUser(staffUid);
         const nextClaims = { ...(authUser.customClaims || {}), sessionVersion };
         if (nextActive) {
+          if (member.role === 'server') await releaseServerTables(staffUid);
           // Publish a new token version before reopening Firestore membership.
           await auth.setCustomUserClaims(staffUid, nextClaims);
           await auth.updateUser(staffUid, { disabled: false });
@@ -542,6 +742,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           batch.set(memberRef, { active: false, status: 'suspended', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
           batch.set(managerRef, { active: false, status: 'suspended', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
           await batch.commit();
+          if (member.role === 'server') await releaseServerTables(staffUid);
           await auth.setCustomUserClaims(staffUid, nextClaims);
           await auth.updateUser(staffUid, { disabled: true });
           await auth.revokeRefreshTokens(staffUid);
@@ -558,6 +759,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         revokeBatch.set(memberRef, { active: false, status: 'deleting', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
         revokeBatch.set(managerRef, { active: false, status: 'deleting', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
         await revokeBatch.commit();
+        if (member.role === 'server') await releaseServerTables(staffUid);
         try {
           const authUser = await auth.getUser(staffUid);
           await auth.setCustomUserClaims(staffUid, { ...(authUser.customClaims || {}), sessionVersion });
@@ -649,6 +851,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const currentAuthUser = await getAuth().getUser(staffUid);
         await getAuth().setCustomUserClaims(staffUid, { ...(currentAuthUser.customClaims || {}), role, restaurantSlug: slug, permissions, sessionVersion });
         await getAuth().revokeRefreshTokens(staffUid);
+        if (member.role === 'server' && role !== 'server') await releaseServerTables(staffUid);
         return json(res, 200, { success: true, requiresReauthentication: true });
       }
     }

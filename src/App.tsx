@@ -487,13 +487,13 @@ export default function App() {
       if (isMounted) {
         setRestauTables(tbls);
       }
-    });
+    }, undefined, authRestaurantRole === 'server' ? authUser?.uid : undefined);
 
     return () => {
       isMounted = false;
       unsubTables();
     };
-  }, [authUser, isRestaurantOwner, userPermissions, activeRestaurantSlug]);
+  }, [authUser, authRestaurantRole, isRestaurantOwner, userPermissions, activeRestaurantSlug]);
 
   // Subscribe to the active restaurant's orders for KDS and unpaid POS recovery.
   useEffect(() => {
@@ -527,14 +527,15 @@ export default function App() {
       },
       (err) => {
         console.warn('Flux des commandes Firestore en attente ou restreint:', err);
-      }
+      },
+      authRestaurantRole === 'server' ? authUser?.uid : undefined
     );
 
     return () => {
       isMounted = false;
       unsubOrders();
     };
-  }, [authUser, activeRestaurantSlug, isRestaurantOwner, userPermissions]);
+  }, [authUser, authRestaurantRole, activeRestaurantSlug, isRestaurantOwner, userPermissions]);
 
 
   useEffect(() => {
