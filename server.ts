@@ -62,6 +62,7 @@ import {
   buildSessionCookie,
   getActiveTableSession,
   issueTableQr,
+  getActiveTableQr,
   isTrustedQrNavigation,
   readCookie,
   requestHasValidOrigin,
@@ -862,6 +863,26 @@ export async function handleTableQrManagement(req: any) {
   if (!restaurantSlug || !tableId) return { statusCode: 400, body: { success: false, error: 'Restaurant et table obligatoires.' } };
   try {
     await authorizeTableManager(adminDb, adminAuth, req, restaurantSlug);
+    if (req.method === 'GET') {
+      let restored = await getActiveTableQr(
+        adminDb, restaurantSlug, tableId,
+        String(process.env.APP_ORIGIN || req.headers.origin || ''), process.env
+      );
+      // Upgrade legacy QR records created before encrypted token persistence.
+      if (!restored) {
+        const rawOrigin = String(process.env.APP_ORIGIN || req.headers.origin || '');
+        let parsedOrigin: URL;
+        try { parsedOrigin = new URL(rawOrigin); } catch {
+          return { statusCode: 400, body: { success: false, error: 'Origine applicative non configurée.' } };
+        }
+        const localHttp = parsedOrigin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsedOrigin.hostname);
+        if ((parsedOrigin.protocol !== 'https:' && !localHttp) || parsedOrigin.pathname !== '/' || parsedOrigin.search || parsedOrigin.hash) {
+          return { statusCode: 400, body: { success: false, error: 'APP_ORIGIN doit être une origine HTTPS canonique, sans chemin.' } };
+        }
+        restored = await issueTableQr(adminDb, restaurantSlug, tableId, parsedOrigin.origin, process.env);
+      }
+      return { statusCode: 200, body: { success: true, url: restored.url, restored: true } };
+    }
     if (req.method === 'POST') {
       const rawOrigin = String(process.env.APP_ORIGIN || req.headers.origin || '');
       let parsedOrigin: URL;
@@ -872,7 +893,7 @@ export async function handleTableQrManagement(req: any) {
       if ((parsedOrigin.protocol !== 'https:' && !localHttp) || parsedOrigin.pathname !== '/' || parsedOrigin.search || parsedOrigin.hash) {
         return { statusCode: 400, body: { success: false, error: 'APP_ORIGIN doit être une origine HTTPS canonique, sans chemin.' } };
       }
-      const issued = await issueTableQr(adminDb, restaurantSlug, tableId, parsedOrigin.origin);
+      const issued = await issueTableQr(adminDb, restaurantSlug, tableId, parsedOrigin.origin, process.env);
       return { statusCode: 201, body: { success: true, url: issued.url } };
     }
     if (req.method === 'DELETE') {
