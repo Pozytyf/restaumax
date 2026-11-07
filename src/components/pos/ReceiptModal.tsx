@@ -148,6 +148,10 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose, re
               <span>SOUS-TOTAL:</span>
               <span className="tnum">{formatFCFA(receipt.subtotal)}</span>
             </div>
+            <div className="flex justify-between">
+              <span>{receipt.taxMode === 'inclusive' ? 'TAXE INCLUSE' : 'TAXE'} ({Number(receipt.taxRatePercent || 0)} %):</span>
+              <span className="tnum">{formatFCFA(receipt.tax)}</span>
+            </div>
             {receipt.discount > 0 && (
               <div className="flex justify-between text-amber-700">
                 <span>REMISE APPLIQUÉE:</span>
