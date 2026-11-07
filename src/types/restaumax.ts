@@ -74,6 +74,7 @@ export interface RestaurantInfo {
   openingHours: string;
   taxRatePercent?: number;
   taxMode?: 'exclusive' | 'inclusive';
+  loyaltyPointsPer1000?: number;
   receiptFooter?: string;
   receiptPaperWidth?: '58mm' | '80mm';
 }
