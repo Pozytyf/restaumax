@@ -29,7 +29,7 @@ interface CartDrawerProps {
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
-  onConfirmOrder?: (customerNote?: string) => Promise<{ success: boolean; error?: string; isReplay?: boolean }>;
+  onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; isReplay?: boolean }>;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
 }
@@ -52,6 +52,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [customerNote, setCustomerNote] = useState<string>('');
+  const [customerName, setCustomerName] = useState<string>('');
+  const [customerPhone, setCustomerPhone] = useState<string>('');
 
   if (!isOpen) return null;
 
@@ -67,10 +69,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     setSubmitError(null);
 
     try {
-      const result = await onConfirmOrder(customerNote.trim() || undefined);
+      if (Boolean(customerName.trim()) !== Boolean(customerPhone.trim())) {
+        setSubmitError('Pour cumuler des points, renseignez à la fois votre nom et votre numéro de téléphone.');
+        setIsSubmitting(false);
+        return;
+      }
+      const result = await onConfirmOrder(customerNote.trim() || undefined, {
+        name: customerName.trim() || undefined, phone: customerPhone.trim() || undefined
+      });
       if (result.success) {
         // Successful submission: drawer is closed or transitioned by parent
         setCustomerNote('');
+        setCustomerName(''); setCustomerPhone('');
         setIsSubmitting(false);
       } else {
         // Failed submission: keep cart intact, display explicit message
@@ -324,6 +334,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 );
               })}
 
+              {/* Optional identity for automatic loyalty points */}
+              <div className="mb-3 rounded-xl border border-orange-200 bg-orange-50 p-3 space-y-2">
+                <p className="text-xs font-bold text-slate-800">Fidélité (facultatif)</p>
+                <p className="text-[11px] text-slate-600">Indiquez votre nom et votre téléphone pour cumuler automatiquement des points lorsque la commande est entièrement réglée.</p>
+                <input type="text" placeholder="Votre nom" value={customerName}
+                  onChange={e=>setCustomerName(e.target.value)} maxLength={80}
+                  disabled={isSubmitting || isUncertain}
+                  className="w-full rounded-lg border border-orange-200 bg-white p-2 text-xs"/>
+                <input type="tel" placeholder="Téléphone ivoirien (10 chiffres)" value={customerPhone}
+                  onChange={e=>setCustomerPhone(e.target.value)} maxLength={24}
+                  disabled={isSubmitting || isUncertain}
+                  className="w-full rounded-lg border border-orange-200 bg-white p-2 text-xs"/>
+              </div>
               {/* Optional general note for the entire order */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
                 <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
