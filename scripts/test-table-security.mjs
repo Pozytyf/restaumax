@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
 import {
-  issueTableQr, resolveTableQr, getActiveTableSession, revokeTableQr,
+  issueTableQr, getActiveTableQr, resolveTableQr, getActiveTableSession, revokeTableQr,
   buildSessionCookie, buildCsrfCookie, readCookie, validateCsrf, requestHasValidOrigin, isTrustedQrNavigation,
   authorizeTableManager
 } from '../src/server/tableSecurityService.ts';
+
+process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
 let passed = 0;
 let failed = 0;
@@ -166,6 +168,11 @@ async function run() {
   assert(/^[A-Za-z0-9_-]{43}$/.test(token), 'Jeton QR aléatoire de 256 bits au format Base64URL');
   assert(issued.url.startsWith('https://restaumax.example/q/'), 'URL QR opaque /q/<token>');
   assert(storedToken?.tokenHash === tokenHash && !JSON.stringify(storedToken).includes(token), 'Seule l’empreinte SHA-256 du jeton est stockée');
+  assert(storedToken?.encryptedToken?.algorithm === 'aes-256-gcm' && !JSON.stringify(storedToken).includes(token),
+    'Jeton récupérable uniquement depuis son enveloppe AES-256-GCM chiffrée côté serveur');
+  const restoredQr = await getActiveTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
+  assert(restoredQr?.url === issued.url && restoredQr.token === token,
+    'URL QR identique restaurée après rechargement sans rotation ni changement du jeton');
   assert(db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 1, 'Version QR incrémentée sur la table');
 
   const resolved = await resolveTableQr(db, token);
@@ -196,6 +203,8 @@ async function run() {
 
   const revoked = await revokeTableQr(db, 'chez-awa', 'table-4');
   assert(revoked.revoked === 1, 'Révocation immédiate du QR actif');
+  assert(await getActiveTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example') === null,
+    'Un QR révoqué ne peut pas être restauré par le point d’entrée GET');
   assert(revoked.versionAdvanced === true && db.store.get('restaurants/chez-awa/tables/table-4')?.qrVersion === 2,
     'La révocation incrémente atomiquement la version de table pour invalider les sessions et sérialiser une rotation concurrente');
   assert(await getActiveTableSession(db, resolved.sessionSecret) === null, 'Session existante invalidée immédiatement après révocation');
