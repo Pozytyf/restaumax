@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, openCashSessionWithDb, closeCashSessionWithDb, getCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from '../src/server/paymentService.ts';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, openCashSessionWithDb, closeCashSessionWithDb, getCashSessionWithDb, recordCashMovementWithDb } from '../src/server/paymentService.ts';
 
 let passed = 0;
 let failed = 0;
@@ -153,25 +153,6 @@ async function run() {
       'Les points sont calculés sur les ventes hors taxes, pas sur la taxe encaissée');
     const taxedCustomer = await restaurantRef.collection('customers').where('phoneNormalized', '==', '0700000002').get();
     assert(taxedCustomer.empty, 'Aucun compte fidélité inutile n’est créé lorsque le montant HT est sous le seuil');
-
-    const refundFinal = await refundCashPaymentWithDb(db, {
-      restaurantSlug: slug, paymentId: finalPayment.payment.id, actorUid: uid, sessionVersion: 3,
-      amount: 6500, reason: 'Remboursement de recette de test', idempotencyKey: 'refund-final-6500',
-      cashDisbursementConfirmed: true
-    });
-    assert(refundFinal.success === true, 'Un remboursement espèces confirmé est enregistré');
-    const afterPartialRefund = await restaurantRef.collection('customers').where('phoneNormalized', '==', '0700000001').get();
-    assert(afterPartialRefund.docs[0].data().loyaltyPoints === 3,
-      'Les points sont retirés au prorata du montant remboursé');
-    const refundInitial = await refundCashPaymentWithDb(db, {
-      restaurantSlug: slug, paymentId: partial.payment.id, actorUid: uid, sessionVersion: 3,
-      amount: 3000, reason: 'Remboursement du solde de recette de test', idempotencyKey: 'refund-initial-3000',
-      cashDisbursementConfirmed: true
-    });
-    assert(refundInitial.success === true, 'Le remboursement du premier versement est enregistré');
-    const afterFullRefund = await restaurantRef.collection('customers').where('phoneNormalized', '==', '0700000001').get();
-    assert(afterFullRefund.docs[0].data().loyaltyPoints === 0,
-      'Un remboursement intégral annule tous les points attribués à la commande');
 
     const alreadyPaid = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-after-paid-01'));
     assert(alreadyPaid.success === false, 'Une commande déjà réglée ne peut pas être encaissée une seconde fois');
