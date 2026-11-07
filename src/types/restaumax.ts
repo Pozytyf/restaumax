@@ -140,6 +140,8 @@ export interface RestauOrder {
   taxRatePercent?: number;
   taxMode?: 'exclusive' | 'inclusive';
   paidAmount?: number;
+  refundedAmount?: number;
+  netPaidAmount?: number;
   remainingAmount?: number;
   paymentStatus?: 'partial' | 'paid' | 'unpaid';
   splitGuests?: number;
