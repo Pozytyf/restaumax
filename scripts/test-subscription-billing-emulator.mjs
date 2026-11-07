@@ -82,7 +82,7 @@ try {
   assert.equal(noRenew.restaurantsSuspended, 1, 'Un abonnement sans renouvellement est suspendu à échéance');
   assert.equal((await nonRenewRestaurant.get()).data().suspensionReason, 'subscription_nonrenewal');
 
-  console.log('Subscription billing Firestore Emulator tests passed: 17 assertions.');
+  console.log('Subscription billing Firestore Emulator tests passed: 20 assertions.');
 } finally {
   await app.delete();
 }
