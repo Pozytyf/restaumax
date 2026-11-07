@@ -12,7 +12,7 @@ type RestaurantRow = {
     billingCycle?: 'monthly' | 'yearly' | 'custom';
     status?: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
     startsAt?: number; endsAt?: number; nextBillingAt?: number; notes?: string;
-    autoRenew?: boolean; gracePeriodDays?: number; currentInvoiceId?: string | null; pastDueAt?: number | null;
+    autoRenew?: boolean; gracePeriodDays?: number; currentInvoiceId?: string | null; currentInvoiceAmountFcfa?: number | null; pastDueAt?: number | null;
   };
 };
 type PlatformSummary = {
@@ -170,7 +170,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       await request({
         action: 'settle_subscription_invoice', slug: subscriptionRestaurant.slug,
         invoiceId: subscription.currentInvoiceId,
-        amountFcfa: Number(subscription.priceFcfa || 0),
+        amountFcfa: Number(subscription.currentInvoiceAmountFcfa ?? subscription.priceFcfa ?? 0),
         paymentReference: reference
       });
       setSubscriptionPaymentReference('');
@@ -352,7 +352,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         </label>
         {subscriptionRestaurant.subscription?.currentInvoiceId && <div className="md:col-span-2 rounded-xl border border-amber-700 bg-amber-950/30 p-4">
           <p className="font-bold text-amber-200">Facture à régler · {subscriptionRestaurant.subscription.currentInvoiceId}</p>
-          <p className="mt-1 text-xs text-slate-300">Montant attendu : {Number(subscriptionRestaurant.subscription.priceFcfa || 0).toLocaleString('fr-FR')} FCFA. Vérifiez le virement ou le paiement hors ligne avant de confirmer.</p>
+          <p className="mt-1 text-xs text-slate-300">Montant attendu : {Number(subscriptionRestaurant.subscription.currentInvoiceAmountFcfa ?? subscriptionRestaurant.subscription.priceFcfa ?? 0).toLocaleString('fr-FR')} FCFA. Vérifiez le virement ou le paiement hors ligne avant de confirmer.</p>
           <input value={subscriptionPaymentReference} onChange={e=>setSubscriptionPaymentReference(e.target.value)} minLength={4} maxLength={128} placeholder="Référence du paiement reçu" className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm"/>
           <button type="button" disabled={loading || subscriptionPaymentReference.trim().length<4} onClick={settleSubscriptionInvoice} className="mt-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold">Confirmer le paiement et renouveler</button>
         </div>}
