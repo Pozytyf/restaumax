@@ -12,6 +12,7 @@ class FakeDb {
       path,
       id: path.split('/').pop(),
       collection: name => this.ref(path + '/' + name),
+      doc: id => this.ref(path + '/' + id),
       get: async () => {
         const value = this.docs.get(path);
         return { exists: value !== undefined, id: path.split('/').pop(), data: () => value };
