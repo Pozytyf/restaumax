@@ -19,8 +19,7 @@ import {
   Plus,
   Minus, 
   Clock, 
-  ChevronRight, 
-  Info,
+    Info,
   Phone,
   ArrowLeft
 } from 'lucide-react';
@@ -399,6 +398,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         return (
           <ProductDetailModal
             item={activeItemModal}
+            initialQuantity={activeItemModal ? Math.max(1, quantityByDish[activeItemModal.id] || 1) : 1}
             isAvailable={isDishCurrentlyAvailable}
             onClose={() => setActiveItemModal(null)}
             onAddToCart={onAddToCart}
