@@ -14,7 +14,7 @@ export const RESTAUMAX_API_ROUTES = [
   { id: 'paydunya-callback', path: 'payments/paydunya-callback', methods: ['POST'] },
   { id: 'paydunya-disbursement-callback', path: 'payments/paydunya-disbursement-callback', methods: ['POST'] },
   { id: 'subscription-billing-cycle', path: 'subscriptions/billing-cycle', methods: ['GET'] },
-  { id: 'tables-qr', path: 'tables/qr', methods: ['POST', 'DELETE'] },
+  { id: 'tables-qr', path: 'tables/qr', methods: ['GET', 'POST', 'DELETE'] },
   { id: 'tables-resolve-qr', path: 'tables/resolve-qr', methods: ['GET'] }
 ] as const;
 

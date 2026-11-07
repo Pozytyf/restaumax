@@ -6,6 +6,42 @@ const TOKEN_BYTES = 32;
 
 const randomSecret = () => crypto.randomBytes(TOKEN_BYTES).toString('base64url');
 const sha256 = (value: string) => crypto.createHash('sha256').update(value, 'utf8').digest('hex');
+
+function qrEncryptionKey(env: Record<string, string | undefined>): Buffer {
+  const raw = String(env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '').trim();
+  if (!/^[a-f0-9]{64}$/i.test(raw)) {
+    throw new Error('TABLE_QR_TOKEN_ENCRYPTION_KEY doit contenir 64 caractères hexadécimaux.');
+  }
+  return Buffer.from(raw, 'hex');
+}
+
+function encryptQrToken(token: string, env: Record<string, string | undefined>) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', qrEncryptionKey(env), iv);
+  const ciphertext = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
+  return {
+    version: 1,
+    algorithm: 'aes-256-gcm',
+    iv: iv.toString('hex'),
+    authTag: cipher.getAuthTag().toString('hex'),
+    ciphertext: ciphertext.toString('hex')
+  };
+}
+
+function decryptQrToken(encrypted: any, env: Record<string, string | undefined>): string {
+  if (!encrypted || encrypted.version !== 1 || encrypted.algorithm !== 'aes-256-gcm' ||
+      !/^[a-f0-9]{24}$/i.test(String(encrypted.iv || '')) ||
+      !/^[a-f0-9]{32}$/i.test(String(encrypted.authTag || '')) ||
+      !/^[a-f0-9]+$/i.test(String(encrypted.ciphertext || '')) || encrypted.ciphertext.length > 512) {
+    throw new Error('Enveloppe du QR persistant invalide.');
+  }
+  const decipher = crypto.createDecipheriv('aes-256-gcm', qrEncryptionKey(env), Buffer.from(encrypted.iv, 'hex'));
+  decipher.setAuthTag(Buffer.from(encrypted.authTag, 'hex'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(encrypted.ciphertext, 'hex')),
+    decipher.final()
+  ]).toString('utf8');
+}
 const safeEqual = (a: string, b: string) => {
   const left = Buffer.from(a, 'hex');
   const right = Buffer.from(b, 'hex');
@@ -76,7 +112,7 @@ export function requestHasValidOrigin(req: any): boolean {
   return parsed.origin === `${expectedProtocol}//${host}`;
 }
 
-export async function issueTableQr(db: any, restaurantSlug: string, tableId: string, origin: string) {
+export async function issueTableQr(db: any, restaurantSlug: string, tableId: string, origin: string, env: Record<string, string | undefined> = process.env) {
   if (!db) throw new Error('Firebase Admin indisponible.');
   const slug = String(restaurantSlug || '').trim();
   const id = String(tableId || '').trim();
@@ -107,6 +143,7 @@ export async function issueTableQr(db: any, restaurantSlug: string, tableId: str
     });
     tx.create(tokenRef, {
       tokenHash,
+      encryptedToken: encryptQrToken(token, env),
       restaurantSlug: slug,
       tableId: id,
       tableNumber: String(tableSnap.data()?.tableNumber || ''),
@@ -118,6 +155,55 @@ export async function issueTableQr(db: any, restaurantSlug: string, tableId: str
     tx.update(tableRef, { qrVersion: Number(tableSnap.data()?.qrVersion || 0) + 1, qrUpdatedAt: now });
   });
 
+  return { token, url: `${origin.replace(/\/+$/, '')}/q/${token}` };
+}
+
+
+/**
+ * Rehydrates the existing QR URL without rotating the printed token. The raw
+ * bearer token is never stored in plaintext: only an AES-256-GCM envelope is
+ * persisted beside its SHA-256 lookup hash in the server-only collection.
+ * Returns null for legacy tokens that predate encrypted persistence.
+ */
+export async function getActiveTableQr(
+  db: any,
+  restaurantSlug: string,
+  tableId: string,
+  origin: string,
+  env: Record<string, string | undefined> = process.env
+): Promise<{ token: string; url: string } | null> {
+  if (!db) throw new Error('Firebase Admin indisponible.');
+  const slug = String(restaurantSlug || '').trim();
+  const id = String(tableId || '').trim();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^[a-zA-Z0-9_-]{1,128}$/.test(id)) {
+    throw new Error('Restaurant ou identifiant de table invalide.');
+  }
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const tableRef = restaurantRef.collection('tables').doc(id);
+  const [restaurantSnap, tableSnap, tokens] = await Promise.all([
+    restaurantRef.get(),
+    tableRef.get(),
+    restaurantRef.collection('table_qr_tokens').where('tableId', '==', id).get()
+  ]);
+  const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+  const table = tableSnap.exists ? tableSnap.data() : null;
+  if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
+    throw new Error('Restaurant introuvable, inactif ou suspendu.');
+  }
+  if (!table || table.isActive !== true) throw new Error('Table introuvable ou inactive.');
+  const active = tokens.docs.find((entry: any) => {
+    const data = entry.data();
+    return data?.status === 'active' &&
+      data?.restaurantSlug === slug && data?.tableId === id &&
+      Number(data?.version || 0) === Number(table.qrVersion || 0);
+  });
+  if (!active) return null;
+  const data = active.data();
+  if (!data.encryptedToken) return null;
+  const token = decryptQrToken(data.encryptedToken, env);
+  if (token.length < 30 || token.length > 100 || sha256(token) !== data.tokenHash) {
+    throw new Error('Le QR enregistré ne correspond plus à son empreinte de sécurité.');
+  }
   return { token, url: `${origin.replace(/\/+$/, '')}/q/${token}` };
 }
 

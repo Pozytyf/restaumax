@@ -40,7 +40,7 @@ const expectedMethods = {
   'paydunya-callback': ['POST'],
   'paydunya-disbursement-callback': ['POST'],
   'subscription-billing-cycle': ['GET'],
-  'tables-qr': ['POST', 'DELETE'],
+  'tables-qr': ['GET', 'POST', 'DELETE'],
   'tables-resolve-qr': ['GET']
 };
 
