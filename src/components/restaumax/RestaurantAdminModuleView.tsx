@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  addDoc, collection, deleteDoc, doc, limit, onSnapshot, orderBy, query, updateDoc
+  addDoc, collection, deleteDoc, doc, getDocs, limit, onSnapshot, orderBy, query, updateDoc, where
 } from 'firebase/firestore';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings } from 'lucide-react';
 import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
@@ -152,6 +152,14 @@ export const RestaurantAdminModuleView: React.FC<{
       setLoading(false); return;
     }
     try {
+      const duplicate = await getDocs(query(
+        collection(db, 'restaurants', restaurant.slug, 'customers'),
+        where('phoneNormalized', '==', phoneNormalized), limit(1)
+      ));
+      if (!duplicate.empty) {
+        setError('Un client utilise déjà ce numéro de téléphone dans ce restaurant.');
+        setLoading(false); return;
+      }
       await addDoc(collection(db, 'restaurants', restaurant.slug, 'customers'), {
         ...customerForm, name: customerForm.name.trim(), phone: customerForm.phone.trim(), phoneNormalized,
         email: customerForm.email.trim(), loyaltyPoints: 0, createdAt: Date.now(), updatedAt: Date.now()
