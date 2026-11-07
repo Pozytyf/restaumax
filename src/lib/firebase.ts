@@ -24,6 +24,7 @@ import {
   onSnapshot,
   query,
   orderBy,
+  where,
   writeBatch,
   connectFirestoreEmulator
 } from 'firebase/firestore';
@@ -954,11 +955,14 @@ export async function listRecentCashPaymentsWithServerValidation(
 export function subscribeToOrders(
   restaurantSlug: string,
   onData: (orders: RestauOrder[]) => void,
-  onError?: (err: unknown) => void
+  onError?: (err: unknown) => void,
+  assignedWaiterUid?: string
 ) {
   const path = `restaurants/${restaurantSlug}/orders`;
   const ordersRef = collection(db, 'restaurants', restaurantSlug, 'orders');
-  const q = query(ordersRef, orderBy('createdAt', 'desc'));
+  const q = assignedWaiterUid
+    ? query(ordersRef, where('assignedWaiterUid', '==', assignedWaiterUid))
+    : query(ordersRef, orderBy('createdAt', 'desc'));
 
   return onSnapshot(
     q,
@@ -967,6 +971,7 @@ export function subscribeToOrders(
       snapshot.forEach((d) => {
         orders.push(d.data() as RestauOrder);
       });
+      orders.sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
       onData(orders);
     },
     (err) => {
@@ -1120,11 +1125,14 @@ export async function updateOrderStatus(
 export function subscribeToTables(
   restaurantSlug: string,
   onData: (tables: RestaurantTable[]) => void,
-  onError?: (err: unknown) => void
+  onError?: (err: unknown) => void,
+  assignedWaiterUid?: string
 ) {
   const path = `restaurants/${restaurantSlug}/tables`;
   const tablesRef = collection(db, 'restaurants', restaurantSlug, 'tables');
-  const q = query(tablesRef);
+  const q = assignedWaiterUid
+    ? query(tablesRef, where('assignedWaiter', '==', assignedWaiterUid))
+    : query(tablesRef);
 
   return onSnapshot(
     q,
