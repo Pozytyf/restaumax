@@ -142,6 +142,7 @@ export interface RestauOrder {
   currency: 'FCFA';
   status: RestauOrderStatus;
   customerNote?: string;
+  customerId?: string;
   createdAt: number; // UTC timestamp ms
   createdAtIso: string;
   statusUpdatedAt?: number;
