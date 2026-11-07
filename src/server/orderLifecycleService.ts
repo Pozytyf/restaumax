@@ -114,6 +114,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
             const inventoryItemId = String(line.inventoryItemId || '');
             const perDish = Number(line.quantityPerDish);
             if (!validId(inventoryItemId) || !Number.isFinite(perDish) || perDish <= 0 ||
+                Math.round(perDish * 1000) !== perDish * 1000 ||
                 !line.unit || !String(line.itemName || '')) {
               return { success: false, error: `Une ligne de recette du plat ${menuId} est invalide.` };
             }
