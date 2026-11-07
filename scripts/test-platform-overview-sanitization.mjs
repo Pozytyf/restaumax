@@ -34,7 +34,7 @@ const menuView = fs.readFileSync(new URL('../src/components/restaumax/ClientMenu
 const productModal = fs.readFileSync(new URL('../src/components/restaumax/ProductDetailModal.tsx', import.meta.url), 'utf8');
 assert(source.includes("action === 'assign_server_tables'"), 'table assignment is a dedicated server action');
 assert(source.includes("managerSnap.data().permissions.includes('tables.manage')"), 'managers need tables.manage to assign tables');
-assert(source.includes("server.role !== 'server' || server.active !== true"), 'only an active server can receive table assignments');
+assert(source.includes("server.role !== 'server'") && source.includes("server.active !== true") && source.includes("serverMembership.active !== true"), 'only an active and consistently linked server can receive table assignments');
 assert(source.includes("assignedWaiter: staffUid"), 'each table stores one canonical assigned server UID');
 assert(source.includes("assignedWaiter: null"), 'old assignments can be released during reassignment or account lifecycle changes');
 assert(source.includes("db.runTransaction(async (tx: any)"), 'table assignments are persisted transactionally');
