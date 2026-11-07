@@ -122,7 +122,12 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           }
         }
 
-        const uniqueTargets = Array.from(new Map(recipeTargets.map(target => [target.docId, target])).values());
+        const targetMap = new Map<string, { docId: string; targetKey: string; menuItemId: string; quantity: number }>();
+        for (const target of recipeTargets) {
+          const previous = targetMap.get(target.docId);
+          targetMap.set(target.docId, { ...target, quantity: (previous?.quantity || 0) + target.quantity });
+        }
+        const uniqueTargets = Array.from(targetMap.values());
         const recipeRefs = uniqueTargets.map(target => restaurantRef.collection('menuRecipes').doc(target.docId));
         const recipeSnaps = await Promise.all(recipeRefs.map((ref: any) => tx.get(ref)));
         const aggregated = new Map<string, { quantity: number; unit: string; itemName: string }>();
