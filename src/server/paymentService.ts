@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { awardLoyaltyPointsInTransaction } from './loyaltyService.js';
 
 export interface CashPaymentInput {
   restaurantSlug: string;
@@ -250,6 +251,14 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
     };
     guestAccounts[guestIndex] = updatedGuestAccount;
     const now = Date.now();
+    const loyaltyResult = paymentStatus === 'paid'
+      ? await awardLoyaltyPointsInTransaction({
+          tx, restaurantRef, restaurant, orderRef, order, actorUid, now
+        })
+      : { success: true, awarded: 0 };
+    if (!loyaltyResult.success) {
+      return { success: false, error: 'Attribution des points impossible : paiement conservé en attente de rapprochement.' };
+    }
 
     const payment = {
       id: paymentId,
@@ -295,6 +304,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       paidAmount,
       remainingAmount,
       paymentStatus,
+      ...(loyaltyResult.orderFields || {}),
       lastPaymentAt: now,
       lastPaymentId: paymentId
     };
@@ -314,6 +324,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       paidAmount,
       remainingAmount,
       paymentStatus,
+      ...(loyaltyResult.orderFields || {}),
       lastPaymentAt: now,
       lastPaymentId: paymentId
     });
