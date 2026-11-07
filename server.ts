@@ -817,10 +817,31 @@ export function getServerHealth() {
 }
 
 export async function handleResolveTableQr(token: string, req?: any): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
-  if (req && !isTrustedQrNavigation(req)) return { statusCode: 403, body: { success: false, error: 'Navigation QR non autorisée.' }, cookies: undefined, location: undefined };
-  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service QR indisponible.' } };
+  if (req && !isTrustedQrNavigation(req)) {
+    console.warn('[RestauMax QR] Navigation rejetée par la politique de confiance.', {
+      fetchSite: String(req?.headers?.['sec-fetch-site'] || ''),
+      fetchDest: String(req?.headers?.['sec-fetch-dest'] || ''),
+      host: String(req?.headers?.['x-forwarded-host'] || req?.headers?.host || '')
+    });
+    return { statusCode: 403, body: { success: false, error: 'Navigation QR non autorisée.' }, cookies: undefined, location: undefined };
+  }
+  if (!adminDb) {
+    console.error('[RestauMax QR] Firebase Admin indisponible.', {
+      projectId: appletConfig?.projectId || null,
+      databaseId: appletConfig?.firestoreDatabaseId || null
+    });
+    return { statusCode: 503, body: { success: false, error: 'Service QR indisponible.' } };
+  }
+  if (typeof token !== 'string' || token.length < 30 || token.length > 100) {
+    console.warn('[RestauMax QR] Jeton absent ou longueur invalide.', { tokenLength: typeof token === 'string' ? token.length : null });
+    return { statusCode: 400, body: { success: false, error: 'QR code invalide.' } };
+  }
   try {
     const result = await resolveTableQr(adminDb, token);
+    console.info('[RestauMax QR] Jeton validé et session de table créée.', {
+      restaurantSlug: result.restaurantSlug,
+      tableId: result.tableId
+    });
     return {
       statusCode: 302,
       location: `/r/${encodeURIComponent(result.restaurantSlug)}?table_session=1`,
@@ -828,7 +849,21 @@ export async function handleResolveTableQr(token: string, req?: any): Promise<{ 
       body: { success: true }
     };
   } catch (err: any) {
-    return { statusCode: 400, body: { success: false, error: err?.message || 'QR code invalide.' }, cookies: undefined, location: undefined };
+    const code = String(err?.code ?? '');
+    const message = String(err?.message || 'QR code invalide.');
+    const backendFailure = Boolean(code);
+    console.warn('[RestauMax QR] Validation refusée.', {
+      reason: message,
+      firestoreCode: code || null,
+      tokenLength: token.length,
+      outcome: backendFailure ? 'backend-unavailable' : 'invalid-or-unavailable-qr'
+    });
+    return {
+      statusCode: backendFailure ? 503 : 400,
+      body: { success: false, error: backendFailure ? 'Service de vérification QR momentanément indisponible.' : message },
+      cookies: undefined,
+      location: undefined
+    };
   }
 }
 
@@ -865,22 +900,24 @@ export async function handleTableQrManagement(req: any) {
   try {
     await authorizeTableManager(adminDb, adminAuth, req, restaurantSlug);
     if (req.method === 'GET') {
+      // Resolve the origin before restoring an existing token as well as before
+      // issuing a replacement. Preview QR records live in the Preview Firebase
+      // project and must never be rehydrated with the Production APP_ORIGIN.
+      const rawOrigin = resolveTableQrOrigin(req, process.env);
+      let parsedOrigin: URL;
+      try { parsedOrigin = new URL(rawOrigin); } catch {
+        return { statusCode: 400, body: { success: false, error: 'Origine applicative non configurée.' } };
+      }
+      const localHttp = parsedOrigin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsedOrigin.hostname);
+      if ((parsedOrigin.protocol !== 'https:' && !localHttp) || parsedOrigin.pathname !== '/' || parsedOrigin.search || parsedOrigin.hash) {
+        return { statusCode: 400, body: { success: false, error: 'APP_ORIGIN doit être une origine HTTPS canonique, sans chemin.' } };
+      }
       let restored = await getActiveTableQr(
-        adminDb, restaurantSlug, tableId,
-        String(process.env.APP_ORIGIN || req.headers.origin || ''), process.env
+        adminDb, restaurantSlug, tableId, parsedOrigin.origin, process.env
       );
       const hadPersistedQr = Boolean(restored);
       // Upgrade legacy QR records created before encrypted token persistence.
       if (!restored) {
-        const rawOrigin = resolveTableQrOrigin(req, process.env);
-        let parsedOrigin: URL;
-        try { parsedOrigin = new URL(rawOrigin); } catch {
-          return { statusCode: 400, body: { success: false, error: 'Origine applicative non configurée.' } };
-        }
-        const localHttp = parsedOrigin.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsedOrigin.hostname);
-        if ((parsedOrigin.protocol !== 'https:' && !localHttp) || parsedOrigin.pathname !== '/' || parsedOrigin.search || parsedOrigin.hash) {
-          return { statusCode: 400, body: { success: false, error: 'APP_ORIGIN doit être une origine HTTPS canonique, sans chemin.' } };
-        }
         restored = await issueTableQr(adminDb, restaurantSlug, tableId, parsedOrigin.origin, process.env);
       }
       return { statusCode: 200, body: { success: true, url: restored.url, restored: hadPersistedQr, reissued: !hadPersistedQr } };
