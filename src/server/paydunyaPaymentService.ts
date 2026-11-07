@@ -1,4 +1,4 @@
-import { awardLoyaltyPointsInTransaction } from './loyaltyService';
+import { awardLoyaltyPointsInTransaction } from './loyaltyService.ts';
 import { createHash } from 'node:crypto';
 import {
   createPayDunyaCheckoutInvoice,
