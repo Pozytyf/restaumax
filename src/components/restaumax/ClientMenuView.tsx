@@ -242,6 +242,20 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
             </div>
           </div>
         )}
+        {tableNumber && !tableSessionUnavailable && (
+          <section aria-label="Message de bienvenue" className="relative overflow-hidden rounded-2xl border border-orange-200 bg-gradient-to-r from-orange-50 via-white to-amber-50 px-5 py-4 shadow-sm">
+            <div className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-orange-200/50 blur-2xl" />
+            <div className="relative flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#ff6500] text-white shadow-md shadow-orange-500/20"><UtensilsCrossed size={19} /></span>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#e05800]">Bienvenue</p>
+                <h2 className="mt-0.5 text-base font-black text-[#101d2d] sm:text-lg">Bienvenue chez {restaurant.name} !</h2>
+                <p className="mt-1 text-xs leading-5 text-slate-600">Nous sommes ravis de vous accueillir à la table {tableNumber}. Découvrez notre carte et composez votre commande en quelques instants.</p>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* Search Bar */}
         <div className="relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />

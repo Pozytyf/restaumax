@@ -78,6 +78,16 @@ export const HomePage: React.FC<HomePageProps> = ({
 }) => {
   return (
     <div className="min-h-screen overflow-hidden bg-[#f7f8fa] text-slate-900">
+      <style>{`
+        @keyframes rm-rise-in { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes rm-soft-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+        .rm-reveal { animation: rm-rise-in .75s cubic-bezier(.2,.7,.2,1) both; }
+        .rm-reveal-delay { animation: rm-rise-in .85s .16s cubic-bezier(.2,.7,.2,1) both; }
+        .rm-float { animation: rm-soft-float 5s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) { .rm-reveal, .rm-reveal-delay, .rm-float { animation: none !important; } }
+        html { scroll-behavior: smooth; }
+        @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+      `}</style>
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
           <a href="/" aria-label="RestauMax, accueil" className="flex items-center gap-3">
@@ -119,7 +129,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       <main>
         <section id="solution" className="relative isolate">
           <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_right,_rgba(255,107,53,0.13),_transparent_42%),radial-gradient(ellipse_at_bottom_left,_rgba(20,119,94,0.09),_transparent_38%)]" />
-          <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 pb-20 pt-16 sm:px-6 sm:pt-20 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:pb-28 lg:pt-24">
+          <div className="rm-reveal mx-auto grid max-w-7xl items-center gap-12 px-4 pb-20 pt-16 sm:px-6 sm:pt-20 lg:grid-cols-[1.05fr_0.95fr] lg:px-8 lg:pb-28 lg:pt-24">
             <div>
               <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white/80 px-4 py-2 text-xs font-extrabold text-[#df5929] shadow-sm">
                 <span className="h-2 w-2 rounded-full bg-[#ff6b35]" />
@@ -165,7 +175,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             <div className="relative mx-auto w-full max-w-xl">
               <div className="absolute -right-8 -top-8 h-40 w-40 rounded-full bg-orange-200/50 blur-3xl" />
               <div className="absolute -bottom-8 -left-8 h-40 w-40 rounded-full bg-emerald-200/60 blur-3xl" />
-              <div className="relative rounded-[2rem] border border-white bg-white p-4 shadow-[0_30px_90px_-35px_rgba(20,38,61,0.35)] sm:p-6">
+              <div className="rm-reveal-delay relative rounded-[2rem] border border-white bg-white p-4 shadow-[0_30px_90px_-35px_rgba(20,38,61,0.35)] sm:p-6">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Votre espace de travail</p>
@@ -231,7 +241,29 @@ export const HomePage: React.FC<HomePageProps> = ({
           </div>
         </section>
 
-        <section id="qr-code" className="bg-[#14263d] py-16 text-white sm:py-20">
+        <section id="parcours" className="overflow-hidden bg-[#f7f8fa] py-20 sm:py-24">
+  <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-2xl text-center rm-reveal">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-[#f26535]">Un service fluide de bout en bout</p>
+      <h2 className="mt-4 text-3xl font-black tracking-tight text-[#14263d] sm:text-4xl">Du scan à la commande, sans détour</h2>
+      <p className="mt-4 text-sm leading-7 text-slate-600 sm:text-base">Le client accède directement à la carte de votre établissement. Votre équipe reçoit ensuite la commande et la prépare dans le bon circuit.</p>
+    </div>
+    <div className="mt-12 grid gap-5 md:grid-cols-3">
+      {[
+        { number: "01", title: "Le client scanne", detail: "Le QR code identifie automatiquement le restaurant et la table. Aucun choix manuel de table." },
+        { number: "02", title: "Il découvre la carte", detail: "Un message de bienvenue l’accueille, puis il consulte les plats disponibles, les descriptions, les prix et les quantités." },
+        { number: "03", title: "La commande est transmise", detail: "La commande suit le circuit de préparation et de service de votre établissement." },
+      ].map((step) => (
+        <article key={step.number} className="group rounded-3xl border border-slate-200 bg-white p-7 shadow-sm transition duration-300 hover:-translate-y-2 hover:border-orange-200 hover:shadow-xl hover:shadow-slate-900/10">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#14263d] text-sm font-black text-white transition duration-300 group-hover:rotate-6 group-hover:bg-[#ff6b35]">{step.number}</span>
+          <h3 className="mt-6 text-lg font-extrabold text-[#14263d]">{step.title}</h3>
+          <p className="mt-3 text-sm leading-7 text-slate-600">{step.detail}</p>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>
+<section id="qr-code" className="bg-[#14263d] py-16 text-white sm:py-20">
           <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-8 px-4 sm:px-6 md:flex-row md:items-center lg:px-8">
             <div className="max-w-2xl">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-orange-200">
