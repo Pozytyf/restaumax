@@ -715,10 +715,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
         const now = Date.now();
         const sessionVersion = currentSessionVersion + 1;
-        if (!nextActive && member.role === 'server') await releaseServerTables(staffUid);
         const authUser = await auth.getUser(staffUid);
         const nextClaims = { ...(authUser.customClaims || {}), sessionVersion };
         if (nextActive) {
+          if (member.role === 'server') await releaseServerTables(staffUid);
           // Publish a new token version before reopening Firestore membership.
           await auth.setCustomUserClaims(staffUid, nextClaims);
           await auth.updateUser(staffUid, { disabled: false });
@@ -733,6 +733,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           batch.set(memberRef, { active: false, status: 'suspended', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
           batch.set(managerRef, { active: false, status: 'suspended', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
           await batch.commit();
+          if (member.role === 'server') await releaseServerTables(staffUid);
           await auth.setCustomUserClaims(staffUid, nextClaims);
           await auth.updateUser(staffUid, { disabled: true });
           await auth.revokeRefreshTokens(staffUid);
@@ -743,13 +744,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       if (action === 'delete_staff') {
         const now = Date.now();
-        if (member.role === 'server') await releaseServerTables(staffUid);
         // Revoke Firestore authorization before touching Auth; never remove business history.
         const revokeBatch = db.batch();
         const sessionVersion = Number(member.sessionVersion || 0) + 1;
         revokeBatch.set(memberRef, { active: false, status: 'deleting', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
         revokeBatch.set(managerRef, { active: false, status: 'deleting', sessionVersion, updatedAt: now, updatedBy: user.uid }, { merge: true });
         await revokeBatch.commit();
+        if (member.role === 'server') await releaseServerTables(staffUid);
         try {
           const authUser = await auth.getUser(staffUid);
           await auth.setCustomUserClaims(staffUid, { ...(authUser.customClaims || {}), sessionVersion });
