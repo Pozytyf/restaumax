@@ -75,8 +75,10 @@ const refundedRanking = calculateRestaurantFinancialReport({
   ],
   stockMovements: [], cashMovements: [], cashSessions: []
 }, { startAt: 1, endAt: 2, includeCashDetails: false });
-assert.deepEqual(refundedRanking.bestSellers, [{ name: 'Plat partiellement remboursé', quantity: 1 }],
-  'Les quantités du classement sont ajustées aux encaissements nets et excluent les commandes intégralement remboursées.');
+assert.deepEqual(refundedRanking.bestSellers, [{ name: 'Plat partiellement remboursé', quantity: 2 }],
+  'Une commande partiellement remboursée conserve les quantités réellement vendues ; une commande intégralement remboursée est exclue.');
+assert.equal(Number.isInteger(refundedRanking.bestSellers[0].quantity), true,
+  'Le classement ne fabrique pas de quantités fractionnaires faute de détail des articles retournés.');
 assert.equal(refundedRanking.grossCollected, 500, 'Le classement et le chiffre d’affaires net reposent sur la même base après remboursement.');
 
 console.log('Financial report calculation tests passed: 20 assertions.');
