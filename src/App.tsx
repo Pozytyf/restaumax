@@ -1354,6 +1354,17 @@ export default function App() {
         window.alert('Ligne de préparation invalide.');
         return;
       }
+      const currentOrder = restauOrders.find(order => order.id === orderId);
+      if (currentOrder?.status === 'pending') {
+        try {
+          // The first KDS action starts preparation and consumes recipe stock atomically.
+          await updateOrderStatus(activeRestaurantSlug, orderId, 'in_prep');
+        } catch (err) {
+          console.warn('Démarrage cuisine refusé par le contrôle de stock:', err);
+          window.alert(err instanceof Error && err.message ? err.message : 'Préparation bloquée : vérifiez les stocks et les recettes.');
+          return;
+        }
+      }
       const result = await updateKitchenItemCompletionWithServerValidation(
         activeRestaurantSlug, orderId, itemId, itemIndex, completed
       );
