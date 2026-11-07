@@ -536,6 +536,11 @@ export default function App() {
     }
 
     let active = true;
+    setTransactions([]);
+    setDrawerState({
+      openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
+      mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
+    });
     setCashSessionLoading(true);
     getCashSessionWithServerValidation(activeRestaurantSlug).then((result) => {
       if (!active) return;
@@ -551,11 +556,6 @@ export default function App() {
         console.warn('Session de caisse indisponible:', result.error);
       }
       setCashSessionLoading(false);
-    });
-    setTransactions([]);
-    setDrawerState({
-      openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
-      mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
     });
     listRecentCashPaymentsWithServerValidation(activeRestaurantSlug).then((result) => {
       if (!active || !result.success) {
@@ -1778,7 +1778,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'manager' && (userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')) && (
+            {currentRole === 'manager' && (isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')) && (
               <ManagerView
                 restaurantSlug={activeRestaurantSlug}
                 isOwner={isRestaurantOwner}
