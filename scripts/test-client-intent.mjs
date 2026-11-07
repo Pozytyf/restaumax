@@ -111,6 +111,10 @@ async function runClientIntentTests() {
   assert(restored?.customerNote === 'Bien cuit et sauce à part', '2.5 : Note client préservée');
   assert(restored?.cart.length === 1, '2.6 : Nombre d\'articles préservé (1 article)');
   assert(restored?.cart[0].quantity === 2, '2.7 : Quantité de ligne préservée (2)');
+  assert(loadPendingOrderIntent('chez-awa')?.restaurantSlug === 'chez-awa', '2.8 : Intention restaurée uniquement pour son restaurant');
+  assert(loadPendingOrderIntent('restaumax-demo') === null, '2.9 : Intention Chez Awa refusée sur RestauMax Démo');
+  assert(window.sessionStorage.getItem(ORDER_INTENT_STORAGE_KEY) === null, '2.10 : Panier inter-restaurant purgé du stockage');
+  savePendingOrderIntent(intent1);
 
   // -------------------------------------------------------------------------
   // 3. Gestion de l'état incertain (panne réseau / timeout)
