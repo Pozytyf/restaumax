@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export type SubscriptionStatus = 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
 export type SubscriptionBillingCycle = 'monthly' | 'yearly' | 'custom';
 
@@ -58,8 +60,6 @@ export function validateSubscriptionInput(input: unknown): SubscriptionValidatio
     }
   };
 }
-
-import { createHash } from 'node:crypto';
 
 export function advanceSubscriptionPeriod(timestamp: number, cycle: 'monthly' | 'yearly'): number {
   const date = new Date(timestamp);
@@ -188,13 +188,13 @@ export async function markSubscriptionInvoicePaidWithDb(
     });
     tx.update(subscriptionRef, {
       status: 'active', startsAt: Number(invoice.billingPeriodStart),
-      endsAt: nextBillingAt - 1, nextBillingAt: advanceSubscriptionPeriod(nextBillingAt, cycle),
+      endsAt: nextBillingAt - 1, nextBillingAt,
       currentInvoiceId: null, graceEndsAt: null, suspendedAt: null, updatedAt: now,
       lastPaymentReference: paymentReference, lastPaidAt: now
     });
     if (restaurant.subscriptionSuspendedAt && restaurant.status === 'suspended') {
       tx.update(restaurantRef, { status: 'active', subscriptionReactivatedAt: now, subscriptionSuspendedAt: null });
     }
-    return { success: true, idempotentReplay: false, nextBillingAt: advanceSubscriptionPeriod(nextBillingAt, cycle) };
+    return { success: true, idempotentReplay: false, nextBillingAt };
   });
 }
