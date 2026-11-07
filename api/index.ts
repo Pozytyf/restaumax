@@ -18,7 +18,7 @@ import {
   handleSubscriptionBillingCycleRequest,
   handleTableQrManagement
 } from '../server.ts';
-import { resolveRestauMaxApiRoute } from '../src/server/apiRouteMap.ts';
+import { resolveRestauMaxApiRouteFromRequest } from '../src/server/apiRouteMap.ts';
 
 function setPrivateApiHeaders(res: any) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -32,7 +32,7 @@ function methodNotAllowed(res: any, methods: readonly string[]) {
 }
 
 export default async function handler(req: any, res: any) {
-  const route = resolveRestauMaxApiRoute(req.query?.__restaumax_route);
+  const route = resolveRestauMaxApiRouteFromRequest(req);
 
   if (!route) {
     res.setHeader('Cache-Control', 'no-store');
