@@ -12,6 +12,7 @@ type RestaurantRow = {
     billingCycle?: 'monthly' | 'yearly' | 'custom';
     status?: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
     startsAt?: number; endsAt?: number; notes?: string;
+    autoRenew?: boolean; nextBillingAt?: number; gracePeriodDays?: number; currentInvoiceId?: string;
   };
 };
 type PlatformSummary = {
@@ -37,7 +38,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   const [subscriptionRestaurant, setSubscriptionRestaurant] = useState<RestaurantRow | null>(null);
   const [subscriptionForm, setSubscriptionForm] = useState({
     planName: '', priceFcfa: '0', billingCycle: 'monthly',
-    status: 'trial', startsOn: '', endsOn: '', notes: ''
+    status: 'trial', startsOn: '', endsOn: '', notes: '', autoRenew: false
   });
   const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '' });
 
@@ -117,7 +118,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       status: subscription.status || 'trial',
       startsOn: dateInputFromTimestamp(subscription.startsAt),
       endsOn: dateInputFromTimestamp(subscription.endsAt),
-      notes: subscription.notes || ''
+      notes: subscription.notes || '',
+      autoRenew: subscription.autoRenew === true
     });
   };
 
@@ -143,6 +145,9 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
           status: subscriptionForm.status,
           startsAt,
           endsAt,
+          nextBillingAt: endsAt + 1,
+          autoRenew: subscriptionForm.autoRenew,
+          gracePeriodDays: 7,
           notes: subscriptionForm.notes.trim()
         }
       });
@@ -306,6 +311,12 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
           <input required type="date" value={subscriptionForm.endsOn}
             onChange={e=>setSubscriptionForm({...subscriptionForm,endsOn:e.target.value})}
             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/>
+        </label>
+        <label className="flex items-center gap-3 rounded-xl border border-violet-800 bg-violet-950/40 p-4 text-sm md:col-span-2">
+          <input type="checkbox" checked={subscriptionForm.autoRenew}
+            disabled={subscriptionForm.billingCycle === 'custom'}
+            onChange={e=>setSubscriptionForm({...subscriptionForm,autoRenew:e.target.checked})}/>
+          <span><strong>Facturation récurrente automatique</strong><span className="mt-1 block text-xs text-slate-400">Crée une facture à chaque échéance. Un délai de grâce de 7 jours est accordé avant suspension automatique. Le règlement reste à rapprocher tant qu’aucun prestataire de paiement plateforme n’est connecté.</span></span>
         </label>
         <label className="text-sm md:col-span-2">Notes internes (facultatif)
           <textarea maxLength={500} value={subscriptionForm.notes}
