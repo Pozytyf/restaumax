@@ -126,6 +126,8 @@ export interface RestauOrder {
   restaurantSlug: string;
   orderMode: OrderMode;
   tableNumber: string | null;
+  /** Server assigned to the table when the order was created. */
+  assignedWaiterUid?: string | null;
   items: RestauOrderItem[];
   itemsCount: number;
   customerName?: string;
