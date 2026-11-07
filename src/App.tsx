@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Role, 
   MenuItem, 
@@ -632,15 +632,15 @@ export default function App() {
 
   // RestauMax Client Cart & Idempotency Key State (Preserved across routing and page reloads via sessionStorage)
   const [clientCart, setClientCart] = useState<ClientCartItem[]>(() => {
-    const saved = loadPendingOrderIntent();
+    const saved = loadPendingOrderIntent(activeRestaurantSlug);
     return saved?.cart && saved.cart.length > 0 ? saved.cart : [];
   });
   const [clientOrderIdempotencyKey, setClientOrderIdempotencyKey] = useState<string>(() => {
-    const saved = loadPendingOrderIntent();
+    const saved = loadPendingOrderIntent(activeRestaurantSlug);
     return saved?.idempotencyKey ? saved.idempotencyKey : generateClientOrderIdempotencyKey();
   });
   const [isOrderUncertain, setIsOrderUncertain] = useState<boolean>(() => {
-    const saved = loadPendingOrderIntent();
+    const saved = loadPendingOrderIntent(activeRestaurantSlug);
     return Boolean(saved?.isUncertain);
   });
 
@@ -659,7 +659,20 @@ export default function App() {
     } else if (!isOrderUncertain) {
       clearPendingOrderIntent();
     }
-  }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber]);
+  }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber, activeRestaurantSlug]);
+
+  // A cart is tenant-scoped. Switching restaurant clears the previous tenant's
+  // cart and uncertain intent, while availability snapshots within one tenant
+  // never touch the cart.
+  const cartRestaurantSlugRef = useRef(activeRestaurantSlug);
+  useEffect(() => {
+    if (cartRestaurantSlugRef.current === activeRestaurantSlug) return;
+    cartRestaurantSlugRef.current = activeRestaurantSlug;
+    setClientCart([]);
+    setIsOrderUncertain(false);
+    setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
+    clearPendingOrderIntent();
+  }, [activeRestaurantSlug]);
 
   const handleToggleDishAvailability = async (dishId: string) => {
     const currentDish = activeMenuItems.find((item) => item.id === dishId);

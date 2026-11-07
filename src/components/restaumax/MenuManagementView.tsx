@@ -259,7 +259,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
         <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
           <Info size={18} className="text-amber-700 mt-0.5 shrink-0" />
           <div className="text-xs text-amber-900 leading-relaxed">
-            <span className="font-bold">Règle de gestion en direct :</span> Basculer la disponibilité d’un plat met à jour immédiatement le menu client QR (<code className="px-1 py-0.5 bg-amber-100 rounded text-[11px] font-mono">/r/chez-awa</code>) sans rechargement. Les plats marqués « En rupture » sont masqués de la sélection client. Tout article déjà présent dans le panier d’un client est rigoureusement préservé.
+            <span className="font-bold">Règle de gestion en direct :</span> Basculer la disponibilité d’un plat met à jour immédiatement le menu client QR de {restaurant.name} (<code className="px-1 py-0.5 bg-amber-100 rounded text-[11px] font-mono">{`/r/${restaurant.slug}`}</code>) sans rechargement. Les plats marqués « En rupture » sont masqués de la sélection client. Tout article déjà présent dans le panier d’un client est rigoureusement préservé.
           </div>
         </div>
 

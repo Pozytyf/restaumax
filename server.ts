@@ -54,6 +54,7 @@ import {
 } from './src/server/orderService.js';
 import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, listClosedCashSessionsWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
 import { type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
+import { resolveTableQrOrigin } from './src/server/tableQrOrigin.ts';
 import { loadRestaurantPayDunyaConfig, saveRestaurantPayDunyaCredentials } from './src/server/paydunyaMerchantConfig.js';
 import { startPayDunyaOrderPaymentWithDb, processPayDunyaInvoiceCallbackWithDb, startPayDunyaRefundWithDb, processPayDunyaDisbursementCallbackWithDb, reconcilePayDunyaInvoiceIntentWithDb } from './src/server/paydunyaPaymentService.js';
 import {
@@ -871,7 +872,7 @@ export async function handleTableQrManagement(req: any) {
       const hadPersistedQr = Boolean(restored);
       // Upgrade legacy QR records created before encrypted token persistence.
       if (!restored) {
-        const rawOrigin = String(process.env.APP_ORIGIN || req.headers.origin || '');
+        const rawOrigin = resolveTableQrOrigin(req, process.env);
         let parsedOrigin: URL;
         try { parsedOrigin = new URL(rawOrigin); } catch {
           return { statusCode: 400, body: { success: false, error: 'Origine applicative non configurée.' } };
@@ -885,7 +886,7 @@ export async function handleTableQrManagement(req: any) {
       return { statusCode: 200, body: { success: true, url: restored.url, restored: hadPersistedQr, reissued: !hadPersistedQr } };
     }
     if (req.method === 'POST') {
-      const rawOrigin = String(process.env.APP_ORIGIN || req.headers.origin || '');
+      const rawOrigin = resolveTableQrOrigin(req, process.env);
       let parsedOrigin: URL;
       try { parsedOrigin = new URL(rawOrigin); } catch {
         return { statusCode: 400, body: { success: false, error: 'Origine applicative non configurée.' } };
