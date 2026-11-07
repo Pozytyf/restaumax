@@ -218,10 +218,13 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           const line = recipeLines[i];
           const item = inventorySnaps[i].data();
           const before = Number(item.quantity);
+          const unitCost = Number(item.unitCost);
+          line.unitCost = Number.isFinite(unitCost) && unitCost >= 0 ? unitCost : null;
           const after = Math.round((before - line.quantity) * 1000) / 1000;
           tx.update(inventoryRefs[i], { quantity: after, updatedAt: now });
           tx.create(movementRefs[i], {
             itemId: line.inventoryItemId, itemName: String(item.name || line.itemName), unit: line.unit,
+            unitCost: line.unitCost,
             quantityBefore: before, delta: -line.quantity, quantityAfter: after,
             reason: `Consommation commande ${orderId}`, orderId, createdAt: now, createdBy: actorUid,
             idempotencyKey: movementRefs[i].path.split('/').pop()
@@ -245,6 +248,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           tx.update(inventoryRefs[i], { quantity: after, updatedAt: now });
           tx.create(movementRefs[i], {
             itemId: line.inventoryItemId, itemName: String(item.name || line.itemName), unit: line.unit,
+            unitCost: line.unitCost === undefined ? null : line.unitCost,
             quantityBefore: before, delta: Number(line.quantity), quantityAfter: after,
             reason: `Restauration annulation commande ${orderId}`, orderId, createdAt: now, createdBy: actorUid,
             idempotencyKey: movementRefs[i].path.split('/').pop()
