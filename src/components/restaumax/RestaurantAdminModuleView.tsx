@@ -12,6 +12,20 @@ type ModuleId = 'customers' | 'inventory' | 'reports' | 'settings';
 type Customer = { id: string; name: string; phone: string; phoneNormalized?: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
 type InventoryItem = { id: string; name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier?: string; updatedAt: number; active?: boolean };
 type StockMovement = { id: string; itemName: string; unit: string; quantityBefore: number; delta: number; quantityAfter: number; reason: string; createdAt: number; createdBy: string };
+type FinancialReport = {
+  period: { startAt: number; endAt: number };
+  orderCount: number; paidOrderCount: number;
+  grossCollected: number; taxCollected: number; netSales: number;
+  costOfGoodsSold: number; grossProfit: number; grossMarginPercent: number;
+  expenseTotal: number; operatingResult: number;
+  costCoverageComplete: boolean; costMovementCount: number; missingCostMovementCount: number;
+  bestSellers: Array<{ name: string; quantity: number }>;
+  cash?: {
+    paymentMethodTotals: Record<string, number>;
+    expenseCount: number; expenseByCategory: Record<string, number>;
+    withdrawalTotal: number; closedSessionCount: number; cashVariance: number; sessionsWithVariance: number;
+  };
+};
 
 const normalizeCustomerPhone = (value: string) => {
   const digits = value.replace(/\D/g, '');
@@ -37,6 +51,9 @@ export const RestaurantAdminModuleView: React.FC<{
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [orders, setOrders] = useState<RestauOrder[]>([]);
+  const [financialReport, setFinancialReport] = useState<FinancialReport | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportRefreshKey, setReportRefreshKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -80,9 +97,31 @@ export const RestaurantAdminModuleView: React.FC<{
       return () => { unsubscribeItems(); unsubscribeMovements(); };
     }
     if (module === 'reports') {
-      return onSnapshot(query(collection(db, 'restaurants', restaurant.slug, 'orders')), snap => {
+      let active = true;
+      const stopOrders = onSnapshot(query(collection(db, 'restaurants', restaurant.slug, 'orders')), snap => {
         setOrders(snap.docs.map(d => d.data() as RestauOrder));
       }, err => setError(err.message));
+      const loadReport = async () => {
+        setReportLoading(true);
+        try {
+          const user = auth.currentUser;
+          if (!user) throw new Error('Connexion requise pour consulter les rapports.');
+          const token = await user.getIdToken(true);
+          const response = await fetch('/api/reports?restaurantSlug=' + encodeURIComponent(restaurant.slug) + '&periodDays=30', {
+            headers: { Authorization: 'Bearer ' + token },
+            credentials: 'same-origin', cache: 'no-store'
+          });
+          const data = await response.json();
+          if (!response.ok || !data.success) throw new Error(data.error || 'Chargement des rapports impossible.');
+          if (active) setFinancialReport(data.report as FinancialReport);
+        } catch (e) {
+          if (active) setError(e instanceof Error ? e.message : 'Chargement des rapports impossible.');
+        } finally {
+          if (active) setReportLoading(false);
+        }
+      };
+      void loadReport();
+      return () => { active = false; stopOrders(); };
     }
     return undefined;
   }, [module, restaurant.slug]);
@@ -99,7 +138,6 @@ export const RestaurantAdminModuleView: React.FC<{
   }, [restaurant]);
 
   const completedOrders = useMemo(() => orders.filter(o => o.status === 'completed'), [orders]);
-  const salesTotal = useMemo(() => completedOrders.reduce((sum,o) => sum + Number(o.totalAmount || 0), 0), [completedOrders]);
   const bestSellers = useMemo(() => {
     const map = new Map<string, number>();
     completedOrders.forEach(o => o.items?.forEach(i => map.set(i.name, (map.get(i.name) || 0) + i.quantity)));
@@ -329,7 +367,34 @@ export const RestaurantAdminModuleView: React.FC<{
       </>}
       
       {module === 'reports' && <>
-        <div className="grid gap-4 sm:grid-cols-3"><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Commandes finalisées</p><p className="mt-2 text-3xl font-black">{completedOrders.length}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Montant des commandes finalisées</p><p className="mt-2 text-2xl font-black">{formatFCFA(salesTotal)}</p></div><div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Panier moyen</p><p className="mt-2 text-2xl font-black">{formatFCFA(completedOrders.length ? Math.round(salesTotal/completedOrders.length) : 0)}</p></div></div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-slate-500">Période : {financialReport ? new Date(financialReport.period.startAt).toLocaleDateString('fr-FR') + ' – ' + new Date(financialReport.period.endAt).toLocaleDateString('fr-FR') : '30 derniers jours'}</p>
+          <button type="button" onClick={()=>setReportRefreshKey(value=>value+1)} disabled={reportLoading} className="rounded-lg border px-3 py-2 text-xs font-bold">{reportLoading ? 'Actualisation…' : 'Actualiser les rapports'}</button>
+        </div>
+        {financialReport && <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Ventes encaissées TTC nettes</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.grossCollected)}</p><p className="mt-1 text-xs text-slate-500">{financialReport.paidOrderCount} commandes réglées</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Ventes hors taxes</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.netSales)}</p><p className="mt-1 text-xs text-slate-500">Taxes collectées : {formatFCFA(financialReport.taxCollected)}</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Coût des marchandises vendues</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.costOfGoodsSold)}</p><p className="mt-1 text-xs text-slate-500">{financialReport.costMovementCount} mouvements valorisés</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Marge brute</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.grossProfit)}</p><p className="mt-1 text-xs text-slate-500">{financialReport.grossMarginPercent} % du chiffre d’affaires HT</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Dépenses enregistrées</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.expenseTotal)}</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Résultat après dépenses suivies</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.operatingResult)}</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Commandes finalisées</p><p className="mt-2 text-2xl font-black">{financialReport.orderCount}</p></div>
+            <div className="rounded-2xl border bg-white p-5"><p className="text-sm text-slate-500">Ticket moyen encaissé</p><p className="mt-2 text-2xl font-black">{formatFCFA(financialReport.paidOrderCount ? Math.round(financialReport.grossCollected / financialReport.paidOrderCount) : 0)}</p></div>
+          </div>
+          {!financialReport.costCoverageComplete && <p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Valorisation partielle : {financialReport.missingCostMovementCount} anciens mouvements de stock ne contiennent pas de coût unitaire historique. Les marges seront entièrement fiables lorsque les fiches de stock auront des coûts renseignés et que les nouveaux mouvements seront valorisés.</p>}
+          {financialReport.cash && <section className="rounded-2xl border bg-white p-5">
+            <h2 className="mb-3 font-bold">Rapprochement de caisse et moyens de paiement</h2>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div><p className="text-xs text-slate-500">Sessions clôturées</p><p className="text-xl font-black">{financialReport.cash.closedSessionCount}</p></div>
+              <div><p className="text-xs text-slate-500">Écart cumulé de caisse</p><p className="text-xl font-black">{formatFCFA(financialReport.cash.cashVariance)}</p></div>
+              <div><p className="text-xs text-slate-500">Sessions avec écart</p><p className="text-xl font-black">{financialReport.cash.sessionsWithVariance}</p></div>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">{Object.entries(financialReport.cash.paymentMethodTotals).map(([method,amount])=><div key={method} className="flex justify-between border-b py-2 text-sm"><span>{method}</span><strong>{formatFCFA(amount)}</strong></div>)}</div>
+            <p className="mt-3 text-xs text-slate-500">Retraits de caisse suivis séparément : {formatFCFA(financialReport.cash.withdrawalTotal)}</p>
+          </section>}
+        </>}
+        {!financialReport && !reportLoading && <p className="rounded-xl border bg-white p-4 text-sm text-slate-500">Aucun rapport disponible pour cette période.</p>}
         <section className="rounded-2xl border bg-white p-5"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-bold">Meilleures ventes (quantités)</h2><button onClick={exportCsv} className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white"><Download size={15}/> Exporter CSV</button></div>
           {bestSellers.map(([name,qty])=><div key={name} className="flex justify-between border-b py-3 text-sm last:border-0"><span>{name}</span><strong>{qty}</strong></div>)}
           {bestSellers.length===0 && <p className="text-sm text-slate-500">Aucune commande finalisée à analyser.</p>}
