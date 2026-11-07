@@ -12,7 +12,7 @@ type RestaurantRow = {
     billingCycle?: 'monthly' | 'yearly' | 'custom';
     status?: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
     startsAt?: number; endsAt?: number; notes?: string;
-    autoRenew?: boolean; nextBillingAt?: number; gracePeriodDays?: number; currentInvoiceId?: string;
+    autoRenew?: boolean; nextBillingAt?: number; gracePeriodDays?: number; currentInvoiceId?: string | null;
   };
 };
 type PlatformSummary = {
