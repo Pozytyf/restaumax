@@ -49,6 +49,7 @@ import {
   OrderProbeResult,
   IdempotencyReservationResult
 } from './src/server/orderService.js';
+import { getFinancialReportWithDb } from './src/server/financialReportService.js';
 import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, listClosedCashSessionsWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
 import { type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
 import { loadRestaurantPayDunyaConfig, saveRestaurantPayDunyaCredentials } from './src/server/paydunyaMerchantConfig.js';
@@ -1421,6 +1422,29 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
   } catch (err: any) {
     console.error('Erreur inattendue API /api/orders:', err?.message || String(err));
     return { statusCode: 500, body: { success: false, error: 'Erreur interne du serveur lors du traitement de la commande.' } };
+  }
+}
+
+export async function handleFinancialReportRequest(req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de rapports indisponible.' } };
+  if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    const restaurantSlug = String(req.query?.restaurantSlug || '').trim();
+    const from = req.query?.from ? Number(req.query.from) : undefined;
+    const to = req.query?.to ? Number(req.query.to) : undefined;
+    const result = await getFinancialReportWithDb(adminDb, {
+      restaurantSlug, actorUid: decoded.uid,
+      sessionVersion: Number(decoded.sessionVersion || 0), from, to
+    });
+    return result.success ? { statusCode: 200, body: result } : { statusCode: 403, body: result };
+  } catch (error: any) {
+    console.error('[RestauMax financial reports] Request failed:', error?.message || String(error));
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant le calcul des rapports.' } };
   }
 }
 
