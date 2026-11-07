@@ -33,9 +33,12 @@ export async function awardLoyaltyPointsInTransaction(input: LoyaltyAwardInput):
   const { tx, restaurantRef, restaurant, orderRef, order, actorUid, now } = input;
   const phone = normalizeCustomerPhone(order.customerPhoneNormalized || order.customerPhone);
   if (!phone) return { success: true, awarded: 0 };
-  const subtotal = Number(order.subtotalAmount ?? order.totalAmount);
+  const totalAmount = Number(order.totalAmount);
+  const taxAmount = Number(order.taxAmount || 0);
+  const subtotal = totalAmount - taxAmount;
   const fcfaPerPoint = Number(restaurant.loyaltyFcfaPerPoint ?? 1000);
-  if (!Number.isSafeInteger(subtotal) || subtotal < 0 ||
+  if (!Number.isSafeInteger(totalAmount) || totalAmount < 0 || !Number.isSafeInteger(taxAmount) || taxAmount < 0 ||
+      !Number.isSafeInteger(subtotal) || subtotal < 0 ||
       !Number.isSafeInteger(fcfaPerPoint) || fcfaPerPoint < 1 || fcfaPerPoint > 100000000) {
     return { success: false, awarded: 0 };
   }
