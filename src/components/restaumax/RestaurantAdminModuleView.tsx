@@ -92,7 +92,7 @@ export const RestaurantAdminModuleView: React.FC<{
       name: restaurant.name, tagline: restaurant.tagline || '', address: restaurant.address || '',
       city: restaurant.city || '', phone: restaurant.phone || '', openingHours: restaurant.openingHours || '',
       isOpen: restaurant.isOpen, taxRatePercent: String(restaurant.taxRatePercent ?? 0),
-      receiptFooter: restaurant.receiptFooter || '', receiptPaperWidth: restaurant.receiptPaperWidth || '80mm'
+      taxMode: restaurant.taxMode || 'exclusive', receiptFooter: restaurant.receiptFooter || '', receiptPaperWidth: restaurant.receiptPaperWidth || '80mm'
     });
   }, [restaurant]);
 
