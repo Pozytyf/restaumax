@@ -126,6 +126,15 @@ Tous les contrôles ci-dessous ont réussi sur ce SHA exact :
 - PayDunya est resté en TEST ; aucune transaction réelle ni aucun remboursement Mobile Money réel n'a été exécuté.
 - La recette certifie le code, les services, les règles et les transactions sur émulateur. Elle ne certifie pas l'activation du Cron ni l'expérience visuelle hébergée.
 
+## Correctifs de persistance découverts le 7 novembre 2026
+
+L'audit complémentaire a identifié deux défauts de persistance qui n'étaient pas couverts par la recette automatisée précédente :
+
+- Les QR physiques étaient générés avec un jeton aléatoire dont seule l'empreinte était conservée. L'URL ne pouvait donc pas être restaurée après rechargement de l'écran. Le correctif conserve désormais le jeton sous forme chiffrée AES-256-GCM côté serveur et permet de restaurer le QR existant sans rotation. La révocation explicite reste effective.
+- Les règles Firestore refusaient les champs `taxMode` et `loyaltyFcfaPerPoint` du formulaire de paramètres du restaurant. Une mise à jour qui contenait ces champs était rejetée, même si les autres champs étaient valides. La liste des champs autorisés et leurs validations de type sont désormais alignées sur le formulaire.
+
+La configuration Vercel Production a également été complétée avec les clés secrètes de chiffrement nécessaires au stockage des identifiants PayDunya et des jetons QR. Les valeurs restent sensibles et ne sont pas consignées dans ce document. Une nouvelle version déployée est nécessaire pour que les fonctions hébergées les utilisent.
+
 ## Conclusion
 
 Les cinq chantiers disposent désormais d'une implémentation dans la branche de recette et leurs suites automatisées sont vertes sur le SHA `8ded05962ac9eb3d310292b9ea85cc36991429e0`. La validation du code est terminée. L'activation opérationnelle de la facturation planifiée et tout débit récurrent restent explicitement en attente des prérequis décrits ci-dessus ; ils ne sont pas présentés comme actifs.
