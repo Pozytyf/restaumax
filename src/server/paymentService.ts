@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { awardLoyaltyPointsInTransaction } from './loyaltyService';
+import { awardLoyaltyPointsInTransaction } from './loyaltyService.ts';
 
 export interface CashPaymentInput {
   restaurantSlug: string;
