@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateFinancialReport } from '../src/server/financialReportService.ts';
+import { calculateFinancialReport, getFinancialReportWithDb } from '../src/server/financialReportService.ts';
 
 const report = calculateFinancialReport({
   orders: [
@@ -35,4 +35,52 @@ assert.equal(report.cashCollectedFcfa, 1180);
 assert.equal(report.otherCollectedFcfa, 1000);
 assert.equal(report.cashNetAfterMovementsFcfa, -2320);
 assert.equal(report.grossMarginPercent, 32.2);
-console.log('Financial report aggregation tests passed: 13/13.');
+class ReportDb {
+  constructor(seed) { this.docs = new Map(Object.entries(seed)); }
+  ref(path) {
+    const self = this;
+    const ref = {
+      path,
+      get: async () => {
+        const value = self.docs.get(path);
+        return { exists: value !== undefined, data: () => value };
+      },
+      collection: name => self.ref(path + '/' + name),
+      where: () => query
+    };
+    const query = {
+      where: () => query,
+      get: async () => ({
+        docs: [...self.docs.entries()]
+          .filter(([docPath]) => docPath.startsWith(path + '/') && !docPath.slice(path.length + 1).includes('/'))
+          .map(([docPath, value]) => ({ id: docPath.split('/').pop(), data: () => value }))
+      })
+    };
+    return ref;
+  }
+  collection(name) {
+    const root = this.ref(name);
+    root.doc = id => this.ref(name + '/' + id);
+    return root;
+  }
+}
+const reportDb = new ReportDb({
+  'restaurants/tenant-a': { status: 'active', ownerUid: 'owner-a' },
+  'managers/owner-a': { active: true, restaurantSlug: 'tenant-a', role: 'owner', sessionVersion: 2 },
+  'managers/manager-no-reports': { active: true, restaurantSlug: 'tenant-a', role: 'manager', permissions: ['cash.view'], sessionVersion: 2 },
+  'restaurants/tenant-a/orders/order-1': { id: 'order-1', status: 'completed', totalAmount: 1000, remainingAmount: 0, createdAt: 1000 }
+});
+const ownerReport = await getFinancialReportWithDb(reportDb, {
+  restaurantSlug: 'tenant-a', actorUid: 'owner-a', sessionVersion: 2, from: 1, to: 2000
+});
+assert.equal(ownerReport.success, true, 'Owner can read reports for their own restaurant');
+assert.equal(ownerReport.report.grossOrderValueFcfa, 1000);
+const deniedReport = await getFinancialReportWithDb(reportDb, {
+  restaurantSlug: 'tenant-a', actorUid: 'manager-no-reports', sessionVersion: 2, from: 1, to: 2000
+});
+assert.equal(deniedReport.success, false, 'A manager without reports.view cannot read financial reports');
+const crossTenantReport = await getFinancialReportWithDb(reportDb, {
+  restaurantSlug: 'tenant-b', actorUid: 'owner-a', sessionVersion: 2, from: 1, to: 2000
+});
+assert.equal(crossTenantReport.success, false, 'A restaurant owner cannot read another tenant reports');
+console.log('Financial report aggregation tests passed: 16/16.');
