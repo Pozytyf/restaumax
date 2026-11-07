@@ -1710,6 +1710,8 @@ export default function App() {
             {currentRole === 'pos' && userPermissions.includes('pos.access') && (
               <PosView
                 restaurantSlug={activeRestaurantSlug}
+                taxRatePercent={Number(restaurant?.taxRatePercent || 0)}
+                taxMode={restaurant?.taxMode || 'exclusive'}
                 menuItems={menuItems}
                 cart={cart}
                 selectedTable={selectedTable}
