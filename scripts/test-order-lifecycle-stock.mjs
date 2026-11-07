@@ -53,6 +53,7 @@ const db = base();
 const start = await transitionOrderStatusWithDb(db, { ...params, targetStatus: 'in_prep' });
 assert.equal(start.success, true);
 assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').status, 'in_prep');
+assert.equal(db.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'applied');
 assert.equal(db.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 9.5);
 const consumption = db.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1');
 assert.equal(consumption.status, 'applied');
@@ -91,6 +92,7 @@ const noRecipe = base('pending', 10, false);
 assert.equal((await transitionOrderStatusWithDb(noRecipe, { ...params, targetStatus: 'in_prep' })).success, true);
 assert.equal(noRecipe.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 assert.equal(noRecipe.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'skipped');
+assert.equal(noRecipe.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'skipped');
 
 const cashierDb = base();
 cashierDb.documents.set('managers/cashier-1', {
@@ -105,9 +107,11 @@ partialDb.documents.get('restaurants/chez-awa/orders/order-1').items.push({ id: 
 partialDb.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount = 2;
 assert.equal((await transitionOrderStatusWithDb(partialDb, { ...params, targetStatus: 'in_prep' })).success, true);
 assert.equal(partialDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'partial');
+assert.equal(partialDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'partial');
 assert.deepEqual(partialDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').untrackedMenuItemIds, ['dish-untracked']);
 assert.equal((await transitionOrderStatusWithDb(partialDb, { ...params, targetStatus: 'cancelled' })).success, true);
 assert.equal(partialDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10, 'Partial consumption restores only tracked ingredients');
+assert.equal(partialDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'restored');
 
 const mismatchedOwnerDb = base();
 mismatchedOwnerDb.documents.set('managers/owner-2', { active: true, restaurantSlug: 'chez-awa', role: 'owner', sessionVersion: 4 });
