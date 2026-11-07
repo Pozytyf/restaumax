@@ -143,8 +143,8 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
           setQrForTableId(table.id);
           setQrUrl(data.url);
           setQrGenerationError(null);
-          setQrMigrationNotice(data.migrated === true
-            ? 'Ce QR a été migré vers le nouveau stockage sécurisé. Réimprimez ce QR et remplacez toute ancienne version affichée sur la table.'
+          setQrMigrationNotice(data.reissued === true
+            ? 'Le QR a été réémis depuis le serveur. Si un ancien QR est imprimé sur la table, remplacez-le par celui affiché ici.'
             : null);
         }
       } catch (err: any) {
