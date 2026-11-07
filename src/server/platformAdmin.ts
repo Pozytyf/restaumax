@@ -629,69 +629,53 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         previousAssignments.docs.forEach((doc: any) => refsByPath.set(doc.ref.path, doc.ref));
         requestedSnapshots.forEach((snap: any) => refsByPath.set(snap.ref.path, snap.ref));
         const refs = [...refsByPath.values()];
+        const ordersRef = db.collection('restaurants').doc(slug).collection('orders');
         await db.runTransaction(async (tx: any) => {
           const snapshots = await Promise.all(refs.map((ref: any) => tx.get(ref)));
+          if (snapshots.some((snap: any) => !snap.exists)) {
+            throw new Error('Une table a été supprimée pendant l’affectation.');
+          }
+          const orderSnapshots = await Promise.all(snapshots.map((snap: any) => {
+            const tableNumber = String(snap.data()?.tableNumber || '').trim();
+            return tableNumber ? tx.get(ordersRef.where('tableNumber', '==', tableNumber)) : Promise.resolve(null);
+          }));
           const requestedSet = new Set(requestedIds);
+          const now = Date.now();
           snapshots.forEach((snap: any, index: number) => {
-            if (!snap.exists) throw new Error('Une table a été supprimée pendant l’affectation.');
             const data = snap.data() || {};
             const tableId = refs[index].id;
-            if (requestedSet.has(tableId)) {
-              if (data.isActive !== true) throw new Error('Une table sélectionnée est devenue inactive.');
+            const isRequested = requestedSet.has(tableId);
+            if (isRequested && data.isActive !== true) {
+              throw new Error('Une table sélectionnée est devenue inactive.');
+            }
+            const currentWaiterUid = typeof data.assignedWaiter === 'string' ? data.assignedWaiter : null;
+            const targetWaiterUid = isRequested ? staffUid : (currentWaiterUid === staffUid ? null : currentWaiterUid);
+            if (isRequested || currentWaiterUid === staffUid) {
               tx.update(refs[index], {
-                assignedWaiter: staffUid,
-                assignedWaiterName: String(server.displayName || ''),
-                assignmentUpdatedAt: Date.now(),
-                assignmentUpdatedBy: user.uid
-              });
-            } else if (data.assignedWaiter === staffUid) {
-              tx.update(refs[index], {
-                assignedWaiter: null,
-                assignedWaiterName: null,
-                assignmentUpdatedAt: Date.now(),
+                assignedWaiter: targetWaiterUid,
+                assignedWaiterName: targetWaiterUid === staffUid ? String(server.displayName || '') : null,
+                assignmentUpdatedAt: now,
                 assignmentUpdatedBy: user.uid
               });
             }
+            const orders = orderSnapshots[index]?.docs || [];
+            orders.forEach((orderDoc: any) => {
+              if (['pending', 'in_prep', 'ready'].includes(String(orderDoc.data()?.status || '')) &&
+                  orderDoc.data()?.assignedWaiterUid !== targetWaiterUid) {
+                tx.update(orderDoc.ref, {
+                  assignedWaiterUid: targetWaiterUid,
+                  waiterAssignmentUpdatedAt: now,
+                  waiterAssignmentUpdatedBy: user.uid
+                });
+              }
+            });
           });
         });
-        const affectedTables = new Map<string, any>();
-        previousAssignments.docs.forEach((doc: any) => affectedTables.set(doc.id, doc.data()));
-        requestedSnapshots.forEach((snap: any) => affectedTables.set(snap.id, snap.data()));
-        let activeOrdersSynchronized = true;
-        try {
-          for (const [tableId, tableData] of affectedTables.entries()) {
-            const tableNumber = String(tableData?.tableNumber || '').trim();
-            if (!tableNumber) continue;
-            const ordersSnap = await db.collection('restaurants').doc(slug).collection('orders')
-              .where('tableNumber', '==', tableNumber).get();
-            const targetWaiterUid = requestedIds.includes(tableId) ? staffUid : null;
-            const activeOrders = ordersSnap.docs.filter((doc: any) =>
-              ['pending', 'in_prep', 'ready'].includes(String(doc.data()?.status || ''))
-            );
-            for (let offset = 0; offset < activeOrders.length; offset += 400) {
-              const batch = db.batch();
-              activeOrders.slice(offset, offset + 400).forEach((doc: any) => batch.update(doc.ref, {
-                assignedWaiterUid: targetWaiterUid,
-                waiterAssignmentUpdatedAt: Date.now(),
-                waiterAssignmentUpdatedBy: user.uid
-              }));
-              await batch.commit();
-            }
-          }
-        } catch {
-          activeOrdersSynchronized = false;
-        }
         await db.collection('admin_audit_logs').add({
           action: 'assign_server_tables', restaurantSlug: slug, targetUid: staffUid,
           tableIds: requestedIds, actorUid: user.uid, createdAt: Date.now(),
-          activeOrdersSynchronized
+          activeOrdersSynchronized: true
         });
-        if (!activeOrdersSynchronized) {
-          return json(res, 503, {
-            success: false, assignmentSaved: true,
-            error: 'Les tables sont affectées, mais le transfert de certaines commandes en cours n’a pas été finalisé. Actualisez les commandes et réessayez.'
-          });
-        }
         return json(res, 200, { success: true, uid: staffUid, tableIds: requestedIds });
       }
 
