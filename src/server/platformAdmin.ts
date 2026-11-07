@@ -509,6 +509,16 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (!actor) return json(res, 403, { success: false, error: 'Gestion du personnel non autorisée pour ce restaurant.' });
 
       const staffRef = db.collection('restaurants').doc(slug).collection('staff');
+      const releaseServerTables = async (uid: string) => {
+        const assigned = await db.collection('restaurants').doc(slug).collection('tables').where('assignedWaiter', '==', uid).get();
+        for (let offset = 0; offset < assigned.docs.length; offset += 400) {
+          const batch = db.batch();
+          assigned.docs.slice(offset, offset + 400).forEach((doc: any) => batch.set(doc.ref, {
+            assignedWaiter: null, assignedWaiterName: null, assignmentUpdatedAt: Date.now(), assignmentUpdatedBy: user.uid
+          }, { merge: true }));
+          await batch.commit();
+        }
+      };
       if (action === 'staff_list') {
         const [snap, tablesSnap] = await Promise.all([staffRef.get(), db.collection('restaurants').doc(slug).collection('tables').get()]);
         return json(res, 200, { success: true, actorRole: actor.role, staff: snap.docs.map((d: any) => d.data()), tables: tablesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })) });
@@ -585,6 +595,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             const data = snap.data() || {};
             const tableId = refs[index].id;
             if (requestedSet.has(tableId)) {
+              if (data.isActive !== true) throw new Error('Une table sélectionnée est devenue inactive.');
               tx.update(refs[index], {
                 assignedWaiter: staffUid,
                 assignedWaiterName: String(server.displayName || ''),
@@ -644,6 +655,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
         const now = Date.now();
         const sessionVersion = currentSessionVersion + 1;
+        if (!nextActive && member.role === 'server') await releaseServerTables(staffUid);
         const authUser = await auth.getUser(staffUid);
         const nextClaims = { ...(authUser.customClaims || {}), sessionVersion };
         if (nextActive) {
@@ -671,6 +683,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       if (action === 'delete_staff') {
         const now = Date.now();
+        if (member.role === 'server') await releaseServerTables(staffUid);
         // Revoke Firestore authorization before touching Auth; never remove business history.
         const revokeBatch = db.batch();
         const sessionVersion = Number(member.sessionVersion || 0) + 1;
@@ -768,6 +781,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const currentAuthUser = await getAuth().getUser(staffUid);
         await getAuth().setCustomUserClaims(staffUid, { ...(currentAuthUser.customClaims || {}), role, restaurantSlug: slug, permissions, sessionVersion });
         await getAuth().revokeRefreshTokens(staffUid);
+        if (member.role === 'server' && role !== 'server') await releaseServerTables(staffUid);
         return json(res, 200, { success: true, requiresReauthentication: true });
       }
     }
