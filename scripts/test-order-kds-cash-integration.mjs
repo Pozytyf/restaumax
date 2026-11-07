@@ -171,6 +171,24 @@ async function run() {
       String(tamperedPriceResult.error || '').includes('recalculé'),
       'Le serveur refuse un total POS falsifié');
 
+    const minimalOptionalFieldsPayload = {
+      ...payload,
+      idempotencyKey: 'integration-optional-fields-' + suffix,
+      declaredTotal: 5800,
+      cart: [{
+        ...payload.cart[0],
+        unitPrice: 5800,
+        selectedExtras: []
+      }]
+    };
+    delete minimalOptionalFieldsPayload.cart[0].prepNotes;
+    const minimalOptionalFieldsResult = await processOrderSubmission(minimalOptionalFieldsPayload, provider);
+    check(minimalOptionalFieldsResult.success === true &&
+      !Object.prototype.hasOwnProperty.call(minimalOptionalFieldsResult.order || {}, 'customerNote') &&
+      !Object.prototype.hasOwnProperty.call(minimalOptionalFieldsResult.order?.items?.[0] || {}, 'prepNotes') &&
+      !Object.prototype.hasOwnProperty.call(minimalOptionalFieldsResult.order?.items?.[0] || {}, 'selectedExtras'),
+      'Une commande sans note ni supplément facultatif est enregistrée sans valeurs undefined Firestore');
+
     const clientPriceTampering = await processOrderSubmission({
       ...payload,
       idempotencyKey: 'integration-tampered-line-price-' + suffix,
