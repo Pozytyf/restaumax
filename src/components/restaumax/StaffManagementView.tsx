@@ -38,7 +38,8 @@ export const StaffManagementView: React.FC<{ restaurantSlug: string; onBack: () 
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [tables, setTables] = useState<StaffTable[]>([]);
   const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, string[]>>({});
-  const [actorRole, setActorRole] = useState<'owner'|'manager'|null>(null);\n  const [canAssignTables, setCanAssignTables] = useState(false);
+  const [actorRole, setActorRole] = useState<'owner'|'manager'|null>(null);
+  const [canAssignTables, setCanAssignTables] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
