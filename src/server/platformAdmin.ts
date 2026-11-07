@@ -556,8 +556,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       if (action === 'assign_server_tables') {
         const staffUid = String(body.uid || '').trim();
-        const requestedIds = Array.isArray(body.tableIds)
-          ? [...new Set(body.tableIds.map((id: unknown) => String(id || '').trim()).filter(Boolean))]
+        const requestedIds: string[] | null = Array.isArray(body.tableIds)
+          ? [...new Set((body.tableIds as unknown[]).map((id) => String(id || '').trim()).filter((id) => id.length > 0))]
           : null;
         if (!staffUid || !requestedIds || requestedIds.length > 30) {
           return json(res, 400, { success: false, error: 'Serveur ou liste de tables invalide (30 tables maximum).' });
