@@ -235,6 +235,12 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
     const remainingAmount = totalAmount - paidAmount;
     const paymentStatus = remainingAmount === 0 ? 'paid' : paidAmount > 0 ? 'partial' : 'unpaid';
     const guestPaidAmount = guestPreviouslyPaidAmount + acceptedAmount;
+    const totalTaxAmount = Math.max(0, Number(order.taxAmount || 0));
+    const previouslyPaidTax = Math.max(0, Number(order.taxPaidAmount || 0));
+    const cumulativeTaxPaid = paymentStatus === 'paid'
+      ? totalTaxAmount
+      : Math.round(totalTaxAmount * paidAmount / totalAmount);
+    const taxPaidThisPayment = Math.max(0, cumulativeTaxPaid - previouslyPaidTax);
 
     let loyaltyPointsAwarded = 0;
     let loyaltyAwardAt: number | undefined;
@@ -316,7 +322,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       subtotalAmount: Number(order.subtotalAmount ?? order.totalAmount),
       taxRatePercent: Number(order.taxRatePercent || 0),
       taxMode: order.taxMode === 'inclusive' ? 'inclusive' : 'exclusive',
-      taxAmount: Number(order.taxAmount || 0),
+      taxAmount: taxPaidThisPayment,
       loyaltyPointsAwarded,
       createdAt: now
     };
@@ -330,6 +336,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       paymentStatus,
       lastPaymentAt: now,
       lastPaymentId: paymentId,
+      taxPaidAmount: cumulativeTaxPaid,
       ...(loyaltyAwardAt ? { loyaltyAwardedAt: loyaltyAwardAt, loyaltyPointsAwarded } : {})
     };
 
@@ -350,6 +357,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       paymentStatus,
       lastPaymentAt: now,
       lastPaymentId: paymentId,
+      taxPaidAmount: cumulativeTaxPaid,
       ...(loyaltyAwardAt ? { loyaltyAwardedAt: loyaltyAwardAt, loyaltyPointsAwarded } : {})
     });
     tx.update(cashSessionRef, {
