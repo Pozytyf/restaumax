@@ -400,6 +400,16 @@ export const KdsView: React.FC<KdsViewProps> = ({
                       <div className="text-[11px] text-white/80 font-medium mt-1">
                         Serveur: {ticket.waiter} · {ticket.orderType === 'sur_place' ? 'Sur Place' : 'À Emporter'}
                       </div>
+                      {ticket.stockTrackingStatus === 'partial' && (
+                        <div role="status" className="mt-1 text-[10px] font-extrabold text-amber-100">
+                          STOCK PARTIEL — {ticket.stockUntrackedItemIds?.length || 0} plat(s) ou option(s) non suivi(s)
+                        </div>
+                      )}
+                      {ticket.stockTrackingStatus === 'skipped' && (
+                        <div role="status" className="mt-1 text-[10px] font-extrabold text-amber-100">
+                          STOCK NON SUIVI — aucune recette exploitable pour cette commande
+                        </div>
+                      )}
                     </div>
 
                     {/* Elapsed prep timer */}
