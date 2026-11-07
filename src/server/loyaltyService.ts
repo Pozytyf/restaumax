@@ -49,8 +49,11 @@ export async function awardLoyaltyPointsInTransaction(input: LoyaltyAwardInput):
   const ledgerRef = restaurantRef.collection('loyaltyLedger').doc(`order_${hash(String(order.id || orderRef.id))}`);
   const deterministicCustomerRef = customersRef.doc(`loyalty_${hash(phone)}`);
   const customerQuery = customersRef.where('phoneNormalized', '==', phone).limit(1);
-  const [ledgerSnap, matchingCustomers, fallbackCustomerSnap] = await Promise.all([
-    tx.get(ledgerRef), tx.get(customerQuery), tx.get(deterministicCustomerRef)
+  const rawPhoneQuery = customersRef.where('phone', '==', String(order.customerPhone || '')).limit(1);
+  const digitsPhoneQuery = customersRef.where('phone', '==', phone).limit(1);
+  const [ledgerSnap, matchingCustomers, rawPhoneMatches, digitsPhoneMatches, fallbackCustomerSnap] = await Promise.all([
+    tx.get(ledgerRef), tx.get(customerQuery), tx.get(rawPhoneQuery),
+    tx.get(digitsPhoneQuery), tx.get(deterministicCustomerRef)
   ]);
   if (ledgerSnap.exists) {
     const previous = ledgerSnap.data() || {};
@@ -64,7 +67,7 @@ export async function awardLoyaltyPointsInTransaction(input: LoyaltyAwardInput):
     };
   }
 
-  const matchedCustomer = matchingCustomers.docs?.[0];
+  const matchedCustomer = matchingCustomers.docs?.[0] || rawPhoneMatches.docs?.[0] || digitsPhoneMatches.docs?.[0];
   const customerRef = matchedCustomer?.ref || deterministicCustomerRef;
   const customerSnap = matchedCustomer || fallbackCustomerSnap;
   const existing = customerSnap?.exists ? customerSnap.data() || {} : null;
