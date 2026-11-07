@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { transitionOrderStatusWithDb } from '../src/server/orderLifecycleService.ts';
 
 class FakeDb {
@@ -114,12 +115,25 @@ assert.equal(partialDb.documents.get('restaurants/chez-awa/inventoryItems/rice')
 assert.equal(partialDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'restored');
 
 const customizedDb = base();
-customizedDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].selectedExtras = [{ id: 'extra-cheese', name: 'Fromage' }];
+const customOrderItem = customizedDb.documents.get('restaurants/chez-awa/orders/order-1').items[0];
+customOrderItem.selectedOption = { groupId: 'side', optionId: 'rice-extra' };
+customOrderItem.selectedExtras = [{ extraId: 'extra-cheese', name: 'Fromage' }];
+const optionRecipeId = 'custom_' + createHash('sha256').update('dish-1:option:side:rice-extra').digest('hex').slice(0, 32);
+const extraRecipeId = 'custom_' + createHash('sha256').update('dish-1:extra:extra-cheese').digest('hex').slice(0, 32);
+customizedDb.documents.set('restaurants/chez-awa/menuRecipes/' + optionRecipeId, {
+  menuItemId: 'dish-1', targetType: 'option', targetId: 'side:rice-extra',
+  lines: [{ inventoryItemId: 'rice', itemName: 'Riz', unit: 'kg', quantityPerDish: 0.1 }]
+});
+customizedDb.documents.set('restaurants/chez-awa/menuRecipes/' + extraRecipeId, {
+  menuItemId: 'dish-1', targetType: 'extra', targetId: 'extra-cheese',
+  lines: [{ inventoryItemId: 'rice', itemName: 'Riz', unit: 'kg', quantityPerDish: 0.05 }]
+});
 assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'in_prep' })).success, true);
-assert.equal(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'partial', 'Custom extras without component recipes are flagged instead of silently omitted');
-assert.deepEqual(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockUntrackedItemIds, ['dish-1']);
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'applied', 'Base dish, selected option and selected extra recipes are all consumed');
+assert.deepEqual(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockUntrackedItemIds, []);
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 9.2, 'All component recipes are aggregated before stock deduction');
 assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'cancelled' })).success, true);
-assert.equal(customizedDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
+assert.equal(customizedDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10, 'Cancellation restores all base and customization components exactly once');
 const mismatchedOwnerDb = base();
 mismatchedOwnerDb.documents.set('managers/owner-2', { active: true, restaurantSlug: 'chez-awa', role: 'owner', sessionVersion: 4 });
 assert.equal((await transitionOrderStatusWithDb(mismatchedOwnerDb, { ...params, actorUid: 'owner-2', targetStatus: 'in_prep' })).success, false, 'Owner role without ownerUid binding is rejected');
