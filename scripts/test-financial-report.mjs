@@ -59,4 +59,24 @@ const untrackedOrder = calculateRestaurantFinancialReport({
 assert.equal(untrackedOrder.costCoverageComplete, false, 'Les commandes sans recette suivie rendent la couverture de marge incomplète');
 assert.equal(untrackedOrder.untrackedStockOrderCount, 1);
 
-console.log('Financial report calculation tests passed: 18 assertions.');
+
+const refundedRanking = calculateRestaurantFinancialReport({
+  orders: [
+    { id: 'order-refunded', status: 'completed', totalAmount: 1000, paidAmount: 1000, refundedAmount: 1000, items: [{ name: 'Plat remboursé', quantity: 3 }] },
+    { id: 'order-partial', status: 'completed', totalAmount: 1000, paidAmount: 1000, refundedAmount: 500, items: [{ name: 'Plat partiellement remboursé', quantity: 2 }] }
+  ],
+  payments: [
+    { id: 'p-refunded', orderId: 'order-refunded', method: 'especes', paidAmount: 1000 },
+    { id: 'p-partial', orderId: 'order-partial', method: 'especes', paidAmount: 1000 }
+  ],
+  refunds: [
+    { id: 'r-refunded', orderId: 'order-refunded', paymentId: 'p-refunded', amount: 1000 },
+    { id: 'r-partial', orderId: 'order-partial', paymentId: 'p-partial', amount: 500 }
+  ],
+  stockMovements: [], cashMovements: [], cashSessions: []
+}, { startAt: 1, endAt: 2, includeCashDetails: false });
+assert.deepEqual(refundedRanking.bestSellers, [{ name: 'Plat partiellement remboursé', quantity: 1 }],
+  'Les quantités du classement sont ajustées aux encaissements nets et excluent les commandes intégralement remboursées.');
+assert.equal(refundedRanking.grossCollected, 500, 'Le classement et le chiffre d’affaires net reposent sur la même base après remboursement.');
+
+console.log('Financial report calculation tests passed: 20 assertions.');
