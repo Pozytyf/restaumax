@@ -92,6 +92,8 @@ export function mapRestauOrderToKitchenTicket(
     waiter: order.customerNote?.startsWith('Commande saisie au comptoir par ') ? 'Personnel POS' : 'QR Menu Client',
     createdAt: new Date(order.createdAt),
     status: ticketStatus,
+    stockTrackingStatus: order.stockTrackingStatus,
+    stockUntrackedItemIds: order.stockUntrackedItemIds,
     items: order.items.map((it, idx) => {
       const notesArr: string[] = [];
       if (it.selectedOption?.optionName) {
