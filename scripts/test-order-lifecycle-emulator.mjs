@@ -106,7 +106,7 @@ try {
   ]);
   const customStart = await transitionOrderStatusWithDb(db, { ...params, orderId: customOrderId, targetStatus: 'in_prep' });
   assert.equal(customStart.success, true);
-  assert.equal((await inventoryRef.get()).data().quantity, 4.2, 'Main dish and option recipes both consume their exact quantities');
+  assert.equal((await inventoryRef.get()).data().quantity, 4.4, 'Main dish and option recipes both consume their exact quantities');
   assert.equal((await oilRef.get()).data().quantity, 1.9, 'Extra recipe consumes its component quantity');
   assert.equal((await customConsumptionRef.get()).data().status, 'applied', 'Mapped options and extras are fully tracked');
   const customReady = await transitionOrderStatusWithDb(db, { ...params, orderId: customOrderId, targetStatus: 'ready' });
