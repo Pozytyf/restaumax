@@ -363,7 +363,7 @@ export const CartLedger: React.FC<CartLedgerProps> = ({
             aria-busy={isSendingOrder}
             onClick={() => {
               sounds.playKitchenBell();
-              onSendToKitchen();
+              onSendToKitchen(selectedCustomerId || undefined);
             }}
             className="w-full h-11 bg-white/10 hover:bg-white/15 active:bg-white/20 disabled:opacity-40 disabled:pointer-events-none text-white text-xs sm:text-sm font-bold rounded-lg border border-white/20 transition-all flex items-center justify-center gap-2"
           >
