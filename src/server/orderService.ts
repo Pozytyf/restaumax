@@ -482,6 +482,7 @@ export async function processOrderSubmission(
     const trustedUnitPrice = trustedBasePrice + optionExtraPrice + extrasCost;
     const lineTotal = trustedUnitPrice * qty;
 
+    const sanitizedPrepNotes = sanitizeNote(line.prepNotes, 150);
     verifiedItems.push({
       id: `line-${orderId}-${i}`,
       menuItemId: catalogItem.id,
@@ -490,9 +491,9 @@ export async function processOrderSubmission(
       unitPrice: trustedUnitPrice,
       quantity: qty,
       totalPrice: lineTotal,
-      selectedOption: verifiedSelectedOption,
-      selectedExtras: verifiedExtrasList.length > 0 ? verifiedExtrasList : undefined,
-      prepNotes: sanitizeNote(line.prepNotes, 150)
+      ...(verifiedSelectedOption ? { selectedOption: verifiedSelectedOption } : {}),
+      ...(verifiedExtrasList.length > 0 ? { selectedExtras: verifiedExtrasList } : {}),
+      ...(sanitizedPrepNotes ? { prepNotes: sanitizedPrepNotes } : {})
     });
   }
 
@@ -519,7 +520,7 @@ export async function processOrderSubmission(
     totalAmount: grandTotal,
     currency: 'FCFA',
     status: 'pending',
-    customerNote: sanitizeNote(customerNote, 150),
+    ...(sanitizeNote(customerNote, 150) ? { customerNote: sanitizeNote(customerNote, 150) } : {}),
     createdAt: now,
     createdAtIso: new Date(now).toISOString(),
     idempotencyKey: cleanKey,
