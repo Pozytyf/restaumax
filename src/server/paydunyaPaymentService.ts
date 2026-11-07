@@ -362,8 +362,8 @@ export async function processPayDunyaInvoiceCallbackWithDb(
   const paymentRef = restaurantRef.collection('payments').doc(paymentId);
 
   return db.runTransaction(async (tx: any) => {
-    const [mappingSnap, intentSnap, orderSnap, paymentSnap] = await Promise.all([
-      tx.get(mappingRef), tx.get(intentRef), tx.get(orderRef), tx.get(paymentRef)
+    const [mappingSnap, intentSnap, orderSnap, paymentSnap, restaurantSnap] = await Promise.all([
+      tx.get(mappingRef), tx.get(intentRef), tx.get(orderRef), tx.get(paymentRef), tx.get(restaurantRef)
     ]);
     if (!mappingSnap.exists || mappingSnap.data()?.restaurantSlug !== slug ||
         mappingSnap.data()?.intentId !== intentId || !intentSnap.exists ||
