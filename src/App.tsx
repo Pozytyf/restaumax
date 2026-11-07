@@ -71,7 +71,6 @@ import { HomePage } from './components/restaumax/HomePage';
 import { ClientMenuView, areCartConfigurationsEqual } from './components/restaumax/ClientMenuView';
 import { RestaurantHubView } from './components/restaumax/RestaurantHubView';
 import { ManagerLoginView } from './components/restaumax/ManagerLoginView';
-import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
 import { QrScannerModal } from './components/restaumax/QrScannerModal';
 import { PlatformAdminView } from './components/restaumax/PlatformAdminView';
 
@@ -1573,13 +1572,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f4f7fb] text-[#181c1f]">
-      {/* Test / URL Switcher Simulator Bar at Top */}
-      <UrlSimulatorBar
-        currentPath={currentPath}
-        onNavigate={navigateTo}
-        onOpenScanner={() => setIsQrScannerOpen(true)}
-      />
-
       {/* 1. Client Menu Route: /r/chez-awa?table=4 or /r/chez-awa */}
       {isClientMenuRoute && (
         <ClientMenuView
