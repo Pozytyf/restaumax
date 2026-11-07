@@ -59,7 +59,8 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         const restaurant = restaurantSnap.data() || {};
         if (!['active', 'trial'].includes(String(sub.status || '')) ||
             Number(sub.nextBillingAt || sub.endsAt || 0) > now ||
-            restaurant.status === 'deleted' || restaurant.deletedAt) return 'skip';
+            restaurant.status === 'deleted' || restaurant.deletedAt ||
+            (restaurant.status !== 'active' && restaurant.suspensionReason !== 'subscription_past_due')) return 'skip';
         if (invoiceSnap.exists) {
           if (String(sub.currentInvoiceId || '') === invoiceId) return 'exists';
           return 'skip';
@@ -135,7 +136,8 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         const invoice = invoiceSnap.data() || {};
         const restaurant = restaurantSnap.data() || {};
         if (sub.status !== 'past_due' || invoice.status === 'paid' ||
-            restaurant.status === 'deleted' || restaurant.deletedAt) return 'skip';
+            restaurant.status === 'deleted' || restaurant.deletedAt ||
+            (restaurant.status !== 'active' && restaurant.suspensionReason !== 'subscription_past_due')) return 'skip';
         const grace = Number.isSafeInteger(sub.gracePeriodDays) ? sub.gracePeriodDays : 7;
         const pastDueAt = Number(sub.pastDueAt || invoice.dueAt || 0);
         if (now < pastDueAt + grace * DAY_MS) return 'skip';
