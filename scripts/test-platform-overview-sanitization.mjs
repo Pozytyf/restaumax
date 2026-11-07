@@ -37,6 +37,7 @@ assert(source.includes("managerSnap.data().permissions.includes('tables.manage')
 assert(source.includes("server.role !== 'server'") && source.includes("server.active !== true") && source.includes("serverMembership.active !== true"), 'only an active and consistently linked server can receive table assignments');
 assert(source.includes("assignedWaiter: staffUid"), 'each table stores one canonical assigned server UID');
 assert(source.includes("assignedWaiter: null"), 'old assignments can be released during reassignment or account lifecycle changes');
+assert(source.includes('assignedWaiterUid: targetWaiterUid') && source.includes('assignedWaiterUid: null'), 'active orders follow table reassignment and are detached when a server leaves');
 assert(source.includes("db.runTransaction(async (tx: any)"), 'table assignments are persisted transactionally');
 assert(staffManagement.includes('multiple size=') && staffManagement.includes("action: 'assign_server_tables'"), 'manager UI supports assigning multiple tables to one server');
 assert(menuView.includes('divide-y') && menuView.includes('Quantité') && menuView.includes('initialQuantity'), 'customer menu is a list with quantity selectors and passes the selected quantity');
