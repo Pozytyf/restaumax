@@ -26,3 +26,5 @@ assert(accountAudit.includes('emailConflict'), 'account audit flags conflicting 
 assert(accountAudit.includes("actorRole: 'super_admin'") && accountAudit.includes('readOnly: true'), 'super-admin account audit is read-only');
 assert(accountAudit.includes('accountLinked: false'), 'unlinked owner metadata is distinguished from an actual Firebase account');
 console.log('Super-admin restaurant account audit and owner-email reconciliation checks passed.');
+
+assert(accountAudit.includes('activeKnown'), 'account audit does not infer Firebase active status from the restaurant owner pointer');
