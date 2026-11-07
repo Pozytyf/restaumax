@@ -100,6 +100,26 @@ const cashierCancel = await transitionOrderStatusWithDb(cashierDb, {
   ...params, actorUid: 'cashier-1', targetStatus: 'cancelled'
 });
 assert.equal(cashierCancel.success, true);
+const partialDb = base();
+partialDb.documents.get('restaurants/chez-awa/orders/order-1').items.push({ id: 'line-2', menuItemId: 'dish-untracked', quantity: 1 });
+partialDb.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount = 2;
+assert.equal((await transitionOrderStatusWithDb(partialDb, { ...params, targetStatus: 'in_prep' })).success, true);
+assert.equal(partialDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'partial');
+assert.deepEqual(partialDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').untrackedMenuItemIds, ['dish-untracked']);
+assert.equal((await transitionOrderStatusWithDb(partialDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal(partialDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10, 'Partial consumption restores only tracked ingredients');
+
+const mismatchedOwnerDb = base();
+mismatchedOwnerDb.documents.set('managers/owner-2', { active: true, restaurantSlug: 'chez-awa', role: 'owner', sessionVersion: 4 });
+assert.equal((await transitionOrderStatusWithDb(mismatchedOwnerDb, { ...params, actorUid: 'owner-2', targetStatus: 'in_prep' })).success, false, 'Owner role without ownerUid binding is rejected');
+
+const managerDb = base();
+managerDb.documents.set('managers/manager-1', { active: true, restaurantSlug: 'chez-awa', role: 'manager', permissions: ['orders.manage'], sessionVersion: 4 });
+assert.equal((await transitionOrderStatusWithDb(managerDb, { ...params, actorUid: 'manager-1', targetStatus: 'in_prep' })).success, true);
+
+const serverDb = base('ready');
+serverDb.documents.set('managers/server-1', { active: true, restaurantSlug: 'chez-awa', role: 'server', permissions: ['orders.serve'], sessionVersion: 4 });
+assert.equal((await transitionOrderStatusWithDb(serverDb, { ...params, actorUid: 'server-1', targetStatus: 'completed' })).success, true);
 const kitchenDb = base();
 kitchenDb.documents.set('managers/kitchen-1', {
   active: true, restaurantSlug: 'chez-awa', role: 'kitchen', permissions: ['kitchen.access'], sessionVersion: 4
