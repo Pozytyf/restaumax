@@ -520,14 +520,20 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
       };
       if (action === 'staff_list') {
-        const [snap, tablesSnap, actorMembership] = await Promise.all([
+        const actorMembership = actor.role === 'manager'
+          ? await db.collection('managers').doc(user.uid).get()
+          : null;
+        const actorPermissions = Array.isArray(actorMembership?.data()?.permissions)
+          ? actorMembership.data().permissions
+          : [];
+        const canViewTables = actor.role === 'owner' || actorPermissions.includes('tables.view') || actorPermissions.includes('tables.manage');
+        const canAssignTables = actor.role === 'owner' || actorPermissions.includes('tables.manage');
+        const [snap, tablesSnap] = await Promise.all([
           staffRef.get(),
-          db.collection('restaurants').doc(slug).collection('tables').get(),
-          actor.role === 'manager' ? db.collection('managers').doc(user.uid).get() : Promise.resolve(null)
+          canViewTables
+            ? db.collection('restaurants').doc(slug).collection('tables').get()
+            : Promise.resolve({ docs: [] })
         ]);
-        const canAssignTables = actor.role === 'owner' ||
-          (actorMembership?.exists === true && Array.isArray(actorMembership.data()?.permissions) &&
-            actorMembership.data().permissions.includes('tables.manage'));
         return json(res, 200, {
           success: true, actorRole: actor.role, canAssignTables,
           staff: snap.docs.map((d: any) => d.data()),
