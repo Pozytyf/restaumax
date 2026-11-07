@@ -7,6 +7,8 @@ export interface PendingOrderIntent {
   cart: ClientCartItem[];
   idempotencyKey: string;
   customerNote?: string;
+  customerName?: string;
+  customerPhone?: string;
   timestamp: number;
   isUncertain: boolean;
 }
@@ -29,6 +31,8 @@ export function savePendingOrderIntent(intent: PendingOrderIntent): boolean {
       cart: Array.isArray(intent.cart) ? intent.cart : [],
       idempotencyKey: intent.idempotencyKey,
       customerNote: intent.customerNote || '',
+      customerName: intent.customerName || '',
+      customerPhone: intent.customerPhone || '',
       timestamp: intent.timestamp || Date.now(),
       isUncertain: Boolean(intent.isUncertain)
     });
@@ -75,6 +79,8 @@ export function loadPendingOrderIntent(): PendingOrderIntent | null {
       cart: parsed.cart,
       idempotencyKey: parsed.idempotencyKey,
       customerNote: typeof parsed.customerNote === 'string' && parsed.customerNote.trim() ? parsed.customerNote.trim() : undefined,
+      customerName: typeof parsed.customerName === 'string' && parsed.customerName.trim() ? parsed.customerName.trim() : undefined,
+      customerPhone: typeof parsed.customerPhone === 'string' && parsed.customerPhone.trim() ? parsed.customerPhone.trim() : undefined,
       timestamp: typeof parsed.timestamp === 'number' ? parsed.timestamp : Date.now(),
       isUncertain: Boolean(parsed.isUncertain)
     };
