@@ -265,6 +265,22 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
+    // Never display the previous tenant's restaurant profile while the next
+    // tenant's Firestore snapshot is loading.
+    setRestaurant({
+      slug: activeRestaurantSlug,
+      name: '',
+      tagline: '',
+      address: '',
+      city: '',
+      phone: '',
+      currency: 'FCFA',
+      bannerUrl: '',
+      logoUrl: '',
+      isOpen: false,
+      openingHours: ''
+    });
+
     // 1. Connection probe (read-only)
     testConnection().catch((err) => console.warn('Firestore test connection:', err));
 
