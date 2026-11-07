@@ -6,7 +6,7 @@ import {
   RestaurantTable, 
   OrderMode 
 } from '../types/restaumax.js';
-import { calculateOrderTotal, sanitizeNote } from '../utils/pricing.js';
+import { calculateOrderTotal, calculateOrderTax, sanitizeNote, type RestaurantTaxMode } from '../utils/pricing.js';
 
 export interface OrderSubmissionPayload {
   restaurantSlug: string;
@@ -156,6 +156,7 @@ export function computeOrderSignature(payload: {
 export interface ServerFirestoreProvider {
   getMenuItems(restaurantSlug: string): Promise<RestauMenuItem[]>;
   getTables(restaurantSlug: string): Promise<RestaurantTable[]>;
+  getRestaurantTaxConfig?(restaurantSlug: string): Promise<{ taxRatePercent: number; taxMode: RestaurantTaxMode }>;
 
   // Transaction atomique unifiée (L'exigence centrale 4.4)
   executeOrderTransaction?(params: ExecuteOrderTransactionParams): Promise<ExecuteOrderTransactionResult>;
@@ -497,14 +498,30 @@ export async function processOrderSubmission(
     });
   }
 
-  // 9. Recalcul déterministe du total général
+  // 9. Recalcul déterministe du total et de la fiscalité depuis les paramètres du restaurant.
   const grandTotal = calculateOrderTotal(verifiedItems);
+  let taxRatePercent = 0;
+  let taxMode: RestaurantTaxMode = 'exclusive';
+  if (dataProvider.getRestaurantTaxConfig) {
+    try {
+      const taxConfig = await dataProvider.getRestaurantTaxConfig(cleanSlug);
+      taxRatePercent = Number(taxConfig.taxRatePercent);
+      taxMode = taxConfig.taxMode;
+      if (!Number.isFinite(taxRatePercent) || taxRatePercent < 0 || taxRatePercent > 100 ||
+          !['exclusive', 'inclusive'].includes(taxMode)) {
+        return { success: false, error: 'Configuration fiscale invalide : vérifiez le taux et le mode de taxe du restaurant.' };
+      }
+    } catch (err: any) {
+      return { success: false, error: `Impossible de vérifier la configuration fiscale du restaurant : ${err.message || 'lecture indisponible'}.` };
+    }
+  }
+  const taxBreakdown = calculateOrderTax(grandTotal, taxRatePercent, taxMode);
 
   // 10. Détection de falsification de prix par rapport au total déclaré
-  if (declaredTotal !== undefined && Math.round(Number(declaredTotal)) !== grandTotal) {
+  if (declaredTotal !== undefined && Math.round(Number(declaredTotal)) !== taxBreakdown.totalAmount) {
     return { 
       success: false, 
-      error: `Le total de la commande a été falsifié ou ne concorde pas avec le tarif officiel (recalculé: ${grandTotal} FCFA, soumis: ${declaredTotal} FCFA).` 
+      error: `Le total de la commande a été falsifié ou ne concorde pas avec le tarif officiel et les taxes (recalculé: ${taxBreakdown.totalAmount} FCFA, soumis: ${declaredTotal} FCFA).` 
     };
   }
 
@@ -518,7 +535,11 @@ export async function processOrderSubmission(
     tableNumber: orderMode === 'sur_place' ? cleanTableNumber : null,
     items: verifiedItems,
     itemsCount: verifiedItems.reduce((acc, it) => acc + it.quantity, 0),
-    totalAmount: grandTotal,
+    totalAmount: taxBreakdown.totalAmount,
+    subtotalAmount: taxBreakdown.subtotalAmount,
+    taxAmount: taxBreakdown.taxAmount,
+    taxRatePercent: taxBreakdown.taxRatePercent,
+    taxMode: taxBreakdown.taxMode,
     currency: 'FCFA',
     status: 'pending',
     ...(sanitizedCustomerNote ? { customerNote: sanitizedCustomerNote } : {}),
