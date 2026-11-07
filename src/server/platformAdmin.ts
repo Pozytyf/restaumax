@@ -446,6 +446,61 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       }
     }
 
+    // Super-admin account audit is deliberately read-only and limited to identity/linkage fields.
+    if (action === 'staff_list' && isSuperAdmin(user)) {
+      const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '').trim();
+      if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
+      const restaurantSnap = await db.collection('restaurants').doc(slug).get();
+      if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
+      const restaurant = restaurantSnap.data() || {};
+      const [staffSnap, managersSnap] = await Promise.all([
+        db.collection('restaurants').doc(slug).collection('staff').get(),
+        db.collection('managers').where('restaurantSlug', '==', slug).get()
+      ]);
+      const byUid = new Map<string, any>();
+      const addAccount = (raw: any, source: string) => {
+        const uid = String(raw?.uid || raw?.id || '').trim();
+        if (!uid) return;
+        const previous = byUid.get(uid) || {
+          uid, email: '', displayName: '', role: raw?.role || 'staff',
+          active: raw?.active === true, accountLinked: true, emailConflict: false,
+          sources: [], emailValues: []
+        };
+        const email = typeof raw?.email === 'string' ? raw.email.trim().toLowerCase() : '';
+        if (email && !previous.emailValues.includes(email)) previous.emailValues.push(email);
+        previous.emailConflict = previous.emailValues.length > 1;
+        previous.email = email || previous.email;
+        previous.displayName = String(raw?.displayName || raw?.ownerName || previous.displayName || '');
+        previous.role = raw?.role === 'owner' || previous.role === 'owner' ? 'owner' : (raw?.role || previous.role);
+        previous.active = raw?.active === true || previous.active;
+        if (!previous.sources.includes(source)) previous.sources.push(source);
+        byUid.set(uid, previous);
+      };
+      staffSnap.docs.forEach((doc: any) => addAccount({ ...doc.data(), uid: doc.id }, 'restaurant.staff'));
+      managersSnap.docs.forEach((doc: any) => addAccount({ ...doc.data(), uid: doc.id }, 'managers'));
+      const ownerUid = String(restaurant.ownerUid || '').trim();
+      const ownerEmail = typeof restaurant.ownerEmail === 'string' ? restaurant.ownerEmail.trim().toLowerCase() : '';
+      const ownerName = String(restaurant.ownerName || '').trim();
+      if (ownerUid) {
+        addAccount({ uid: ownerUid, email: ownerEmail, displayName: ownerName, role: 'owner', active: true }, 'restaurants.owner');
+      } else if (ownerEmail || ownerName) {
+        byUid.set('unlinked-owner', {
+          uid: 'unlinked-owner', email: ownerEmail, displayName: ownerName,
+          role: 'owner', active: false, accountLinked: false, emailConflict: false,
+          sources: ['restaurants.owner'], emailValues: ownerEmail ? [ownerEmail] : []
+        });
+      }
+      const accounts = [...byUid.values()].map(({ emailValues, ...account }) => ({
+        ...account, readOnly: true
+      }));
+      return json(res, 200, {
+        success: true, actorRole: 'super_admin', restaurant: {
+          slug, name: String(restaurant.name || ''), status: String(restaurant.status || 'unknown'),
+          ownerUid: ownerUid || null, ownerEmail: ownerEmail || null, ownerName: ownerName || null
+        }, staff: accounts
+      });
+    }
+
     // Owner and authorized manager staff administration, strictly scoped to one active restaurant.
     if (action === 'staff_list' || action === 'create_staff' || action === 'update_staff' || action === 'disable_staff' || action === 'set_staff_status' || action === 'delete_staff') {
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '');
