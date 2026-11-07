@@ -107,4 +107,4 @@ const missing = await loadRestaurantPayDunyaConfig(db, 'gamma', env);
 assert.equal(missing.success, false);
 const invalidSlug = await loadRestaurantPayDunyaConfig(db, '../alpha', env);
 assert.equal(invalidSlug.success, false);
-console.log('PayDunya merchant isolation and settlement-only access: 17 assertions passed.');
+console.log('PayDunya merchant encryption, persistence, isolation and settlement-only access passed.');
