@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
 import { RestaurantInfo, RestaurantTable } from '../../types/restaumax';
 import { auth } from '../../lib/firebase';
@@ -52,6 +52,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   const [isRevoking, setIsRevoking] = useState<boolean>(false);
   const [qrGenerationError, setQrGenerationError] = useState<string | null>(null);
   const [qrRevokedForTableId, setQrRevokedForTableId] = useState<string | null>(null);
+  const qrActionInFlightRef = useRef(false);
 
   // New table modal form state
   const [isNewTableModalOpen, setIsNewTableModalOpen] = useState(false);
@@ -115,7 +116,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   // The API decrypts the server-only token envelope; it never exposes it to Firestore clients.
   useEffect(() => {
     const table = currentTable;
-    if (!table || isGenerating || isRevoking ||
+    if (!table || qrActionInFlightRef.current ||
         qrForTableId === table.id || qrRevokedForTableId === table.id) return;
     let active = true;
     const restore = async () => {
@@ -149,11 +150,12 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     };
     void restore();
     return () => { active = false; };
-  }, [restaurant.slug, currentTable?.id, qrForTableId, qrRevokedForTableId, isGenerating, isRevoking]);
+  }, [restaurant.slug, currentTable?.id, qrRevokedForTableId]);
 
   // Generate a secure QR for a persisted table. The same routine is used by
   // automatic creation and by the manual retry/renew action.
   const generateQrForTable = async (table: RestaurantTable): Promise<boolean> => {
+    qrActionInFlightRef.current = true;
     setQrGenerationError(null);
     setQrRevokedForTableId(null);
     setIsGenerating(true);
@@ -191,6 +193,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
       setQrGenerationError(message);
       return false;
     } finally {
+      qrActionInFlightRef.current = false;
       setIsGenerating(false);
     }
   };
@@ -204,6 +207,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
   const handleRevokeQr = async () => {
     if (!currentTable || isGenerating || isRevoking) return;
     if (!window.confirm(`Révoquer tous les QR actifs de la table ${currentTable.tableNumber} ? Les sessions clients ouvertes sur cette table seront également invalidées.`)) return;
+    qrActionInFlightRef.current = true;
     setFormError(null);
     setIsRevoking(true);
     // Hide the old QR immediately: a network failure can happen after the
@@ -233,6 +237,7 @@ export const TableQrGeneratorView: React.FC<TableQrGeneratorViewProps> = ({
     } catch (err: any) {
       setFormError(err?.message || 'Erreur lors de la révocation du QR.');
     } finally {
+      qrActionInFlightRef.current = false;
       setIsRevoking(false);
     }
   };
