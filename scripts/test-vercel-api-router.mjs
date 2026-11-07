@@ -1,18 +1,26 @@
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   RESTAUMAX_API_ROUTES,
   resolveRestauMaxApiRoute
 } from '../src/server/apiRouteMap.ts';
 
+const apiRoot = new URL('../api/', import.meta.url);
+const apiFiles = [];
+function collectApiFiles(directory, prefix = '') {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) collectApiFiles(join(directory, entry.name), relative);
+    else if (/\\.(?:[cm]?js|ts)$/.test(entry.name)) apiFiles.push(relative);
+  }
+}
+collectApiFiles(apiRoot);
+assert.deepEqual(apiFiles.sort(), ['index.ts'], 'Hobby doit compiler un seul point d’entrée de fonction Vercel.');
+
 assert.equal(RESTAUMAX_API_ROUTES.length, 17, 'Les 17 anciens points d’entrée doivent être conservés.');
 assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.path)).size, 17, 'Chaque chemin doit être unique.');
 assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.id)).size, 17, 'Chaque identifiant doit être unique.');
-
-for (const route of RESTAUMAX_API_ROUTES) {
-  assert.equal(resolveRestauMaxApiRoute(route.path), route, `Résolution incorrecte pour ${route.path}`);
-  assert.equal(resolveRestauMaxApiRoute(` /api/${route.path}/ `), null, 'Le résolveur reçoit le suffixe déjà normalisé par la réécriture.');
-  assert.ok(route.methods.length > 0, `Méthodes HTTP absentes pour ${route.path}`);
-}
 
 const expectedMethods = {
   health: ['GET'],
@@ -34,13 +42,37 @@ const expectedMethods = {
   'tables-resolve-qr': ['GET']
 };
 
+const handler = readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8');
+const vercel = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+
+assert.deepEqual(Object.keys(vercel.functions), ['api/index.ts'], 'vercel.json doit déclarer uniquement api/index.ts.');
+
 for (const route of RESTAUMAX_API_ROUTES) {
+  assert.equal(resolveRestauMaxApiRoute(route.path), route, `Résolution incorrecte pour ${route.path}`);
+  assert.equal(resolveRestauMaxApiRoute(` /api/${route.path}/ `), null, 'Le résolveur doit rejeter les chemins non fournis par la réécriture.');
   assert.deepEqual([...route.methods], expectedMethods[route.id], `Méthodes HTTP modifiées pour ${route.path}`);
+
+  const rewrite = vercel.rewrites.find((item) => item.source === `/api/${route.path}`);
+  assert.ok(rewrite, `Réécriture Vercel manquante pour /api/${route.path}`);
+  assert.equal(rewrite.destination, `/api/index?__restaumax_route=${route.id}`);
+
+  if (route.id === 'health' || route.id === 'platform-admin') {
+    assert.ok(handler.includes(`route.id === '${route.id}'`), `Traitement manquant pour ${route.id}`);
+  } else {
+    assert.ok(handler.includes(`case '${route.id}'`), `Traitement manquant pour ${route.id}`);
+  }
 }
+
+const qrRewrite = vercel.rewrites.find((item) => item.source === '/q/:token');
+assert.equal(
+  qrRewrite?.destination,
+  '/api/index?__restaumax_route=tables-resolve-qr&token=:token',
+  'Le QR physique doit continuer à résoudre la table via le routeur central.'
+);
 
 assert.equal(resolveRestauMaxApiRoute(undefined), null);
 assert.equal(resolveRestauMaxApiRoute(['orders']), null);
 assert.equal(resolveRestauMaxApiRoute('unknown'), null);
 assert.equal(resolveRestauMaxApiRoute('../server.ts'), null);
 
-console.log('PASS: 17 routes API conservées, chemins uniques et méthodes HTTP contrôlées.');
+console.log('PASS: 1 fonction Vercel, 17 routes conservées, réécritures et méthodes HTTP vérifiées.');
