@@ -32,6 +32,7 @@ export interface OrderSubmissionPayload {
   tableNumber: string | null;
   tableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string };
   customerNote?: string;
+  customerId?: string;
   declaredTotal?: number;
   idempotencyKey?: string;
 }
@@ -123,12 +124,14 @@ export function computeOrderSignature(payload: {
   orderMode: OrderMode;
   tableNumber: string | null;
   customerNote?: string;
+  customerId?: string;
   cart: OrderSubmissionPayload['cart'];
 }): string {
   const cleanSlug = (payload.restaurantSlug || '').trim();
   const cleanMode = payload.orderMode;
   const cleanTable = (payload.tableNumber || '').trim();
   const cleanNote = (payload.customerNote || '').trim();
+  const cleanCustomerId = (payload.customerId || '').trim();
 
   const canonicalItems = (payload.cart || [])
     .map(c => {
@@ -146,7 +149,7 @@ export function computeOrderSignature(payload: {
     .sort()
     .join('|');
 
-  const rawString = `${cleanSlug}::${cleanMode}::${cleanTable}::${cleanNote}::${canonicalItems}`;
+  const rawString = `${cleanSlug}::${cleanMode}::${cleanTable}::${cleanNote}::${cleanCustomerId}::${canonicalItems}`;
   return crypto.createHash('sha256').update(rawString).digest('hex');
 }
 
@@ -157,6 +160,7 @@ export interface ServerFirestoreProvider {
   getMenuItems(restaurantSlug: string): Promise<RestauMenuItem[]>;
   getTables(restaurantSlug: string): Promise<RestaurantTable[]>;
   getRestaurantTaxSettings?(restaurantSlug: string): Promise<{ taxRatePercent?: number; taxMode?: TaxCalculationMode }>;
+  getCustomer?(restaurantSlug: string, customerId: string): Promise<{ id: string; restaurantSlug: string } | null>;
 
   // Transaction atomique unifiée (L'exigence centrale 4.4)
   executeOrderTransaction?(params: ExecuteOrderTransactionParams): Promise<ExecuteOrderTransactionResult>;
@@ -195,7 +199,8 @@ export async function processOrderSubmission(
     orderMode, 
     tableNumber, 
     tableSession,
-    customerNote, 
+    customerNote,
+    customerId,
     declaredTotal, 
     idempotencyKey 
   } = payload;
@@ -239,6 +244,7 @@ export async function processOrderSubmission(
     orderMode,
     tableNumber,
     customerNote,
+    customerId,
     cart
   });
 
@@ -321,6 +327,23 @@ export async function processOrderSubmission(
       };
     }
     validatedTableId = matched.id;
+  }
+
+  let verifiedCustomerId: string | undefined;
+  if (customerId !== undefined && customerId !== null && String(customerId).trim()) {
+    const requestedCustomerId = String(customerId).trim();
+    if (!/^[a-zA-Z0-9_-]{1,160}$/.test(requestedCustomerId) || !dataProvider.getCustomer) {
+      return { success: false, error: 'Le client sélectionné ne peut pas être vérifié côté serveur.' };
+    }
+    try {
+      const customer = await dataProvider.getCustomer(cleanSlug, requestedCustomerId);
+      if (!customer || customer.id !== requestedCustomerId || customer.restaurantSlug !== cleanSlug) {
+        return { success: false, error: 'Le client sélectionné est introuvable dans ce restaurant.' };
+      }
+      verifiedCustomerId = requestedCustomerId;
+    } catch {
+      return { success: false, error: 'Impossible de vérifier le client sélectionné. Commande refusée.' };
+    }
   }
 
   // 8. Validation stricte du catalogue et de chaque ligne
@@ -545,6 +568,7 @@ export async function processOrderSubmission(
     currency: 'FCFA',
     status: 'pending',
     ...(sanitizedCustomerNote ? { customerNote: sanitizedCustomerNote } : {}),
+    ...(verifiedCustomerId ? { customerId: verifiedCustomerId } : {}),
     createdAt: now,
     createdAtIso: new Date(now).toISOString(),
     idempotencyKey: cleanKey,
