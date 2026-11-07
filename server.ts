@@ -50,7 +50,7 @@ import {
   IdempotencyReservationResult
 } from './src/server/orderService.js';
 import { getFinancialReportWithDb } from './src/server/financialReportService.js';
-import { reconcileSubscriptionBillingWithDb, markSubscriptionInvoicePaidWithDb } from './src/server/subscriptionService.js';
+import { reconcileSubscriptionBillingWithDb } from './src/server/subscriptionService.js';
 import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, listClosedCashSessionsWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
 import { type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
 import { loadRestaurantPayDunyaConfig, saveRestaurantPayDunyaCredentials } from './src/server/paydunyaMerchantConfig.js';
