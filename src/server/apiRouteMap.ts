@@ -19,7 +19,6 @@ export const RESTAUMAX_API_ROUTES = [
 ] as const;
 
 export type RestauMaxApiRoute = typeof RESTAUMAX_API_ROUTES[number];
-export type RestauMaxApiRouteId = RestauMaxApiRoute['id'];
 
 const ROUTES_BY_PATH = new Map<string, RestauMaxApiRoute>(
   RESTAUMAX_API_ROUTES.map((route) => [route.path, route])
@@ -27,6 +26,6 @@ const ROUTES_BY_PATH = new Map<string, RestauMaxApiRoute>(
 
 export function resolveRestauMaxApiRoute(value: unknown): RestauMaxApiRoute | null {
   if (typeof value !== 'string') return null;
-  const normalized = value.trim().replace(/^\\/+|\\/+$/g, '');
+  const normalized = value.trim().split('/').filter(Boolean).join('/');
   return ROUTES_BY_PATH.get(normalized) ?? null;
 }
