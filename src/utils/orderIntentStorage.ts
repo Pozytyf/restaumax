@@ -48,7 +48,7 @@ export function savePendingOrderIntent(intent: PendingOrderIntent): boolean {
  * Charge et valide l'intention de commande persistée depuis sessionStorage.
  * Retourne null si aucune intention n'est présente ou si les données sont corrompues.
  */
-export function loadPendingOrderIntent(): PendingOrderIntent | null {
+export function loadPendingOrderIntent(expectedRestaurantSlug?: string): PendingOrderIntent | null {
   if (typeof window === 'undefined' || !window.sessionStorage) {
     return null;
   }
@@ -72,8 +72,16 @@ export function loadPendingOrderIntent(): PendingOrderIntent | null {
       return null;
     }
 
+    const storedRestaurantSlug = typeof parsed.restaurantSlug === 'string' ? parsed.restaurantSlug : 'chez-awa';
+    if (expectedRestaurantSlug && storedRestaurantSlug !== expectedRestaurantSlug) {
+      // Never restore a previous restaurant's cart or uncertain order intent
+      // into another tenant's menu.
+      clearPendingOrderIntent();
+      return null;
+    }
+
     return {
-      restaurantSlug: typeof parsed.restaurantSlug === 'string' ? parsed.restaurantSlug : 'chez-awa',
+      restaurantSlug: storedRestaurantSlug,
       orderMode: parsed.orderMode === 'emporter' || parsed.orderMode === 'a_emporter' ? 'a_emporter' : 'sur_place',
       tableNumber: parsed.tableNumber ?? null,
       cart: parsed.cart,
