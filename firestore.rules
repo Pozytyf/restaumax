@@ -225,7 +225,8 @@ service cloud.firestore {
       // Customer QR resolution and session validation use Firebase Admin SDK only.
       // Managers retain scoped access for floor/table administration.
       match /tables/{tableId} {
-        allow get, list: if hasRestaurantPermission(restaurantSlug, 'tables.view') || hasRestaurantPermission(restaurantSlug, 'tables.manage');
+        allow get, list: if (hasRestaurantPermission(restaurantSlug, 'tables.view') || hasRestaurantPermission(restaurantSlug, 'tables.manage')) &&
+          (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('role', '') != 'server' || resource.data.get('assignedWaiter', '') == request.auth.uid);
         allow create: if hasRestaurantPermission(restaurantSlug, 'tables.manage') &&
           isValidId(tableId) && isValidTable(incoming()) && incoming().id == tableId;
         allow update: if hasRestaurantPermission(restaurantSlug, 'tables.manage') &&
@@ -303,7 +304,8 @@ service cloud.firestore {
       match /orders/{orderId} {
         allow create: if false;
         allow get: if false;
-        allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view'));
+        allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view')) &&
+          (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('role', '') != 'server' || resource.data.get('assignedWaiterUid', '') == request.auth.uid);
         // All order status transitions and KDS progress are server-managed so stock
         // consumption/restoration and the order state commit in one Admin SDK transaction.
         allow update: if false;
