@@ -868,6 +868,7 @@ export async function handleTableQrManagement(req: any) {
         adminDb, restaurantSlug, tableId,
         String(process.env.APP_ORIGIN || req.headers.origin || ''), process.env
       );
+      const hadPersistedQr = Boolean(restored);
       // Upgrade legacy QR records created before encrypted token persistence.
       if (!restored) {
         const rawOrigin = String(process.env.APP_ORIGIN || req.headers.origin || '');
@@ -881,7 +882,7 @@ export async function handleTableQrManagement(req: any) {
         }
         restored = await issueTableQr(adminDb, restaurantSlug, tableId, parsedOrigin.origin, process.env);
       }
-      return { statusCode: 200, body: { success: true, url: restored.url, restored: true } };
+      return { statusCode: 200, body: { success: true, url: restored.url, restored: hadPersistedQr, migrated: !hadPersistedQr } };
     }
     if (req.method === 'POST') {
       const rawOrigin = String(process.env.APP_ORIGIN || req.headers.origin || '');
