@@ -40,4 +40,4 @@ for (const invalid of [
   );
 }
 
-console.log("GitHub App installation-token compatibility: 8 assertions passed.");
+console.log("GitHub App installation-token compatibility tests passed.");
