@@ -19,6 +19,7 @@ import {
   RestaurantInfo 
 } from '../../types/restaumax';
 import { sounds } from '../../utils/audio';
+import { uploadMenuImageWithServerValidation } from '../../lib/firebase';
 
 export interface DishFormModalProps {
   isOpen: boolean;
@@ -179,6 +180,15 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const [available, setAvailable] = useState(true);
   const [trackStock, setTrackStock] = useState(false);
   const [stockQuantity, setStockQuantity] = useState('0');
+  const [lowStockThreshold, setLowStockThreshold] = useState('5');
+  const [allergensInput, setAllergensInput] = useState('');
+  const [spiceLevel, setSpiceLevel] = useState<0 | 1 | 2 | 3>(0);
+  const [pairingsInput, setPairingsInput] = useState('');
+  const [translationEnName, setTranslationEnName] = useState('');
+  const [translationEnDescription, setTranslationEnDescription] = useState('');
+  const [translationPtName, setTranslationPtName] = useState('');
+  const [translationPtDescription, setTranslationPtDescription] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
   const [tagsInput, setTagsInput] = useState('');
   const [optionGroups, setOptionGroups] = useState<FormOptionGroup[]>([]);
   const [extras, setExtras] = useState<FormExtra[]>([]);
@@ -211,6 +221,14 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       setAvailable(dishToEdit.available !== false);
       setTrackStock(dishToEdit.trackStock === true);
       setStockQuantity(String(Math.max(0, Math.floor(dishToEdit.stockQuantity ?? 0))));
+      setLowStockThreshold(String(Math.max(0, Math.floor(dishToEdit.lowStockThreshold ?? 5))));
+      setAllergensInput((dishToEdit.allergens || []).join(', '));
+      setSpiceLevel(dishToEdit.spiceLevel ?? 0);
+      setPairingsInput((dishToEdit.pairings || []).join(', '));
+      setTranslationEnName(dishToEdit.translations?.en?.name || '');
+      setTranslationEnDescription(dishToEdit.translations?.en?.description || '');
+      setTranslationPtName(dishToEdit.translations?.pt?.name || '');
+      setTranslationPtDescription(dishToEdit.translations?.pt?.description || '');
       setTagsInput(dishToEdit.tags ? dishToEdit.tags.join(', ') : '');
       setOptionGroups(
         dishToEdit.optionGroups
@@ -247,6 +265,14 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       setAvailable(true);
       setTrackStock(false);
       setStockQuantity('0');
+      setLowStockThreshold('5');
+      setAllergensInput('');
+      setSpiceLevel(0);
+      setPairingsInput('');
+      setTranslationEnName('');
+      setTranslationEnDescription('');
+      setTranslationPtName('');
+      setTranslationPtDescription('');
       setTagsInput('');
       setOptionGroups([]);
       setExtras([]);
@@ -305,9 +331,12 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
 
     // 5. URL de l'image (Validation robuste conforme RFC, HTTP/HTTPS, localhost, IPv4, FQDN)
     const urlValidation = validateImageUrl(imageUrl);
-    if (!urlValidation.isValid && urlValidation.errorMessage) {
-      errs.imageUrl = urlValidation.errorMessage;
-    }
+    if (!urlValidation.isValid && urlValidation.errorMessage) errs.imageUrl = urlValidation.errorMessage;
+    const threshold = Number(lowStockThreshold);
+    if (!lowStockThreshold.trim() || !Number.isInteger(threshold) || threshold < 0 || threshold > 1000000) errs.lowStockThreshold = 'Le seuil doit être un entier entre 0 et 1 000 000.';
+    if (allergensInput.split(',').map(v=>v.trim()).filter(Boolean).length > 30) errs.allergens = '30 allergènes maximum.';
+    if (pairingsInput.split(',').map(v=>v.trim()).filter(Boolean).length > 20) errs.pairings = '20 suggestions maximum.';
+    if (translationEnName.length > 200 || translationPtName.length > 200 || translationEnDescription.length > 2000 || translationPtDescription.length > 2000) errs.translations = 'Les traductions dépassent la longueur autorisée.'
 
     // 6. Groupes d'options
     optionGroups.forEach((group, gIdx) => {
@@ -411,6 +440,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           }))
         : undefined;
 
+    const normalizeList = (value: string, max: number) => [...new Set(value.split(',').map(v => v.trim()).filter(Boolean))].slice(0, max);
     const savedDish: RestauMenuItem = {
       id: dishId,
       restaurantSlug: dishToEdit?.restaurantSlug || restaurant.slug,
@@ -423,6 +453,14 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       available: trackStock ? (Number(stockQuantity) > 0 && available) : available,
       trackStock,
       ...(trackStock ? { stockQuantity: Math.floor(Number(stockQuantity)) } : {}),
+      lowStockThreshold: Math.floor(Number(lowStockThreshold)),
+      allergens: normalizeList(allergensInput, 30),
+      spiceLevel,
+      pairings: normalizeList(pairingsInput, 20),
+      translations: {
+        ...(translationEnName.trim() || translationEnDescription.trim() ? { en: { ...(translationEnName.trim() ? { name: translationEnName.trim() } : {}), ...(translationEnDescription.trim() ? { description: translationEnDescription.trim() } : {}) } } : {}),
+        ...(translationPtName.trim() || translationPtDescription.trim() ? { pt: { ...(translationPtName.trim() ? { name: translationPtName.trim() } : {}), ...(translationPtDescription.trim() ? { description: translationPtDescription.trim() } : {}) } } : {})
+      },
       tags: tags.length > 0 ? tags : undefined,
       optionGroups: savedOptionGroups,
       availableExtras: savedExtras,
@@ -801,8 +839,40 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               </div>
             </div>
 
+              <div className="sm:col-span-3 rounded-xl border border-blue-200 bg-blue-50/60 p-3 space-y-2">
+                <label className="block text-xs font-bold text-slate-800">Seuil d’alerte intelligent du plat</label>
+                <input type="number" min={0} max={1000000} step={1} value={lowStockThreshold} onChange={e=>setLowStockThreshold(e.target.value)} className="w-full max-w-xs rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm" />
+                <p className="text-[11px] text-slate-600">Une alerte apparaît dans le catalogue lorsque le nombre de portions atteint ce seuil. Mettez 0 pour désactiver cette alerte.</p>
+                {errors.lowStockThreshold && <p className="text-[11px] text-rose-600">{errors.lowStockThreshold}</p>}
+              </div>
+              <div className="sm:col-span-3 grid gap-3 sm:grid-cols-2 rounded-xl border border-slate-200 p-3">
+                <label className="text-xs font-bold text-slate-700">Allergènes (séparés par des virgules)<input value={allergensInput} onChange={e=>setAllergensInput(e.target.value)} placeholder="Arachides, lait, gluten, crustacés…" className="mt-1 w-full rounded-lg border p-2.5 text-xs font-normal" /></label>
+                <label className="text-xs font-bold text-slate-700">Niveau de piquant<select value={spiceLevel} onChange={e=>setSpiceLevel(Number(e.target.value) as 0|1|2|3)} className="mt-1 w-full rounded-lg border p-2.5 text-xs"><option value={0}>0 — Non piquant</option><option value={1}>1 — Doux</option><option value={2}>2 — Moyen</option><option value={3}>3 — Très piquant</option></select></label>
+                <label className="text-xs font-bold text-slate-700 sm:col-span-2">Suggestions d’accompagnement (séparées par des virgules)<input value={pairingsInput} onChange={e=>setPairingsInput(e.target.value)} placeholder="Attiéké, alloco, riz, légumes sautés…" className="mt-1 w-full rounded-lg border p-2.5 text-xs font-normal" /></label>
+                <div className="text-[11px] text-slate-500 sm:col-span-2">Les allergènes sont informatifs : confirmez toujours les risques de contamination croisée auprès de la cuisine.</div>
+                {errors.allergens && <p className="text-[11px] text-rose-600">{errors.allergens}</p>}{errors.pairings && <p className="text-[11px] text-rose-600">{errors.pairings}</p>}
+              </div>
+              <div className="sm:col-span-3 rounded-xl border border-slate-200 p-3 space-y-3">
+                <h4 className="text-xs font-black text-slate-800">Descriptions multilingues — Français par défaut</h4>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-bold text-slate-700">English — Name<input value={translationEnName} onChange={e=>setTranslationEnName(e.target.value)} maxLength={200} className="mt-1 w-full rounded-lg border p-2.5 text-xs font-normal" /><textarea rows={2} value={translationEnDescription} onChange={e=>setTranslationEnDescription(e.target.value)} maxLength={2000} placeholder="English description" className="mt-1 w-full rounded-lg border p-2.5 text-xs font-normal" /></label>
+                  <label className="text-xs font-bold text-slate-700">Português — Nome<input value={translationPtName} onChange={e=>setTranslationPtName(e.target.value)} maxLength={200} className="mt-1 w-full rounded-lg border p-2.5 text-xs font-normal" /><textarea rows={2} value={translationPtDescription} onChange={e=>setTranslationPtDescription(e.target.value)} maxLength={2000} placeholder="Descrição em português" className="mt-1 w-full rounded-lg border p-2.5 text-xs font-normal" /></label>
+                </div>{errors.translations && <p className="text-[11px] text-rose-600">{errors.translations}</p>}
+              </div>
             {/* Image URL with live preview - Correction 2 & Vérification 3 */}
             <div>
+              <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                <label className="block text-xs font-bold text-emerald-900">Héberger la photo du plat dans RestauMax
+                  <input type="file" accept="image/jpeg,image/png,image/webp" disabled={imageUploading || isSaving} onChange={async e=>{
+                    const file=e.target.files?.[0]; if(!file) return;
+                    setImageUploading(true); setSaveError(null);
+                    try { const uploaded=await uploadMenuImageWithServerValidation(restaurant.slug, dishToEdit?.id || newDishIdRef.current, file); if(!uploaded.success) throw new Error(uploaded.error); setImageUrl(uploaded.url); setImageLoadError(false); }
+                    catch(err) { setSaveError(err instanceof Error ? err.message : "Téléversement de la photo impossible."); }
+                    finally { setImageUploading(false); e.currentTarget.value=""; }
+                  }} className="mt-2 block w-full text-xs" />
+                </label>
+                <p className="mt-1 text-[11px] text-emerald-800">{imageUploading ? "Hébergement sécurisé en cours…" : "JPEG, PNG ou WebP · 3 Mo maximum. La photo sera stockée dans le dossier de ce restaurant."}</p>
+              </div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 URL de l'image (photo du plat) <span className="text-rose-500">*</span>
               </label>
