@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { formatFCFA } from '../../utils/format';
+import { calculateDishProfitability } from '../../utils/menuProfitability';
 const formatCost = (amount: number) => formatFCFA(Math.round(amount));
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import {
   db,
   saveInventoryRecipeWithServerValidation,
@@ -46,7 +47,7 @@ export const InventoryRecipePanel: React.FC<{ restaurantSlug: string; canManage:
       : [];
 
   useEffect(() => {
-    const stopMenu = onSnapshot(collection(db, 'restaurants', restaurantSlug, 'menuItems'), snap => {
+    const stopMenu = onSnapshot(query(collection(db, 'restaurants', restaurantSlug, 'menuItems'), where('restaurantSlug', '==', restaurantSlug)), snap => {
       setMenu(snap.docs.map(d => {
         const data = d.data();
         return {
@@ -112,10 +113,6 @@ export const InventoryRecipePanel: React.FC<{ restaurantSlug: string; canManage:
 
   const inventoryById = new Map(inventory.map(item => [item.id, item]));
   const menuById = new Map(menu.map(item => [item.id, item]));
-  const recipeCost = (recipe: Recipe) => recipe.lines.reduce((sum, line) => {
-    const ingredient = inventoryById.get(line.inventoryItemId);
-    return sum + (ingredient ? Number(line.quantityPerDish) * Number(ingredient.unitCost || 0) : 0);
-  }, 0);
   const recipeLabel = (recipe: Recipe) => recipe.customizationType
     ? `${recipe.menuItemName} · ${recipe.targetName || (recipe.customizationType === 'option' ? 'Option' : 'Supplément')}`
     : recipe.menuItemName;
@@ -163,11 +160,12 @@ export const InventoryRecipePanel: React.FC<{ restaurantSlug: string; canManage:
       </div>
     </form>}
     {recipes.map(recipe=>{
-      const cost = recipeCost(recipe);
       const menuItem = menuById.get(recipe.menuItemId);
-      const margin = menuItem ? menuItem.price - cost : null;
-      const marginPercent = menuItem && menuItem.price > 0 ? Math.round((Number(margin) / menuItem.price) * 100) : null;
-      const hasCompleteCost = recipe.lines.every(line => inventoryById.has(line.inventoryItemId) && Number(inventoryById.get(line.inventoryItemId)?.unitCost || 0) > 0);
+      const profitability = menuItem ? calculateDishProfitability(menuItem.price, recipe.lines, inventory) : null;
+      const cost = profitability?.costFcfa ?? 0;
+      const margin = profitability?.grossMarginFcfa ?? null;
+      const marginPercent = profitability?.grossMarginPercent ?? null;
+      const hasCompleteCost = profitability?.complete === true;
       return <div key={recipe.id || recipe.menuItemId} className="flex flex-wrap items-start justify-between gap-3 border-b p-4 last:border-0">
         <div className="min-w-0 flex-1"><p className="font-bold">{recipeLabel(recipe)}</p>
           <p className="mt-1 text-sm text-slate-600">{recipe.lines.map(line=>line.itemName + ' : ' + line.quantityPerDish + ' ' + line.unit).join(' · ')}</p>
