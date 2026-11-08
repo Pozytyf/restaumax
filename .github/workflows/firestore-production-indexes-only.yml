@@ -109,4 +109,27 @@ jobs:
               --field-config=field-path=customerPhoneNormalized,order=ascending \
               --field-config=field-path=status,order=ascending
           fi
-          echo "Only the required composite index was created if absent. No indexes were deleted; no rules or documents were changed."
+          ready=false
+          for attempt in $(seq 1 60); do
+            current="$(gcloud firestore indexes composite list --project="$FIREBASE_PROJECT_ID" --database="$FIRESTORE_DATABASE_ID" --format=json)"
+            if printf '%s' "$current" | node --input-type=module -e '
+              let raw = ""; for await (const chunk of process.stdin) raw += chunk;
+              const indexes = JSON.parse(raw);
+              const found = indexes.find(index => {
+                const fields = (index.fields || []).map(field => ({ path: field.fieldPath, order: field.order || (field.arrayConfig ? "array" : "") }));
+                return index.collectionGroup === "orders" && fields.length === 2 &&
+                  fields[0].path === "customerPhoneNormalized" && fields[0].order === "ASCENDING" &&
+                  fields[1].path === "status" && fields[1].order === "ASCENDING";
+              });
+              process.exit(found?.state === "READY" ? 0 : 1);
+            '; then
+              ready=true
+              break
+            fi
+            sleep 10
+          done
+          if [[ "$ready" != "true" ]]; then
+            echo "::error::Composite index not READY after 10 minutes; inspect Firestore index status."
+            exit 1
+          fi
+          echo "Required composite index is READY. No existing indexes were deleted; no rules or documents were changed."
