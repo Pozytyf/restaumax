@@ -224,6 +224,17 @@ async function run() {
   assert(storedToken?.tokenHash === tokenHash && !JSON.stringify(storedToken).includes(token), 'Le jeton brut n’est jamais stocké en clair (empreinte SHA-256 + enveloppe chiffrée)');
   assert(storedToken?.encryptedToken?.algorithm === 'aes-256-gcm' && !JSON.stringify(storedToken).includes(token),
     'Jeton récupérable uniquement depuis son enveloppe AES-256-GCM chiffrée côté serveur');
+  assert(storedToken?.encryptedToken?.version === 2 && storedToken?.encryptedToken?.keyVersion === 1,
+    'Les nouvelles enveloppes QR sont versionnées pour permettre la rotation des clés');
+  db.store.set('restaurants/restaurant-b', { slug: 'restaurant-b', status: 'active', isActive: true, isOpen: true });
+  db.store.set('restaurants/restaurant-b/tables/table-4', { id: 'table-4', tableNumber: '4', isActive: true, qrVersion: 1 });
+  db.store.set('restaurants/restaurant-b/table_qr_tokens/' + tokenHash, {
+    ...storedToken, restaurantSlug: 'restaurant-b', tableId: 'table-4'
+  });
+  let crossTenantCiphertextRejected = false;
+  try { await getActiveTableQr(db, 'restaurant-b', 'table-4', 'https://restaumax.example'); }
+  catch { crossTenantCiphertextRejected = true; }
+  assert(crossTenantCiphertextRejected, 'L’AES-GCM AAD lie le jeton QR au restaurant et à la table d’origine');
   const restoredQr = await getActiveTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   assert(restoredQr?.url === issued.url && restoredQr.token === token,
     'URL QR identique restaurée après rechargement sans rotation ni changement du jeton');

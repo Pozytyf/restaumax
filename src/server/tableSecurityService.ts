@@ -8,20 +8,29 @@ const TOKEN_BYTES = 32;
 const randomSecret = () => crypto.randomBytes(TOKEN_BYTES).toString('base64url');
 const sha256 = (value: string) => crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 
-function qrEncryptionKey(env: Record<string, string | undefined>): Buffer {
-  const raw = String(env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '').trim();
+function qrEncryptionKey(env: Record<string, string | undefined>, version: number): Buffer {
+  const versionedKey = env[`TABLE_QR_TOKEN_ENCRYPTION_KEY_V${version}`];
+  const raw = String(versionedKey || env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '').trim();
   if (!/^[a-f0-9]{64}$/i.test(raw)) {
     throw new Error('TABLE_QR_TOKEN_ENCRYPTION_KEY doit contenir 64 caractères hexadécimaux.');
   }
   return Buffer.from(raw, 'hex');
 }
 
-function encryptQrToken(token: string, env: Record<string, string | undefined>) {
+function qrTokenAad(restaurantSlug: string, tableId: string) {
+  return Buffer.from(`restaumax:table-qr:v2:${restaurantSlug}:${tableId}`, 'utf8');
+}
+
+function encryptQrToken(token: string, env: Record<string, string | undefined>, restaurantSlug: string, tableId: string) {
+  const keyVersion = Number(env.TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION || 1);
+  if (!Number.isInteger(keyVersion) || keyVersion < 1 || keyVersion > 99) throw new Error('Version de clé QR invalide.');
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', qrEncryptionKey(env), iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', qrEncryptionKey(env, keyVersion), iv);
+  cipher.setAAD(qrTokenAad(restaurantSlug, tableId));
   const ciphertext = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
   return {
-    version: 1,
+    version: 2,
+    keyVersion,
     algorithm: 'aes-256-gcm',
     iv: iv.toString('hex'),
     authTag: cipher.getAuthTag().toString('hex'),
@@ -29,14 +38,18 @@ function encryptQrToken(token: string, env: Record<string, string | undefined>) 
   };
 }
 
-function decryptQrToken(encrypted: any, env: Record<string, string | undefined>): string {
-  if (!encrypted || encrypted.version !== 1 || encrypted.algorithm !== 'aes-256-gcm' ||
+function decryptQrToken(encrypted: any, env: Record<string, string | undefined>, restaurantSlug: string, tableId: string): string {
+  const legacy = encrypted?.version === 1;
+  const keyVersion = legacy ? 1 : Number(encrypted?.keyVersion);
+  if (!encrypted || (!legacy && encrypted.version !== 2) || encrypted.algorithm !== 'aes-256-gcm' ||
+      !Number.isInteger(keyVersion) || keyVersion < 1 || keyVersion > 99 ||
       !/^[a-f0-9]{24}$/i.test(String(encrypted.iv || '')) ||
       !/^[a-f0-9]{32}$/i.test(String(encrypted.authTag || '')) ||
       !/^[a-f0-9]+$/i.test(String(encrypted.ciphertext || '')) || encrypted.ciphertext.length > 512) {
     throw new Error('Enveloppe du QR persistant invalide.');
   }
-  const decipher = crypto.createDecipheriv('aes-256-gcm', qrEncryptionKey(env), Buffer.from(encrypted.iv, 'hex'));
+  const decipher = crypto.createDecipheriv('aes-256-gcm', qrEncryptionKey(env, keyVersion), Buffer.from(encrypted.iv, 'hex'));
+  if (!legacy) decipher.setAAD(qrTokenAad(restaurantSlug, tableId));
   decipher.setAuthTag(Buffer.from(encrypted.authTag, 'hex'));
   return Buffer.concat([
     decipher.update(Buffer.from(encrypted.ciphertext, 'hex')),
@@ -150,7 +163,7 @@ export async function issueTableQr(db: any, restaurantSlug: string, tableId: str
     });
     tx.create(tokenRef, {
       tokenHash,
-      encryptedToken: encryptQrToken(token, env),
+      encryptedToken: encryptQrToken(token, env, slug, id),
       restaurantSlug: slug,
       tableId: id,
       tableNumber: String(tableSnap.data()?.tableNumber || ''),
@@ -207,7 +220,7 @@ export async function getActiveTableQr(
   if (!active) return null;
   const data = active.data();
   if (!data.encryptedToken) return null;
-  const token = decryptQrToken(data.encryptedToken, env);
+  const token = decryptQrToken(data.encryptedToken, env, slug, id);
   if (token.length < 30 || token.length > 100 || sha256(token) !== data.tokenHash) {
     throw new Error('Le QR enregistré ne correspond plus à son empreinte de sécurité.');
   }

@@ -297,7 +297,7 @@ export async function processOrderSubmission(
     catalog = await dataProvider.getMenuItems(cleanSlug);
   } catch (err: any) {
     console.error('[RestauMax orders] Menu lookup failed:', err?.message || String(err));
-    return { success: false, error: 'Impossible de vérifier le menu du restaurant. Réessayez.' };
+    return { success: false, error: "Erreur serveur lors de la lecture du catalogue Firestore. Aucun catalogue de secours n'est autorisé." };
   }
 
   if (!catalog || !Array.isArray(catalog) || catalog.length === 0) {
@@ -322,7 +322,7 @@ export async function processOrderSubmission(
       realTables = await dataProvider.getTables(cleanSlug);
     } catch (err: any) {
       console.error('[RestauMax orders] Table lookup failed:', err?.message || String(err));
-      return { success: false, error: 'Impossible de vérifier les tables du restaurant. Réessayez.' };
+      return { success: false, error: 'Erreur serveur lors de la lecture des tables Firestore. Commande sur place refusée.' };
     }
 
     if (!realTables || !Array.isArray(realTables) || realTables.length === 0) {
@@ -636,7 +636,7 @@ export async function processOrderSubmission(
       reservation = await dataProvider.reserveIdempotencyKey(cleanKey, currentSignature);
     } catch (err: any) {
       console.error('[RestauMax orders] Idempotency registry failed:', err?.message || String(err));
-      return { success: false, error: 'Vérification anti-doublon indisponible. Commande non enregistrée.' };
+      return { success: false, error: "Échec du registre persistant d'idempotence. Traitement interrompu pour prévenir tout doublon." };
     }
 
     if (reservation.status === 'conflict') {
