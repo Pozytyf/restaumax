@@ -282,6 +282,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       }
 
       if (targetStatus === 'cancelled' && trackedMenuIds.length && !menuStockRestorationSnap?.exists) {
+        const menuRestockUpdates: Array<{ ref: any; movementRef: any; itemId: string; itemName: string; before: number; after: number; quantity: number }> = [];
         for (let i = 0; i < trackedMenuIds.length; i++) {
           const itemSnap = menuStockSnaps[i];
           const movementSnap = menuStockMovementSnaps[i];
@@ -298,24 +299,35 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           if (!Number.isInteger(before) || before < 0 || before + quantity > 1000000) {
             return { success: false, error: 'Quantité de stock menu incohérente : restitution bloquée.' };
           }
-          const after = before + quantity;
-          tx.update(menuStockRefs[i], { stockQuantity: after, stockUpdatedAt: now });
-          tx.create(menuStockMovementRefs[i], {
-            id: `cancel_${orderId}_${itemId}`,
-            restaurantSlug,
-            menuItemId: itemId,
+          menuRestockUpdates.push({
+            ref: menuStockRefs[i],
+            movementRef: menuStockMovementRefs[i],
+            itemId,
             itemName: String(item.name || itemId),
+            before,
+            after: before + quantity,
+            quantity
+          });
+        }
+        // All menu documents have passed validation before any transaction write.
+        for (const update of menuRestockUpdates) {
+          tx.update(update.ref, { stockQuantity: update.after, stockUpdatedAt: now });
+          tx.create(update.movementRef, {
+            id: `cancel_${orderId}_${update.itemId}`,
+            restaurantSlug,
+            menuItemId: update.itemId,
+            itemName: update.itemName,
             orderId,
-            quantityBefore: before,
-            delta: quantity,
-            quantityAfter: after,
+            quantityBefore: update.before,
+            delta: update.quantity,
+            quantityAfter: update.after,
             createdAt: now,
             reason: 'Restauration après annulation'
           });
         }
         tx.create(menuStockRestorationRef, {
           orderId, restaurantSlug, restoredAt: now, restoredBy: actorUid,
-          items: trackedMenuIds.map((id) => ({ menuItemId: id, quantity: trackedMenuQuantities.get(id) || 0 }))
+          items: menuStockUpdates.map((item) => ({ menuItemId: item.itemId, quantity: item.quantity }))
         });
       } else if (targetStatus === 'cancelled' && trackedMenuIds.length && menuStockRestorationSnap?.exists) {
         return { success: false, error: 'Une restitution du stock menu est déjà enregistrée : vérification de la commande requise.' };
