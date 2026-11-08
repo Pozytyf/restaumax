@@ -70,8 +70,8 @@ jobs:
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           project_id: gen-lang-client-0138815290
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_FIREBASE_DEPLOYER_SA }}
+          workload_identity_provider: projects/305138716873/locations/global/workloadIdentityPools/github-restaumax-pool/providers/github-restaumax-provider
+          service_account: restaumax-firestore-deployer@gen-lang-client-0138815290.iam.gserviceaccount.com
           create_credentials_file: true
           export_environment_variables: true
 
