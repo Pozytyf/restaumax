@@ -10,9 +10,13 @@ const sha256 = (value: string) => crypto.createHash('sha256').update(value, 'utf
 
 function qrEncryptionKey(env: Record<string, string | undefined>, version: number): Buffer {
   const versionedKey = env[`TABLE_QR_TOKEN_ENCRYPTION_KEY_V${version}`];
-  const raw = String(versionedKey || env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '').trim();
+  // Version 1 is the historical key name. Newer versions must have their own
+  // explicit secret: silently falling back would make "rotation" a no-op.
+  const raw = String(version === 1
+    ? (versionedKey || env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '')
+    : (versionedKey || '')).trim();
   if (!/^[a-f0-9]{64}$/i.test(raw)) {
-    throw new Error('TABLE_QR_TOKEN_ENCRYPTION_KEY doit contenir 64 caractères hexadécimaux.');
+    throw new Error(`TABLE_QR_TOKEN_ENCRYPTION_KEY_V${version} doit contenir 64 caractères hexadécimaux.`);
   }
   return Buffer.from(raw, 'hex');
 }
