@@ -51,8 +51,17 @@ export async function migrateOneRestaurant(db, restaurantRef, actorUid = 'github
       if (merged[key] === undefined) merged[key] = value;
     }
     const hasLegacySubscription = restaurant.subscription !== undefined;
-    const moveSubscription = hasLegacySubscription && !subscriptionSnap.exists &&
-      restaurant.subscription && typeof restaurant.subscription === 'object';
+    if (hasLegacySubscription && (
+      !restaurant.subscription ||
+      typeof restaurant.subscription !== 'object' ||
+      Array.isArray(restaurant.subscription)
+    )) {
+      throw new Error(`Format d’abonnement historique non pris en charge pour ${slug}. Aucune donnée n’a été modifiée.`);
+    }
+    if (hasLegacySubscription && subscriptionSnap.exists) {
+      throw new Error(`Un abonnement existe déjà dans restaurantSubscriptions pour ${slug}. Migration interrompue sans supprimer l’ancien abonnement ; réconciliation manuelle nécessaire.`);
+    }
+    const moveSubscription = hasLegacySubscription;
     const removals = {};
     for (const key of [...privateFields, 'subscription']) {
       if (restaurant[key] !== undefined) removals[key] = FieldValue.delete();
