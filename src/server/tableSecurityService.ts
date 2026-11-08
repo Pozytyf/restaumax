@@ -421,7 +421,7 @@ export async function updateRestaurantServiceStatus(
   const [initialRestaurantSnap, initialManagerSnap] = await Promise.all([restaurantRef.get(), managerRef.get()]);
   const initialRestaurant = initialRestaurantSnap.exists ? initialRestaurantSnap.data() : null;
   const initialManager = initialManagerSnap.exists ? initialManagerSnap.data() : null;
-  if (!initialRestaurant || initialRestaurant.status !== 'active' || initialRestaurant.deletedAt ||
+  if (!initialRestaurant || initialRestaurant.status !== 'active' || initialRestaurant.deletedAt || initialRestaurant.isActive === false ||
       !initialManager || initialManager.active !== true || initialManager.restaurantSlug !== restaurantSlug ||
       Number(decoded.sessionVersion || 0) !== Number(initialManager.sessionVersion || 0)) {
     throw new Error('Accès au restaurant révoqué ou indisponible.');
@@ -441,7 +441,7 @@ export async function updateRestaurantServiceStatus(
     ]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const manager = managerSnap.exists ? managerSnap.data() : null;
-    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || !manager ||
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false || !manager ||
         manager.active !== true || manager.restaurantSlug !== restaurantSlug ||
         Number(decoded.sessionVersion || 0) !== Number(manager.sessionVersion || 0)) {
       throw new Error('Accès au restaurant révoqué ou indisponible.');
