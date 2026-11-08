@@ -36,6 +36,7 @@ import { timingSafeEqual } from 'node:crypto';
 import 'dotenv/config';
 import express from 'express';
 import { getAuth } from 'firebase-admin/auth';
+import { getAppCheck } from 'firebase-admin/app-check';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -108,6 +109,7 @@ app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 // 1. Initialisation stricte de Firebase Admin SDK
 export let adminDb: any = null;
 export let adminAuth: any = null;
+export let adminAppCheck: any = null;
 let adminInitError: string | null = null;
 let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = null;
 
@@ -123,6 +125,7 @@ try {
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
+    adminAppCheck = getAppCheck(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé via variable sécurisée pour la base '${appletConfig.firestoreDatabaseId}'.`);
   } else if (credPath && fs.existsSync(credPath)) {
     // Local/server deployments may continue to use a credentials file.
@@ -130,11 +133,13 @@ try {
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
+    adminAppCheck = getAppCheck(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
   } else if (process.env.FIRESTORE_EMULATOR_HOST) {
     const adminApp = initAdminApp(null as any, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
+    adminAppCheck = getAppCheck(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé sur l'émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`);
   } else {
     adminInitError = credPath
@@ -1549,6 +1554,18 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       const restaurantSlug = String(input.restaurantSlug || '').trim();
       if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
         return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+      }
+      if (process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS === 'true') {
+        const appCheckToken = String(req.headers?.['x-firebase-appcheck'] || '');
+        if (!adminAppCheck || !appCheckToken) {
+          return { statusCode: 401, body: { success: false, error: 'Vérification de sécurité requise pour cette commande.' } };
+        }
+        try {
+          await adminAppCheck.verifyToken(appCheckToken);
+        } catch (appCheckError: any) {
+          console.warn('[RestauMax orders] App Check rejected a public order:', appCheckError?.code || 'invalid-token');
+          return { statusCode: 401, body: { success: false, error: 'Vérification de sécurité invalide. Actualisez la page et réessayez.' } };
+        }
       }
       const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;

@@ -1,4 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeAppCheck, ReCaptchaV3Provider, getToken } from 'firebase/app-check';
 import { 
   getAuth, 
   signInWithEmailAndPassword, 
@@ -70,6 +71,10 @@ if (isDemoPreview) {
 
 // Initialize Firebase only after validating the selected environment.
 const app = getApps().length > 0 ? getApp() : initializeApp(resolvedFirebaseConfig);
+const appCheckSiteKey = String(viteEnv?.VITE_FIREBASE_APPCHECK_SITE_KEY || '').trim();
+export const appCheck = appCheckSiteKey
+  ? initializeAppCheck(app, { provider: new ReCaptchaV3Provider(appCheckSiteKey), isTokenAutoRefreshEnabled: true })
+  : null;
 
 // CRITICAL: Always use the explicitly selected Firestore database.
 export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
@@ -464,10 +469,12 @@ export async function submitOrderWithServerValidation(
   }
 ): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
+    const appCheckToken = appCheck ? (await getToken(appCheck)).token : '';
     const response = await fetch('/api/orders', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(appCheckToken ? { 'X-Firebase-AppCheck': appCheckToken } : {}),
         ...(params.csrfToken ? { 'X-RM-CSRF-Token': params.csrfToken } : {}),
       },
       credentials: 'same-origin',
