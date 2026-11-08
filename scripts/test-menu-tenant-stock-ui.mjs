@@ -13,7 +13,9 @@ const adminMenu = read('../src/components/restaumax/MenuManagementView.tsx');
 const clientMenu = read('../src/components/restaumax/ClientMenuView.tsx');
 
 assert(rules.includes("resource.data.get('restaurantSlug', '') == restaurantSlug"),
-  'Menu get/list/delete rules verify the document tenant slug');
+  'Menu get rules verify the document tenant slug');
+assert(rules.includes('allow list: if isRestaurantActive(restaurantSlug);'),
+  'Public menu listing is scoped by the restaurant path without requiring tenant membership');
 assert(rules.includes("existing().get('restaurantSlug', '') == restaurantSlug"),
   'Menu update rules verify the existing document tenant');
 assert(rules.includes("incoming().restaurantSlug == restaurantSlug"),

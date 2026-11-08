@@ -248,8 +248,7 @@ service cloud.firestore {
       match /menuItems/{dishId} {
         allow get: if isValidId(dishId) && isRestaurantActive(restaurantSlug) && (resource == null || resource.data.get('restaurantSlug', '') == restaurantSlug) &&
           true;
-        allow list: if isRestaurantActive(restaurantSlug) && resource.data.get('restaurantSlug', '') == restaurantSlug &&
-          true;
+        allow list: if isRestaurantActive(restaurantSlug);
         allow create: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
           isValidId(dishId) && isValidMenuItem(incoming()) &&
           incoming().restaurantSlug == restaurantSlug && incoming().id == dishId;
