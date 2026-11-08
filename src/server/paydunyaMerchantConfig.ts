@@ -8,12 +8,19 @@ export interface RestaurantPayDunyaCredentials {
   token: string;
 }
 
-function encryptionKey(env: Record<string, string | undefined>): Buffer {
-  const raw = String(env.PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY || '').trim();
+function encryptionKey(env: Record<string, string | undefined>, version: number): Buffer {
+  const versioned = env[`PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY_V${version}`];
+  const raw = String(version === 1
+    ? (versioned || env.PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY || '')
+    : (versioned || '')).trim();
   if (!/^[a-f0-9]{64}$/i.test(raw)) {
-    throw new Error('PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY doit contenir 64 caractères hexadécimaux.');
+    throw new Error(`PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY_V${version} doit contenir 64 caractères hexadécimaux.`);
   }
   return Buffer.from(raw, 'hex');
+}
+
+function payDunyaCredentialsAad(restaurantSlug: string): Buffer {
+  return Buffer.from(`restaumax:paydunya-credentials:v2:${restaurantSlug}`, 'utf8');
 }
 
 function validateCredentials(value: RestaurantPayDunyaCredentials): void {
@@ -28,11 +35,16 @@ function validateCredentials(value: RestaurantPayDunyaCredentials): void {
 
 export function encryptRestaurantPayDunyaCredentials(
   credentials: RestaurantPayDunyaCredentials,
-  env: Record<string, string | undefined>
-): { version: 1; algorithm: 'aes-256-gcm'; iv: string; authTag: string; ciphertext: string } {
+  env: Record<string, string | undefined>,
+  restaurantSlug: string
+): { version: 2; keyVersion: number; algorithm: 'aes-256-gcm'; iv: string; authTag: string; ciphertext: string } {
   validateCredentials(credentials);
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) throw new Error('Restaurant PayDunya invalide.');
+  const keyVersion = Number(env.PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY_VERSION || 1);
+  if (!Number.isInteger(keyVersion) || keyVersion < 1 || keyVersion > 99) throw new Error('Version de clé PayDunya invalide.');
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', encryptionKey(env), iv);
+  const cipher = createCipheriv('aes-256-gcm', encryptionKey(env, keyVersion), iv);
+  cipher.setAAD(payDunyaCredentialsAad(restaurantSlug));
   const plaintext = Buffer.from(JSON.stringify({
     mode: credentials.mode,
     masterKey: credentials.masterKey.trim(),
@@ -41,7 +53,8 @@ export function encryptRestaurantPayDunyaCredentials(
   }), 'utf8');
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   return {
-    version: 1,
+    version: 2,
+    keyVersion,
     algorithm: 'aes-256-gcm',
     iv: iv.toString('hex'),
     authTag: cipher.getAuthTag().toString('hex'),
@@ -50,16 +63,22 @@ export function encryptRestaurantPayDunyaCredentials(
 }
 
 export function decryptRestaurantPayDunyaCredentials(
-  encrypted: { version: number; algorithm: string; iv: string; authTag: string; ciphertext: string },
-  env: Record<string, string | undefined>
+  encrypted: { version: number; keyVersion?: number; algorithm: string; iv: string; authTag: string; ciphertext: string },
+  env: Record<string, string | undefined>,
+  restaurantSlug: string
 ): RestaurantPayDunyaCredentials {
-  if (!encrypted || encrypted.version !== 1 || encrypted.algorithm !== 'aes-256-gcm' ||
+  const legacy = encrypted?.version === 1;
+  const keyVersion = legacy ? 1 : Number(encrypted?.keyVersion);
+  if (!encrypted || (!legacy && encrypted.version !== 2) || encrypted.algorithm !== 'aes-256-gcm' ||
+      !/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) ||
+      !Number.isInteger(keyVersion) || keyVersion < 1 || keyVersion > 99 ||
       !/^[a-f0-9]{24}$/i.test(encrypted.iv || '') ||
       !/^[a-f0-9]{32}$/i.test(encrypted.authTag || '') ||
       !/^[a-f0-9]+$/i.test(encrypted.ciphertext || '') || encrypted.ciphertext.length > 8192) {
     throw new Error('Enveloppe des identifiants PayDunya invalide.');
   }
-  const decipher = createDecipheriv('aes-256-gcm', encryptionKey(env), Buffer.from(encrypted.iv, 'hex'));
+  const decipher = createDecipheriv('aes-256-gcm', encryptionKey(env, keyVersion), Buffer.from(encrypted.iv, 'hex'));
+  if (!legacy) decipher.setAAD(payDunyaCredentialsAad(restaurantSlug));
   decipher.setAuthTag(Buffer.from(encrypted.authTag, 'hex'));
   const plaintext = Buffer.concat([
     decipher.update(Buffer.from(encrypted.ciphertext, 'hex')),
@@ -85,7 +104,7 @@ export async function loadRestaurantPayDunyaConfig(
     if (!snapshot.exists) return { success: false, error: 'Ce restaurant n’a pas encore connecté son compte PayDunya.' };
     const stored = snapshot.data() || {};
     if (stored.enabled !== true && !allowDisabledForSettlement) return { success: false, error: 'Le compte PayDunya de ce restaurant est désactivé.' };
-    const credentials = decryptRestaurantPayDunyaCredentials(stored.credentials, env);
+    const credentials = decryptRestaurantPayDunyaCredentials(stored.credentials, env, restaurantSlug);
     if (credentials.mode === 'live' && env.PAYDUNYA_LIVE_ENABLED !== 'true' && !allowDisabledForSettlement) {
       return { success: false, error: 'Les paiements PayDunya Production sont désactivés sur RestauMax.' };
     }
@@ -115,7 +134,7 @@ export async function saveRestaurantPayDunyaCredentials(
   credentials: RestaurantPayDunyaCredentials,
   env: Record<string, string | undefined>
 ): Promise<void> {
-  const encrypted = encryptRestaurantPayDunyaCredentials(credentials, env);
+  const encrypted = encryptRestaurantPayDunyaCredentials(credentials, env, restaurantSlug);
   await db.collection('restaurants').doc(restaurantSlug).collection('_private').doc('paydunya').set({
     enabled: true,
     mode: credentials.mode,
