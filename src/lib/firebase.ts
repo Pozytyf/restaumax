@@ -264,6 +264,17 @@ export async function persistMenuItem(restaurantSlug: string, item: RestauMenuIt
   if (item.trackStock === true && (!Number.isInteger(item.stockQuantity) || Number(item.stockQuantity) < 0 || Number(item.stockQuantity) > 1000000)) {
     throw new Error('Quantité de stock invalide.');
   }
+  if (item.lowStockThreshold !== undefined && (!Number.isInteger(item.lowStockThreshold) || item.lowStockThreshold < 0 || item.lowStockThreshold > 1000000)) {
+    throw new Error('Seuil d’alerte de stock invalide.');
+  }
+  if (item.spiceLevel !== undefined && ![0, 1, 2, 3].includes(item.spiceLevel)) {
+    throw new Error('Niveau de piquant invalide.');
+  }
+  if ((item.allergens?.length || 0) > 30 || (item.pairings?.length || 0) > 20 ||
+      (item.translations?.en?.name?.length || 0) > 200 || (item.translations?.pt?.name?.length || 0) > 200 ||
+      (item.translations?.en?.description?.length || 0) > 2000 || (item.translations?.pt?.description?.length || 0) > 2000) {
+    throw new Error('Les informations complémentaires du plat dépassent les limites autorisées.');
+  }
   const path = `restaurants/${restaurantSlug}/menuItems/${item.id}`;
   try {
     const itemRef = doc(db, 'restaurants', restaurantSlug, 'menuItems', item.id);
