@@ -423,6 +423,17 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       menuItemQuantities.set(itemId, (menuItemQuantities.get(itemId) || 0) + quantity);
     }
     const menuItemIds = [...menuItemQuantities.keys()];
+    let phoneOpenOrdersIndex = -1;
+    const customerPhoneNormalized = String(orderToCreate.customerPhoneNormalized || '').trim();
+    if (orderToCreate.orderMode === 'a_emporter' && customerPhoneNormalized) {
+      phoneOpenOrdersIndex = reads.length;
+      reads.push(t.get(
+        restaurantRef.collection('orders')
+          .where('customerPhoneNormalized', '==', customerPhoneNormalized)
+          .where('status', 'in', ['pending', 'in_prep', 'ready'])
+          .limit(4)
+      ));
+    }
     const menuStockReadStart = reads.length;
     for (const itemId of menuItemIds) {
       reads.push(t.get(restaurantRef.collection('menuItems').doc(itemId)));
@@ -449,6 +460,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
     const snapKey = snapshots[0];
     const snapOrder = snapshots[1];
     const snapRestaurant = snapshots[2];
+    const phoneOpenOrdersSnap = phoneOpenOrdersIndex >= 0 ? snapshots[phoneOpenOrdersIndex] : null;
     const menuItemSnapshots = new Map<string, any>();
     menuItemIds.forEach((itemId, index) => menuItemSnapshots.set(itemId, snapshots[menuStockReadStart + index]));
     const restaurantData = snapRestaurant.exists ? snapRestaurant.data() : null;
@@ -582,6 +594,13 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         success: true,
         order: decision.order,
         idempotentReplay: true
+      };
+    }
+
+    if (phoneOpenOrdersSnap && phoneOpenOrdersSnap.size >= 3) {
+      return {
+        success: false,
+        error: 'Limite atteinte : ce numéro possède déjà trois commandes à emporter en cours. Attendez leur traitement avant de recommander.'
       };
     }
 
