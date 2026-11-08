@@ -79,6 +79,11 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
 
+      - name: Install pinned Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@6189d56e4096ee891640bb02ac264be376592d6a
+        with:
+          project_id: gen-lang-client-0138815290
+
       - name: Create the single required composite index without deleting existing indexes
         shell: bash
         run: |
