@@ -118,7 +118,7 @@ export const InventoryRecipePanel: React.FC<{ restaurantSlug: string; canManage:
     : recipe.menuItemName;
 
   return <section className="mt-5 overflow-hidden rounded-2xl border bg-white">
-    <div className="border-b p-4"><h2 className="font-bold">Fiches de stock · {recipes.length}</h2><p className="mt-1 text-xs text-slate-500">Définissez les composants consommés par un plat, une option ou un supplément. Le coût et la marge brute par portion sont calculés à partir des coûts unitaires de l’inventaire. Les quantités utilisent exactement l’unité de l’article de stock ; aucune conversion implicite.</p></div>
+    <div className="border-b p-4"><h2 className="font-bold">Fiches de stock · {recipes.length}</h2><p className="mt-1 text-xs text-slate-500">Définissez les composants consommés par un plat, une option ou un supplément. Le coût matière et la marge brute par portion sont calculés depuis les coûts unitaires de l’inventaire, sans conversion implicite d’unités. La marge affichée exclut main-d’œuvre, énergie, emballage, taxes et frais de paiement.</p></div>
     {error && <p role="alert" className="p-3 text-sm text-rose-700">{error}</p>}
     {notice && <p role="status" className="p-3 text-sm text-emerald-700">{notice}</p>}
     {canManage && <form onSubmit={save} className="grid gap-3 border-b p-4">
