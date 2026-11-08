@@ -23,6 +23,8 @@ const healthFunction = server.slice(server.indexOf('export function getServerHea
 assert(!healthFunction.includes('projectId') && !healthFunction.includes('databaseId') && !healthFunction.includes('hasAdminDb'),
   'health response does not reveal infrastructure identifiers or configuration state');
 
+assert(server.includes("res.setHeader('Content-Security-Policy', RESTAUMAX_CSP)") && server.includes("res.setHeader('X-Frame-Options', 'DENY')"),
+  'Express production responses also receive CSP and anti-clickjacking headers');
 assert(vercel.headers?.some(h => h.source === '/(.*)' &&
   h.headers.some(x => x.key === 'Content-Security-Policy' && x.value.includes("frame-ancestors 'none'") && x.value.includes('fonts.googleapis.com'))),
   'global CSP blocks framing and explicitly permits Google Fonts');

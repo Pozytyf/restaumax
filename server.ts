@@ -89,6 +89,19 @@ const isProd = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
+const RESTAUMAX_CSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://*.paydunya.com https://paydunya.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://*.cloudfunctions.net https://*.vercel.app https://*.paydunya.com https://paydunya.com; frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://*.paydunya.com https://paydunya.com; upgrade-insecure-requests";
+app.use((_req, res, next) => {
+  if (isProd) {
+    res.setHeader('Content-Security-Policy', RESTAUMAX_CSP);
+    res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  }
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=(self)');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  next();
+});
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
@@ -1535,7 +1548,8 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
     if (input.orderMode === 'a_emporter') {
       const restaurantSlug = String(input.restaurantSlug || '').trim();
       const clientIp = resolveOrderClientIp(req);
-      const rateLimitSecret = String(process.env.ORDER_RATE_LIMIT_SECRET || process.env.CRON_SECRET || process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '');
+      const qrKeyVersion = Number(process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION || 1);
+      const rateLimitSecret = String(process.env.ORDER_RATE_LIMIT_SECRET || process.env.CRON_SECRET || process.env[`TABLE_QR_TOKEN_ENCRYPTION_KEY_V${qrKeyVersion}`] || process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '');
       if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
         return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
       }
