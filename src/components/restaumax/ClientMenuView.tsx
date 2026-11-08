@@ -417,9 +417,9 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       {/* Product Detail Modal */}
       {(() => {
         const liveDish = activeItemModal ? menuItems.find(m => m.id === activeItemModal.id) : null;
-        const isDishCurrentlyAvailable = liveDish 
-          ? liveDish.available !== false 
-          : (activeItemModal ? activeItemModal.available !== false : false);
+        const isDishCurrentlyAvailable = liveDish
+          ? liveDish.available !== false && !(liveDish.trackStock === true && Number(liveDish.stockQuantity || 0) <= 0)
+          : (activeItemModal ? activeItemModal.available !== false && !(activeItemModal.trackStock === true && Number(activeItemModal.stockQuantity || 0) <= 0) : false);
 
         return (
           <ProductDetailModal
