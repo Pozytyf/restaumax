@@ -26,7 +26,7 @@ assert(panel.includes('calculateDishProfitability') && panel.includes('where(\'r
 assert(!types.includes('ingredientCost') && !types.includes('recipeCost'), 'Ingredient costs are not stored on public menu item documents');
 assert(server.includes('handleMenuImageUploadRequest') && imageService.includes('member.restaurantSlug !== slug') && imageService.includes("permissions.includes('menu.manage')") && imageService.includes('firebaseStorageDownloadTokens'), 'Photo upload is authenticated, tenant-scoped, permission-checked and tokenized');
 assert(imageService.includes('3 * 1024 * 1024') && imageService.includes('buffer.subarray(0, 8)'), 'Photo upload enforces file-size and real image-signature checks');
-assert(adminConfig.includes('projectId === config.projectId') && adminConfig.includes('projectId}.firebasestorage.app'), 'Firebase Storage bucket follows the selected project and isolates Preview from Production');
+assert(adminConfig.includes('projectId === config.projectId') && adminConfig.includes('FIREBASE_STORAGE_BUCKET') && adminConfig.includes('.includes(projectId)'), 'Firebase Storage bucket follows the selected project and isolates Preview from Production');
 assert(api.includes("case 'menu-image'") && api.includes('handleMenuImageUploadRequest') && routeMap.includes("path: 'menu-image'") && vercel.includes('/api/menu-image'), 'Photo upload is wired through the single Vercel API entry point');
 assert(!fs.existsSync(new URL('../api/menu-image.ts', import.meta.url)), 'The project retains a single Vercel function entry point');
 assert(firebase.includes("fetch('/api/menu-image'"), 'Client photo upload calls the central API route');
