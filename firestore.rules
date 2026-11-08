@@ -146,7 +146,19 @@ service cloud.firestore {
         && (!data.keys().hasAny(['allergens']) || (data.allergens is list && data.allergens.size() <= 30))
         && (!data.keys().hasAny(['spiceLevel']) || (data.spiceLevel is int && data.spiceLevel >= 0 && data.spiceLevel <= 3))
         && (!data.keys().hasAny(['pairings']) || (data.pairings is list && data.pairings.size() <= 20))
-        && (!data.keys().hasAny(['translations']) || (data.translations is map && data.translations.keys().hasOnly(['en', 'pt']) && data.translations.size() <= 2))
+        && (!data.keys().hasAny(['translations']) || (
+          data.translations is map && data.translations.keys().hasOnly(['en', 'pt']) && data.translations.size() <= 2 &&
+          (!data.translations.keys().hasAny(['en']) || (
+            data.translations.en is map && data.translations.en.keys().hasOnly(['name', 'description']) &&
+            (!data.translations.en.keys().hasAny(['name']) || (data.translations.en.name is string && data.translations.en.name.size() <= 200)) &&
+            (!data.translations.en.keys().hasAny(['description']) || (data.translations.en.description is string && data.translations.en.description.size() <= 2000))
+          )) &&
+          (!data.translations.keys().hasAny(['pt']) || (
+            data.translations.pt is map && data.translations.pt.keys().hasOnly(['name', 'description']) &&
+            (!data.translations.pt.keys().hasAny(['name']) || (data.translations.pt.name is string && data.translations.pt.name.size() <= 200)) &&
+            (!data.translations.pt.keys().hasAny(['description']) || (data.translations.pt.description is string && data.translations.pt.description.size() <= 2000))
+          ))
+        ))
         && (!data.keys().hasAny(['optionGroups']) || (data.optionGroups is list && data.optionGroups.size() <= 20))
         && (!data.keys().hasAny(['availableExtras']) || (data.availableExtras is list && data.availableExtras.size() <= 50))
         && (!data.keys().hasAny(['tags']) || (data.tags is list && data.tags.size() <= 30));
