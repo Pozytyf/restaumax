@@ -191,6 +191,16 @@ async function run() {
     );
   } catch { managerWithoutPermissionRejected = true; }
   assert(managerWithoutPermissionRejected, 'Un manager sans tables.manage ne peut pas administrer les QR');
+  const managerServiceWithoutTablePermission = await updateRestaurantServiceStatus(
+    db,
+    { verifyIdToken: async () => ({ uid: 'manager-no-qr', role: 'manager', sessionVersion: 0 }) },
+    { method: 'POST', headers: { authorization: 'Bearer manager-no-qr-token' } },
+    'chez-awa',
+    false
+  );
+  assert(managerServiceWithoutTablePermission.success && db.store.get('restaurants/chez-awa').isOpen === false,
+    'Un manager actif peut fermer le service sans recevoir artificiellement la permission tables.manage');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), isOpen: true });
 
   const issued = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   const token = issued.url.split('/q/')[1];
