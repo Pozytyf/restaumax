@@ -48,6 +48,7 @@ const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta
 assert(source.includes('migrateLegacyRestaurantPrivateData'), 'super-admin overview migrates legacy owner identity out of public restaurant documents');
 assert(source.includes("collection('private').doc('ownership')"), 'new restaurant owners are written to the private ownership document');
 assert(firestoreRules.includes("match /private/{privateDoc}") && firestoreRules.includes('function isBoundRestaurantOwner'), 'private owner metadata is inaccessible directly and still binds owner permissions');
+assert(firestoreRules.includes('function isPublicRestaurant') && firestoreRules.includes('isPublicRestaurant(incoming())'), 'new public restaurant profiles reject owner identity fields');
 assert(firestoreRules.includes("data.keys().hasOnly(['slug', 'name', 'isOpen'"), 'public restaurant documents use a strict field allowlist');
 const firebaseClient = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');

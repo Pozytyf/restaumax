@@ -822,7 +822,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const batch = db.batch();
         batch.delete(memberRef);
         batch.delete(managerRef);
-        const currentOwnerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurantSnap.data());
+        const currentOwnerUid = await getRestaurantOwnerUid(db, slug, undefined, actor.restaurant);
         if (member.role === 'owner' && currentOwnerUid === staffUid) {
           batch.set(db.collection('restaurants').doc(slug).collection('private').doc('ownership'), {
             ownerUid: null, ownerName: null, ownerEmail: null, ownerRemovedAt: now, ownerRemovedBy: user.uid

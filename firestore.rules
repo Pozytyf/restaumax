@@ -124,6 +124,16 @@ service cloud.firestore {
       return hasRestaurantPermission(targetSlug, 'settings.manage');
     }
 
+    function isPublicRestaurant(data) {
+      return data.keys().hasOnly([
+        'slug', 'name', 'isOpen', 'tagline', 'address', 'city', 'phone',
+        'currency', 'bannerUrl', 'logoUrl', 'openingHours', 'taxRatePercent',
+        'taxMode', 'loyaltyFcfaPerPoint', 'receiptFooter', 'receiptPaperWidth',
+        'status', 'createdAt', 'updatedAt', 'country', 'serviceStatusUpdatedAt',
+        'tableSessionVersion', 'isOpenBeforeSuspension', 'suspendedAt', 'deletedAt'
+      ]);
+    }
+
     function isValidRestaurant(data) {
       return data.keys().hasOnly(['slug', 'name', 'isOpen', 'tagline', 'address', 'city', 'phone', 'currency', 'bannerUrl', 'logoUrl', 'openingHours', 'taxRatePercent', 'taxMode', 'loyaltyFcfaPerPoint', 'receiptFooter', 'receiptPaperWidth', 'status', 'createdAt', 'updatedAt', 'country', 'serviceStatusUpdatedAt', 'tableSessionVersion', 'isOpenBeforeSuspension', 'suspendedAt', 'deletedAt', 'ownerUid', 'ownerName', 'ownerEmail', 'createdBy', 'updatedBy', 'deletedBy', 'suspendedBy', 'subscription'])
         && data.keys().hasAll(['slug', 'name', 'isOpen'])
@@ -217,7 +227,7 @@ service cloud.firestore {
         ) &&
         (!isSignedIn() || isRestaurantMember(restaurantSlug));
       allow list: if false;
-      allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming());
+      allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming()) && isPublicRestaurant(incoming());
       allow update: if hasRestaurantPermission(restaurantSlug, 'settings.manage') &&
         isValidId(restaurantSlug) && isValidRestaurant(incoming()) &&
         incoming().diff(existing()).affectedKeys().hasOnly([
