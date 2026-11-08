@@ -10,7 +10,9 @@ const panel = read('../src/components/restaumax/InventoryRecipePanel.tsx');
 const server = read('../server.ts');
 const imageService = read('../src/server/menuImageService.ts');
 const adminConfig = read('../scripts/firebase-admin-config.mjs');
-const api = read('../api/menu-image.ts');
+const api = read('../api/index.ts');
+const routeMap = read('../src/server/apiRouteMap.ts');
+const vercel = read('../vercel.json');
 const firebase = read('../src/lib/firebase.ts');
 const rules = read('../firestore.rules');
 
@@ -25,6 +27,8 @@ assert(!types.includes('ingredientCost') && !types.includes('recipeCost'), 'Ingr
 assert(server.includes('handleMenuImageUploadRequest') && imageService.includes('member.restaurantSlug !== slug') && imageService.includes("permissions.includes('menu.manage')") && imageService.includes('firebaseStorageDownloadTokens'), 'Photo upload is authenticated, tenant-scoped, permission-checked and tokenized');
 assert(imageService.includes('3 * 1024 * 1024') && imageService.includes('buffer.subarray(0, 8)'), 'Photo upload enforces file-size and real image-signature checks');
 assert(adminConfig.includes('projectId === config.projectId') && adminConfig.includes('projectId}.firebasestorage.app'), 'Firebase Storage bucket follows the selected project and isolates Preview from Production');
-assert(api.includes('handleMenuImageUploadRequest') && firebase.includes("fetch('/api/menu-image'"), 'Vercel API route and client uploader are wired');
+assert(api.includes("case 'menu-image'") && api.includes('handleMenuImageUploadRequest') && routeMap.includes("path: 'menu-image'") && vercel.includes('/api/menu-image'), 'Photo upload is wired through the single Vercel API entry point');
+assert(!fs.existsSync(new URL('../api/menu-image.ts', import.meta.url)), 'The project retains a single Vercel function entry point');
+assert(firebase.includes("fetch('/api/menu-image'"), 'Client photo upload calls the central API route');
 assert(rules.includes("'lowStockThreshold'") && rules.includes("'allergens'") && rules.includes("'translations'"), 'Firestore menu rules validate and allow the new public metadata');
 console.log('Menu feature and photo-upload security checks passed.');
