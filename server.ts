@@ -724,7 +724,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       return { status: 'not_found' };
     } catch (err: any) {
       console.warn(`[RestauMax Server] Erreur sonde getOrderById (${orderId}):`, err.message);
-      return { status: 'error', error: err.message || String(err) };
+      return { status: 'error', error: 'Sonde Firestore temporairement indisponible.' };
     }
   },
 
