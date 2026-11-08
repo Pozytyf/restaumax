@@ -1613,7 +1613,12 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
         if (!quota.allowed) {
           return { statusCode: 429, body: { success: false, error: 'Trop de commandes depuis cet appareil. Réessayez dans quelques minutes.', retryAfterSeconds: quota.retryAfterSeconds } };
         }
-        const phoneDigits = String(input.customerPhone || '').replace(/\\D/g, '');
+        const rawPhoneDigits = String(input.customerPhone || '').replace(/\\D/g, '');
+        const phoneDigits = rawPhoneDigits.startsWith('00225') && rawPhoneDigits.length === 15
+          ? rawPhoneDigits.slice(5)
+          : rawPhoneDigits.startsWith('225') && rawPhoneDigits.length === 13
+            ? rawPhoneDigits.slice(3)
+            : rawPhoneDigits;
         if (phoneDigits) {
           if (phoneDigits.length < 8 || phoneDigits.length > 15) {
             return { statusCode: 400, body: { success: false, error: 'Numéro de téléphone invalide.' } };
