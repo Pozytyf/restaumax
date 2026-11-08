@@ -44,6 +44,15 @@ assert.equal((await consumePublicOrderRateLimit(db, { ...base, restaurantSlug: '
   'each restaurant has an independent quota');
 assert.equal((await consumePublicOrderRateLimit(db, { ...base, now: base.now + 600_000 })).allowed, true,
   'quota resets after the ten-minute window');
+const phoneIdentity = { ...base, clientIp: '2250700000000', identityScope: 'phone', maxRequests: 3 };
+for (let i = 0; i < 3; i++) {
+  assert.equal((await consumePublicOrderRateLimit(db, phoneIdentity)).allowed, true,
+    'first three orders for a normalized phone number are accepted');
+}
+assert.equal((await consumePublicOrderRateLimit(db, phoneIdentity)).allowed, false,
+  'fourth order for the same normalized phone number is rate-limited');
+assert.equal((await consumePublicOrderRateLimit(db, { ...phoneIdentity, identityScope: 'ip' })).allowed, true,
+  'phone and IP identities use separate keyed quotas');
 for (const value of db.store.values()) {
   assert(!JSON.stringify(value).includes('203.0.113.10'), 'raw client IP is never stored');
 }
