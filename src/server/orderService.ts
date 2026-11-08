@@ -520,6 +520,7 @@ export async function processOrderSubmission(
       basePrice: trustedBasePrice,
       unitPrice: trustedUnitPrice,
       quantity: qty,
+      ...(catalogItem.trackStock === true ? { trackStock: true } : {}),
       totalPrice: lineTotal,
       ...(verifiedSelectedOption ? { selectedOption: verifiedSelectedOption } : {}),
       ...(verifiedExtrasList.length > 0 ? { selectedExtras: verifiedExtrasList } : {}),
