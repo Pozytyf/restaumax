@@ -332,38 +332,51 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
             </div>
           </div>
 
-          {/* Category Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-1 border-t border-slate-100">
-            {CATEGORIES.map(cat => {
-              const Icon = cat.icon;
-              const isSelected = selectedCategory === cat.id;
-              const countInCat = cat.id === 'tous' 
-                ? menuItems.length 
-                : menuItems.filter(i => i.category === cat.id).length;
-
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => {
-                    sounds.playTap();
-                    setSelectedCategory(cat.id);
-                  }}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 ${
-                    isSelected
-                      ? 'bg-slate-900 text-white shadow-xs'
-                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200/60'
-                  }`}
-                >
-                  <Icon size={13} className={isSelected ? 'text-amber-400' : 'text-slate-500'} />
-                  <span>{cat.label}</span>
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                    isSelected ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-600'
-                  }`}>
-                    {countInCat}
-                  </span>
-                </button>
-              );
-            })}
+          {/* Clickable category tiles */}
+          <div className="pt-1 border-t border-slate-100 space-y-3">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-black text-slate-900">Parcourir le menu</h2>
+                <p className="text-[11px] text-slate-500">Touchez une catégorie pour afficher ses articles.</p>
+              </div>
+              <span className="text-[11px] font-bold text-slate-500">{menuItems.length} articles au total</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {CATEGORIES.map(cat => {
+                const Icon = cat.icon;
+                const isSelected = selectedCategory === cat.id;
+                const countInCat = cat.id === 'tous' ? menuItems.length : menuItems.filter(i => i.category === cat.id).length;
+                const isDrinks = cat.id === 'boissons';
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => { sounds.playTap(); setSelectedCategory(cat.id); }}
+                    className={`min-h-[104px] rounded-2xl border p-3 sm:p-4 text-left flex flex-col justify-between transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-[#ff6500] ${
+                      isSelected
+                        ? 'bg-[#101d2d] text-white border-[#101d2d] shadow-lg'
+                        : isDrinks
+                          ? 'bg-amber-50 border-amber-200 text-amber-950 hover:border-amber-400 hover:shadow-md'
+                          : 'bg-white border-slate-200 text-slate-800 hover:border-slate-400 hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${isSelected ? 'bg-white/10 text-amber-300' : isDrinks ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'}`}>
+                        <Icon size={19} />
+                      </span>
+                      <span className={`text-[11px] font-black rounded-full px-2 py-1 ${isSelected ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'}`}>{countInCat}</span>
+                    </div>
+                    <span className="text-xs sm:text-sm font-extrabold leading-snug">{cat.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {selectedCategory === 'boissons' && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                Onglet Boissons — seuls les jus, eaux, sodas et autres boissons de cet établissement sont affichés.
+              </div>
+            )}
           </div>
         </div>
 
