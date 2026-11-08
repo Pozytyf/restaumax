@@ -69,6 +69,7 @@ import {
   requestHasValidOrigin,
   resolveTableQr,
   revokeTableQr,
+  updateRestaurantServiceStatus,
   tableCsrfCookieName,
   tableSessionCookieName,
   validateCsrf
@@ -864,6 +865,31 @@ export async function handleResolveTableQr(token: string, req?: any): Promise<{ 
       cookies: undefined,
       location: undefined
     };
+  }
+}
+
+export async function handleRestaurantServiceStatus(req: any) {
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service indisponible.' } };
+  if (!requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+  const slug = String(req?.body?.restaurantSlug || '').trim();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || typeof req?.body?.isOpen !== 'boolean') {
+    return { statusCode: 400, body: { success: false, error: 'Restaurant ou état du service invalide.' } };
+  }
+  try {
+    const result = await updateRestaurantServiceStatus(adminDb, adminAuth, req, slug, req.body.isOpen);
+    return { statusCode: 200, body: result };
+  } catch (err: any) {
+    const message = String(err?.message || 'Accès refusé.');
+    const code = String(err?.code || '');
+    const statusCode = code.startsWith('auth/') || /Authentification|Identité|Session utilisateur/.test(message)
+      ? 401
+      : /Accès|Permission|propriétaire|manager|indisponible|révoqué/.test(message) ? 403 : 400;
+    return { statusCode, body: { success: false, error: message } };
   }
 }
 
@@ -1748,7 +1774,7 @@ app.get('/q/:token', async (req, res) => {
   return res.status(result.statusCode).send('<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QR RestauMax indisponible</title><body style="font-family:system-ui,sans-serif;background:#f4f7fb;color:#172033;display:grid;min-height:100vh;place-items:center;margin:0;padding:24px"><main style="max-width:440px;background:white;border-radius:20px;padding:28px;box-shadow:0 12px 40px #10203018"><h1 style="font-size:22px">QR de table indisponible</h1><p style="line-height:1.6">' + message + '</p><p style="font-size:13px;color:#64748b">RestauMax — Sécurité des commandes</p></main></body></html>');
 });
 
-app.get('/api/table-session', async (req, res) => {
+app.post('/api/restaurant-service', async (req, res) => {\n  res.setHeader('Cache-Control', 'no-store');\n  res.setHeader('X-Content-Type-Options', 'nosniff');\n  const result = await handleRestaurantServiceStatus(req);\n  return res.status(result.statusCode).json(result.body);\n});\n\napp.get('/api/table-session', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handleGetTableSession(req);
