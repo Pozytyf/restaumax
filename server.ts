@@ -1714,7 +1714,7 @@ export async function handleInventoryRequest(payload: unknown, req?: any): Promi
 }
 
 export async function handleOrderStatusRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
-  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible : Firebase Admin non configuré.' } };
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service RestauMax temporairement indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
   if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
   try {
