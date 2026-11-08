@@ -5,6 +5,7 @@ import {
   handleCustomerPayDunyaReconcileRequest,
   handleGetTableSession,
   handleInventoryRequest,
+  handleMenuImageUploadRequest,
   handleKitchenItemRequest,
   handleOrderStatusRequest,
   handleOrderSubmission,
@@ -19,6 +20,8 @@ import {
   handleTableQrManagement
 } from '../server.ts';
 import { getRestauMaxRequestQueryParam, resolveRestauMaxApiRouteFromRequest } from '../src/server/apiRouteMap.ts';
+
+export const config = { api: { bodyParser: { sizeLimit: '4.5mb' } } };
 
 function setPrivateApiHeaders(res: any) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -79,6 +82,10 @@ export default async function handler(req: any, res: any) {
   setPrivateApiHeaders(res);
 
   switch (route.id) {
+    case 'menu-image': {
+      const result = await handleMenuImageUploadRequest(req.body, req);
+      return res.status(result.statusCode).json(result.body);
+    }
     case 'inventory': {
       const result = await handleInventoryRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);
