@@ -52,6 +52,11 @@ assert(server.includes('menuStockDeferred: true') && lifecycle.includes('shouldC
 
 assert(rules.includes('function isPublicRestaurant') && rules.includes('match /private/{privateDoc}'),
   'restaurant owner identity is stored outside the public profile');
+const restaurantRuleStart = rules.indexOf('match /restaurants/{restaurantSlug}');
+const restaurantRuleEnd = rules.indexOf('match /menuItems/{dishId}', restaurantRuleStart);
+const restaurantRules = rules.slice(restaurantRuleStart, restaurantRuleEnd);
+assert(restaurantRules.includes('isPublicRestaurant(resource.data)'),
+  'legacy restaurant documents containing private owner metadata are denied to public readers until migration');
 const customerRuleStart = rules.indexOf('match /customers/{customerId}');
 const customerRuleEnd = rules.indexOf('\n      }', customerRuleStart);
 const customerRules = rules.slice(customerRuleStart, customerRuleEnd);
