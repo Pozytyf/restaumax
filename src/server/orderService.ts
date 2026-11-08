@@ -372,7 +372,7 @@ export async function processOrderSubmission(
       };
     }
 
-    if (catalogItem.restaurantSlug && catalogItem.restaurantSlug !== cleanSlug) {
+    if (catalogItem.restaurantSlug !== cleanSlug) {
       return { 
         success: false, 
         error: `Le plat "${catalogItem.name}" n'appartient pas au restaurant "${cleanSlug}".` 
@@ -394,6 +394,15 @@ export async function processOrderSubmission(
       };
     }
     const qty = rawQty;
+    if (catalogItem.trackStock === true) {
+      const remaining = catalogItem.stockQuantity;
+      if (!Number.isInteger(remaining) || Number(remaining) < 0 || qty > Number(remaining)) {
+        return {
+          success: false,
+          error: `Stock insuffisant pour « ${catalogItem.name} » : ${Number.isInteger(remaining) ? remaining : 0} unité(s) disponible(s).`
+        };
+      }
+    }
 
     // Validation multi-groupes : le POS encode les choix dans l'ordre du catalogue.
     const requiredGroups = (catalogItem.optionGroups || []).filter(g => g.required);
