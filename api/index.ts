@@ -21,8 +21,6 @@ import {
 } from '../server.ts';
 import { getRestauMaxRequestQueryParam, resolveRestauMaxApiRouteFromRequest } from '../src/server/apiRouteMap.ts';
 
-export const config = { api: { bodyParser: { sizeLimit: '4.5mb' } } };
-
 function setPrivateApiHeaders(res: any) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Referrer-Policy', 'no-referrer');
