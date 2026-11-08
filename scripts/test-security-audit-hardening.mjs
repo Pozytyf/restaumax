@@ -10,6 +10,7 @@ const rateLimit = fs.readFileSync(new URL('../src/server/orderRateLimit.ts', imp
 const qrSecurity = fs.readFileSync(new URL('../src/server/tableSecurityService.ts', import.meta.url), 'utf8');
 const paydunyaMerchant = fs.readFileSync(new URL('../src/server/paydunyaMerchantConfig.ts', import.meta.url), 'utf8');
 const firestoreIndexes = JSON.parse(fs.readFileSync(new URL('../firestore.indexes.json', import.meta.url), 'utf8'));
+const productionFirebaseConfig = JSON.parse(fs.readFileSync(new URL('../firebase.production.json', import.meta.url), 'utf8'));
 const workflowEmulator = fs.readFileSync(new URL('../.github/workflows/firestore-emulator-tests.yml', import.meta.url), 'utf8');
 const workflowHardening = fs.readFileSync(new URL('../.github/workflows/security-hardening.yml', import.meta.url), 'utf8');
 
@@ -66,6 +67,8 @@ assert(server.includes("where('customerPhoneNormalized', '==', customerPhoneNorm
   server.includes("where('status', 'in', ['pending', 'in_prep', 'ready'])") &&
   server.includes('phoneOpenOrdersSnap.size >= 3'),
   'the order transaction atomically refuses a fourth active takeaway order for one phone');
+assert(productionFirebaseConfig.firestore.some(database => database.indexes === 'firestore.indexes.json'),
+  'Production Firebase configuration deploys the composite index required for open takeaway order caps');
 assert(firestoreIndexes.indexes.some(index => index.collectionGroup === 'orders' &&
   index.fields.some(field => field.fieldPath === 'customerPhoneNormalized') &&
   index.fields.some(field => field.fieldPath === 'status')),
