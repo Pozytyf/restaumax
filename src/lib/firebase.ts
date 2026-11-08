@@ -258,6 +258,12 @@ export async function persistRestaurant(restaurant: RestaurantInfo): Promise<voi
  * Persist dish creation or edition
  */
 export async function persistMenuItem(restaurantSlug: string, item: RestauMenuItem): Promise<void> {
+  if (!restaurantSlug || item.restaurantSlug !== restaurantSlug || !/^[a-zA-Z0-9_-]{1,128}$/.test(item.id)) {
+    throw new Error('Le plat ne correspond pas au restaurant actif. Enregistrement refusé.');
+  }
+  if (item.trackStock === true && (!Number.isInteger(item.stockQuantity) || Number(item.stockQuantity) < 0 || Number(item.stockQuantity) > 1000000)) {
+    throw new Error('Quantité de stock invalide.');
+  }
   const path = `restaurants/${restaurantSlug}/menuItems/${item.id}`;
   try {
     const itemRef = doc(db, 'restaurants', restaurantSlug, 'menuItems', item.id);
@@ -271,6 +277,7 @@ export async function persistMenuItem(restaurantSlug: string, item: RestauMenuIt
  * Persist dish availability toggle
  */
 export async function persistDishAvailability(restaurantSlug: string, dishId: string, available: boolean): Promise<void> {
+  if (!restaurantSlug || !/^[a-zA-Z0-9_-]{1,128}$/.test(dishId)) throw new Error('Restaurant ou article invalide.');
   const path = `restaurants/${restaurantSlug}/menuItems/${dishId}`;
   try {
     const itemRef = doc(db, 'restaurants', restaurantSlug, 'menuItems', dishId);
