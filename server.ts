@@ -1543,7 +1543,7 @@ function resolveOrderClientIp(req: any): string {
 
 export async function handleOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb) {
-    return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible : Firebase Admin non configuré.' } };
+    return { statusCode: 503, body: { success: false, error: 'Service de commande temporairement indisponible.' } };
   }
   if (!req || !requestHasValidOrigin(req)) {
     return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
