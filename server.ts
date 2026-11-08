@@ -593,7 +593,11 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     if (!restaurantSnap.exists) throw new Error("Restaurant introuvable.");
     if (restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.isActive === false) throw new Error("Restaurant inactif ou indisponible : les commandes sont désactivées.");
     const snap = await restaurantRef.collection('menuItems').get();
-    return snap.docs.map((d: any) => d.data());
+    const items = snap.docs.map((d: any) => ({ ...d.data(), id: d.id }));
+    if (items.some((item: any) => item.restaurantSlug !== restaurantSlug || item.id !== item.id)) {
+      throw new Error('Catalogue incohérent : un article ne correspond pas à son restaurant.');
+    }
+    return items;
   },
 
   async getRestaurantTaxConfig(restaurantSlug: string) {
