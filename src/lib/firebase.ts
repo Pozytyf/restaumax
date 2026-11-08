@@ -991,6 +991,43 @@ export function subscribeToOrders(
   );
 }
 
+
+export async function uploadMenuImageWithServerValidation(
+  restaurantSlug: string,
+  dishId: string,
+  file: File
+): Promise<{ success: true; url: string; path: string } | { success: false; error: string }> {
+  try {
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^[a-zA-Z0-9_-]{1,128}$/.test(dishId)) {
+      return { success: false, error: 'Restaurant ou plat invalide.' };
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size <= 0 || file.size > 3 * 1024 * 1024) {
+      return { success: false, error: 'Choisissez une photo JPEG, PNG ou WebP de 3 Mo maximum.' };
+    }
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const token = await user.getIdToken(true);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
+    }
+    const response = await fetch('/api/menu-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      credentials: 'same-origin', cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, dishId, mimeType: file.type, base64: btoa(binary) })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success || typeof data.url !== 'string') {
+      return { success: false, error: data.error || 'Le serveur a refusé le téléversement de la photo.' };
+    }
+    return { success: true, url: data.url, path: String(data.path || '') };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau pendant le téléversement de la photo.' };
+  }
+}
+
 type InventoryApiResult = { success: true; itemId?: string; quantityBefore?: number; quantityAfter?: number; idempotentReplay?: boolean } | { success: false; error: string; retryable?: boolean };
 
 async function inventoryRequest(
