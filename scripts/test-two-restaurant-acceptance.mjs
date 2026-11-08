@@ -31,8 +31,10 @@ class FakeDb {
 }
 
 const seed = new FakeDb({
-  'restaurants/restaurant-a': { status: 'active', ownerUid: 'owner-a' },
-  'restaurants/restaurant-b': { status: 'active', ownerUid: 'owner-b' },
+  'restaurants/restaurant-a': { status: 'active' },
+  'restaurants/restaurant-b': { status: 'active' },
+  'restaurants/restaurant-a/private/ownership': { ownerUid: 'owner-a' },
+  'restaurants/restaurant-b/private/ownership': { ownerUid: 'owner-b' },
   'managers/owner-a': { active: true, restaurantSlug: 'restaurant-a', role: 'owner', sessionVersion: 1 },
   'managers/owner-b': { active: true, restaurantSlug: 'restaurant-b', role: 'owner', sessionVersion: 1 },
   'managers/manager-a': { active: true, restaurantSlug: 'restaurant-a', role: 'manager', permissions: ['inventory.manage', 'menu.manage'], sessionVersion: 1 },
@@ -77,6 +79,7 @@ assert.equal(seed.documents.get('restaurants/restaurant-b/inventoryItems/rice').
 
 const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 assert.match(rules, /member\.get\('restaurantSlug', ''\) == targetSlug/);
-assert.match(rules, /get\(\/databases\/\$\(database\)\/documents\/restaurants\/\$\(targetSlug\)\)\.data\.ownerUid == request\.auth\.uid/);
+assert.match(rules, /function isBoundRestaurantOwner/);
+assert.match(rules, /\/private\/ownership/);
 assert.match(rules, /resource\.data\.get\('restaurantSlug', ''\) == restaurantSlug/);
 console.log('Two-restaurant acceptance: two distinct owners, one scoped manager, inventory and recipe boundaries passed.');

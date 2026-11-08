@@ -1,4 +1,4 @@
-import { getRestaurantOwnerUid } from './restaurantOwnership.js';
+import { getRestaurantOwnerUid } from './restaurantOwnership.ts';
 import { awardLoyaltyPointsInTransaction } from './loyaltyService.ts';
 import { createHash } from 'node:crypto';
 import {

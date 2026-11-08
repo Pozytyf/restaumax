@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { getRestaurantOwnerUid } from './restaurantOwnership.js';
+import { getRestaurantOwnerUid } from './restaurantOwnership.ts';
 
 export interface InventoryRequestParams {
   action: 'create' | 'move' | 'update' | 'save_recipe' | 'save_customization_recipe' | 'archive';

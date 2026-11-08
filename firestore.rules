@@ -225,7 +225,7 @@ service cloud.firestore {
             !resource.data.keys().hasAny(['deletedAt'])
           )
         ) &&
-        (!isSignedIn() || isRestaurantMember(restaurantSlug));
+        true;
       allow list: if false;
       allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming()) && isPublicRestaurant(incoming());
       allow update: if hasRestaurantPermission(restaurantSlug, 'settings.manage') &&
@@ -247,9 +247,9 @@ service cloud.firestore {
       // Create/update/delete restricted strictly to verified managers of this restaurant
       match /menuItems/{dishId} {
         allow get: if isValidId(dishId) && isRestaurantActive(restaurantSlug) && (resource == null || resource.data.get('restaurantSlug', '') == restaurantSlug) &&
-          (!isSignedIn() || isRestaurantMember(restaurantSlug));
+          true;
         allow list: if isRestaurantActive(restaurantSlug) && resource.data.get('restaurantSlug', '') == restaurantSlug &&
-          (!isSignedIn() || isRestaurantMember(restaurantSlug));
+          true;
         allow create: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
           isValidId(dishId) && isValidMenuItem(incoming()) &&
           incoming().restaurantSlug == restaurantSlug && incoming().id == dishId;
@@ -293,11 +293,17 @@ service cloud.firestore {
       // Customer directory: private to authorized restaurant staff.
       match /customers/{customerId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'customers.view') || hasRestaurantPermission(restaurantSlug, 'customers.manage');
-        allow create, update: if hasRestaurantPermission(restaurantSlug, 'customers.manage')
+        allow create: if hasRestaurantPermission(restaurantSlug, 'customers.manage')
           && isValidId(customerId)
+          && incoming().keys().hasOnly(['name', 'phone', 'email', 'notes', 'loyaltyPoints', 'createdAt', 'updatedAt'])
           && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
           && incoming().phone is string && incoming().phone.size() > 0 && incoming().phone.size() <= 40
-          && incoming().loyaltyPoints is number && incoming().loyaltyPoints >= 0;
+          && incoming().get('loyaltyPoints', 0) == 0;
+        allow update: if hasRestaurantPermission(restaurantSlug, 'customers.manage')
+          && isValidId(customerId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'notes', 'updatedAt'])
+          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
+          && incoming().phone is string && incoming().phone.size() > 0 && incoming().phone.size() <= 40;
         allow delete: if hasRestaurantPermission(restaurantSlug, 'customers.manage') && isValidId(customerId);
       }
 

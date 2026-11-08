@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { awardLoyaltyPointsInTransaction } from './loyaltyService.ts';
-import { getRestaurantOwnerUid } from './restaurantOwnership.js';
+import { getRestaurantOwnerUid } from './restaurantOwnership.ts';
 
 export interface CashPaymentInput {
   restaurantSlug: string;

@@ -44,7 +44,7 @@ import { getRestaurantFinancialReportWithDb } from './src/server/reportService.j
 import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
-import { getRestaurantOwnerUid } from './src/server/restaurantOwnership.js';
+import { getRestaurantOwnerUid } from './src/server/restaurantOwnership.ts';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
 import { 
   processOrderSubmission, 

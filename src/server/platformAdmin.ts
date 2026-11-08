@@ -2,7 +2,7 @@ import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { validateSubscriptionInput } from './subscriptionService.js';
 import { settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
-import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.js';
+import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.ts';
 
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
@@ -107,8 +107,9 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
 }
 
 function isSuperAdmin(user: DecodedIdToken) {
-  return user.role === 'super_admin' ||
-    (typeof user.email === 'string' && configuredSuperAdmins().includes(user.email.toLowerCase()));
+  return user.email_verified === true &&
+    typeof user.email === 'string' &&
+    configuredSuperAdmins().includes(user.email.toLowerCase());
 }
 
 export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole: string): boolean {
@@ -224,11 +225,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   // Promote only explicitly allowlisted identities to a durable global custom claim.
   if (
+    user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase()) &&
     user.role !== 'super_admin'
   ) {
-    await getAuth().setCustomUserClaims(user.uid, { role: 'super_admin' });
+    const authUser = await getAuth().getUser(user.uid);
+    await getAuth().setCustomUserClaims(user.uid, { ...(authUser.customClaims || {}), role: 'super_admin' });
   }
 
   const body = req.body || {};

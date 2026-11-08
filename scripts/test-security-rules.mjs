@@ -38,7 +38,10 @@ try {
       await setDoc(doc(db, 'restaurants', slug), {
         slug, name: slug, isOpen: true,
         status: slug === 'rest-suspended' ? 'suspended' : slug === 'rest-provisioning' ? 'provisioning' : 'active',
-        ownerUid: slug === 'rest-b' ? 'owner-b' : 'owner-a', ownerEmail: slug === 'rest-b' ? 'owner-b@example.test' : 'owner@example.test'
+      });
+      await setDoc(doc(db, 'restaurants', slug, 'private', 'ownership'), {
+        ownerUid: slug === 'rest-b' ? 'owner-b' : 'owner-a',
+        ownerEmail: slug === 'rest-b' ? 'owner-b@example.test' : 'owner@example.test'
       });
     }
     const members = [
@@ -263,6 +266,7 @@ try {
 
   // 9. Direct field tampering is rejected even for an owner.
   await denies(updateDoc(doc(a('owner-a'),'restaurants/rest-a'),{ownerUid:'attacker'}), 'Le champ ownerUid est protégé contre la falsification directe');
+  await denies(getDoc(doc(a('owner-a'),'restaurants/rest-a/private/ownership')), 'Le propriétaire ne peut pas lire directement ses métadonnées privées');
   await denies(updateDoc(order(a('owner-a'),'rest-a'),{totalAmount:1}), 'Le montant d’une commande est immuable depuis le SDK client');
 
   // 10. Non-active restaurants cannot expose operational data or create QR sessions.

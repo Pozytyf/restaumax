@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { getRestaurantOwnerUid } from './restaurantOwnership.js';
+import { getRestaurantOwnerUid } from './restaurantOwnership.ts';
 
 const SESSION_COOKIE = '__Host-rm_table_session';
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
