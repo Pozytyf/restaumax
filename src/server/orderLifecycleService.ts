@@ -215,6 +215,38 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       ]);
       // All reads are complete before any transaction write.
       const now = Date.now();
+      const menuRestockUpdates: Array<{ ref: any; movementRef: any; itemId: string; itemName: string; before: number; after: number; quantity: number }> = [];
+      if (targetStatus === 'cancelled' && trackedMenuIds.length) {
+        if (menuStockRestorationSnap?.exists) {
+          return { success: false, error: 'Une restitution du stock menu est déjà enregistrée : vérification de la commande requise.' };
+        }
+        for (let i = 0; i < trackedMenuIds.length; i++) {
+          const itemSnap = menuStockSnaps[i];
+          const movementSnap = menuStockMovementSnaps[i];
+          if (!itemSnap?.exists || movementSnap?.exists) {
+            return { success: false, error: 'Article menu ou mouvement de restauration introuvable : restitution du stock bloquée.' };
+          }
+          const item = itemSnap.data();
+          const itemId = trackedMenuIds[i];
+          if (item.id !== itemId || item.restaurantSlug !== restaurantSlug) {
+            return { success: false, error: 'Article menu rattaché à un autre restaurant : restitution bloquée.' };
+          }
+          const before = Number(item.stockQuantity);
+          const quantity = trackedMenuQuantities.get(itemId) || 0;
+          if (!Number.isInteger(before) || before < 0 || before + quantity > 1000000) {
+            return { success: false, error: 'Quantité de stock menu incohérente : restitution bloquée.' };
+          }
+          menuRestockUpdates.push({
+            ref: menuStockRefs[i],
+            movementRef: menuStockMovementRefs[i],
+            itemId,
+            itemName: String(item.name || itemId),
+            before,
+            after: before + quantity,
+            quantity
+          });
+        }
+      }
       if (order.status === 'pending' && targetStatus === 'in_prep') {
         if (consumptionSnap.exists) {
           if (consumption?.status === 'applied' || consumption?.status === 'skipped') {
@@ -281,35 +313,10 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         tx.update(consumptionRef, { status: 'restored', restoredAt: now, restoredBy: actorUid });
       }
 
-      if (targetStatus === 'cancelled' && trackedMenuIds.length && !menuStockRestorationSnap?.exists) {
-        const menuRestockUpdates: Array<{ ref: any; movementRef: any; itemId: string; itemName: string; before: number; after: number; quantity: number }> = [];
-        for (let i = 0; i < trackedMenuIds.length; i++) {
-          const itemSnap = menuStockSnaps[i];
-          const movementSnap = menuStockMovementSnaps[i];
-          if (!itemSnap?.exists || movementSnap?.exists) {
-            return { success: false, error: 'Article menu ou mouvement de restauration introuvable : restitution du stock bloquée.' };
-          }
-          const item = itemSnap.data();
-          const itemId = trackedMenuIds[i];
-          if (item.id !== itemId || item.restaurantSlug !== restaurantSlug) {
-            return { success: false, error: 'Article menu rattaché à un autre restaurant : restitution bloquée.' };
-          }
-          const before = Number(item.stockQuantity);
-          const quantity = trackedMenuQuantities.get(itemId) || 0;
-          if (!Number.isInteger(before) || before < 0 || before + quantity > 1000000) {
-            return { success: false, error: 'Quantité de stock menu incohérente : restitution bloquée.' };
-          }
-          menuRestockUpdates.push({
-            ref: menuStockRefs[i],
-            movementRef: menuStockMovementRefs[i],
-            itemId,
-            itemName: String(item.name || itemId),
-            before,
-            after: before + quantity,
-            quantity
-          });
-        }
-        // All menu documents have passed validation before any transaction write.
+
+
+      if (menuRestockUpdates.length) {
+        // All ingredient and menu stock validations have completed before these writes.
         for (const update of menuRestockUpdates) {
           tx.update(update.ref, { stockQuantity: update.after, stockUpdatedAt: now });
           tx.create(update.movementRef, {
@@ -327,10 +334,8 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         }
         tx.create(menuStockRestorationRef, {
           orderId, restaurantSlug, restoredAt: now, restoredBy: actorUid,
-          items: menuStockUpdates.map((item) => ({ menuItemId: item.itemId, quantity: item.quantity }))
+          items: menuRestockUpdates.map((item) => ({ menuItemId: item.itemId, quantity: item.quantity }))
         });
-      } else if (targetStatus === 'cancelled' && trackedMenuIds.length && menuStockRestorationSnap?.exists) {
-        return { success: false, error: 'Une restitution du stock menu est déjà enregistrée : vérification de la commande requise.' };
       }
 
       const orderUpdate: Record<string, any> = { status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid };
