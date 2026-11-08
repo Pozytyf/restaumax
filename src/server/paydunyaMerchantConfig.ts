@@ -140,6 +140,6 @@ export async function saveRestaurantPayDunyaCredentials(
     mode: credentials.mode,
     credentials: encrypted,
     updatedAt: Date.now(),
-    schemaVersion: 1
+    schemaVersion: 2
   }, { merge: true });
 }
