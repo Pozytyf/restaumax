@@ -1,5 +1,4 @@
 import { timingSafeEqual } from 'node:crypto';
-import { getStorage } from 'firebase-admin/storage';
 /**
  * RESTAUMAX — SERVEUR BACKEND SÉCURISÉ & PASSERELLE API RESTAUMAX
  *
@@ -46,7 +45,6 @@ import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBill
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
-import { uploadMenuImageWithDb } from './src/server/menuImageService.ts';
 import { 
   processOrderSubmission, 
   ServerFirestoreProvider,
@@ -88,16 +86,14 @@ const isProd = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
-app.use('/api/menu-image', express.json({ limit: '4.5mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
 // 1. Initialisation stricte de Firebase Admin SDK
 export let adminDb: any = null;
 export let adminAuth: any = null;
-export let adminStorageBucket: any = null;
 let adminInitError: string | null = null;
-let appletConfig: { projectId: string; firestoreDatabaseId: string; storageBucket?: string } | null = null;
+let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = null;
 
 try {
   appletConfig = getAppletFirebaseConfig();
@@ -111,7 +107,6 @@ try {
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
-    adminStorageBucket = appletConfig.storageBucket ? getStorage(adminApp).bucket(appletConfig.storageBucket) : null;
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé via variable sécurisée pour la base '${appletConfig.firestoreDatabaseId}'.`);
   } else if (credPath && fs.existsSync(credPath)) {
     // Local/server deployments may continue to use a credentials file.
@@ -1579,17 +1574,6 @@ export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<
 }
 
 
-export async function handleMenuImageUploadRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
-  return uploadMenuImageWithDb({
-    db: adminDb,
-    auth: adminAuth,
-    bucket: adminStorageBucket,
-    payload,
-    req,
-    originValidator: requestHasValidOrigin
-  });
-}
-
 export async function handleRestaurantReportsRequest(req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de rapports indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
@@ -1798,14 +1782,6 @@ app.get('/api/reports', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handleRestaurantReportsRequest(req);
-  return res.status(result.statusCode).json(result.body);
-});
-
-app.post('/api/menu-image', async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  const result = await handleMenuImageUploadRequest(req.body, req);
   return res.status(result.statusCode).json(result.body);
 });
 
