@@ -204,6 +204,31 @@ async function run() {
     'Un manager actif peut fermer le service sans permission tables.manage');
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), isOpen: true });
 
+  let missingRotatedKeyRejected = false;
+  try {
+    await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example', {
+      TABLE_QR_TOKEN_ENCRYPTION_KEY: process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY,
+      TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION: '2'
+    });
+  } catch { missingRotatedKeyRejected = true; }
+  assert(missingRotatedKeyRejected,
+    'La rotation QR refuse une clé V2 absente au lieu de réutiliser silencieusement la clé historique');
+  const explicitV2Key = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+  let explicitRotatedKeyAccepted = false;
+  try {
+    const rotated = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example', {
+      TABLE_QR_TOKEN_ENCRYPTION_KEY: process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY,
+      TABLE_QR_TOKEN_ENCRYPTION_KEY_V2: explicitV2Key,
+      TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION: '2'
+    });
+    explicitRotatedKeyAccepted = Boolean(rotated.token);
+  } catch {}
+  assert(explicitRotatedKeyAccepted, 'Une clé QR V2 explicitement configurée est acceptée');
+  // Restore a clean QR for the remaining lifecycle assertions.
+  const activeTokensAfterRotation = await db.collection('restaurants').doc('chez-awa').collection('table_qr_tokens').where('tableId', '==', 'table-4').get();
+  for (const doc of activeTokensAfterRotation.docs) {
+    if (doc.data()?.status === 'active') await doc.ref.update({ status: 'revoked' });
+  }
   const issued = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   const token = issued.url.split('/q/')[1];
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), isOpen: false });
