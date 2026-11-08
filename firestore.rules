@@ -140,6 +140,7 @@ service cloud.firestore {
         && (!data.keys().hasAny(['imageUrl']) || (data.imageUrl is string && data.imageUrl.size() <= 2048))
         && (!data.keys().hasAny(['prepTimeMinutes']) || (data.prepTimeMinutes is int && data.prepTimeMinutes >= 1 && data.prepTimeMinutes <= 1440))
         && (!data.keys().hasAny(['trackStock']) || data.trackStock is bool)
+        && (data.get('trackStock', false) != true || (data.keys().hasAny(['stockQuantity']) && data.stockQuantity is int && data.stockQuantity >= 0 && data.stockQuantity <= 1000000))
         && (!data.keys().hasAny(['stockQuantity']) || (data.stockQuantity is int && data.stockQuantity >= 0 && data.stockQuantity <= 1000000))
         && (!data.keys().hasAny(['optionGroups']) || (data.optionGroups is list && data.optionGroups.size() <= 20))
         && (!data.keys().hasAny(['availableExtras']) || (data.availableExtras is list && data.availableExtras.size() <= 50))
