@@ -39,6 +39,7 @@ import {
   updateKitchenItemCompletionWithServerValidation,
   subscribeToTables,
   persistTable,
+  setRestaurantServiceStatusWithServerValidation,
   deleteTable,
   testConnection,
   signInManager,
@@ -71,7 +72,6 @@ import { HomePage } from './components/restaumax/HomePage';
 import { ClientMenuView, areCartConfigurationsEqual } from './components/restaumax/ClientMenuView';
 import { RestaurantHubView } from './components/restaumax/RestaurantHubView';
 import { ManagerLoginView } from './components/restaumax/ManagerLoginView';
-import { UrlSimulatorBar } from './components/restaumax/UrlSimulatorBar';
 import { QrScannerModal } from './components/restaumax/QrScannerModal';
 import { PlatformAdminView } from './components/restaumax/PlatformAdminView';
 
@@ -214,6 +214,7 @@ export default function App() {
   const activeMenuLoading = menuCatalogRestaurantSlug !== activeRestaurantSlug || menuCatalogLoading;
   const activeMenuError = menuCatalogRestaurantSlug === activeRestaurantSlug ? menuCatalogError : null;
   const [restauTables, setRestauTables] = useState<RestaurantTable[]>([]);
+  const [serviceStatusSaving, setServiceStatusSaving] = useState(false);
 
   // The staff POS must use the same live catalogue as the customer QR menu.
   // This prevents different prices, names or availability between the two sales channels.
@@ -628,6 +629,20 @@ export default function App() {
     setAuthRestaurantSlug('');
     setAuthRestaurantRole('');
     setUserPermissions([]);
+  };
+
+  const handleToggleRestaurantService = async (isOpen: boolean) => {
+    if (!authUser || (!isRestaurantOwner && authRestaurantRole !== 'manager') || serviceStatusSaving) return;
+    setServiceStatusSaving(true);
+    try {
+      const result = await setRestaurantServiceStatusWithServerValidation(activeRestaurantSlug, isOpen);
+      if (!result.success) {
+        window.alert(result.error || 'Impossible de modifier le service.');
+        return;
+      }
+    } finally {
+      setServiceStatusSaving(false);
+    }
   };
 
   // RestauMax Client Cart & Idempotency Key State (Preserved across routing and page reloads via sessionStorage)
@@ -1595,11 +1610,6 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-[#f4f7fb] text-[#181c1f]">
       {/* Test / URL Switcher Simulator Bar at Top */}
-      <UrlSimulatorBar
-        currentPath={currentPath}
-        onNavigate={navigateTo}
-        onOpenScanner={() => setIsQrScannerOpen(true)}
-      />
 
       {/* 1. Client Menu Route: /r/chez-awa?table=4 or /r/chez-awa */}
       {isClientMenuRoute && (
@@ -1660,6 +1670,9 @@ export default function App() {
             tables={restauTables}
             onSaveTable={handleSaveTable}
             onDeleteTable={handleDeleteTable}
+            onToggleServiceStatus={handleToggleRestaurantService}
+            serviceStatusSaving={serviceStatusSaving}
+            canManageService={isRestaurantOwner || authRestaurantRole === 'manager'}
             activeKitchenTicketsCount={activeTicketsCount}
             totalSessionSales={drawerState.totalSales}
             onNavigateHome={() => navigateTo('/')}

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import {
   issueTableQr, getActiveTableQr, resolveTableQr, getActiveTableSession, revokeTableQr,
   buildSessionCookie, buildCsrfCookie, readCookie, validateCsrf, requestHasValidOrigin, isTrustedQrNavigation,
-  authorizeTableManager
+  authorizeTableManager, updateRestaurantServiceStatus
 } from '../src/server/tableSecurityService.ts';
 import { resolveTableQrOrigin } from '../src/server/tableQrOrigin.ts';
 
@@ -141,6 +141,42 @@ async function run() {
   } catch {}
   assert(scopedManagerAllowed, 'Le manager actif du restaurant avec tables.manage peut gérer les QR');
 
+  const ownerServiceChange = await updateRestaurantServiceStatus(
+    db,
+    { verifyIdToken: async () => ({ uid: 'owner-1', role: 'owner', sessionVersion: 0 }) },
+    { method: 'POST', headers: { authorization: 'Bearer owner-token' } },
+    'chez-awa',
+    false
+  );
+  assert(ownerServiceChange.success && db.store.get('restaurants/chez-awa').isOpen === false,
+    'Le propriétaire peut fermer le service via le service serveur autorisé');
+  await updateRestaurantServiceStatus(
+    db,
+    { verifyIdToken: async () => ({ uid: 'manager-1', role: 'manager', sessionVersion: 0 }) },
+    { method: 'POST', headers: { authorization: 'Bearer manager-token' } },
+    'chez-awa',
+    true
+  );
+  assert(db.store.get('restaurants/chez-awa').isOpen === true,
+    'Le manager peut rouvrir le service');
+  db.store.set('managers/cashier-1', {
+    uid: 'cashier-1', role: 'cashier', restaurantSlug: 'chez-awa',
+    active: true, sessionVersion: 0, permissions: ['pos.access']
+  });
+  let cashierServiceChangeRejected = false;
+  try {
+    await updateRestaurantServiceStatus(
+      db,
+      { verifyIdToken: async () => ({ uid: 'cashier-1', role: 'cashier', sessionVersion: 0 }) },
+      { method: 'POST', headers: { authorization: 'Bearer cashier-token' } },
+      'chez-awa',
+      false
+    );
+  } catch { cashierServiceChangeRejected = true; }
+  assert(cashierServiceChangeRejected && db.store.get('restaurants/chez-awa').isOpen === true,
+    'Un caissier ne peut pas modifier l’état du service');
+
+
   db.store.set('managers/manager-no-qr', {
     uid: 'manager-no-qr', role: 'manager', restaurantSlug: 'chez-awa',
     active: true, sessionVersion: 0, permissions: []
@@ -156,8 +192,24 @@ async function run() {
   } catch { managerWithoutPermissionRejected = true; }
   assert(managerWithoutPermissionRejected, 'Un manager sans tables.manage ne peut pas administrer les QR');
 
+  const managerServiceWithoutTablePermission = await updateRestaurantServiceStatus(
+    db,
+    { verifyIdToken: async () => ({ uid: 'manager-no-qr', role: 'manager', sessionVersion: 0 }) },
+    { method: 'POST', headers: { authorization: 'Bearer manager-no-qr-token' } },
+    'chez-awa',
+    false
+  );
+  assert(managerServiceWithoutTablePermission.success && db.store.get('restaurants/chez-awa').isOpen === false,
+    'Un manager actif peut fermer le service sans permission tables.manage');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), isOpen: true });
+
   const issued = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   const token = issued.url.split('/q/')[1];
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), isOpen: false });
+  let closedRestaurantQrRejected = false;
+  try { await resolveTableQr(db, token); } catch { closedRestaurantQrRejected = true; }
+  assert(closedRestaurantQrRejected, 'Un QR ne crée aucune session lorsque le service est fermé');
+  db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), isOpen: true });
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'provisioning' });
@@ -240,7 +292,11 @@ async function run() {
   assert(!requestHasValidOrigin({ headers: { origin: 'https://attacker.example', host: 'restaumax.example', 'x-forwarded-proto': 'https' } }), 'Origine tierce rejetée');
   assert(isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'none', 'sec-fetch-dest': 'document' } }), 'Ouverture directe par scan QR acceptée');
   assert(isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'document', host: 'restaumax.example', 'x-forwarded-proto': 'https', referer: 'https://restaumax.example/menu' } }), 'Navigation QR depuis l’application acceptée');
-  assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' } }), 'Navigation de bootstrap QR cross-site rejetée');
+  assert(isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' } }), 'Ouverture QR caméra externe autorisée en navigation document GET');
+  assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'empty' } }), 'Navigation QR cross-site non-document rejetée');
+  assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site' } }), 'Navigation QR cross-site sans preuve de document rejetée');
+  assert(!isTrustedQrNavigation({ method: 'POST', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' } }), 'POST cross-site rejeté');
+  assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document', referer: 'https://attacker.example/' } }), 'Referer tiers rejeté');
   assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-site', 'sec-fetch-dest': 'document' } }), 'Navigation depuis un sous-domaine tiers rejetée');
   assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'iframe', host: 'restaumax.example', 'x-forwarded-proto': 'https' } }), 'Résolution QR intégrée dans une iframe rejetée');
   assert(!isTrustedQrNavigation({ headers: { host: 'restaumax.example', 'x-forwarded-proto': 'https', referer: 'https://attacker.example/redirect' } }), 'Referer externe rejeté pour le bootstrap QR');

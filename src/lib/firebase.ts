@@ -1175,6 +1175,34 @@ export function subscribeToTables(
 /**
  * Enregistre ou met à jour une table du restaurant
  */
+export async function setRestaurantServiceStatusWithServerValidation(
+  restaurantSlug: string,
+  isOpen: boolean
+): Promise<{ success: boolean; error?: string }> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) return { success: false, error: 'Reconnectez-vous pour modifier le service.' };
+  try {
+    const idToken = await currentUser.getIdToken(true);
+    const response = await fetch('/api/restaurant-service', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify({ restaurantSlug, isOpen })
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || !result?.success) {
+      return { success: false, error: result?.error || 'Modification du service refusée.' };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, error: 'Impossible de joindre le serveur. Aucun changement local n’a été appliqué.' };
+  }
+}
+
 export async function persistTable(
   restaurantSlug: string, 
   table: RestaurantTable

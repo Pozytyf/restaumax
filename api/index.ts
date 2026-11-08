@@ -15,6 +15,7 @@ import {
   handlePosOrderSubmission,
   handleRestaurantReportsRequest,
   handleResolveTableQr,
+  handleRestaurantServiceStatus,
   handleSubscriptionBillingCycleRequest,
   handleTableQrManagement
 } from '../server.ts';
@@ -105,6 +106,10 @@ export default async function handler(req: any, res: any) {
     }
     case 'reports': {
       const result = await handleRestaurantReportsRequest(req);
+      return res.status(result.statusCode).json(result.body);
+    }
+    case 'restaurant-service': {
+      const result = await handleRestaurantServiceStatus(req);
       return res.status(result.statusCode).json(result.body);
     }
     case 'table-session': {
