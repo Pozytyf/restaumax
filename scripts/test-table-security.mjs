@@ -240,7 +240,10 @@ async function run() {
   assert(!requestHasValidOrigin({ headers: { origin: 'https://attacker.example', host: 'restaumax.example', 'x-forwarded-proto': 'https' } }), 'Origine tierce rejetée');
   assert(isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'none', 'sec-fetch-dest': 'document' } }), 'Ouverture directe par scan QR acceptée');
   assert(isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'document', host: 'restaumax.example', 'x-forwarded-proto': 'https', referer: 'https://restaumax.example/menu' } }), 'Navigation QR depuis l’application acceptée');
-  assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' } }), 'Navigation de bootstrap QR cross-site rejetée');
+  assert(isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' } }), 'Ouverture du QR depuis une application caméra externe acceptée en navigation document GET');
+  assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'empty' } }), 'Navigation QR cross-site non-document rejetée');
+  assert(!isTrustedQrNavigation({ method: 'POST', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' } }), 'Toute méthode autre que GET est rejetée par le résolveur QR');
+  assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document', referer: 'https://attacker.example/' } }), 'Navigation QR cross-site avec Referer tiers rejetée');
   assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-site', 'sec-fetch-dest': 'document' } }), 'Navigation depuis un sous-domaine tiers rejetée');
   assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'iframe', host: 'restaumax.example', 'x-forwarded-proto': 'https' } }), 'Résolution QR intégrée dans une iframe rejetée');
   assert(!isTrustedQrNavigation({ headers: { host: 'restaumax.example', 'x-forwarded-proto': 'https', referer: 'https://attacker.example/redirect' } }), 'Referer externe rejeté pour le bootstrap QR');
