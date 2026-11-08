@@ -177,6 +177,8 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const [prepTimeMinutes, setPrepTimeMinutes] = useState<string>('20');
   const [imageUrl, setImageUrl] = useState('');
   const [available, setAvailable] = useState(true);
+  const [trackStock, setTrackStock] = useState(false);
+  const [stockQuantity, setStockQuantity] = useState('0');
   const [tagsInput, setTagsInput] = useState('');
   const [optionGroups, setOptionGroups] = useState<FormOptionGroup[]>([]);
   const [extras, setExtras] = useState<FormExtra[]>([]);
@@ -207,6 +209,8 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       // Preserver l'URL existante lors de la modification
       setImageUrl(dishToEdit.imageUrl || '');
       setAvailable(dishToEdit.available !== false);
+      setTrackStock(dishToEdit.trackStock === true);
+      setStockQuantity(String(Math.max(0, Math.floor(dishToEdit.stockQuantity ?? 0))));
       setTagsInput(dishToEdit.tags ? dishToEdit.tags.join(', ') : '');
       setOptionGroups(
         dishToEdit.optionGroups
@@ -241,6 +245,8 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       setPrepTimeMinutes('20');
       setImageUrl('');
       setAvailable(true);
+      setTrackStock(false);
+      setStockQuantity('0');
       setTagsInput('');
       setOptionGroups([]);
       setExtras([]);
@@ -288,6 +294,13 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       errs.prepTimeMinutes = 'Le temps de préparation doit être un nombre entier de minutes.';
     } else if (numPrep > 1440) {
       errs.prepTimeMinutes = 'Le temps de préparation ne peut pas dépasser 1 440 minutes.';
+    }
+
+    // Quantité vendable facultative mais strictement entière lorsqu'elle est suivie.
+    const rawStockQuantity = stockQuantity.trim();
+    const numericStockQuantity = Number(rawStockQuantity);
+    if (trackStock && (!rawStockQuantity || !Number.isInteger(numericStockQuantity) || numericStockQuantity < 0 || numericStockQuantity > 1000000)) {
+      errs.stockQuantity = 'La quantité disponible doit être un entier entre 0 et 1 000 000.';
     }
 
     // 5. URL de l'image (Validation robuste conforme RFC, HTTP/HTTPS, localhost, IPv4, FQDN)
@@ -407,7 +420,9 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       price: Math.round(Number(price)),
       prepTimeMinutes: Math.round(Number(prepTimeMinutes)),
       imageUrl: imageUrl.trim(),
-      available,
+      available: trackStock ? (Number(stockQuantity) > 0 && available) : available,
+      trackStock,
+      ...(trackStock ? { stockQuantity: Math.floor(Number(stockQuantity)) } : {}),
       tags: tags.length > 0 ? tags : undefined,
       optionGroups: savedOptionGroups,
       availableExtras: savedExtras,
@@ -767,6 +782,22 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                   <span className={`w-2.5 h-2.5 rounded-full ${available ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
                   <span>{available ? 'Disponible en ligne' : 'En rupture de stock'}</span>
                 </button>
+              </div>
+              <div className="sm:col-span-3 rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-800">
+                  <input type="checkbox" checked={trackStock} onChange={(e) => setTrackStock(e.target.checked)} className="accent-[#ff6500]" />
+                  Suivre la quantité disponible de cet article
+                </label>
+                {trackStock && (
+                  <div className="max-w-xs">
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Portions / unités disponibles</label>
+                    <input type="number" min={0} max={1000000} step={1} inputMode="numeric" value={stockQuantity}
+                      onChange={(e) => setStockQuantity(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#ff6500]" />
+                    {errors.stockQuantity && <p className="text-[11px] text-rose-600 mt-1">{errors.stockQuantity}</p>}
+                    <p className="text-[11px] text-slate-500 mt-1">Le stock est diminué automatiquement lors de la validation d'une commande.</p>
+                  </div>
+                )}
               </div>
             </div>
 

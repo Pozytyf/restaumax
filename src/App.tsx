@@ -733,6 +733,16 @@ export default function App() {
       // Rejet strict de l'ajout si le plat est indisponible
       return false;
     }
+    if (liveDish.trackStock === true) {
+      const alreadyInCart = clientCart
+        .filter((item) => item.menuItemId === liveDish.id)
+        .reduce((total, item) => total + item.quantity, 0);
+      const remaining = Number(liveDish.stockQuantity || 0);
+      if (alreadyInCart + newItem.quantity > remaining) {
+        window.alert(`Quantité insuffisante pour « ${liveDish.name} ». Il reste ${remaining} unité(s).`);
+        return false;
+      }
+    }
 
     // 2. Regroupement déterministe ou ajout d'une nouvelle ligne
     setClientCart((prev) => {
@@ -754,6 +764,17 @@ export default function App() {
     // Si la commande précédente est incertaine, verrouiller toute modification
     if (isOrderUncertain) return;
 
+    const targetLine = clientCart.find((item) => item.id === cartItemId);
+    if (targetLine && delta > 0) {
+      const dish = activeMenuItems.find((item) => item.id === targetLine.menuItemId);
+      if (dish?.trackStock === true) {
+        const totalForDish = clientCart.filter((item) => item.menuItemId === dish.id).reduce((sum, item) => sum + item.quantity, 0);
+        if (totalForDish + delta > Number(dish.stockQuantity || 0)) {
+          window.alert(`Quantité insuffisante pour « ${dish.name} ». Il reste ${Number(dish.stockQuantity || 0)} unité(s).`);
+          return;
+        }
+      }
+    }
     setClientCart((prev) =>
       prev.map((item) => {
         if (item.id === cartItemId) {

@@ -139,6 +139,9 @@ service cloud.firestore {
         && (!data.keys().hasAny(['description']) || (data.description is string && data.description.size() <= 2000))
         && (!data.keys().hasAny(['imageUrl']) || (data.imageUrl is string && data.imageUrl.size() <= 2048))
         && (!data.keys().hasAny(['prepTimeMinutes']) || (data.prepTimeMinutes is int && data.prepTimeMinutes >= 1 && data.prepTimeMinutes <= 1440))
+        && (!data.keys().hasAny(['trackStock']) || data.trackStock is bool)
+        && (data.get('trackStock', false) != true || (data.keys().hasAny(['stockQuantity']) && data.stockQuantity is int && data.stockQuantity >= 0 && data.stockQuantity <= 1000000))
+        && (!data.keys().hasAny(['stockQuantity']) || (data.stockQuantity is int && data.stockQuantity >= 0 && data.stockQuantity <= 1000000))
         && (!data.keys().hasAny(['optionGroups']) || (data.optionGroups is list && data.optionGroups.size() <= 20))
         && (!data.keys().hasAny(['availableExtras']) || (data.availableExtras is list && data.availableExtras.size() <= 50))
         && (!data.keys().hasAny(['tags']) || (data.tags is list && data.tags.size() <= 30));
@@ -203,21 +206,21 @@ service cloud.firestore {
       // Public get and list for QR menu viewing
       // Create/update/delete restricted strictly to verified managers of this restaurant
       match /menuItems/{dishId} {
-        allow get: if isValidId(dishId) && isRestaurantActive(restaurantSlug) &&
+        allow get: if isValidId(dishId) && isRestaurantActive(restaurantSlug) && (resource == null || resource.data.get('restaurantSlug', '') == restaurantSlug) &&
           (!isSignedIn() || isRestaurantMember(restaurantSlug));
-        allow list: if isRestaurantActive(restaurantSlug) &&
+        allow list: if isRestaurantActive(restaurantSlug) && resource.data.get('restaurantSlug', '') == restaurantSlug &&
           (!isSignedIn() || isRestaurantMember(restaurantSlug));
         allow create: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
           isValidId(dishId) && isValidMenuItem(incoming()) &&
           incoming().restaurantSlug == restaurantSlug && incoming().id == dishId;
         allow update: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
           isValidId(dishId) && isValidMenuItem(incoming()) &&
-          incoming().restaurantSlug == restaurantSlug && incoming().id == dishId &&
+          incoming().restaurantSlug == restaurantSlug && incoming().id == dishId && existing().get('restaurantSlug', '') == restaurantSlug && existing().get('id', '') == dishId &&
           incoming().diff(existing()).affectedKeys().hasOnly([
             'name', 'category', 'price', 'available', 'description', 'imageUrl',
-            'prepTimeMinutes', 'optionGroups', 'availableExtras', 'tags'
+            'prepTimeMinutes', 'optionGroups', 'availableExtras', 'tags', 'trackStock', 'stockQuantity'
           ]);
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId) &&
+        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId) && resource.data.get('restaurantSlug', '') == restaurantSlug &&
           !existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuRecipes/$(dishId));
       }
 
@@ -260,7 +263,7 @@ service cloud.firestore {
 
       // Inventory catalog and immutable stock movement audit trail.
       match /inventoryItems/{itemId} {
-        allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
+        allow get, list: if (hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage')) && resource.data.get('restaurantSlug', restaurantSlug) == restaurantSlug;
         // Inventory mutations are Admin SDK only and must pass the transactional API.
         allow create, update, delete: if false;
       }
@@ -286,6 +289,13 @@ service cloud.firestore {
       match /stockMovements/{movementId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
         // Append-only from the trusted Admin SDK transaction; no client writes.
+        allow create, update, delete: if false;
+      }
+
+      // Menu stock movements are an immutable audit trail for sellable portions.
+      match /menuStockMovements/{movementId} {
+        allow get, list: if (hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage')) &&
+          resource.data.get('restaurantSlug', '') == restaurantSlug;
         allow create, update, delete: if false;
       }
 

@@ -37,15 +37,15 @@ async function run() {
   const qrRef = restaurantRef.collection('table_qr_tokens').doc(qrTokenHash);
   const createdRefs = [];
 
-  function buildParams(key, mode = 'sur_place') {
+  function buildParams(key, mode = 'sur_place', quantity = 1, trackStock = false) {
     const { keyDocId, orderId, orderNumber } = deriveIdempotencyIdentifiers(slug, key);
-    const cart = [{ menuItemId: 'dish-poulet', quantity: 1 }];
+    const cart = [{ menuItemId: 'dish-poulet', quantity }];
     const tableNumber = mode === 'sur_place' ? '4' : null;
     const signature = computeOrderSignature({ restaurantSlug: slug, orderMode: mode, tableNumber, idempotencyKey: key, cart });
     const orderToCreate = {
       id: orderId, orderNumber, restaurantSlug: slug, orderMode: mode, tableNumber,
-      items: [{ menuItemId: 'dish-poulet', name: 'Poulet test', quantity: 1, unitPrice: 9500, totalLinePrice: 9500 }],
-      itemsCount: 1, totalAmount: 9500, currency: 'FCFA', status: 'pending',
+      items: [{ menuItemId: 'dish-poulet', name: 'Poulet test', basePrice: 9500, quantity, ...(trackStock ? { trackStock: true } : {}), unitPrice: 9500, totalPrice: 9500 * quantity }],
+      itemsCount: quantity, totalAmount: 9500 * quantity, currency: 'FCFA', status: 'pending',
       createdAt: Date.now(), createdAtIso: new Date().toISOString(),
       idempotencyKey: key, idempotencyDocId: keyDocId, contentSignature: signature
     };
@@ -101,6 +101,27 @@ async function run() {
     assert(concurrentResults.length === 2, 'Les opérations concurrentes d’émission et de révocation se terminent');
 
     const valid = await executeOrderTransactionWithDb(db, buildParams('valid-session-' + Date.now()));
+
+    const menuItemRef = restaurantRef.collection('menuItems').doc('dish-poulet');
+    await menuItemRef.set({
+      id: 'dish-poulet', restaurantSlug: slug, name: 'Poulet test', price: 9500,
+      available: true, trackStock: true, stockQuantity: 2
+    });
+    const trackedOrderParams = buildParams('tracked-menu-stock-' + Date.now(), 'sur_place', 1, true);
+    const trackedOrder = await executeOrderTransactionWithDb(db, trackedOrderParams);
+    assert(trackedOrder.success === true, 'Une commande suivie en stock est enregistrée lorsque la quantité est suffisante');
+    let menuStock = (await menuItemRef.get()).data();
+    assert(menuStock.stockQuantity === 1, 'La quantité vendable est décrémentée atomiquement après la commande');
+    const stockAudit = await restaurantRef.collection('menuStockMovements').where('orderId', '==', trackedOrder.order.id).get();
+    assert(stockAudit.size === 1 && stockAudit.docs[0].data().delta === -1,
+      'Chaque consommation de quantité du menu produit une trace d’audit');
+    await executeOrderTransactionWithDb(db, trackedOrderParams);
+    menuStock = (await menuItemRef.get()).data();
+    assert(menuStock.stockQuantity === 1, 'Le rejeu idempotent ne décrémente jamais le stock une seconde fois');
+    const oversell = await executeOrderTransactionWithDb(db, buildParams('tracked-menu-oversell-' + Date.now(), 'sur_place', 2, true));
+    assert(oversell.success === false && (await menuItemRef.get()).data().stockQuantity === 1,
+      'Une commande qui dépasse le stock restant est refusée sans modifier la quantité');
+
     assert(valid.success === true, 'Une session QR valide autorise la commande sur place dans la transaction');
 
     await restaurantRef.update({ tableSessionVersion: 1 });
@@ -210,6 +231,8 @@ async function run() {
     try { await qrLifecycleTableRef.delete(); } catch {}
     try { await tableRef.delete(); } catch {}
     try { await staffRef.delete(); } catch {}
+    try { await restaurantRef.collection('menuItems').doc('dish-poulet').delete(); } catch {}
+    try { const menuMoves = await restaurantRef.collection('menuStockMovements').get(); await Promise.all(menuMoves.docs.map((doc) => doc.ref.delete())); } catch {}
     try { await restaurantRef.delete(); } catch {}
     try { await app.delete(); } catch {}
   }

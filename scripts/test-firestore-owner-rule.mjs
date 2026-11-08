@@ -5,6 +5,12 @@ assert(rules.includes("data.ownerUid == request.auth.uid"), 'owner UID must matc
 assert(!rules.includes("role == 'staff'"), 'legacy staff role must not be accepted');
 assert(rules.includes("'payments.refund'"), 'refund permission ceiling must be represented in Firestore rules');
 assert(rules.includes('match /menuCustomizationRecipes/{recipeId}'), 'customization stock recipes have an explicit Firestore rule');
+assert(rules.includes("resource.data.get('restaurantSlug', '') == restaurantSlug"), 'menu reads and deletes must verify the tenant slug stored in each document');
+assert(rules.includes("existing().get('restaurantSlug', '') == restaurantSlug"), 'menu updates must verify the previous document tenant');
+assert(rules.includes("incoming().restaurantSlug == restaurantSlug"), 'menu writes must bind the item to the restaurant path');
+assert(rules.includes("match /menuStockMovements/{movementId}"), 'sellable menu stock movements have an explicit tenant-scoped audit rule');
+assert(rules.includes("data.stockQuantity is int && data.stockQuantity >= 0"), 'menu stock quantities must be non-negative integers');
+assert(rules.includes("data.get('trackStock', false) != true || (data.keys().hasAny(['stockQuantity'])"), 'stock tracking requires a persisted quantity');
 assert(rules.includes("hasRestaurantPermission(restaurantSlug, 'inventory.view')") &&
   rules.includes("hasRestaurantPermission(restaurantSlug, 'inventory.manage')"), 'only inventory-authorized restaurant staff can read customization recipes');
 assert(rules.includes('allow create, update: if false;'), 'customization recipes can only be written through the trusted server API');

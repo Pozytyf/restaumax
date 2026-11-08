@@ -127,7 +127,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   // Filtered menu items (only available dishes are displayed and searchable)
   const filteredItems = useMemo(() => {
     return menuItems.filter((item) => {
-      const matchAvailable = item.available !== false;
+      const matchAvailable = item.available !== false && !(item.trackStock === true && Number(item.stockQuantity || 0) <= 0);
       const matchCat = selectedCategory === 'tous' || item.category === selectedCategory;
       const matchQuery = !searchQuery ||
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -276,26 +276,38 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
           )}
         </div>
 
-        {/* Categories Bar */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+        {/* Clickable category tiles — drinks remain a separate destination */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {CATEGORIES.map((cat) => {
             const isSelected = selectedCategory === cat.id;
             const Icon = cat.icon;
+            const count = menuItems.filter((item) =>
+              item.available !== false &&
+              !(item.trackStock === true && Number(item.stockQuantity || 0) <= 0) &&
+              (cat.id === 'tous' || item.category === cat.id)
+            ).length;
+            const isDrinks = cat.id === 'boissons';
             return (
               <button
                 key={cat.id}
-                onClick={() => {
-                  sounds.playTap();
-                  setSelectedCategory(cat.id);
-                }}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-all ${
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => { sounds.playTap(); setSelectedCategory(cat.id); }}
+                className={`min-h-[96px] rounded-2xl border p-3 sm:p-4 text-left flex flex-col justify-between transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-[#ff6500] ${
                   isSelected
-                    ? 'bg-[#101d2d] text-white shadow-sm'
-                    : 'bg-white border border-slate-200/90 text-slate-700 hover:bg-slate-50'
+                    ? 'bg-[#101d2d] text-white border-[#101d2d] shadow-md'
+                    : isDrinks
+                      ? 'bg-amber-50 border-amber-200 text-amber-950 hover:border-amber-400 hover:shadow-sm'
+                      : 'bg-white border-slate-200 text-slate-800 hover:border-slate-400 hover:shadow-sm'
                 }`}
               >
-                <Icon size={14} className={isSelected ? 'text-[#ff6500]' : 'text-slate-400'} />
-                <span>{cat.label}</span>
+                <span className="flex items-start justify-between gap-2">
+                  <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${isSelected ? 'bg-white/10 text-amber-300' : isDrinks ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'}`}>
+                    <Icon size={19} />
+                  </span>
+                  <span className={`rounded-full px-2 py-1 text-[11px] font-black ${isSelected ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'}`}>{count}</span>
+                </span>
+                <span className="text-xs sm:text-sm font-extrabold leading-snug">{cat.label}</span>
               </button>
             );
           })}
@@ -405,9 +417,9 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       {/* Product Detail Modal */}
       {(() => {
         const liveDish = activeItemModal ? menuItems.find(m => m.id === activeItemModal.id) : null;
-        const isDishCurrentlyAvailable = liveDish 
-          ? liveDish.available !== false 
-          : (activeItemModal ? activeItemModal.available !== false : false);
+        const isDishCurrentlyAvailable = liveDish
+          ? liveDish.available !== false && !(liveDish.trackStock === true && Number(liveDish.stockQuantity || 0) <= 0)
+          : (activeItemModal ? activeItemModal.available !== false && !(activeItemModal.trackStock === true && Number(activeItemModal.stockQuantity || 0) <= 0) : false);
 
         return (
           <ProductDetailModal

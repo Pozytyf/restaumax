@@ -27,6 +27,9 @@ export interface RestauMenuItem {
   description: string;
   imageUrl: string;
   available: boolean;
+  /** When enabled, the remaining sellable portions are enforced server-side. */
+  trackStock?: boolean;
+  stockQuantity?: number;
   prepTimeMinutes: number;
   optionGroups?: MenuOptionGroup[];
   availableExtras?: MenuExtra[];
@@ -104,6 +107,8 @@ export interface RestauOrderItem {
   basePrice: number;
   unitPrice: number;
   quantity: number;
+  /** Server-verified menu stock tracking snapshot. */
+  trackStock?: boolean;
   totalPrice: number;
   selectedOption?: OrderItemOption;
   selectedExtras?: OrderItemExtra[];

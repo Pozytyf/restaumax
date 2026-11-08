@@ -18,7 +18,7 @@
     "test:subscriptions": "tsx scripts/test-subscription-validation.mjs",
     "test:github-token": "node scripts/test-github-installation-token.mjs",
     "test:paydunya": "node scripts/test-paydunya-service.mjs && tsx scripts/test-paydunya-payment-flow.mjs && tsx scripts/test-paydunya-merchant-config.mjs",
-    "test": "npm run test:kitchen && npm run test:inventory && npm run test:roles && npm run test:vercel-api-router && npm run test:cash && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:seed-sweet-hot && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:tax && npm run test:reports && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation && npm run test:order-lifecycle && npm run test:security-regression",
+    "test": "npm run test:kitchen && npm run test:inventory && npm run test:roles && npm run test:vercel-api-router && npm run test:cash && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:seed-sweet-hot && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:tax && npm run test:reports && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation && npm run test:order-lifecycle && npm run test:security-regression && npm run test:menu-stock",
     "seed:local": "node scripts/seed-catalog.mjs",
     "test:refund-client": "node scripts/test-refund-client-routing.mjs",
     "test:onboarding": "node scripts/test-onboarding-reset-email.mjs",
@@ -39,7 +39,8 @@
     "test:financial-report-emulator": "tsx scripts/test-financial-report-emulator.mjs",
     "test:vercel-api-router": "tsx scripts/test-vercel-api-router.mjs",
     "test:cash": "tsx scripts/test-cash-payments.mjs",
-    "test:seed-sweet-hot": "node scripts/test-seed-sweet-and-hot-demo.mjs"
+    "test:seed-sweet-hot": "node scripts/test-seed-sweet-and-hot-demo.mjs",
+    "test:menu-stock": "node scripts/test-menu-tenant-stock-ui.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

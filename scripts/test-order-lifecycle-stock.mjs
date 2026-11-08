@@ -95,6 +95,23 @@ assert.equal(noRecipe.documents.get('restaurants/chez-awa/inventoryItems/rice').
 assert.equal(noRecipe.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'skipped');
 assert.equal(noRecipe.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'skipped');
 
+const menuStockRestoreDb = base('pending', 10, false);
+menuStockRestoreDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].trackStock = true;
+menuStockRestoreDb.documents.set('restaurants/chez-awa/menuItems/dish-1', {
+  id: 'dish-1', restaurantSlug: 'chez-awa', name: 'Poulet braisé',
+  trackStock: true, stockQuantity: 3, available: true
+});
+const menuCancel = await transitionOrderStatusWithDb(menuStockRestoreDb, { ...params, targetStatus: 'cancelled' });
+assert.equal(menuCancel.success, true);
+assert.equal(menuStockRestoreDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 5,
+  'L’annulation restitue les portions du menu décrémentées à la commande');
+const menuRestoration = menuStockRestoreDb.documents.get('restaurants/chez-awa/menuStockRestorations/order-1');
+assert.equal(menuRestoration.items[0].quantity, 2, 'La restitution du stock menu est journalisée une fois');
+const menuCancelReplay = await transitionOrderStatusWithDb(menuStockRestoreDb, { ...params, targetStatus: 'cancelled' });
+assert.equal(menuCancelReplay.idempotentReplay, true);
+assert.equal(menuStockRestoreDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 5,
+  'Un rejeu de l’annulation ne restitue pas les quantités une seconde fois');
+
 const cashierDb = base();
 cashierDb.documents.set('managers/cashier-1', {
   active: true, restaurantSlug: 'chez-awa', role: 'cashier', permissions: ['orders.cancel'], sessionVersion: 4
