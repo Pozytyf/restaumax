@@ -33,7 +33,8 @@ class Db {
 }
 function makeDb(uid, ownerUid) {
   return new Db({
-    'restaurants/r': { status: 'active', ownerUid },
+    'restaurants/r': { status: 'active' },
+    'restaurants/r/private/ownership': { ownerUid },
     ['managers/' + uid]: { role: 'owner', active: true, restaurantSlug: 'r', sessionVersion: 1 },
     'restaurants/r/payments/p': { id: 'p', restaurantSlug: 'r', orderId: 'o', paidAmount: 1000, method: 'especes' },
     'restaurants/r/orders/o': { restaurantSlug: 'r', paidAmount: 1000, refundedAmount: 0 },

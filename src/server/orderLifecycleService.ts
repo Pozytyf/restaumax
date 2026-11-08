@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { getRestaurantOwnerUid } from './restaurantOwnership.ts';
 
 export interface OrderLifecycleParams {
   restaurantSlug: string;
@@ -41,6 +42,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
       const member = memberSnap.exists ? memberSnap.data() : null;
       const order = orderSnap.exists ? orderSnap.data() : null;
+      const ownerUid = await getRestaurantOwnerUid(db, restaurantSlug, tx, restaurant);
 
       if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
         return { success: false, error: 'Restaurant inactif ou indisponible.' };
@@ -53,7 +55,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         return { success: false, error: 'Commande introuvable dans ce restaurant.' };
       }
 
-      const isOwner = member.role === 'owner' && restaurant.ownerUid === actorUid;
+      const isOwner = member.role === 'owner' && ownerUid === actorUid;
       const permissions = Array.isArray(member.permissions) ? member.permissions : [];
       const canManage = member.role === 'manager' && permissions.includes('orders.manage');
       const canKitchen = (member.role === 'kitchen' && permissions.includes('kitchen.access')) ||
@@ -181,25 +183,32 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         recipeLines = Array.isArray(consumption.lines) ? consumption.lines : [];
       }
 
+      const shouldConsumeMenuStock = order.status === 'pending' && targetStatus === 'in_prep' && order.menuStockDeferred === true;
+      const shouldRestoreMenuStock = targetStatus === 'cancelled' &&
+        (order.menuStockDeferred !== true || ['in_prep', 'ready'].includes(String(order.status)));
       const trackedMenuQuantities = new Map<string, number>();
-      if (targetStatus === 'cancelled') {
+      if (shouldConsumeMenuStock || shouldRestoreMenuStock) {
         for (const item of order.items as any[]) {
           if (item.trackStock !== true) continue;
           const menuItemId = String(item.menuItemId || '');
           const quantity = Number(item.quantity || 0);
           if (!validId(menuItemId) || !Number.isInteger(quantity) || quantity <= 0) {
-            return { success: false, error: 'Quantité de stock menu invalide : annulation bloquée.' };
+            return { success: false, error: 'Quantité de stock menu invalide : transition bloquée.' };
           }
           trackedMenuQuantities.set(menuItemId, (trackedMenuQuantities.get(menuItemId) || 0) + quantity);
         }
       }
+      const menuStockConsumptionRef = restaurantRef.collection('menuStockConsumptions').doc(orderId);
+      const menuStockConsumptionSnap = (shouldConsumeMenuStock || (shouldRestoreMenuStock && order.menuStockDeferred === true)) && trackedMenuQuantities.size
+        ? await tx.get(menuStockConsumptionRef)
+        : null;
       const menuStockRestorationRef = restaurantRef.collection('menuStockRestorations').doc(orderId);
-      const menuStockRestorationSnap = trackedMenuQuantities.size
+      const menuStockRestorationSnap = shouldRestoreMenuStock && trackedMenuQuantities.size
         ? await tx.get(menuStockRestorationRef)
         : null;
       const trackedMenuIds = [...trackedMenuQuantities.keys()];
       const menuStockRefs = trackedMenuIds.map((id) => restaurantRef.collection('menuItems').doc(id));
-      const menuStockMovementRefs = trackedMenuIds.map((id) => restaurantRef.collection('menuStockMovements').doc(`cancel_${orderId}_${id}`));
+      const menuStockMovementRefs = trackedMenuIds.map((id) => restaurantRef.collection('menuStockMovements').doc(`${shouldConsumeMenuStock ? 'consume' : 'cancel'}_${orderId}_${id}`));
       const [menuStockSnaps, menuStockMovementSnaps] = await Promise.all([
         Promise.all(menuStockRefs.map((ref: any) => tx.get(ref))),
         Promise.all(menuStockMovementRefs.map((ref: any) => tx.get(ref)))
@@ -215,8 +224,38 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       ]);
       // All reads are complete before any transaction write.
       const now = Date.now();
+      const menuConsumeUpdates: Array<{ ref: any; movementRef: any; itemId: string; itemName: string; before: number; after: number; quantity: number }> = [];
       const menuRestockUpdates: Array<{ ref: any; movementRef: any; itemId: string; itemName: string; before: number; after: number; quantity: number }> = [];
-      if (targetStatus === 'cancelled' && trackedMenuIds.length) {
+      if (shouldConsumeMenuStock && trackedMenuIds.length) {
+        if (menuStockConsumptionSnap?.exists) {
+          return { success: false, error: 'La consommation de stock menu est déjà enregistrée pour cette commande.' };
+        }
+        for (let i = 0; i < trackedMenuIds.length; i++) {
+          const itemSnap = menuStockSnaps[i];
+          const movementSnap = menuStockMovementSnaps[i];
+          if (!itemSnap?.exists || movementSnap?.exists) {
+            return { success: false, error: 'Article menu ou mouvement de consommation introuvable : préparation bloquée.' };
+          }
+          const item = itemSnap.data();
+          const itemId = trackedMenuIds[i];
+          if (item.id !== itemId || item.restaurantSlug !== restaurantSlug || item.trackStock !== true || item.available !== true) {
+            return { success: false, error: 'Article menu indisponible ou rattaché à un autre restaurant : préparation bloquée.' };
+          }
+          const before = Number(item.stockQuantity);
+          const quantity = trackedMenuQuantities.get(itemId) || 0;
+          if (!Number.isInteger(before) || before < quantity) {
+            return { success: false, error: `Stock insuffisant pour « ${String(item.name || itemId)} » : préparation refusée.` };
+          }
+          menuConsumeUpdates.push({
+            ref: menuStockRefs[i], movementRef: menuStockMovementRefs[i], itemId,
+            itemName: String(item.name || itemId), before, after: before - quantity, quantity
+          });
+        }
+      }
+      if (shouldRestoreMenuStock && trackedMenuIds.length) {
+        if (order.menuStockDeferred === true && !menuStockConsumptionSnap?.exists) {
+          return { success: false, error: 'La consommation initiale du stock menu est introuvable : restitution bloquée.' };
+        }
         if (menuStockRestorationSnap?.exists) {
           return { success: false, error: 'Une restitution du stock menu est déjà enregistrée : vérification de la commande requise.' };
         }
@@ -237,13 +276,8 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
             return { success: false, error: 'Quantité de stock menu incohérente : restitution bloquée.' };
           }
           menuRestockUpdates.push({
-            ref: menuStockRefs[i],
-            movementRef: menuStockMovementRefs[i],
-            itemId,
-            itemName: String(item.name || itemId),
-            before,
-            after: before + quantity,
-            quantity
+            ref: menuStockRefs[i], movementRef: menuStockMovementRefs[i], itemId,
+            itemName: String(item.name || itemId), before, after: before + quantity, quantity
           });
         }
       }
@@ -315,21 +349,27 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
 
 
 
+      if (menuConsumeUpdates.length) {
+        for (const update of menuConsumeUpdates) {
+          tx.update(update.ref, { stockQuantity: update.after, stockUpdatedAt: now });
+          tx.create(update.movementRef, {
+            id: `consume_${orderId}_${update.itemId}`, restaurantSlug, menuItemId: update.itemId,
+            itemName: update.itemName, orderId, quantityBefore: update.before, delta: -update.quantity,
+            quantityAfter: update.after, createdAt: now, reason: 'Consommation à la mise en préparation'
+          });
+        }
+        tx.create(menuStockConsumptionRef, {
+          orderId, restaurantSlug, consumedAt: now, consumedBy: actorUid,
+          items: menuConsumeUpdates.map((item) => ({ menuItemId: item.itemId, quantity: item.quantity }))
+        });
+      }
       if (menuRestockUpdates.length) {
-        // All ingredient and menu stock validations have completed before these writes.
         for (const update of menuRestockUpdates) {
           tx.update(update.ref, { stockQuantity: update.after, stockUpdatedAt: now });
           tx.create(update.movementRef, {
-            id: `cancel_${orderId}_${update.itemId}`,
-            restaurantSlug,
-            menuItemId: update.itemId,
-            itemName: update.itemName,
-            orderId,
-            quantityBefore: update.before,
-            delta: update.quantity,
-            quantityAfter: update.after,
-            createdAt: now,
-            reason: 'Restauration après annulation'
+            id: `cancel_${orderId}_${update.itemId}`, restaurantSlug, menuItemId: update.itemId,
+            itemName: update.itemName, orderId, quantityBefore: update.before, delta: update.quantity,
+            quantityAfter: update.after, createdAt: now, reason: 'Restauration après annulation'
           });
         }
         tx.create(menuStockRestorationRef, {
@@ -339,6 +379,8 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       }
 
       const orderUpdate: Record<string, any> = { status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid };
+      if (menuConsumeUpdates.length) orderUpdate.menuStockConsumedAt = now;
+      if (menuRestockUpdates.length) orderUpdate.menuStockRestoredAt = now;
       if (order.status === 'pending' && targetStatus === 'in_prep') {
         orderUpdate.stockTrackingStatus = recipeLines.length ? (untrackedItemIds.length ? 'partial' : 'applied') : 'skipped';
         orderUpdate.stockUntrackedItemIds = untrackedItemIds;

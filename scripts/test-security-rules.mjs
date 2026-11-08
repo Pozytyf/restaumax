@@ -38,7 +38,10 @@ try {
       await setDoc(doc(db, 'restaurants', slug), {
         slug, name: slug, isOpen: true,
         status: slug === 'rest-suspended' ? 'suspended' : slug === 'rest-provisioning' ? 'provisioning' : 'active',
-        ownerUid: slug === 'rest-b' ? 'owner-b' : 'owner-a', ownerEmail: slug === 'rest-b' ? 'owner-b@example.test' : 'owner@example.test'
+      });
+      await setDoc(doc(db, 'restaurants', slug, 'private', 'ownership'), {
+        ownerUid: slug === 'rest-b' ? 'owner-b' : 'owner-a',
+        ownerEmail: slug === 'rest-b' ? 'owner-b@example.test' : 'owner@example.test'
       });
     }
     const members = [
@@ -92,6 +95,7 @@ try {
     await setDoc(doc(db,'restaurants/rest-b/menuItems/dish-1'),{
       id:'dish-1',restaurantSlug:'rest-b',name:'Plat B',category:'plats',price:1200,available:true
     });
+    await setDoc(doc(db,'restaurants/rest-a/customers/customer-1'), { name: 'Client A', phone: '+2250700000000', loyaltyPoints: 0, createdAt: 1 });
     await setDoc(doc(db,'restaurants/rest-b/inventoryItems/rice'),{
       id:'rice',name:'Riz B',unit:'kg',quantity:7,minQuantity:1,unitCost:900,active:true
     });
@@ -112,13 +116,13 @@ try {
   const anonymous = env.unauthenticatedContext().firestore();
 
   // 1. Strict tenant isolation.
-  await denies(getDoc(doc(a('manager-a'),'restaurants/rest-b')), 'Restaurant A ne peut pas lire le profil privé de B lorsqu’il est authentifié');
-  await denies(getDoc(doc(a('manager-a'),'restaurants/rest-b/menuItems/dish-1')), 'Restaurant A ne peut pas lire le menu privé de B lorsqu’il est authentifié');
-  await denies(getDocs(collection(a('manager-a'),'restaurants/rest-b/menuItems')), 'Restaurant A ne peut pas lister le menu de B');
-  await denies(getDoc(doc(a('owner-a'),'restaurants/rest-b/menuItems/dish-1')), 'Le propriétaire A ne peut pas lire le menu du propriétaire B');
+  await allows(getDoc(doc(a('manager-a'),'restaurants/rest-b')), 'Un utilisateur connecté peut lire le profil public du restaurant B');
+  await allows(getDoc(doc(a('manager-a'),'restaurants/rest-b/menuItems/dish-1')), 'Un utilisateur connecté de A peut lire le menu public B');
+  await allows(getDocs(collection(a('manager-a'),'restaurants/rest-b/menuItems')), 'Un utilisateur connecté de A peut lister le menu public B');
+  await allows(getDoc(doc(a('owner-a'),'restaurants/rest-b/menuItems/dish-1')), 'Le propriétaire A peut consulter le menu public B sans accès aux données privées');
   await allows(getDoc(doc(a('owner-b'),'restaurants/rest-b/menuItems/dish-1')), 'Le propriétaire B peut lire son propre menu');
   await allows(getDoc(doc(a('manager-b'),'restaurants/rest-b/menuItems/dish-1')), 'Le manager B peut lire le menu de son restaurant');
-  await denies(getDoc(doc(a('manager-b'),'restaurants/rest-a/menuItems/dish-1')), 'Le manager B ne peut pas lire le menu du restaurant A');
+  await allows(getDoc(doc(a('manager-b'),'restaurants/rest-a/menuItems/dish-1')), 'Le manager B peut lire le menu public A sans accéder aux données privées');
   await allows(getDoc(doc(anonymous,'restaurants/rest-b')), 'Le profil public reste lisible pour un client non authentifié');
   const publicRestaurantSnapshot = await getDoc(doc(anonymous, 'restaurants/rest-a'));
   check(publicRestaurantSnapshot.exists() && !('subscription' in (publicRestaurantSnapshot.data() || {})),
@@ -139,6 +143,8 @@ try {
   await denies(getDoc(doc(a('owner-b'),'restaurants/rest-a/menuRecipes/dish-1')), 'Le propriétaire B ne peut pas lire les coûts de recette A');
   await denies(getDoc(doc(a('manager-b'),'restaurants/rest-a/menuRecipes/dish-1')), 'Le manager B ne peut pas lire les coûts de recette A');
   await denies(getDoc(doc(anonymous,'restaurants/rest-a/menuRecipes/dish-1')), 'Les clients QR ne peuvent pas lire les fiches techniques ni les coûts');
+  await denies(updateDoc(doc(a('owner-a'),'restaurants/rest-a/customers/customer-1'), { loyaltyPoints: 5000 }), 'Les points de fidélité ne peuvent pas être modifiés directement par le SDK client');
+  await allows(updateDoc(doc(a('owner-a'),'restaurants/rest-a/customers/customer-1'), { name: 'Client A modifié' }), 'Le propriétaire peut modifier les coordonnées du client sans toucher aux points');
   await denies(setDoc(doc(a('owner-a'),'restaurants/rest-a/inventoryItems/rice-forged'),{
     id:'rice-forged',name:'Riz falsifié',unit:'kg',quantity:999,minQuantity:0,unitCost:1,active:true
   }), 'Même le propriétaire ne peut pas créer directement un article de stock via le SDK client');
@@ -263,6 +269,7 @@ try {
 
   // 9. Direct field tampering is rejected even for an owner.
   await denies(updateDoc(doc(a('owner-a'),'restaurants/rest-a'),{ownerUid:'attacker'}), 'Le champ ownerUid est protégé contre la falsification directe');
+  await denies(getDoc(doc(a('owner-a'),'restaurants/rest-a/private/ownership')), 'Le propriétaire ne peut pas lire directement ses métadonnées privées');
   await denies(updateDoc(order(a('owner-a'),'rest-a'),{totalAmount:1}), 'Le montant d’une commande est immuable depuis le SDK client');
 
   // 10. Non-active restaurants cannot expose operational data or create QR sessions.

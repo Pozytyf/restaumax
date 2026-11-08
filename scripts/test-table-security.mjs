@@ -71,7 +71,8 @@ function createDb() {
 async function run() {
   console.log('RESTAUMAX — TESTS SÉCURITÉ QR / SESSION');
   const db = createDb();
-  db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true, ownerUid: 'owner-1' });
+  db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true });
+  db.store.set('restaurants/chez-awa/private/ownership', { ownerUid: 'owner-1' });
   db.store.set('restaurants/chez-awa/tables/table-4', { id: 'table-4', tableNumber: '4', isActive: true, qrVersion: 0 });
 
   for (const status of ['provisioning', 'suspended', 'deleted']) {
@@ -203,6 +204,33 @@ async function run() {
     'Un manager actif peut fermer le service sans permission tables.manage');
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), isOpen: true });
 
+  let missingRotatedKeyRejected = false;
+  try {
+    await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example', {
+      TABLE_QR_TOKEN_ENCRYPTION_KEY: process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY,
+      TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION: '2'
+    });
+  } catch { missingRotatedKeyRejected = true; }
+  assert(missingRotatedKeyRejected,
+    'La rotation QR refuse une clé V2 absente au lieu de réutiliser silencieusement la clé historique');
+  const explicitV2Key = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+  let explicitRotatedKeyAccepted = false;
+  try {
+    const rotated = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example', {
+      TABLE_QR_TOKEN_ENCRYPTION_KEY: process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY,
+      TABLE_QR_TOKEN_ENCRYPTION_KEY_V2: explicitV2Key,
+      TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION: '2'
+    });
+    explicitRotatedKeyAccepted = Boolean(rotated.token);
+  } catch {}
+  assert(explicitRotatedKeyAccepted, 'Une clé QR V2 explicitement configurée est acceptée');
+  // Restore a clean QR for the remaining lifecycle assertions.
+  for (const storedPath of [...db.store.keys()]) {
+    if (storedPath.startsWith('restaurants/chez-awa/table_qr_tokens/')) db.store.delete(storedPath);
+  }
+  db.store.set('restaurants/chez-awa/tables/table-4', {
+    ...db.store.get('restaurants/chez-awa/tables/table-4'), qrVersion: 0
+  });
   const issued = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   const token = issued.url.split('/q/')[1];
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), isOpen: false });
@@ -223,6 +251,20 @@ async function run() {
   assert(storedToken?.tokenHash === tokenHash && !JSON.stringify(storedToken).includes(token), 'Le jeton brut n’est jamais stocké en clair (empreinte SHA-256 + enveloppe chiffrée)');
   assert(storedToken?.encryptedToken?.algorithm === 'aes-256-gcm' && !JSON.stringify(storedToken).includes(token),
     'Jeton récupérable uniquement depuis son enveloppe AES-256-GCM chiffrée côté serveur');
+  assert(storedToken?.encryptedToken?.version === 2 && storedToken?.encryptedToken?.keyVersion === 1,
+    'Les nouvelles enveloppes QR sont versionnées pour permettre la rotation des clés');
+  db.store.set('restaurants/restaurant-b', { slug: 'restaurant-b', status: 'active', isActive: true, isOpen: true });
+  db.store.set('restaurants/restaurant-b/tables/table-4', { id: 'table-4', tableNumber: '4', isActive: true, qrVersion: 1 });
+  db.store.set('restaurants/restaurant-b/table_qr_tokens/' + tokenHash, {
+    ...storedToken, restaurantSlug: 'restaurant-b', tableId: 'table-4'
+  });
+  let crossTenantCiphertextRejected = false;
+  try { await getActiveTableQr(db, 'restaurant-b', 'table-4', 'https://restaumax.example'); }
+  catch { crossTenantCiphertextRejected = true; }
+  assert(crossTenantCiphertextRejected, 'L’AES-GCM AAD lie le jeton QR au restaurant et à la table d’origine');
+  db.store.delete('restaurants/restaurant-b/table_qr_tokens/' + tokenHash);
+  db.store.delete('restaurants/restaurant-b/tables/table-4');
+  db.store.delete('restaurants/restaurant-b');
   const restoredQr = await getActiveTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   assert(restoredQr?.url === issued.url && restoredQr.token === token,
     'URL QR identique restaurée après rechargement sans rotation ni changement du jeton');
@@ -241,8 +283,9 @@ async function run() {
   // Two tenants may use the same local table ID, but QR resolution must remain
   // bound to the restaurant stored with each token.
   db.store.set('restaurants/restaumax-demo', {
-    slug: 'restaumax-demo', status: 'active', isActive: true, isOpen: true, ownerUid: 'demo-owner'
+    slug: 'restaumax-demo', status: 'active', isActive: true, isOpen: true
   });
+  db.store.set('restaurants/restaumax-demo/private/ownership', { ownerUid: 'demo-owner' });
   db.store.set('restaurants/restaumax-demo/tables/table-4', {
     id: 'table-4', tableNumber: 'D-4', isActive: true, qrVersion: 0
   });

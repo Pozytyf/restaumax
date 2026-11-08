@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { awardLoyaltyPointsInTransaction } from './loyaltyService.ts';
+import { getRestaurantOwnerUid } from './restaurantOwnership.ts';
 
 export interface CashPaymentInput {
   restaurantSlug: string;
@@ -118,6 +119,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
     const order = orderSnap.exists ? orderSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(db, slug, tx, restaurant);
 
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
         !member || member.active !== true || member.restaurantSlug !== slug ||
@@ -125,7 +127,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
       return { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
     }
 
-    const isOwner = member.role === 'owner' && restaurant.ownerUid === actorUid;
+    const isOwner = member.role === 'owner' && ownerUid === actorUid;
     const canManageCash = isOwner ||
       member.role === 'manager' ||
       (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
@@ -348,8 +350,8 @@ export async function listRecentCashPaymentsWithDb(db: any, restaurantSlug: stri
   return snapshot.docs.map((doc: any) => ({ ...doc.data(), id: doc.id }));
 }
 
-function canManageCashSession(member: any, restaurant: any, actorUid: string): boolean {
-  return (member?.role === 'owner' && restaurant?.ownerUid === actorUid) ||
+function canManageCashSession(member: any, ownerUid: string | null, actorUid: string): boolean {
+  return (member?.role === 'owner' && ownerUid === actorUid) ||
     member?.role === 'manager' ||
     (member?.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
 }
@@ -428,12 +430,13 @@ export async function openCashSessionWithDb(db: any, input: CashSessionInput): P
     ]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(db, slug, tx, restaurant);
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
         !member || member.active !== true || member.restaurantSlug !== slug ||
         Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
       return { success: false, error: 'Compte inactif, session du personnel révoquée ou accès au restaurant refusé.' };
     }
-    if (!canManageCashSession(member, restaurant, actorUid)) {
+    if (!canManageCashSession(member, ownerUid, actorUid)) {
       return { success: false, error: 'Votre rôle ne permet pas d’ouvrir une session de caisse.' };
     }
     if (sessionSnap.exists) {
@@ -485,12 +488,13 @@ export async function closeCashSessionWithDb(db: any, input: CashSessionInput): 
     ]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(db, slug, tx, restaurant);
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
         !member || member.active !== true || member.restaurantSlug !== slug ||
         Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
       return { success: false, error: 'Compte inactif, session du personnel révoquée ou accès au restaurant refusé.' };
     }
-    if (!canManageCashSession(member, restaurant, actorUid)) {
+    if (!canManageCashSession(member, ownerUid, actorUid)) {
       return { success: false, error: 'Votre rôle ne permet pas de clôturer une session de caisse.' };
     }
     const sessionId = activeSnap.exists ? String(activeSnap.data()?.sessionId || '') : '';
@@ -562,12 +566,13 @@ export async function recordCashMovementWithDb(db: any, input: CashMovementInput
     ]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(db, slug, tx, restaurant);
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
         !member || member.active !== true || member.restaurantSlug !== slug ||
         Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
       return { success: false, error: 'Compte inactif, session du personnel révoquée ou accès au restaurant refusé.' };
     }
-    if (!canManageCashSession(member, restaurant, actorUid)) {
+    if (!canManageCashSession(member, ownerUid, actorUid)) {
       return { success: false, error: 'Votre rôle ne permet pas d’enregistrer une sortie de caisse.' };
     }
     if (movementSnap.exists) {
@@ -674,13 +679,14 @@ export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
     const payment = paymentSnap.exists ? paymentSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(db, slug, tx, restaurant);
 
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt ||
         !member || member.active !== true || member.restaurantSlug !== slug ||
         Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
       return { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
     }
-    const owner = member.role === 'owner' && restaurant.ownerUid === actorUid;
+    const owner = member.role === 'owner' && ownerUid === actorUid;
     const manager = member.role === 'manager';
     const cashierGrant = member.role === 'cashier' && Array.isArray(member.permissions) &&
       member.permissions.includes('payments.refund');

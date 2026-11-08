@@ -33,7 +33,8 @@ class FakeDb {
 
 const base = (status = 'pending', quantity = 10, recipe = true) => {
   const seed = {
-    'restaurants/chez-awa': { status: 'active', ownerUid: 'owner-1' },
+    'restaurants/chez-awa': { status: 'active' },
+    'restaurants/chez-awa/private/ownership': { ownerUid: 'owner-1' },
     'managers/owner-1': { active: true, restaurantSlug: 'chez-awa', role: 'owner', sessionVersion: 4 },
     'restaurants/chez-awa/orders/order-1': {
       id: 'order-1', restaurantSlug: 'chez-awa', status, kitchenItemsCompletedCount: 1,
@@ -111,6 +112,33 @@ const menuCancelReplay = await transitionOrderStatusWithDb(menuStockRestoreDb, {
 assert.equal(menuCancelReplay.idempotentReplay, true);
 assert.equal(menuStockRestoreDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 5,
   'Un rejeu de l’annulation ne restitue pas les quantités une seconde fois');
+
+const deferredMenuDb = base('pending', 10, false);
+deferredMenuDb.documents.get('restaurants/chez-awa/orders/order-1').menuStockDeferred = true;
+deferredMenuDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].trackStock = true;
+deferredMenuDb.documents.set('restaurants/chez-awa/menuItems/dish-1', {
+  id: 'dish-1', restaurantSlug: 'chez-awa', name: 'Poulet braisé',
+  trackStock: true, stockQuantity: 3, available: true
+});
+const deferredStart = await transitionOrderStatusWithDb(deferredMenuDb, { ...params, targetStatus: 'in_prep' });
+assert.equal(deferredStart.success, true);
+assert.equal(deferredMenuDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 1,
+  'Le stock vendable est consommé uniquement lorsque le personnel démarre la préparation');
+assert.equal(deferredMenuDb.documents.get('restaurants/chez-awa/menuStockConsumptions/order-1').items[0].quantity, 2);
+assert.equal((await transitionOrderStatusWithDb(deferredMenuDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal(deferredMenuDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 3,
+  'Une annulation après acceptation restitue le stock consommé');
+
+const deferredPendingCancelDb = base('pending', 10, false);
+deferredPendingCancelDb.documents.get('restaurants/chez-awa/orders/order-1').menuStockDeferred = true;
+deferredPendingCancelDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].trackStock = true;
+deferredPendingCancelDb.documents.set('restaurants/chez-awa/menuItems/dish-1', {
+  id: 'dish-1', restaurantSlug: 'chez-awa', name: 'Poulet braisé',
+  trackStock: true, stockQuantity: 3, available: true
+});
+assert.equal((await transitionOrderStatusWithDb(deferredPendingCancelDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal(deferredPendingCancelDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 3,
+  'Une commande encore en attente n’a jamais consommé le stock et ne le restitue pas artificiellement');
 
 const cashierDb = base();
 cashierDb.documents.set('managers/cashier-1', {

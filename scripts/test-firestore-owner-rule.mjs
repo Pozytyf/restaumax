@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
-assert(rules.includes("data.ownerUid == request.auth.uid"), 'owner UID must match restaurant ownerUid');
+assert(rules.includes('function isBoundRestaurantOwner') && rules.includes('/private/ownership'), 'owner UID is bound to private restaurant ownership metadata');
+assert(rules.includes("match /private/{privateDoc}") && rules.includes('allow read, write: if false;'), 'private owner metadata cannot be read or written by client SDK');
+const publicProfile = rules.slice(rules.indexOf('function isPublicRestaurant'), rules.indexOf('function isValidRestaurant'));
+assert(publicProfile.includes('data.keys().hasOnly') && !publicProfile.includes('ownerUid') && !publicProfile.includes('ownerEmail'), 'new public restaurant profiles cannot contain owner identity');
 assert(!rules.includes("role == 'staff'"), 'legacy staff role must not be accepted');
 assert(rules.includes("'payments.refund'"), 'refund permission ceiling must be represented in Firestore rules');
 assert(rules.includes('match /menuCustomizationRecipes/{recipeId}'), 'customization stock recipes have an explicit Firestore rule');

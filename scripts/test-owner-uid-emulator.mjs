@@ -10,8 +10,9 @@ try {
   await env.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
     await setDoc(doc(db, 'restaurants/rest-a'), {
-      slug: 'rest-a', name: 'Restaurant A', isOpen: true, status: 'active', ownerUid: 'owner-a'
+      slug: 'rest-a', name: 'Restaurant A', isOpen: true, status: 'active'
     });
+    await setDoc(doc(db, 'restaurants/rest-a/private/ownership'), { ownerUid: 'owner-a', ownerName: 'Owner A', ownerEmail: 'owner-a@example.test' });
     await setDoc(doc(db, 'managers/owner-a'), {
       uid: 'owner-a', role: 'owner', restaurantSlug: 'rest-a', active: true, sessionVersion: 0
     });
@@ -24,10 +25,15 @@ try {
     });
   });
 
+  const anonymous = env.unauthenticatedContext().firestore();
+  await assertSucceeds(getDoc(doc(anonymous, 'restaurants/rest-a')));
+  await assertFails(getDoc(doc(anonymous, 'restaurants/rest-a/private/ownership')));
   const ownerA = env.authenticatedContext('owner-a').firestore();
   const ownerB = env.authenticatedContext('owner-b').firestore();
   await assertSucceeds(getDoc(doc(ownerA, 'restaurants/rest-a')));
-  await assertFails(getDoc(doc(ownerB, 'restaurants/rest-a')));
+  await assertFails(getDoc(doc(ownerA, 'restaurants/rest-a/private/ownership')));
+  await assertFails(updateDoc(doc(ownerA, 'restaurants/rest-a'), { ownerEmail: 'leak@example.test' }));
+  await assertSucceeds(getDoc(doc(ownerB, 'restaurants/rest-a'))); // Restaurant profile is public; ownership metadata remains private.
   await assertSucceeds(updateDoc(doc(ownerA, 'restaurants/rest-a'), { name: 'Restaurant A modifié' }));
   await assertSucceeds(updateDoc(doc(ownerA, 'restaurants/rest-a'), {
     taxRatePercent: 18, taxMode: 'inclusive', loyaltyFcfaPerPoint: 500, receiptPaperWidth: '58mm'

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { getRestaurantOwnerUid } from './restaurantOwnership.ts';
 
 const SESSION_COOKIE = '__Host-rm_table_session';
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
@@ -7,20 +8,33 @@ const TOKEN_BYTES = 32;
 const randomSecret = () => crypto.randomBytes(TOKEN_BYTES).toString('base64url');
 const sha256 = (value: string) => crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 
-function qrEncryptionKey(env: Record<string, string | undefined>): Buffer {
-  const raw = String(env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '').trim();
+function qrEncryptionKey(env: Record<string, string | undefined>, version: number): Buffer {
+  const versionedKey = env[`TABLE_QR_TOKEN_ENCRYPTION_KEY_V${version}`];
+  // Version 1 is the historical key name. Newer versions must have their own
+  // explicit secret: silently falling back would make "rotation" a no-op.
+  const raw = String(version === 1
+    ? (versionedKey || env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '')
+    : (versionedKey || '')).trim();
   if (!/^[a-f0-9]{64}$/i.test(raw)) {
-    throw new Error('TABLE_QR_TOKEN_ENCRYPTION_KEY doit contenir 64 caractères hexadécimaux.');
+    throw new Error(`TABLE_QR_TOKEN_ENCRYPTION_KEY_V${version} doit contenir 64 caractères hexadécimaux.`);
   }
   return Buffer.from(raw, 'hex');
 }
 
-function encryptQrToken(token: string, env: Record<string, string | undefined>) {
+function qrTokenAad(restaurantSlug: string, tableId: string) {
+  return Buffer.from(`restaumax:table-qr:v2:${restaurantSlug}:${tableId}`, 'utf8');
+}
+
+function encryptQrToken(token: string, env: Record<string, string | undefined>, restaurantSlug: string, tableId: string) {
+  const keyVersion = Number(env.TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION || 1);
+  if (!Number.isInteger(keyVersion) || keyVersion < 1 || keyVersion > 99) throw new Error('Version de clé QR invalide.');
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', qrEncryptionKey(env), iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', qrEncryptionKey(env, keyVersion), iv);
+  cipher.setAAD(qrTokenAad(restaurantSlug, tableId));
   const ciphertext = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
   return {
-    version: 1,
+    version: 2,
+    keyVersion,
     algorithm: 'aes-256-gcm',
     iv: iv.toString('hex'),
     authTag: cipher.getAuthTag().toString('hex'),
@@ -28,14 +42,18 @@ function encryptQrToken(token: string, env: Record<string, string | undefined>) 
   };
 }
 
-function decryptQrToken(encrypted: any, env: Record<string, string | undefined>): string {
-  if (!encrypted || encrypted.version !== 1 || encrypted.algorithm !== 'aes-256-gcm' ||
+function decryptQrToken(encrypted: any, env: Record<string, string | undefined>, restaurantSlug: string, tableId: string): string {
+  const legacy = encrypted?.version === 1;
+  const keyVersion = legacy ? 1 : Number(encrypted?.keyVersion);
+  if (!encrypted || (!legacy && encrypted.version !== 2) || encrypted.algorithm !== 'aes-256-gcm' ||
+      !Number.isInteger(keyVersion) || keyVersion < 1 || keyVersion > 99 ||
       !/^[a-f0-9]{24}$/i.test(String(encrypted.iv || '')) ||
       !/^[a-f0-9]{32}$/i.test(String(encrypted.authTag || '')) ||
       !/^[a-f0-9]+$/i.test(String(encrypted.ciphertext || '')) || encrypted.ciphertext.length > 512) {
     throw new Error('Enveloppe du QR persistant invalide.');
   }
-  const decipher = crypto.createDecipheriv('aes-256-gcm', qrEncryptionKey(env), Buffer.from(encrypted.iv, 'hex'));
+  const decipher = crypto.createDecipheriv('aes-256-gcm', qrEncryptionKey(env, keyVersion), Buffer.from(encrypted.iv, 'hex'));
+  if (!legacy) decipher.setAAD(qrTokenAad(restaurantSlug, tableId));
   decipher.setAuthTag(Buffer.from(encrypted.authTag, 'hex'));
   return Buffer.concat([
     decipher.update(Buffer.from(encrypted.ciphertext, 'hex')),
@@ -149,7 +167,7 @@ export async function issueTableQr(db: any, restaurantSlug: string, tableId: str
     });
     tx.create(tokenRef, {
       tokenHash,
-      encryptedToken: encryptQrToken(token, env),
+      encryptedToken: encryptQrToken(token, env, slug, id),
       restaurantSlug: slug,
       tableId: id,
       tableNumber: String(tableSnap.data()?.tableNumber || ''),
@@ -206,7 +224,7 @@ export async function getActiveTableQr(
   if (!active) return null;
   const data = active.data();
   if (!data.encryptedToken) return null;
-  const token = decryptQrToken(data.encryptedToken, env);
+  const token = decryptQrToken(data.encryptedToken, env, slug, id);
   if (token.length < 30 || token.length > 100 || sha256(token) !== data.tokenHash) {
     throw new Error('Le QR enregistré ne correspond plus à son empreinte de sécurité.');
   }
@@ -373,6 +391,8 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   }
 
   const manager = managerSnap.data();
+  const restaurantData = restaurantSnap.data();
+  const ownerUid = await getRestaurantOwnerUid(db, restaurantSlug, undefined, restaurantData);
   if (manager.active !== true || manager.restaurantSlug !== restaurantSlug) {
     throw new Error('Accès à ce restaurant refusé.');
   }
@@ -384,7 +404,7 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   if (!['owner', 'manager'].includes(managerRole)) {
     throw new Error('Seul le propriétaire ou un manager du restaurant peut administrer les QR de table.');
   }
-  if (managerRole === 'owner' && restaurantSnap.data()?.ownerUid !== decoded.uid) {
+  if (managerRole === 'owner' && ownerUid !== decoded.uid) {
     throw new Error('Le compte propriétaire ne correspond pas au propriétaire enregistré du restaurant.');
   }
   if (managerRole === 'manager' &&
@@ -416,6 +436,7 @@ export async function updateRestaurantServiceStatus(
   const [restaurantSnap, managerSnap] = await Promise.all([restaurantRef.get(), managerRef.get()]);
   const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
   const manager = managerSnap.exists ? managerSnap.data() : null;
+  const ownerUid = await getRestaurantOwnerUid(db, restaurantSlug, undefined, restaurant);
   if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
       !manager || manager.active !== true || manager.restaurantSlug !== restaurantSlug ||
       Number(decoded.sessionVersion || 0) !== Number(manager.sessionVersion || 0)) {
@@ -424,7 +445,7 @@ export async function updateRestaurantServiceStatus(
   if (!['owner', 'manager'].includes(String(manager.role || ''))) {
     throw new Error('Seul le propriétaire ou un manager peut modifier le service.');
   }
-  if (manager.role === 'owner' && restaurant.ownerUid !== decoded.uid) {
+  if (manager.role === 'owner' && ownerUid !== decoded.uid) {
     throw new Error('Le compte propriétaire ne correspond pas au propriétaire enregistré.');
   }
   await db.runTransaction(async (tx: any) => {
@@ -433,6 +454,7 @@ export async function updateRestaurantServiceStatus(
     ]);
     const currentRestaurant = currentRestaurantSnap.exists ? currentRestaurantSnap.data() : null;
     const currentManager = currentManagerSnap.exists ? currentManagerSnap.data() : null;
+    const currentOwnerUid = await getRestaurantOwnerUid(db, restaurantSlug, tx, currentRestaurant);
     if (!currentRestaurant || currentRestaurant.status !== 'active' || currentRestaurant.deletedAt ||
         currentRestaurant.isActive === false || !currentManager || currentManager.active !== true ||
         currentManager.restaurantSlug !== restaurantSlug ||
@@ -442,7 +464,7 @@ export async function updateRestaurantServiceStatus(
     if (!['owner', 'manager'].includes(String(currentManager.role || ''))) {
       throw new Error('Seul le propriétaire ou un manager peut modifier le service.');
     }
-    if (currentManager.role === 'owner' && currentRestaurant.ownerUid !== decoded.uid) {
+    if (currentManager.role === 'owner' && currentOwnerUid !== decoded.uid) {
       throw new Error('Seul le propriétaire enregistré peut modifier le service.');
     }
     tx.update(restaurantRef, {

@@ -2,6 +2,7 @@ import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { validateSubscriptionInput } from './subscriptionService.js';
 import { settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
+import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.ts';
 
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
@@ -106,8 +107,15 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
 }
 
 function isSuperAdmin(user: DecodedIdToken) {
-  return user.role === 'super_admin' ||
-    (typeof user.email === 'string' && configuredSuperAdmins().includes(user.email.toLowerCase()));
+  const verifiedAllowlistedEmail = user.email_verified === true &&
+    typeof user.email === 'string' &&
+    configuredSuperAdmins().includes(user.email.toLowerCase());
+  if (!verifiedAllowlistedEmail) return false;
+  if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true') {
+    const secondFactor = (user as any).firebase?.sign_in_second_factor;
+    return typeof secondFactor === 'string' && secondFactor.length > 0;
+  }
+  return true;
 }
 
 export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole: string): boolean {
@@ -123,7 +131,8 @@ async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
   if (restaurant.status !== 'active' || restaurant.deletedAt) return null;
   const membership = await db.collection('managers').doc(user.uid).get();
   const member = membership.exists ? membership.data() : null;
-  if (restaurant.ownerUid !== user.uid || member?.role !== 'owner' || member?.restaurantSlug !== slug || member?.active !== true) return null;
+  const ownerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurant);
+  if (ownerUid !== user.uid || member?.role !== 'owner' || member?.restaurantSlug !== slug || member?.active !== true) return null;
   if (Number(user.sessionVersion || 0) !== Number(member?.sessionVersion || 0)) return null;
   return { role: 'owner', restaurant };
 }
@@ -136,9 +145,11 @@ async function requireStaffAdministrator(db: any, user: DecodedIdToken, slug: st
   if (!restaurantSnap.exists || restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt) return null;
   if (!membershipSnap.exists) return null;
   const member = membershipSnap.data();
+  const restaurant = restaurantSnap.data();
+  const ownerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurant);
   if (member?.active !== true || member?.restaurantSlug !== slug ||
       Number(user.sessionVersion || 0) !== Number(member?.sessionVersion || 0)) return null;
-  if (member.role === 'owner' && restaurantSnap.data()?.ownerUid === user.uid) {
+  if (member.role === 'owner' && ownerUid === user.uid) {
     return { role: 'owner' as const, restaurant: restaurantSnap.data() };
   }
   if (member.role === 'manager' && Array.isArray(member.permissions) &&
@@ -146,6 +157,65 @@ async function requireStaffAdministrator(db: any, user: DecodedIdToken, slug: st
     return { role: 'manager' as const, restaurant: restaurantSnap.data() };
   }
   return null;
+}
+
+
+async function migrateLegacyRestaurantPrivateData(db: any, restaurantRef: any, actorUid: string) {
+  const slug = String(restaurantRef.id || '');
+  const ownershipRef = restaurantRef.collection('private').doc('ownership');
+  const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
+  return db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, ownershipSnap, subscriptionSnap] = await Promise.all([
+      tx.get(restaurantRef), tx.get(ownershipRef), tx.get(subscriptionRef)
+    ]);
+    if (!restaurantSnap.exists) return { ownership: {}, subscription: {}, migrated: false };
+    const restaurant = restaurantSnap.data() || {};
+    const existing = ownershipSnap.exists ? ownershipSnap.data() || {} : {};
+    const privateFields = [
+      'ownerUid', 'ownerName', 'ownerEmail', 'createdBy', 'updatedBy',
+      'deletedBy', 'suspendedBy', 'ownerRemovedBy', 'serviceStatusUpdatedBy'
+    ];
+    const legacy = Object.fromEntries(privateFields
+      .filter((key) => restaurant[key] !== undefined)
+      .map((key) => [key, restaurant[key]]));
+    if (existing.ownerUid && legacy.ownerUid && existing.ownerUid !== legacy.ownerUid) {
+      throw new Error(`Conflit d’identité propriétaire pour le restaurant ${slug}. Migration interrompue.`);
+    }
+    const merged = { ...existing };
+    for (const [key, value] of Object.entries(legacy)) {
+      if (merged[key] === undefined) merged[key] = value;
+    }
+    const hasLegacySubscription = restaurant.subscription !== undefined;
+    const now = Date.now();
+    if (Object.keys(legacy).length) {
+      tx.set(ownershipRef, { ...merged, migratedAt: now, migratedBy: actorUid }, { merge: true });
+    }
+    if (hasLegacySubscription && !subscriptionSnap.exists && restaurant.subscription &&
+        typeof restaurant.subscription === 'object') {
+      tx.create(subscriptionRef, restaurant.subscription);
+    }
+    const removals: Record<string, any> = {};
+    for (const key of [...privateFields, 'subscription']) {
+      if (restaurant[key] !== undefined) removals[key] = FieldValue.delete();
+    }
+    if (Object.keys(removals).length) {
+      tx.update(restaurantRef, removals);
+      tx.create(db.collection('admin_audit_logs').doc(`migrate_restaurant_private_${slug}_${now}`), {
+        action: 'migrate_restaurant_private_metadata',
+        restaurantSlug: slug,
+        actorUid,
+        ownerMetadataMoved: Object.keys(legacy).length > 0,
+        subscriptionMoved: hasLegacySubscription && !subscriptionSnap.exists,
+        fieldsMoved: Object.keys(legacy),
+        createdAt: now
+      });
+    }
+    return {
+      ownership: merged,
+      subscription: subscriptionSnap.exists ? subscriptionSnap.data() : (hasLegacySubscription ? restaurant.subscription || {} : {}),
+      migrated: Object.keys(removals).length > 0
+    };
+  });
 }
 
 export async function handlePlatformAdmin(req: any, res: any, db: any) {
@@ -161,11 +231,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   // Promote only explicitly allowlisted identities to a durable global custom claim.
   if (
+    user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase()) &&
     user.role !== 'super_admin'
   ) {
-    await getAuth().setCustomUserClaims(user.uid, { role: 'super_admin' });
+    const authUser = await getAuth().getUser(user.uid);
+    await getAuth().setCustomUserClaims(user.uid, { ...(authUser.customClaims || {}), role: 'super_admin' });
   }
 
   const body = req.body || {};
@@ -179,27 +251,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (action === 'overview') {
         const snap = await db.collection('restaurants').get();
         const restaurants = await Promise.all(snap.docs.map(async (d: any) => {
+          const migrated = await migrateLegacyRestaurantPrivateData(db, d.ref, user.uid);
           const data = d.data() || {};
-          const subscriptionRef = db.collection('restaurantSubscriptions').doc(d.id);
-          let subscriptionSnap = await subscriptionRef.get();
-
-          if (!subscriptionSnap.exists && data.subscription && typeof data.subscription === 'object') {
-            await subscriptionRef.set(data.subscription);
-            await d.ref.update({ subscription: FieldValue.delete() });
-            await db.collection('admin_audit_logs').add({
-              action: 'migrate_restaurant_subscription_private',
-              restaurantSlug: d.id, actorUid: user.uid, createdAt: Date.now()
-            });
-            subscriptionSnap = await subscriptionRef.get();
-          } else if (subscriptionSnap.exists && data.subscription !== undefined) {
-            await d.ref.update({ subscription: FieldValue.delete() });
-            await db.collection('admin_audit_logs').add({
-              action: 'remove_legacy_public_subscription_field',
-              restaurantSlug: d.id, actorUid: user.uid, createdAt: Date.now()
-            });
-          }
-
-          const raw = subscriptionSnap.exists ? subscriptionSnap.data() || {} : {};
+          const raw = migrated.subscription || {};
           const subscription = {
             planName: typeof raw.planName === 'string' ? raw.planName : null,
             status: typeof raw.status === 'string' ? raw.status : 'unknown',
@@ -265,7 +319,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const restaurantRef = db.collection('restaurants').doc(slug);
         let reservationCreated = false;
         try {
-          await restaurantRef.create({ slug, name, status: 'provisioning', createdAt: Date.now(), createdBy: user.uid });
+          await restaurantRef.create({ slug, name, status: 'provisioning', createdAt: Date.now() });
           reservationCreated = true;
         } catch (reservationError: any) {
           if (reservationError?.code === 6 || reservationError?.code === 'already-exists') {
@@ -284,10 +338,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           const now = Date.now();
           const batch = db.batch();
           batch.set(restaurantRef, {
-            slug, name, isOpen: false, ownerUid: ownerUser.uid, ownerName, ownerEmail,
-            status: 'active', createdAt: now, createdBy: user.uid,
+            slug, name, isOpen: false,
+            status: 'active', createdAt: now,
             tagline: '', address: '', city: '', phone: '', bannerUrl: '', logoUrl: '',
             openingHours: '', currency: 'FCFA', country: "Côte d'Ivoire"
+          });
+          batch.set(restaurantRef.collection('private').doc('ownership'), {
+            ownerUid: ownerUser.uid, ownerName, ownerEmail, createdBy: user.uid, createdAt: now
           });
           batch.set(db.collection('managers').doc(ownerUser.uid), {
             uid: ownerUser.uid, email: ownerEmail, displayName: ownerName,
@@ -324,7 +381,6 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
               ? restaurantSnap.data()?.isOpenBeforeSuspension === true
               : restaurantSnap.data()?.isOpen === true,
             suspendedAt: now,
-            suspendedBy: user.uid,
             // Session epoch invalidates every previously issued table session,
             // including sessions missed by a partial cleanup batch.
             tableSessionVersion: Number(restaurantSnap.data()?.tableSessionVersion || 0) + 1
@@ -335,9 +391,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
               : restaurantSnap.data()?.isOpen === true,
             isOpenBeforeSuspension: null,
             suspendedAt: null,
-            suspendedBy: null
+            // Suspension actor identity is stored in the private audit log.
           }),
-          updatedAt: now, updatedBy: user.uid
+          updatedAt: now
         }, { merge: true });
         if (body.status === 'suspended') {
           const sessions = await restaurantRef.collection('table_sessions').where('status', '==', 'active').get();
@@ -409,7 +465,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
         const now = Date.now();
         // Tombstone first: all authorization paths must fail before cleanup begins.
-        await restaurantRef.set({ status: 'deleted', isOpen: false, tableSessionVersion: Number(restaurantSnap.data()?.tableSessionVersion || 0) + 1, deletedAt: restaurantSnap.data()?.deletedAt || now, deletedBy: user.uid, updatedAt: now, updatedBy: user.uid }, { merge: true });
+        await restaurantRef.set({ status: 'deleted', isOpen: false, tableSessionVersion: Number(restaurantSnap.data()?.tableSessionVersion || 0) + 1, deletedAt: restaurantSnap.data()?.deletedAt || now, updatedAt: now }, { merge: true });
 
         const [staffSnap, sessionsSnap, qrSnap, tablesSnap] = await Promise.all([
           restaurantRef.collection('staff').get(),
@@ -478,9 +534,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       };
       staffSnap.docs.forEach((doc: any) => addAccount({ ...doc.data(), uid: doc.id }, 'restaurant.staff'));
       managersSnap.docs.forEach((doc: any) => addAccount({ ...doc.data(), uid: doc.id }, 'managers'));
-      const ownerUid = String(restaurant.ownerUid || '').trim();
-      const ownerEmail = typeof restaurant.ownerEmail === 'string' ? restaurant.ownerEmail.trim().toLowerCase() : '';
-      const ownerName = String(restaurant.ownerName || '').trim();
+      const ownership = await getRestaurantOwnership(db, slug, undefined, restaurant);
+      const ownerUid = String(ownership.ownerUid || '').trim();
+      const ownerEmail = typeof ownership.ownerEmail === 'string' ? ownership.ownerEmail.trim().toLowerCase() : '';
+      const ownerName = String(ownership.ownerName || '').trim();
       if (ownerUid) {
         addAccount({ uid: ownerUid, email: ownerEmail, displayName: ownerName, role: 'owner' }, 'restaurants.owner');
       } else if (ownerEmail || ownerName) {
@@ -774,8 +831,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const batch = db.batch();
         batch.delete(memberRef);
         batch.delete(managerRef);
-        if (member.role === 'owner' && restaurantSnap.data()?.ownerUid === staffUid) {
-          batch.set(db.collection('restaurants').doc(slug), { ownerUid: null, ownerName: null, ownerEmail: null, ownerRemovedAt: now, ownerRemovedBy: user.uid }, { merge: true });
+        const currentOwnerUid = await getRestaurantOwnerUid(db, slug, undefined, actor.restaurant);
+        if (member.role === 'owner' && currentOwnerUid === staffUid) {
+          batch.set(db.collection('restaurants').doc(slug).collection('private').doc('ownership'), {
+            ownerUid: null, ownerName: null, ownerEmail: null, ownerRemovedAt: now, ownerRemovedBy: user.uid
+          }, { merge: true });
         }
         await batch.commit();
         await db.collection('admin_audit_logs').add({ action: 'delete_user_account', restaurantSlug: slug, targetUid: staffUid, targetRole: member.role, actorUid: user.uid, createdAt: now, businessHistoryPreserved: true });

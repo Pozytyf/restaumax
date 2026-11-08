@@ -35,7 +35,8 @@ class FakeDb {
 }
 
 const seed = () => new FakeDb({
-  'restaurants/chez-awa': { status: 'active', ownerUid: 'owner-1' },
+  'restaurants/chez-awa': { status: 'active' },
+    'restaurants/chez-awa/private/ownership': { ownerUid: 'owner-1' },
   'managers/owner-1': { active: true, restaurantSlug: 'chez-awa', role: 'owner', sessionVersion: 2 },
   'restaurants/chez-awa/inventoryItems/rice': {
     id: 'rice', name: 'Riz', unit: 'kg', quantity: 10, minQuantity: 2, unitCost: 500, active: true

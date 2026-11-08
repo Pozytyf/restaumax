@@ -36,6 +36,7 @@ import { timingSafeEqual } from 'node:crypto';
 import 'dotenv/config';
 import express from 'express';
 import { getAuth } from 'firebase-admin/auth';
+import { getAppCheck } from 'firebase-admin/app-check';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -44,6 +45,8 @@ import { getRestaurantFinancialReportWithDb } from './src/server/reportService.j
 import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
+import { consumePublicOrderRateLimit } from './src/server/orderRateLimit.ts';
+import { getRestaurantOwnerUid } from './src/server/restaurantOwnership.ts';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
 import { 
   processOrderSubmission, 
@@ -87,12 +90,26 @@ const isProd = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
+const RESTAUMAX_CSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://*.paydunya.com https://paydunya.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://*.cloudfunctions.net https://*.vercel.app https://*.paydunya.com https://paydunya.com; frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://*.paydunya.com https://paydunya.com; upgrade-insecure-requests";
+app.use((_req, res, next) => {
+  if (isProd) {
+    res.setHeader('Content-Security-Policy', RESTAUMAX_CSP);
+    res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  }
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=(self)');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  next();
+});
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
 // 1. Initialisation stricte de Firebase Admin SDK
 export let adminDb: any = null;
 export let adminAuth: any = null;
+export let adminAppCheck: any = null;
 let adminInitError: string | null = null;
 let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = null;
 
@@ -108,6 +125,7 @@ try {
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
+    adminAppCheck = getAppCheck(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé via variable sécurisée pour la base '${appletConfig.firestoreDatabaseId}'.`);
   } else if (credPath && fs.existsSync(credPath)) {
     // Local/server deployments may continue to use a credentials file.
@@ -115,11 +133,13 @@ try {
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
+    adminAppCheck = getAppCheck(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
   } else if (process.env.FIRESTORE_EMULATOR_HOST) {
     const adminApp = initAdminApp(null as any, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
+    adminAppCheck = getAppCheck(adminApp);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé sur l'émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`);
   } else {
     adminInitError = credPath
@@ -403,6 +423,17 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       menuItemQuantities.set(itemId, (menuItemQuantities.get(itemId) || 0) + quantity);
     }
     const menuItemIds = [...menuItemQuantities.keys()];
+    let phoneOpenOrdersIndex = -1;
+    const customerPhoneNormalized = String(orderToCreate.customerPhoneNormalized || '').trim();
+    if (orderToCreate.orderMode === 'a_emporter' && customerPhoneNormalized) {
+      phoneOpenOrdersIndex = reads.length;
+      reads.push(t.get(
+        restaurantRef.collection('orders')
+          .where('customerPhoneNormalized', '==', customerPhoneNormalized)
+          .where('status', 'in', ['pending', 'in_prep', 'ready'])
+          .limit(4)
+      ));
+    }
     const menuStockReadStart = reads.length;
     for (const itemId of menuItemIds) {
       reads.push(t.get(restaurantRef.collection('menuItems').doc(itemId)));
@@ -429,9 +460,11 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
     const snapKey = snapshots[0];
     const snapOrder = snapshots[1];
     const snapRestaurant = snapshots[2];
+    const phoneOpenOrdersSnap = phoneOpenOrdersIndex >= 0 ? snapshots[phoneOpenOrdersIndex] : null;
     const menuItemSnapshots = new Map<string, any>();
     menuItemIds.forEach((itemId, index) => menuItemSnapshots.set(itemId, snapshots[menuStockReadStart + index]));
     const restaurantData = snapRestaurant.exists ? snapRestaurant.data() : null;
+    const restaurantOwnerUid = await getRestaurantOwnerUid(db, restaurantSlug, t, restaurantData);
     if (!restaurantData || restaurantData.status !== 'active' || restaurantData.deletedAt || restaurantData.isActive === false) {
       return { success: false, error: 'Commande refusée : restaurant inactif ou indisponible.' };
     }
@@ -440,7 +473,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       const memberSnap = snapshots[staffMemberIndex];
       const member = memberSnap?.exists ? memberSnap.data() : null;
       const memberSessionMatches = Number(staffSessionVersion || 0) === Number(member?.sessionVersion || 0);
-      const isOwner = member?.role === 'owner' && restaurantData.ownerUid === staffActorUid;
+      const isOwner = member?.role === 'owner' && restaurantOwnerUid === staffActorUid;
       const hasPosPermission = ['manager', 'cashier', 'server'].includes(member?.role) &&
         Array.isArray(member?.permissions) && member.permissions.includes('pos.access');
       if (!member || member.active !== true || member.restaurantSlug !== restaurantSlug ||
@@ -564,9 +597,17 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       };
     }
 
+    if (phoneOpenOrdersSnap && phoneOpenOrdersSnap.size >= 3) {
+      return {
+        success: false,
+        error: 'Limite atteinte : ce numéro possède déjà trois commandes à emporter en cours. Attendez leur traitement avant de recommander.'
+      };
+    }
+
     // Revalidate every menu item inside the same transaction as the order write.
     // This prevents cross-tenant menu references, stale prices, and overselling stock.
-    const stockUpdates: Array<{ ref: any; itemId: string; before: number; after: number; quantity: number; name: string }> = [];
+    // Validate stock at submission, but do not consume it while an anonymous order
+    // is still pending. Consumption happens atomically when staff starts preparation.
     for (const [itemId, quantity] of menuItemQuantities.entries()) {
       const itemSnap = menuItemSnapshots.get(itemId);
       const itemData = itemSnap?.exists ? itemSnap.data() : null;
@@ -576,54 +617,38 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
           Number(itemData.price) !== Number(orderLine.basePrice)) {
         return { success: false, error: 'Commande refusée : un article suivi en stock a changé, est indisponible ou ne correspond pas à ce restaurant. Actualisez le menu.' };
       }
-      {
-        const before = Number(itemData.stockQuantity);
-        if (!Number.isInteger(before) || before < quantity) {
-          return { success: false, error: `Stock insuffisant pour « ${String(itemData.name || itemId)} » : ${Number.isInteger(before) ? before : 0} unité(s) disponible(s).` };
-        }
-        stockUpdates.push({
-          ref: restaurantRef.collection('menuItems').doc(itemId),
-          itemId,
-          before,
-          after: before - quantity,
-          quantity,
-          name: String(itemData.name || itemId)
-        });
+      const remaining = Number(itemData.stockQuantity);
+      if (!Number.isInteger(remaining) || remaining < quantity) {
+        return { success: false, error: 'Stock insuffisant pour un ou plusieurs articles. Actualisez le menu ou contactez le restaurant.' };
       }
-    }
-    for (const update of stockUpdates) {
-      const now = Date.now();
-      t.update(update.ref, {
-        stockQuantity: update.after,
-        stockUpdatedAt: now
-      });
-      const movementId = `order_${orderId}_${update.itemId}`;
-      t.set(restaurantRef.collection('menuStockMovements').doc(movementId), {
-        id: movementId,
-        restaurantSlug,
-        menuItemId: update.itemId,
-        itemName: update.name,
-        orderId,
-        quantityBefore: update.before,
-        delta: -update.quantity,
-        quantityAfter: update.after,
-        createdAt: now,
-        reason: 'Commande client'
-      });
     }
 
     // CREATE_NOMINAL : Première soumission nominale ou reprise après échec.
     // Persist only the non-secret QR session binding so later customer payments
     // can prove that the order originated from this exact table session.
-    const orderToStore = tableSession ? {
-      ...orderToCreate,
-      tableSession: {
-        sessionHash: tableSession.sessionHash,
-        qrTokenHash: tableSession.qrTokenHash,
-        qrVersion: Number(tableSession.qrVersion),
-        tableId: tableSession.tableId
-      }
-    } : orderToCreate;
+    const orderDateKey = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const orderCounterRef = restaurantRef.collection('orderCounters').doc(orderDateKey);
+    const counterSnap = await t.get(orderCounterRef);
+    const previousSequence = Number(counterSnap.exists ? counterSnap.data()?.lastSequence : 0);
+    if (!Number.isSafeInteger(previousSequence) || previousSequence < 0 || previousSequence >= Number.MAX_SAFE_INTEGER) {
+      return { success: false, error: 'Compteur de tickets indisponible. Commande non enregistrée.' };
+    }
+    const nextSequence = previousSequence + 1;
+    const orderNumber = `#CMD-${orderDateKey}-${String(nextSequence).padStart(4, '0')}`;
+    const orderToStore = {
+      ...(tableSession ? {
+        ...orderToCreate,
+        tableSession: {
+          sessionHash: tableSession.sessionHash,
+          qrTokenHash: tableSession.qrTokenHash,
+          qrVersion: Number(tableSession.qrVersion),
+          tableId: tableSession.tableId
+        }
+      } : orderToCreate),
+      orderNumber,
+      menuStockDeferred: true
+    };
+    t.set(orderCounterRef, { dateKey: orderDateKey, lastSequence: nextSequence, updatedAt: Date.now() }, { merge: true });
     t.set(docRefOrder, orderToStore);
     t.set(docRefKey, {
       id: keyDocId,
@@ -638,7 +663,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
 
     return {
       success: true,
-      order: orderToCreate,
+      order: orderToStore,
       idempotentReplay: false
     };
   });
@@ -723,7 +748,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
       return { status: 'not_found' };
     } catch (err: any) {
       console.warn(`[RestauMax Server] Erreur sonde getOrderById (${orderId}):`, err.message);
-      return { status: 'error', error: err.message || String(err) };
+      return { status: 'error', error: 'Sonde Firestore temporairement indisponible.' };
     }
   },
 
@@ -882,13 +907,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
 
 // Shared handlers used by both the local Express server and Vercel serverless routes.
 export function getServerHealth() {
-  return {
-    status: 'ok',
-    hasAdminDb: Boolean(adminDb),
-    projectId: appletConfig?.projectId || null,
-    databaseId: appletConfig?.firestoreDatabaseId || null,
-    serverTime: Date.now()
-  };
+  return { status: 'ok', serverTime: Date.now() };
 }
 
 export async function handleResolveTableQr(token: string, req?: any): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
@@ -1234,13 +1253,14 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     const [restaurantSnap, memberSnap] = await Promise.all([restaurantRef.get(), memberRef.get()]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(adminDb, slug, undefined, restaurant);
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
         !member || member.active !== true || member.restaurantSlug !== slug ||
         Number(decoded.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
       return { statusCode: 403, body: { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' } };
     }
 
-    const isOwner = member.role === 'owner' && restaurant.ownerUid === decoded.uid;
+    const isOwner = member.role === 'owner' && ownerUid === decoded.uid;
     const canManageCash = isOwner || member.role === 'manager' ||
       (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
     const canViewCash = isOwner || member.role === 'manager' ||
@@ -1488,6 +1508,7 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
     const [restaurantSnap, membershipSnap] = await Promise.all([restaurantRef.get(), membershipRef.get()]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = membershipSnap.exists ? membershipSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(adminDb, slug, undefined, restaurant);
 
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt ||
         !member || member.active !== true || member.restaurantSlug !== slug ||
@@ -1495,7 +1516,7 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
       return { statusCode: 403, body: { success: false, error: 'Compte inactif ou accès à ce restaurant refusé.' } };
     }
 
-    const isOwner = member.role === 'owner' && restaurant.ownerUid === decoded.uid;
+    const isOwner = member.role === 'owner' && ownerUid === decoded.uid;
     const canUsePos = isOwner || (
       ['manager', 'cashier', 'server'].includes(member.role) &&
       Array.isArray(member.permissions) && member.permissions.includes('pos.access')
@@ -1532,15 +1553,93 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
   }
 }
 
+function resolveOrderClientIp(req: any): string {
+  const headers = req?.headers || {};
+  // Trust Vercel's platform-injected client address only on Vercel. On other
+  // hosts, never trust caller-controlled forwarding headers for abuse controls.
+  const vercelAddress = process.env.VERCEL === '1' ? headers['x-vercel-forwarded-for'] : null;
+  const raw = vercelAddress || req?.ip || req?.socket?.remoteAddress || '';
+  const value = Array.isArray(raw) ? raw[0] : String(raw);
+  return value.split(',')[0].trim().slice(0, 100);
+}
+
 export async function handleOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb) {
-    return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible : Firebase Admin non configuré.' } };
+    return { statusCode: 503, body: { success: false, error: 'Service de commande temporairement indisponible.' } };
   }
   if (!req || !requestHasValidOrigin(req)) {
     return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
   }
   try {
     const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
+    if (input.orderMode === 'a_emporter') {
+      const restaurantSlug = String(input.restaurantSlug || '').trim();
+      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
+        return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+      }
+      // Production must never silently accept public takeaway orders without App Check.
+      // Keep previews usable for controlled tests, but fail closed in production until the
+      // browser site key and server enforcement flag are both configured.
+      if (isProd && process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS !== 'true') {
+        return { statusCode: 503, body: { success: false, error: 'Protection App Check non activée. Commande temporairement indisponible.' } };
+      }
+      if (process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS === 'true') {
+        const appCheckToken = String(req.headers?.['x-firebase-appcheck'] || '');
+        if (!adminAppCheck || !appCheckToken) {
+          return { statusCode: 401, body: { success: false, error: 'Vérification de sécurité requise pour cette commande.' } };
+        }
+        try {
+          await adminAppCheck.verifyToken(appCheckToken);
+        } catch (appCheckError: any) {
+          console.warn('[RestauMax orders] App Check rejected a public order:', appCheckError?.code || 'invalid-token');
+          return { statusCode: 401, body: { success: false, error: 'Vérification de sécurité invalide. Actualisez la page et réessayez.' } };
+        }
+      }
+      const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
+      const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+      if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
+        return { statusCode: 404, body: { success: false, error: 'Restaurant indisponible.' } };
+      }
+      if (restaurant.isOpen !== true) {
+        return { statusCode: 409, body: { success: false, error: 'Service fermé : les commandes sont temporairement suspendues.' } };
+      }
+      const clientIp = resolveOrderClientIp(req);
+      const rateLimitSecret = String(process.env.ORDER_RATE_LIMIT_SECRET || '');
+      if (!clientIp || rateLimitSecret.length < 32) {
+        return { statusCode: 503, body: { success: false, error: 'Protection anti-abus momentanément indisponible. Réessayez plus tard.' } };
+      }
+      try {
+        const quota = await consumePublicOrderRateLimit(adminDb, { restaurantSlug, clientIp, secret: rateLimitSecret, maxRequests: 5, windowMs: 10 * 60 * 1000 });
+        if (!quota.allowed) {
+          return { statusCode: 429, body: { success: false, error: 'Trop de commandes depuis cet appareil. Réessayez dans quelques minutes.', retryAfterSeconds: quota.retryAfterSeconds } };
+        }
+        const rawPhoneDigits = String(input.customerPhone || '').replace(/\\D/g, '');
+        const phoneDigits = rawPhoneDigits.startsWith('00225') && rawPhoneDigits.length === 15
+          ? rawPhoneDigits.slice(5)
+          : rawPhoneDigits.startsWith('225') && rawPhoneDigits.length === 13
+            ? rawPhoneDigits.slice(3)
+            : rawPhoneDigits;
+        if (phoneDigits) {
+          if (phoneDigits.length < 8 || phoneDigits.length > 15) {
+            return { statusCode: 400, body: { success: false, error: 'Numéro de téléphone invalide.' } };
+          }
+          const phoneQuota = await consumePublicOrderRateLimit(adminDb, {
+            restaurantSlug,
+            clientIp: phoneDigits,
+            identityScope: 'phone',
+            secret: rateLimitSecret,
+            maxRequests: 3,
+            windowMs: 10 * 60 * 1000
+          });
+          if (!phoneQuota.allowed) {
+            return { statusCode: 429, body: { success: false, error: 'Trop de commandes associées à ce numéro. Réessayez dans quelques minutes.', retryAfterSeconds: phoneQuota.retryAfterSeconds } };
+          }
+        }
+      } catch (rateLimitError: any) {
+        console.error('[RestauMax order rate limit] Failed:', rateLimitError?.message || String(rateLimitError));
+        return { statusCode: 503, body: { success: false, error: 'Protection anti-abus indisponible. Commande non enregistrée.' } };
+      }
+    }
     if (input.orderMode === 'sur_place') {
       const sessionSecret = readCookie(req.headers?.cookie, tableSessionCookieName);
       const csrfCookie = readCookie(req.headers?.cookie, tableCsrfCookieName);
@@ -1602,7 +1701,7 @@ export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<
 export async function handleRestaurantReportsRequest(req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de rapports indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
-  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  if (!req) return { statusCode: 400, body: { success: false, error: 'Requête invalide.' } };
   try {
     const authorization = String(req.headers?.authorization || '');
     const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
@@ -1616,12 +1715,13 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     ]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(adminDb, restaurantSlug, undefined, restaurant);
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
         !member || member.active !== true || member.restaurantSlug !== restaurantSlug ||
         Number(member.sessionVersion || 0) !== Number(decoded.sessionVersion || 0)) {
       return { statusCode: 403, body: { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' } };
     }
-    const isOwner = member.role === 'owner' && restaurant.ownerUid === decoded.uid;
+    const isOwner = member.role === 'owner' && ownerUid === decoded.uid;
     const permissions = Array.isArray(member.permissions) ? member.permissions : [];
     const canViewReports = isOwner || permissions.includes('reports.view');
     if (!canViewReports) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les rapports.' } };
@@ -1663,7 +1763,7 @@ export async function handleInventoryRequest(payload: unknown, req?: any): Promi
 }
 
 export async function handleOrderStatusRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
-  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible : Firebase Admin non configuré.' } };
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service RestauMax temporairement indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
   if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
   try {
@@ -1872,6 +1972,7 @@ app.all('/api/tables/qr', async (req, res) => {
 
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
+  if (!adminDb) return res.status(503).json({ status: 'unavailable' });
   return res.status(200).json(getServerHealth());
 });
 

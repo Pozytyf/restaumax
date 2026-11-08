@@ -47,30 +47,10 @@ export default async function handler(req: any, res: any) {
 
   if (route.id === 'health') {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    const health = getServerHealth();
-    if (!health.hasAdminDb) return res.status(503).json(health);
-
-    // Optional, strictly read-only connectivity probe. listCollections() reaches
-    // the configured Firestore database without reading or changing business documents.
-    if (String(req.query?.firestore || '') === '1') {
-      try {
-        const collections = await adminDb.listCollections();
-        return res.status(200).json({
-          ...health,
-          firestoreReadOk: true,
-          firestoreCollectionCount: collections.length
-        });
-      } catch (error: any) {
-        console.error('[RestauMax Health] Firestore read probe failed:', String(error?.code || error?.message || 'unknown'));
-        return res.status(503).json({
-          ...health,
-          firestoreReadOk: false,
-          error: 'Connexion Firestore indisponible.'
-        });
-      }
-    }
-
-    return res.status(200).json(health);
+    if (!adminDb) return res.status(503).json({ status: 'unavailable' });
+    // Public health exposes only service availability and a timestamp. Infrastructure
+    // identifiers and Firestore collection metadata are never returned anonymously.
+    return res.status(200).json(getServerHealth());
   }
 
   if (route.id === 'platform-admin') {

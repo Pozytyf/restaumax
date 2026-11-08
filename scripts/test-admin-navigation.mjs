@@ -14,7 +14,9 @@ assert(hub.includes('Carte bancaire non activée en V1'), 'the cash register mod
 assert(app.includes("canManageStaff={isRestaurantOwner || (authRestaurantRole === 'manager' && userPermissions.includes('staff.manage'))}"), 'authorized managers can manage subordinate staff');
 assert(!app.includes('canManageStaff={isRestaurantOwner || authIsSuperAdmin}'), 'super-admin is not granted restaurant staff operations');
 assert(firebase.includes("['owner', 'manager', 'cashier', 'server', 'kitchen'].includes(data.role)"), 'only restaurant roles may enter operational workspaces');
-assert(firebase.includes("restaurantSnap.data()?.ownerUid === user.uid"), 'owner workspace access is bound to the restaurant owner UID');
+assert(firebase.includes('Owner binding is enforced server-side against private/ownership metadata.'), 'owner workspace access delegates binding to private ownership metadata');
+assert(!firebase.includes("restaurantSnap.data()?.ownerUid === user.uid"), 'client workspace does not trust public owner identity fields');
+assert(firestoreRules.includes('function isBoundRestaurantOwner'), 'Firestore rules bind owner access to the private ownership record');
 assert(firebase.includes("restaurantSnap.data()?.deletedAt"), 'logically deleted restaurants cannot authenticate operational staff');
 assert(app.includes("token.claims.role === 'super_admin' || token.claims.role === 'admin'\n          ? []"), 'super-admin receives no restaurant operational permissions in the login flow');
 assert(app.includes("const canViewTables = !!authUser && (\n      isRestaurantOwner || userPermissions.includes('tables.view')"), 'table subscriptions require an explicit tables.view permission');
