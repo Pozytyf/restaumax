@@ -8,6 +8,7 @@ export const RESTAUMAX_API_ROUTES = [
   { id: 'platform-admin', path: 'platform-admin', methods: ['GET', 'POST'] },
   { id: 'pos-orders', path: 'pos-orders', methods: ['POST'] },
   { id: 'reports', path: 'reports', methods: ['GET'] },
+  { id: 'restaurant-service', path: 'restaurant-service', methods: ['POST'] },
   { id: 'table-session', path: 'table-session', methods: ['GET'] },
   { id: 'customer-paydunya', path: 'payments/customer-paydunya', methods: ['POST'] },
   { id: 'customer-paydunya-reconcile', path: 'payments/customer-paydunya-reconcile', methods: ['POST'] },
