@@ -225,10 +225,12 @@ async function run() {
   } catch {}
   assert(explicitRotatedKeyAccepted, 'Une clé QR V2 explicitement configurée est acceptée');
   // Restore a clean QR for the remaining lifecycle assertions.
-  const activeTokensAfterRotation = await db.collection('restaurants').doc('chez-awa').collection('table_qr_tokens').where('tableId', '==', 'table-4').get();
-  for (const doc of activeTokensAfterRotation.docs) {
-    if (doc.data()?.status === 'active') await doc.ref.update({ status: 'revoked' });
+  for (const storedPath of [...db.store.keys()]) {
+    if (storedPath.startsWith('restaurants/chez-awa/table_qr_tokens/')) db.store.delete(storedPath);
   }
+  db.store.set('restaurants/chez-awa/tables/table-4', {
+    ...db.store.get('restaurants/chez-awa/tables/table-4'), qrVersion: 0
+  });
   const issued = await issueTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   const token = issued.url.split('/q/')[1];
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), isOpen: false });
