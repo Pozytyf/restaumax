@@ -29,6 +29,6 @@ assert(!server.includes('handleMenuImageUploadRequest') && !server.includes('adm
 assert(!adminConfig.includes('FIREBASE_STORAGE_BUCKET') && !adminConfig.includes('storageBucket'), 'Firebase Admin configuration does not require a Storage bucket');
 assert(!api.includes('menu-image') && !routeMap.includes('menu-image') && !vercel.includes('/api/menu-image'), 'Photo upload route is removed from the central API router and Vercel rewrites');
 assert(!fs.existsSync(new URL('../api/menu-image.ts', import.meta.url)), 'The project retains a single Vercel function entry point');
-assert(firebase.includes("fetch('/api/menu-image'"), 'Client photo upload calls the central API route');
+assert(!firebase.includes("fetch('/api/menu-image'") && !firebase.includes('uploadMenuImageWithServerValidation'), 'Client photo upload API is absent while Firebase Storage is disabled');
 assert(rules.includes("'lowStockThreshold'") && rules.includes("'allergens'") && rules.includes("'translations'"), 'Firestore menu rules validate and allow the new public metadata');
 console.log('Menu feature and photo-upload security checks passed.');
