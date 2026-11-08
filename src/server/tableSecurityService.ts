@@ -93,7 +93,7 @@ export function isTrustedQrNavigation(req: any): boolean {
   // Permit only a top-level document navigation with no external Referer.
   // This endpoint is GET-only; every state-changing API keeps strict Origin+CSRF.
   if (fetchSite === 'cross-site' || fetchSite === 'same-site') {
-    return !referer;
+    return fetchDest === 'document' && !referer;
   }
   if (fetchSite && !['same-origin', 'none'].includes(fetchSite)) return false;
 
