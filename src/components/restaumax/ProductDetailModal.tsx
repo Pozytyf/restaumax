@@ -244,6 +244,15 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             </p>
           </div>
 
+          {(item.allergens?.length || item.spiceLevel || item.pairings?.length) ? (
+            <section className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              {item.allergens?.length ? <div className="text-xs text-rose-800"><strong>Allergènes :</strong> {item.allergens.join(", ")}</div> : null}
+              {item.spiceLevel ? <div className="text-xs font-semibold text-orange-800"><strong>Niveau de piquant :</strong> {"🌶️".repeat(item.spiceLevel)}</div> : null}
+              {item.pairings?.length ? <div className="text-xs text-slate-700"><strong>Suggestions d’accompagnement :</strong> {item.pairings.join(", ")}</div> : null}
+              {item.allergens?.length ? <p className="text-[10px] text-slate-500">En cas d’allergie, contactez le restaurant pour confirmer les ingrédients et les risques de contamination croisée.</p> : null}
+            </section>
+          ) : null}
+
           {/* Availability Alert if dish became unavailable */}
           {!isAvailable && (
             <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2.5">
