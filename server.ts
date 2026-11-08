@@ -44,6 +44,7 @@ import { getRestaurantFinancialReportWithDb } from './src/server/reportService.j
 import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
+import { consumePublicOrderRateLimit } from './src/server/orderRateLimit.ts';
 import { getRestaurantOwnerUid } from './src/server/restaurantOwnership.ts';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
 import { 
@@ -568,7 +569,8 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
 
     // Revalidate every menu item inside the same transaction as the order write.
     // This prevents cross-tenant menu references, stale prices, and overselling stock.
-    const stockUpdates: Array<{ ref: any; itemId: string; before: number; after: number; quantity: number; name: string }> = [];
+    // Validate stock at submission, but do not consume it while an anonymous order
+    // is still pending. Consumption happens atomically when staff starts preparation.
     for (const [itemId, quantity] of menuItemQuantities.entries()) {
       const itemSnap = menuItemSnapshots.get(itemId);
       const itemData = itemSnap?.exists ? itemSnap.data() : null;
@@ -578,54 +580,38 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
           Number(itemData.price) !== Number(orderLine.basePrice)) {
         return { success: false, error: 'Commande refusée : un article suivi en stock a changé, est indisponible ou ne correspond pas à ce restaurant. Actualisez le menu.' };
       }
-      {
-        const before = Number(itemData.stockQuantity);
-        if (!Number.isInteger(before) || before < quantity) {
-          return { success: false, error: `Stock insuffisant pour « ${String(itemData.name || itemId)} » : ${Number.isInteger(before) ? before : 0} unité(s) disponible(s).` };
-        }
-        stockUpdates.push({
-          ref: restaurantRef.collection('menuItems').doc(itemId),
-          itemId,
-          before,
-          after: before - quantity,
-          quantity,
-          name: String(itemData.name || itemId)
-        });
+      const remaining = Number(itemData.stockQuantity);
+      if (!Number.isInteger(remaining) || remaining < quantity) {
+        return { success: false, error: 'Stock insuffisant pour un ou plusieurs articles. Actualisez le menu ou contactez le restaurant.' };
       }
-    }
-    for (const update of stockUpdates) {
-      const now = Date.now();
-      t.update(update.ref, {
-        stockQuantity: update.after,
-        stockUpdatedAt: now
-      });
-      const movementId = `order_${orderId}_${update.itemId}`;
-      t.set(restaurantRef.collection('menuStockMovements').doc(movementId), {
-        id: movementId,
-        restaurantSlug,
-        menuItemId: update.itemId,
-        itemName: update.name,
-        orderId,
-        quantityBefore: update.before,
-        delta: -update.quantity,
-        quantityAfter: update.after,
-        createdAt: now,
-        reason: 'Commande client'
-      });
     }
 
     // CREATE_NOMINAL : Première soumission nominale ou reprise après échec.
     // Persist only the non-secret QR session binding so later customer payments
     // can prove that the order originated from this exact table session.
-    const orderToStore = tableSession ? {
-      ...orderToCreate,
-      tableSession: {
-        sessionHash: tableSession.sessionHash,
-        qrTokenHash: tableSession.qrTokenHash,
-        qrVersion: Number(tableSession.qrVersion),
-        tableId: tableSession.tableId
-      }
-    } : orderToCreate;
+    const orderDateKey = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const orderCounterRef = restaurantRef.collection('orderCounters').doc(orderDateKey);
+    const counterSnap = await t.get(orderCounterRef);
+    const previousSequence = Number(counterSnap.exists ? counterSnap.data()?.lastSequence : 0);
+    if (!Number.isSafeInteger(previousSequence) || previousSequence < 0 || previousSequence >= Number.MAX_SAFE_INTEGER) {
+      return { success: false, error: 'Compteur de tickets indisponible. Commande non enregistrée.' };
+    }
+    const nextSequence = previousSequence + 1;
+    const orderNumber = `#CMD-${orderDateKey}-${String(nextSequence).padStart(4, '0')}`;
+    const orderToStore = {
+      ...(tableSession ? {
+        ...orderToCreate,
+        tableSession: {
+          sessionHash: tableSession.sessionHash,
+          qrTokenHash: tableSession.qrTokenHash,
+          qrVersion: Number(tableSession.qrVersion),
+          tableId: tableSession.tableId
+        }
+      } : orderToCreate),
+      orderNumber,
+      menuStockDeferred: true
+    };
+    t.set(orderCounterRef, { dateKey: orderDateKey, lastSequence: nextSequence, updatedAt: Date.now() }, { merge: true });
     t.set(docRefOrder, orderToStore);
     t.set(docRefKey, {
       id: keyDocId,
@@ -640,7 +626,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
 
     return {
       success: true,
-      order: orderToCreate,
+      order: orderToStore,
       idempotentReplay: false
     };
   });
@@ -884,13 +870,7 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
 
 // Shared handlers used by both the local Express server and Vercel serverless routes.
 export function getServerHealth() {
-  return {
-    status: 'ok',
-    hasAdminDb: Boolean(adminDb),
-    projectId: appletConfig?.projectId || null,
-    databaseId: appletConfig?.firestoreDatabaseId || null,
-    serverTime: Date.now()
-  };
+  return { status: 'ok', serverTime: Date.now() };
 }
 
 export async function handleResolveTableQr(token: string, req?: any): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
@@ -1536,6 +1516,13 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
   }
 }
 
+function resolveOrderClientIp(req: any): string {
+  const headers = req?.headers || {};
+  const raw = headers['x-vercel-forwarded-for'] || headers['x-forwarded-for'] || headers['x-real-ip'] || req?.ip || req?.socket?.remoteAddress || '';
+  const value = Array.isArray(raw) ? raw[0] : String(raw);
+  return value.split(',')[0].trim().slice(0, 100);
+}
+
 export async function handleOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb) {
     return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible : Firebase Admin non configuré.' } };
@@ -1545,6 +1532,26 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
   }
   try {
     const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
+    if (input.orderMode === 'a_emporter') {
+      const restaurantSlug = String(input.restaurantSlug || '').trim();
+      const clientIp = resolveOrderClientIp(req);
+      const rateLimitSecret = String(process.env.ORDER_RATE_LIMIT_SECRET || process.env.CRON_SECRET || process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '');
+      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
+        return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+      }
+      if (!clientIp || rateLimitSecret.length < 32) {
+        return { statusCode: 503, body: { success: false, error: 'Protection anti-abus momentanément indisponible. Réessayez plus tard.' } };
+      }
+      try {
+        const quota = await consumePublicOrderRateLimit(adminDb, { restaurantSlug, clientIp, secret: rateLimitSecret, maxRequests: 5, windowMs: 10 * 60 * 1000 });
+        if (!quota.allowed) {
+          return { statusCode: 429, body: { success: false, error: 'Trop de commandes depuis cet appareil. Réessayez dans quelques minutes.', retryAfterSeconds: quota.retryAfterSeconds } };
+        }
+      } catch (rateLimitError: any) {
+        console.error('[RestauMax order rate limit] Failed:', rateLimitError?.message || String(rateLimitError));
+        return { statusCode: 503, body: { success: false, error: 'Protection anti-abus indisponible. Commande non enregistrée.' } };
+      }
+    }
     if (input.orderMode === 'sur_place') {
       const sessionSecret = readCookie(req.headers?.cookie, tableSessionCookieName);
       const csrfCookie = readCookie(req.headers?.cookie, tableCsrfCookieName);
@@ -1606,7 +1613,7 @@ export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<
 export async function handleRestaurantReportsRequest(req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de rapports indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
-  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  if (!req) return { statusCode: 400, body: { success: false, error: 'Requête invalide.' } };
   try {
     const authorization = String(req.headers?.authorization || '');
     const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
@@ -1877,6 +1884,7 @@ app.all('/api/tables/qr', async (req, res) => {
 
 app.get('/api/health', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
+  if (!adminDb) return res.status(503).json({ status: 'unavailable' });
   return res.status(200).json(getServerHealth());
 });
 

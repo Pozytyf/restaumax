@@ -114,7 +114,7 @@ export function deriveIdempotencyIdentifiers(restaurantSlug: string, idempotency
     namespacedKey,
     keyDocId: `idem_${hash.substring(0, 32)}`,
     orderId: `ord_${hash.substring(0, 24)}`,
-    orderNumber: `#CMD-${hash.substring(0, 6).toUpperCase()}`
+    orderNumber: `#CMD-${hash.substring(0, 12).toUpperCase()}`
   };
 }
 
@@ -241,6 +241,20 @@ export async function processOrderSubmission(
   if (!cart || !Array.isArray(cart) || cart.length === 0) {
     return { success: false, error: "Le panier est vide. Impossible de créer une commande." };
   }
+  if (cart.length > 50) {
+    return { success: false, error: 'Le panier ne peut pas dépasser 50 lignes.' };
+  }
+  let requestedUnits = 0;
+  for (const line of cart) {
+    const quantity = Number(line?.quantity);
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) {
+      return { success: false, error: 'Chaque quantité doit être un entier compris entre 1 et 50.' };
+    }
+    requestedUnits += quantity;
+    if (requestedUnits > 100) {
+      return { success: false, error: 'Une commande ne peut pas dépasser 100 unités au total.' };
+    }
+  }
 
   // 4. Validation du mode de commande
   if (orderMode !== 'sur_place' && orderMode !== 'a_emporter') {
@@ -282,10 +296,8 @@ export async function processOrderSubmission(
   try {
     catalog = await dataProvider.getMenuItems(cleanSlug);
   } catch (err: any) {
-    return { 
-      success: false, 
-      error: `Erreur serveur lors de la lecture du catalogue Firestore : ${err.message || 'Échec de connexion'}. Aucun catalogue de secours n'est autorisé.` 
-    };
+    console.error('[RestauMax orders] Menu lookup failed:', err?.message || String(err));
+    return { success: false, error: 'Impossible de vérifier le menu du restaurant. Réessayez.' };
   }
 
   if (!catalog || !Array.isArray(catalog) || catalog.length === 0) {
@@ -309,10 +321,8 @@ export async function processOrderSubmission(
     try {
       realTables = await dataProvider.getTables(cleanSlug);
     } catch (err: any) {
-      return { 
-        success: false, 
-        error: `Erreur serveur lors de la lecture des tables Firestore pour "${cleanSlug}" : ${err.message || 'Panne de connexion'}. Commande sur place refusée.` 
-      };
+      console.error('[RestauMax orders] Table lookup failed:', err?.message || String(err));
+      return { success: false, error: 'Impossible de vérifier les tables du restaurant. Réessayez.' };
     }
 
     if (!realTables || !Array.isArray(realTables) || realTables.length === 0) {
@@ -542,7 +552,8 @@ export async function processOrderSubmission(
         return { success: false, error: 'Configuration fiscale invalide : vérifiez le taux et le mode de taxe du restaurant.' };
       }
     } catch (err: any) {
-      return { success: false, error: `Impossible de vérifier la configuration fiscale du restaurant : ${err.message || 'lecture indisponible'}.` };
+      console.error('[RestauMax orders] Tax configuration lookup failed:', err?.message || String(err));
+      return { success: false, error: 'Impossible de vérifier la configuration fiscale du restaurant. Réessayez.' };
     }
   }
   const taxBreakdown = calculateOrderTax(grandTotal, taxRatePercent, taxMode);
@@ -599,10 +610,8 @@ export async function processOrderSubmission(
       });
       return txResult;
     } catch (err: any) {
-      return {
-        success: false,
-        error: `Erreur de transaction Firestore lors de l'enregistrement de la commande : ${err.message || String(err)}`
-      };
+      console.error('[RestauMax orders] Order transaction failed:', err?.message || String(err));
+      return { success: false, error: 'Impossible d’enregistrer la commande pour le moment. Réessayez.' };
     }
   }
 
@@ -626,10 +635,8 @@ export async function processOrderSubmission(
     try {
       reservation = await dataProvider.reserveIdempotencyKey(cleanKey, currentSignature);
     } catch (err: any) {
-      return {
-        success: false,
-        error: `Échec du registre persistant d'idempotence : ${err.message || 'Erreur registre'}. Traitement interrompu pour prévenir tout doublon.`
-      };
+      console.error('[RestauMax orders] Idempotency registry failed:', err?.message || String(err));
+      return { success: false, error: 'Vérification anti-doublon indisponible. Commande non enregistrée.' };
     }
 
     if (reservation.status === 'conflict') {
@@ -646,7 +653,8 @@ export async function processOrderSubmission(
         if (probe.status === 'found') {
           return { success: true, order: probe.order, idempotentReplay: true };
         } else if (probe.status === 'error') {
-          return { success: false, error: `Impossible de vérifier l'état persistant de la commande (${probe.error}).` };
+          console.error('[RestauMax orders] Idempotency probe failed:', probe.error);
+          return { success: false, error: 'Impossible de vérifier l’état de la commande. Réessayez.' };
         } else {
           return { success: false, error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable dans Firestore." };
         }

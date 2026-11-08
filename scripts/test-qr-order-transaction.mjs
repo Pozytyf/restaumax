@@ -111,16 +111,21 @@ async function run() {
     const trackedOrder = await executeOrderTransactionWithDb(db, trackedOrderParams);
     assert(trackedOrder.success === true, 'Une commande suivie en stock est enregistrée lorsque la quantité est suffisante');
     let menuStock = (await menuItemRef.get()).data();
-    assert(menuStock.stockQuantity === 1, 'La quantité vendable est décrémentée atomiquement après la commande');
+    assert(menuStock.stockQuantity === 2, 'Une commande en attente ne consomme pas encore le stock vendable');
+    assert(trackedOrder.order.menuStockDeferred === true, 'La commande porte explicitement le marqueur de consommation différée');
     const stockAudit = await restaurantRef.collection('menuStockMovements').where('orderId', '==', trackedOrder.order.id).get();
-    assert(stockAudit.size === 1 && stockAudit.docs[0].data().delta === -1,
-      'Chaque consommation de quantité du menu produit une trace d’audit');
+    assert(stockAudit.size === 0, 'Aucun mouvement de consommation n’est créé avant acceptation par le personnel');
     await executeOrderTransactionWithDb(db, trackedOrderParams);
     menuStock = (await menuItemRef.get()).data();
-    assert(menuStock.stockQuantity === 1, 'Le rejeu idempotent ne décrémente jamais le stock une seconde fois');
-    const oversell = await executeOrderTransactionWithDb(db, buildParams('tracked-menu-oversell-' + Date.now(), 'sur_place', 2, true));
-    assert(oversell.success === false && (await menuItemRef.get()).data().stockQuantity === 1,
-      'Une commande qui dépasse le stock restant est refusée sans modifier la quantité');
+    assert(menuStock.stockQuantity === 2, 'Le rejeu idempotent ne consomme pas le stock');
+    const tooMany = await executeOrderTransactionWithDb(db, buildParams('tracked-menu-oversell-' + Date.now(), 'sur_place', 3, true));
+    assert(tooMany.success === false && (await menuItemRef.get()).data().stockQuantity === 2,
+      'Une commande qui dépasse le stock disponible est refusée sans modifier la quantité');
+    const secondTrackedOrder = await executeOrderTransactionWithDb(db, buildParams('tracked-menu-second-' + Date.now(), 'sur_place', 1, true));
+    assert(secondTrackedOrder.success === true && secondTrackedOrder.order.orderNumber !== trackedOrder.order.orderNumber,
+      'Chaque nouveau ticket reçoit un numéro séquentiel unique par restaurant et par jour');
+    assert(/^#CMD-\\d{8}-\\d{4,}$/.test(trackedOrder.order.orderNumber),
+      'Le numéro de ticket contient la date et un compteur séquentiel lisible');
 
     assert(valid.success === true, 'Une session QR valide autorise la commande sur place dans la transaction');
 
