@@ -235,6 +235,9 @@ async function run() {
   try { await getActiveTableQr(db, 'restaurant-b', 'table-4', 'https://restaumax.example'); }
   catch { crossTenantCiphertextRejected = true; }
   assert(crossTenantCiphertextRejected, 'L’AES-GCM AAD lie le jeton QR au restaurant et à la table d’origine');
+  db.store.delete('restaurants/restaurant-b/table_qr_tokens/' + tokenHash);
+  db.store.delete('restaurants/restaurant-b/tables/table-4');
+  db.store.delete('restaurants/restaurant-b');
   const restoredQr = await getActiveTableQr(db, 'chez-awa', 'table-4', 'https://restaumax.example');
   assert(restoredQr?.url === issued.url && restoredQr.token === token,
     'URL QR identique restaurée après rechargement sans rotation ni changement du jeton');
