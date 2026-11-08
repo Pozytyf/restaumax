@@ -21,9 +21,9 @@ function collectApiFiles(directory, prefix = '') {
 collectApiFiles(apiRoot);
 assert.deepEqual(apiFiles.sort(), ['index.ts'], 'Hobby doit compiler un seul point d’entrée de fonction Vercel.');
 
-assert.equal(RESTAUMAX_API_ROUTES.length, 17, 'Les 17 anciens points d’entrée doivent être conservés.');
-assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.path)).size, 17, 'Chaque chemin doit être unique.');
-assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.id)).size, 17, 'Chaque identifiant doit être unique.');
+assert.equal(RESTAUMAX_API_ROUTES.length, 18, 'Les 17 points d’entrée existants et le nouveau point service doivent être conservés.');
+assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.path)).size, 18, 'Chaque chemin doit être unique.');
+assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.id)).size, 18, 'Chaque identifiant doit être unique.');
 
 const expectedMethods = {
   health: ['GET'],
@@ -35,6 +35,7 @@ const expectedMethods = {
   'platform-admin': ['GET', 'POST'],
   'pos-orders': ['POST'],
   reports: ['GET'],
+  'restaurant-service': ['POST'],
   'table-session': ['GET'],
   'customer-paydunya': ['POST'],
   'customer-paydunya-reconcile': ['POST'],
@@ -98,4 +99,4 @@ assert.equal(resolveRestauMaxApiRoute(['orders']), null);
 assert.equal(resolveRestauMaxApiRoute('unknown'), null);
 assert.equal(resolveRestauMaxApiRoute('../server.ts'), null);
 
-console.log('PASS: 1 fonction Vercel, 17 routes conservées, réécritures et méthodes HTTP vérifiées.');
+console.log('PASS: 1 fonction Vercel, 18 routes conservées, réécritures et méthodes HTTP vérifiées.');
