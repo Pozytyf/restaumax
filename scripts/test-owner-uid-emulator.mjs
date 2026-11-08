@@ -33,7 +33,7 @@ try {
   await assertSucceeds(getDoc(doc(ownerA, 'restaurants/rest-a')));
   await assertFails(getDoc(doc(ownerA, 'restaurants/rest-a/private/ownership')));
   await assertFails(updateDoc(doc(ownerA, 'restaurants/rest-a'), { ownerEmail: 'leak@example.test' }));
-  await assertFails(getDoc(doc(ownerB, 'restaurants/rest-a')));
+  await assertSucceeds(getDoc(doc(ownerB, 'restaurants/rest-a'))); // Restaurant profile is public; ownership metadata remains private.
   await assertSucceeds(updateDoc(doc(ownerA, 'restaurants/rest-a'), { name: 'Restaurant A modifié' }));
   await assertSucceeds(updateDoc(doc(ownerA, 'restaurants/rest-a'), {
     taxRatePercent: 18, taxMode: 'inclusive', loyaltyFcfaPerPoint: 500, receiptPaperWidth: '58mm'
