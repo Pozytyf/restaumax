@@ -1536,7 +1536,10 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
 
 function resolveOrderClientIp(req: any): string {
   const headers = req?.headers || {};
-  const raw = headers['x-vercel-forwarded-for'] || headers['x-forwarded-for'] || headers['x-real-ip'] || req?.ip || req?.socket?.remoteAddress || '';
+  // Trust Vercel's platform-injected client address only on Vercel. On other
+  // hosts, never trust caller-controlled forwarding headers for abuse controls.
+  const vercelAddress = process.env.VERCEL === '1' ? headers['x-vercel-forwarded-for'] : null;
+  const raw = vercelAddress || req?.ip || req?.socket?.remoteAddress || '';
   const value = Array.isArray(raw) ? raw[0] : String(raw);
   return value.split(',')[0].trim().slice(0, 100);
 }
@@ -1582,8 +1585,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
         return { statusCode: 409, body: { success: false, error: 'Service fermé : les commandes sont temporairement suspendues.' } };
       }
       const clientIp = resolveOrderClientIp(req);
-      const qrKeyVersion = Number(process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION || 1);
-      const rateLimitSecret = String(process.env.ORDER_RATE_LIMIT_SECRET || process.env.CRON_SECRET || process.env[`TABLE_QR_TOKEN_ENCRYPTION_KEY_V${qrKeyVersion}`] || process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '');
+      const rateLimitSecret = String(process.env.ORDER_RATE_LIMIT_SECRET || '');
       if (!clientIp || rateLimitSecret.length < 32) {
         return { statusCode: 503, body: { success: false, error: 'Protection anti-abus momentanément indisponible. Réessayez plus tard.' } };
       }
