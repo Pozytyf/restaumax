@@ -24,7 +24,8 @@ import {
   Info,
   Edit3,
   Plus,
-  Trash2
+  Trash2,
+  Package
 } from 'lucide-react';
 
 export interface MenuManagementViewProps {
@@ -477,6 +478,12 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                           <Clock size={11} className="text-slate-400" />
                           <span>~{item.prepTimeMinutes} min</span>
                         </span>
+                        {item.trackStock === true && (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${(item.stockQuantity || 0) > 0 ? 'bg-blue-50 text-blue-700' : 'bg-rose-50 text-rose-700'}`}>
+                            <Package size={11} />
+                            {item.stockQuantity || 0} en stock
+                          </span>
+                        )}
 
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-semibold">
                           <SlidersHorizontal size={11} className="text-slate-400" />
