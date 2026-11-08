@@ -4,6 +4,7 @@ export interface PublicOrderRateLimitInput {
   restaurantSlug: string;
   clientIp: string;
   secret: string;
+  identityScope?: 'ip' | 'phone';
   now?: number;
   windowMs?: number;
   maxRequests?: number;
@@ -22,6 +23,7 @@ export interface PublicOrderRateLimitResult {
 export async function consumePublicOrderRateLimit(db: any, input: PublicOrderRateLimitInput): Promise<PublicOrderRateLimitResult> {
   const slug = String(input.restaurantSlug || '').trim();
   const ip = String(input.clientIp || '').trim();
+  const identityScope = input.identityScope === 'phone' ? 'phone' : 'ip';
   const secret = String(input.secret || '');
   const now = Number(input.now ?? Date.now());
   const windowMs = Number(input.windowMs ?? 10 * 60 * 1000);
@@ -34,7 +36,9 @@ export async function consumePublicOrderRateLimit(db: any, input: PublicOrderRat
   }
 
   const digest = createHmac('sha256', secret)
-    .update('restaumax:public-order-rate-limit:v1:')
+    .update('restaumax:public-order-rate-limit:v2:')
+    .update(identityScope)
+    .update(':')
     .update(slug)
     .update(':')
     .update(ip)
