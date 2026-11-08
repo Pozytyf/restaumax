@@ -220,7 +220,7 @@ export function subscribeToMenuItems(
 ) {
   const path = `restaurants/${slug}/menuItems`;
   const itemsRef = collection(db, 'restaurants', slug, 'menuItems');
-  const q = query(itemsRef);
+  const q = query(itemsRef, where('restaurantSlug', '==', slug));
 
   return onSnapshot(
     q,
