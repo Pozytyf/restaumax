@@ -107,9 +107,15 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
 }
 
 function isSuperAdmin(user: DecodedIdToken) {
-  return user.email_verified === true &&
+  const verifiedAllowlistedEmail = user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase());
+  if (!verifiedAllowlistedEmail) return false;
+  if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true') {
+    const secondFactor = (user as any).firebase?.sign_in_second_factor;
+    return typeof secondFactor === 'string' && secondFactor.length > 0;
+  }
+  return true;
 }
 
 export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole: string): boolean {
