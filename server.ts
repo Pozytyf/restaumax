@@ -87,7 +87,8 @@ const isProd = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
-app.use(express.json({ limit: '4.5mb' }));
+app.use('/api/menu-image', express.json({ limit: '4.5mb' }));
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
 // 1. Initialisation stricte de Firebase Admin SDK
