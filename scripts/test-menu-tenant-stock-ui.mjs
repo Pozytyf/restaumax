@@ -35,9 +35,10 @@ assert(orderService.includes('catalogItem.restaurantSlug !== cleanSlug'),
   'Order submission requires an exact menu-to-restaurant slug match');
 assert(orderService.includes('catalogItem.trackStock === true'),
   'Order validation enforces configured menu quantities');
-assert(server.includes('stockQuantity: update.after') &&
-  server.includes('menuStockMovements'),
-  'Order creation atomically decrements menu quantities and records an audit movement');
+assert(server.includes('menuStockDeferred: true') && !server.includes('stockQuantity: update.after') &&
+  lifecycle.includes('shouldConsumeMenuStock') && lifecycle.includes('menuStockConsumptions') &&
+  lifecycle.includes('Consommation à la mise en préparation'),
+  'Tracked menu quantities are consumed and audited only when staff starts preparation');
 assert(lifecycle.includes('menuStockRestorations') &&
   lifecycle.includes('Restauration après annulation'),
   'Order cancellation restores tracked menu quantities exactly once');
