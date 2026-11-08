@@ -1555,6 +1555,12 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
         return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
       }
+      // Production must never silently accept public takeaway orders without App Check.
+      // Keep previews usable for controlled tests, but fail closed in production until the
+      // browser site key and server enforcement flag are both configured.
+      if (isProd && process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS !== 'true') {
+        return { statusCode: 503, body: { success: false, error: 'Protection App Check non activée. Commande temporairement indisponible.' } };
+      }
       if (process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS === 'true') {
         const appCheckToken = String(req.headers?.['x-firebase-appcheck'] || '');
         if (!adminAppCheck || !appCheckToken) {
