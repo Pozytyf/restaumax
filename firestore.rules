@@ -222,10 +222,10 @@ service cloud.firestore {
           resource == null ||
           (
             resource.data.get('status', 'active') == 'active' &&
-            !resource.data.keys().hasAny(['deletedAt'])
+            !resource.data.keys().hasAny(['deletedAt']) &&
+            isPublicRestaurant(resource.data)
           )
-        ) &&
-        true;
+        );
       allow list: if false;
       allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming()) && isPublicRestaurant(incoming());
       allow update: if hasRestaurantPermission(restaurantSlug, 'settings.manage') &&
