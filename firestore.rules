@@ -291,6 +291,13 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      // Menu stock movements are an immutable audit trail for sellable portions.
+      match /menuStockMovements/{movementId} {
+        allow get, list: if (hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage')) &&
+          resource.data.get('restaurantSlug', '') == restaurantSlug;
+        allow create, update, delete: if false;
+      }
+
       // Orders subcollection
       // Create: STRICTLY FORBIDDEN from client SDK (must go through trusted server backend /api/orders)
       // Direct reads are denied: customer confirmation is returned by POST /api/orders.
