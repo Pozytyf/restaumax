@@ -408,11 +408,13 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
     }
     let staffMemberIndex = -1;
     let staffTableIndex = -1;
+    let tableSessionReadStart = -1;
     if (isTrustedStaffOrder) {
       staffMemberIndex = reads.length;
       reads.push(t.get(db.collection('managers').doc(staffActorUid)));
     }
     if (tableSession) {
+      tableSessionReadStart = reads.length;
       reads.push(
         t.get(restaurantRef.collection('table_sessions').doc(tableSession.sessionHash)),
         t.get(restaurantRef.collection('table_qr_tokens').doc(tableSession.qrTokenHash)),
@@ -457,9 +459,9 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
     }
 
     if (tableSession) {
-      const snapSession = snapshots[3];
-      const snapQr = snapshots[4];
-      const snapTable = snapshots[5];
+      const snapSession = snapshots[tableSessionReadStart];
+      const snapQr = snapshots[tableSessionReadStart + 1];
+      const snapTable = snapshots[tableSessionReadStart + 2];
       const sessionData = snapSession.exists ? snapSession.data() : null;
       const qrData = snapQr.exists ? snapQr.data() : null;
       const tableData = snapTable.exists ? snapTable.data() : null;
