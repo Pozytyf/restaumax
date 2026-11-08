@@ -16,7 +16,7 @@ const credentials = {
   privateKey: 'merchant-private-key-test',
   token: 'merchant-token-test'
 };
-const encrypted = encryptRestaurantPayDunyaCredentials(credentials, env);
+const encrypted = encryptRestaurantPayDunyaCredentials(credentials, env, 'alpha');
 
 // Exercise the same persistence path used by POST /api/payments. Credentials
 // must survive a fresh read, remain encrypted at rest, and stay tenant-isolated.
@@ -54,11 +54,27 @@ if (persistedBeta.success) assert.notEqual(persistedBeta.data.masterKey, credent
 
 assert.equal(encrypted.algorithm, 'aes-256-gcm');
 assert.equal(JSON.stringify(encrypted).includes(credentials.masterKey), false);
-assert.deepEqual(decryptRestaurantPayDunyaCredentials(encrypted, env), credentials);
+assert.deepEqual(decryptRestaurantPayDunyaCredentials(encrypted, env, 'alpha'), credentials);
+assert.equal(encrypted.version, 2);
+assert.equal(encrypted.keyVersion, 1);
+assert.throws(() => decryptRestaurantPayDunyaCredentials(encrypted, env, 'beta'),
+  'PayDunya credentials cannot be decrypted under another restaurant AAD');
+const rotatedEnv = {
+  ...env,
+  PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY_VERSION: '2',
+  PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY_V2: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
+};
+const rotated = encryptRestaurantPayDunyaCredentials(credentials, rotatedEnv, 'alpha');
+assert.equal(rotated.keyVersion, 2);
+assert.deepEqual(decryptRestaurantPayDunyaCredentials(rotated, rotatedEnv, 'alpha'), credentials);
+assert.throws(() => encryptRestaurantPayDunyaCredentials(credentials, {
+  ...rotatedEnv,
+  PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY_V2: undefined
+}, 'alpha'), 'PayDunya V2 key must be explicitly configured');
 assert.throws(() => decryptRestaurantPayDunyaCredentials(encrypted, {
   ...env,
   PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY: 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
-}));
+}, 'alpha'));
 
 const docs = {
   alpha: { enabled: true, credentials: encrypted },
@@ -91,7 +107,7 @@ assert.equal(beta.success, false);
 // Existing live transactions must remain reconcilable after the merchant is
 // disabled or new live operations are globally paused. This mode is settlement-only.
 const liveCredentials = { ...credentials, mode: 'live' };
-const liveEncrypted = encryptRestaurantPayDunyaCredentials(liveCredentials, env);
+const liveEncrypted = encryptRestaurantPayDunyaCredentials(liveCredentials, env, 'live');
 docs.live = { enabled: false, credentials: liveEncrypted };
 const liveBlocked = await loadRestaurantPayDunyaConfig(db, 'live', env);
 assert.equal(liveBlocked.success, false);
