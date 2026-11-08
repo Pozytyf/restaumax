@@ -387,6 +387,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const handleSubmit = async (e: React.FormEvent | React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     if (saveInFlight.current) return;
+    if (imageUploading) { setSaveError('Attendez la fin de l’hébergement de la photo avant d’enregistrer.'); return; }
     setTouched(true);
     setSaveError(null);
 
@@ -1223,7 +1224,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               sounds.playTap();
               onClose();
             }}
-            disabled={isSaving}
+            disabled={isSaving || imageUploading}
             className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors disabled:opacity-50"
           >
             Annuler
@@ -1232,7 +1233,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isSaving}
+            disabled={isSaving || imageUploading}
             className="px-6 py-2.5 rounded-xl bg-[#ff6500] hover:bg-[#e05800] text-white text-xs font-black shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-wait"
           >
             <Check size={16} />
