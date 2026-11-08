@@ -716,13 +716,13 @@ export async function processOrderSubmission(
         } catch (markErr: any) {
           return {
             success: false,
-            error: `Traitement interrompu : échec de marquage ambigu du registre (${markErr.message}). Pour éviter tout doublon, veuillez réessayer.`
+            error: "Traitement interrompu : la commande n'a pas pu être confirmée. Réessayez avec la même clé de commande."
           };
         }
       }
       return {
         success: false,
-        error: `Statut d'écriture ambigu dans Firestore : ${writeErr.message}. Veuillez relancer avec la même clé.`
+        error: "La confirmation de la commande est momentanément indisponible. Réessayez avec la même clé de commande."
       };
     }
   }
@@ -740,7 +740,7 @@ export async function processOrderSubmission(
       }
       return {
         success: false,
-        error: `La commande a été enregistrée dans Firestore mais la confirmation d'idempotence a échoué (${commitErr.message}).`
+        error: "La commande a été enregistrée, mais sa confirmation est momentanément indisponible. Vérifiez son statut avant toute nouvelle tentative."
       };
     }
   }
