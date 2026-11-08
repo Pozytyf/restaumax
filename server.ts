@@ -1547,12 +1547,20 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
     const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
     if (input.orderMode === 'a_emporter') {
       const restaurantSlug = String(input.restaurantSlug || '').trim();
-      const clientIp = resolveOrderClientIp(req);
-      const qrKeyVersion = Number(process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION || 1);
-      const rateLimitSecret = String(process.env.ORDER_RATE_LIMIT_SECRET || process.env.CRON_SECRET || process.env[`TABLE_QR_TOKEN_ENCRYPTION_KEY_V${qrKeyVersion}`] || process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '');
       if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
         return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
       }
+      const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
+      const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+      if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
+        return { statusCode: 404, body: { success: false, error: 'Restaurant indisponible.' } };
+      }
+      if (restaurant.isOpen !== true) {
+        return { statusCode: 409, body: { success: false, error: 'Service fermé : les commandes sont temporairement suspendues.' } };
+      }
+      const clientIp = resolveOrderClientIp(req);
+      const qrKeyVersion = Number(process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION || 1);
+      const rateLimitSecret = String(process.env.ORDER_RATE_LIMIT_SECRET || process.env.CRON_SECRET || process.env[`TABLE_QR_TOKEN_ENCRYPTION_KEY_V${qrKeyVersion}`] || process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY || '');
       if (!clientIp || rateLimitSecret.length < 32) {
         return { statusCode: 503, body: { success: false, error: 'Protection anti-abus momentanément indisponible. Réessayez plus tard.' } };
       }

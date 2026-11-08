@@ -40,6 +40,8 @@ assert(orderService.includes('cart.length > 50') && orderService.includes('reque
 assert(orderService.includes('hash.substring(0, 12)'), 'fallback ticket identifiers use a longer collision-resistant suffix');
 assert(server.includes('consumePublicOrderRateLimit') && server.includes('maxRequests: 5'),
   'takeaway submissions use a persistent per-IP rate limiter');
+assert(server.includes('restaurant.isOpen !== true') && server.includes('Service fermé : les commandes sont temporairement suspendues.'),
+  'takeaway orders are rejected when the restaurant service is closed');
 assert(server.includes('orderCounters') && server.includes('lastSequence') && server.includes('padStart(4'),
   'human ticket numbers are sequential per restaurant and UTC day');
 assert(server.includes('menuStockDeferred: true') && lifecycle.includes('shouldConsumeMenuStock') &&
