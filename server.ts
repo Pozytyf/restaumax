@@ -111,7 +111,7 @@ try {
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
-    adminStorageBucket = getStorage(adminApp).bucket(appletConfig.storageBucket);
+    adminStorageBucket = appletConfig.storageBucket ? getStorage(adminApp).bucket(appletConfig.storageBucket) : null;
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé via variable sécurisée pour la base '${appletConfig.firestoreDatabaseId}'.`);
   } else if (credPath && fs.existsSync(credPath)) {
     // Local/server deployments may continue to use a credentials file.
