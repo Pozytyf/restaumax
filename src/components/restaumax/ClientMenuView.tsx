@@ -132,7 +132,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       const matchQuery = !searchQuery ||
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.translations?.[menuLanguage === 'fr' ? 'en' : menuLanguage]?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.translations?.[menuLanguage]?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.translations?.[menuLanguage === 'fr' ? 'en' : menuLanguage]?.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.tags && item.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())));
       return matchAvailable && matchCat && matchQuery;
