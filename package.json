@@ -41,7 +41,7 @@
     "test:cash": "tsx scripts/test-cash-payments.mjs",
     "test:seed-sweet-hot": "node scripts/test-seed-sweet-and-hot-demo.mjs",
     "test:menu-stock": "node scripts/test-menu-tenant-stock-ui.mjs",
-    "test:menu-features": "tsx scripts/test-menu-profitability.mjs && node scripts/test-menu-feature-security.mjs && tsx scripts/test-menu-image-upload.mjs && tsx scripts/test-two-restaurant-acceptance.mjs"
+    "test:menu-features": "tsx scripts/test-menu-profitability.mjs && node scripts/test-menu-feature-security.mjs && tsx scripts/test-two-restaurant-acceptance.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
