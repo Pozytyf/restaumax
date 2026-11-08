@@ -411,9 +411,27 @@ export async function updateRestaurantServiceStatus(
   isOpen: boolean
 ) {
   if (typeof isOpen !== 'boolean') throw new Error('État du service invalide.');
-  const decoded = await authorizeTableManager(db, auth, req, restaurantSlug);
+  const header = String(req?.headers?.authorization || '');
+  const match = header.match(/^Bearer\\s+(.+)$/i);
+  if (!match || !auth) throw new Error('Authentification gestionnaire requise.');
+  const decoded = await auth.verifyIdToken(match[1], true);
+  if (!decoded?.uid) throw new Error('Identité gestionnaire invalide.');
   const restaurantRef = db.collection('restaurants').doc(restaurantSlug);
   const managerRef = db.collection('managers').doc(decoded.uid);
+  const [initialRestaurantSnap, initialManagerSnap] = await Promise.all([restaurantRef.get(), managerRef.get()]);
+  const initialRestaurant = initialRestaurantSnap.exists ? initialRestaurantSnap.data() : null;
+  const initialManager = initialManagerSnap.exists ? initialManagerSnap.data() : null;
+  if (!initialRestaurant || initialRestaurant.status !== 'active' || initialRestaurant.deletedAt ||
+      !initialManager || initialManager.active !== true || initialManager.restaurantSlug !== restaurantSlug ||
+      Number(decoded.sessionVersion || 0) !== Number(initialManager.sessionVersion || 0)) {
+    throw new Error('Accès au restaurant révoqué ou indisponible.');
+  }
+  if (!['owner', 'manager'].includes(String(initialManager.role || ''))) {
+    throw new Error('Seul le propriétaire ou un manager peut modifier le service.');
+  }
+  if (initialManager.role === 'owner' && initialRestaurant.ownerUid !== decoded.uid) {
+    throw new Error('Le compte propriétaire ne correspond pas au propriétaire enregistré.');
+  }
   const now = Date.now();
 
   await db.runTransaction(async (tx: any) => {
@@ -430,10 +448,6 @@ export async function updateRestaurantServiceStatus(
     }
     if (manager.role === 'owner' && restaurant.ownerUid !== decoded.uid) {
       throw new Error('Seul le propriétaire enregistré peut modifier le service.');
-    }
-    if (manager.role === 'manager' &&
-        (!Array.isArray(manager.permissions) || !manager.permissions.includes('tables.manage'))) {
-      throw new Error('Permission de gestion requise.');
     }
     if (!['owner', 'manager'].includes(String(manager.role || ''))) {
       throw new Error('Seul le propriétaire ou un manager peut modifier le service.');
