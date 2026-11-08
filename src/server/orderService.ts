@@ -740,7 +740,7 @@ export async function processOrderSubmission(
       }
       return {
         success: false,
-        error: "La commande a été enregistrée dans Firestore, mais la confirmation d'idempotence a échoué. Vérifiez son statut avant toute nouvelle tentative avec la même clé."
+        error: "La commande enregistrée dans Firestore mais la confirmation d'idempotence a échoué. Vérifiez son statut avant toute nouvelle tentative avec la même clé."
       };
     }
   }
