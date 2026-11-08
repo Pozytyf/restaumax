@@ -119,7 +119,7 @@ try {
     const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
-    adminStorageBucket = getStorage(adminApp).bucket(appletConfig.storageBucket);
+    adminStorageBucket = appletConfig.storageBucket ? getStorage(adminApp).bucket(appletConfig.storageBucket) : null;
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
   } else if (process.env.FIRESTORE_EMULATOR_HOST) {
     const adminApp = initAdminApp(null as any, appletConfig.projectId);
