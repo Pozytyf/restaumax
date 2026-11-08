@@ -1658,7 +1658,7 @@ export default function App() {
             onDeleteTable={handleDeleteTable}
             onToggleServiceStatus={handleToggleRestaurantService}
             serviceStatusSaving={serviceStatusSaving}
-            canManageService={isRestaurantOwner || authRestaurantRole === 'manager'}
+            canManageService={isRestaurantOwner || (authRestaurantRole === 'manager' && userPermissions.includes('tables.manage'))}
             activeKitchenTicketsCount={activeTicketsCount}
             totalSessionSales={drawerState.totalSales}
             onNavigateHome={() => navigateTo('/')}
