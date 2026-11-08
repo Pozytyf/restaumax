@@ -131,7 +131,7 @@ export default async function handler(req: any, res: any) {
       const result = await handleSubscriptionBillingCycleRequest(req);
       return res.status(result.statusCode).json(result.body);
     }
-    case 'tables-qr': {
+    case 'restaurant-service': {\n      const result = await handleRestaurantServiceStatus(req);\n      return res.status(result.statusCode).json(result.body);\n    }\n    case 'tables-qr': {
       const result = await handleTableQrManagement(req);
       return res.status(result.statusCode).json(result.body);
     }
