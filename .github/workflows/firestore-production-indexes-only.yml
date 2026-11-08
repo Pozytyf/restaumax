@@ -1,0 +1,88 @@
+name: Publish Firestore indexes — Production only
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Saisir PUBLISH_PRODUCTION_FIRESTORE_INDEXES_ONLY pour publier les index, sans règles ni documents"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: firestore-production-indexes-only
+  cancel-in-progress: false
+
+jobs:
+  publish-indexes:
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FIREBASE_PROJECT_ID: gen-lang-client-0138815290
+      FIRESTORE_DATABASE_ID: ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf
+    steps:
+      - name: Validate immutable Production target and index-only confirmation
+        shell: bash
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$FIREBASE_PROJECT_ID" = "gen-lang-client-0138815290"
+          test "$FIRESTORE_DATABASE_ID" = "ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf"
+          test "$CONFIRMATION" = "PUBLISH_PRODUCTION_FIRESTORE_INDEXES_ONLY"
+          echo "Cible immuable : Production / base dédiée. Aucun document ni règle ne sera publié."
+
+      - name: Checkout main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Validate production config references indexes only
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const config = JSON.parse(fs.readFileSync('firebase.production.json', 'utf8'));
+          const firestore = Array.isArray(config.firestore) ? config.firestore : [config.firestore];
+          if (firestore.length !== 1) throw new Error('Production config must declare exactly one Firestore database.');
+          const target = firestore[0];
+          if (target.database !== process.env.FIRESTORE_DATABASE_ID) throw new Error('Unexpected Production database.');
+          if (target.indexes !== 'firestore.indexes.json') throw new Error('Unexpected index definition path.');
+          if (target.rules !== 'firestore.rules') throw new Error('Unexpected rules path.');
+          const indexes = JSON.parse(fs.readFileSync(target.indexes, 'utf8'));
+          const required = indexes.indexes.some(index =>
+            index.collectionGroup === 'orders' &&
+            index.queryScope === 'COLLECTION' &&
+            JSON.stringify(index.fields) === JSON.stringify([
+              { fieldPath: 'customerPhoneNormalized', order: 'ASCENDING' },
+              { fieldPath: 'status', order: 'ASCENDING' },
+            ])
+          );
+          if (!required) throw new Error('Required orders composite index is missing.');
+          console.log('Production database and required composite index validated.');
+          NODE
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+
+      - name: Authenticate to Google Cloud using GitHub OIDC
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          project_id: gen-lang-client-0138815290
+          workload_identity_provider: projects/305138716873/locations/global/workloadIdentityPools/github-restaumax-pool/providers/github-restaumax-provider
+          service_account: restaumax-firestore-deployer@gen-lang-client-0138815290.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Publish indexes only — never rules or documents
+        run: npx --yes firebase-tools@15.34.2 deploy --only firestore:indexes --config firebase.production.json --project "$FIREBASE_PROJECT_ID" --non-interactive
