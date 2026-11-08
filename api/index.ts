@@ -5,7 +5,6 @@ import {
   handleCustomerPayDunyaReconcileRequest,
   handleGetTableSession,
   handleInventoryRequest,
-  handleMenuImageUploadRequest,
   handleKitchenItemRequest,
   handleOrderStatusRequest,
   handleOrderSubmission,
@@ -80,10 +79,6 @@ export default async function handler(req: any, res: any) {
   setPrivateApiHeaders(res);
 
   switch (route.id) {
-    case 'menu-image': {
-      const result = await handleMenuImageUploadRequest(req.body, req);
-      return res.status(result.statusCode).json(result.body);
-    }
     case 'inventory': {
       const result = await handleInventoryRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);
