@@ -124,7 +124,7 @@ async function run() {
     const secondTrackedOrder = await executeOrderTransactionWithDb(db, buildParams('tracked-menu-second-' + Date.now(), 'sur_place', 1, true));
     assert(secondTrackedOrder.success === true && secondTrackedOrder.order.orderNumber !== trackedOrder.order.orderNumber,
       'Chaque nouveau ticket reçoit un numéro séquentiel unique par restaurant et par jour');
-    assert(/^#CMD-\\d{8}-\\d{4,}$/.test(trackedOrder.order.orderNumber),
+    assert(/^#CMD-\d{8}-\d{4,}$/.test(trackedOrder.order.orderNumber),
       'Le numéro de ticket contient la date et un compteur séquentiel lisible');
 
     assert(valid.success === true, 'Une session QR valide autorise la commande sur place dans la transaction');
