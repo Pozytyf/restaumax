@@ -47,6 +47,10 @@
       "destination": "/api/index?__restaumax_route=reports"
     },
     {
+      "source": "/api/restaurant-service",
+      "destination": "/api/index?__restaumax_route=restaurant-service"
+    },
+    {
       "source": "/api/table-session",
       "destination": "/api/index?__restaumax_route=table-session"
     },
