@@ -6,6 +6,13 @@ const api = fs.readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8')
 const orderService = fs.readFileSync(new URL('../src/server/orderService.ts', import.meta.url), 'utf8');
 const lifecycle = fs.readFileSync(new URL('../src/server/orderLifecycleService.ts', import.meta.url), 'utf8');
 const client = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
+const rateLimit = fs.readFileSync(new URL('../src/server/orderRateLimit.ts', import.meta.url), 'utf8');
+const qrSecurity = fs.readFileSync(new URL('../src/server/tableSecurityService.ts', import.meta.url), 'utf8');
+const paydunyaMerchant = fs.readFileSync(new URL('../src/server/paydunyaMerchantConfig.ts', import.meta.url), 'utf8');
+const firestoreIndexes = JSON.parse(fs.readFileSync(new URL('../firestore.indexes.json', import.meta.url), 'utf8'));
+const workflowEmulator = fs.readFileSync(new URL('../.github/workflows/firestore-emulator-tests.yml', import.meta.url), 'utf8');
+const workflowHardening = fs.readFileSync(new URL('../.github/workflows/security-hardening.yml', import.meta.url), 'utf8');
+
 const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const vercel = JSON.parse(fs.readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
 const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -52,6 +59,33 @@ assert(server.includes("process.env.ORDER_RATE_LIMIT_SECRET || ''") &&
   'rate limiting uses a dedicated secret instead of reusing QR encryption keys');
 assert(server.includes('consumePublicOrderRateLimit') && server.includes('maxRequests: 5'),
   'takeaway submissions use a persistent per-IP rate limiter');
+assert(server.includes("identityScope: 'phone'") && server.includes('maxRequests: 3') &&
+  rateLimit.includes("identityScope?: 'ip' | 'phone'"),
+  'takeaway submissions also enforce a separately keyed per-phone quota');
+assert(server.includes("where('customerPhoneNormalized', '==', customerPhoneNormalized)") &&
+  server.includes("where('status', 'in', ['pending', 'in_prep', 'ready'])") &&
+  server.includes('phoneOpenOrdersSnap.size >= 3'),
+  'the order transaction atomically refuses a fourth active takeaway order for one phone');
+assert(firestoreIndexes.indexes.some(index => index.collectionGroup === 'orders' &&
+  index.fields.some(field => field.fieldPath === 'customerPhoneNormalized') &&
+  index.fields.some(field => field.fieldPath === 'status')),
+  'Firestore composite index supports the open takeaway order query');
+assert(qrSecurity.includes("version === 1") &&
+  qrSecurity.includes("(versionedKey || '')") &&
+  qrSecurity.includes("TABLE_QR_TOKEN_ENCRYPTION_KEY_V"),
+  'QR key rotation requires an explicit versioned key while preserving legacy v1 decryption');
+assert(paydunyaMerchant.includes('payDunyaCredentialsAad') &&
+  paydunyaMerchant.includes('version: 2') &&
+  paydunyaMerchant.includes('PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY_V'),
+  'PayDunya credentials use tenant-bound AAD and versioned encryption keys');
+assert(workflowEmulator.includes('actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683') &&
+  workflowEmulator.includes('permissions:\\n  contents: read'),
+  'Firestore emulator workflow pins actions and uses read-only repository permissions');
+assert(workflowHardening.includes('actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683') &&
+  workflowHardening.includes('firebase-tools@15.34.2') &&
+  !workflowHardening.includes('fix/security-full-hardening'),
+  'security hardening workflow pins actions/tooling and no longer targets a stale branch');
+
 assert(server.includes("isProd && process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS !== 'true'") &&
   server.includes('Protection App Check non activée'),
   'production takeaway orders fail closed until App Check enforcement is explicitly enabled');
