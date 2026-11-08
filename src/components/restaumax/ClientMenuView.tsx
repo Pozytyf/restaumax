@@ -119,6 +119,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('tous');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [menuLanguage, setMenuLanguage] = useState<'fr' | 'en' | 'pt'>('fr');
   const [activeItemModal, setActiveItemModal] = useState<RestauMenuItem | null>(null);
   const [quantityByDish, setQuantityByDish] = useState<Record<string, number>>({});
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
@@ -133,7 +134,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.translations?.[menuLanguage]?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.translations?.[menuLanguage === 'fr' ? 'en' : menuLanguage]?.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.translations?.[menuLanguage]?.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.tags && item.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())));
       return matchAvailable && matchCat && matchQuery;
     });
