@@ -33,7 +33,8 @@ class FakeDb {
 
 const base = (status = 'pending', quantity = 10, recipe = true) => {
   const seed = {
-    'restaurants/chez-awa': { status: 'active', ownerUid: 'owner-1' },
+    'restaurants/chez-awa': { status: 'active' },
+    'restaurants/chez-awa/private/ownership': { ownerUid: 'owner-1' },
     'managers/owner-1': { active: true, restaurantSlug: 'chez-awa', role: 'owner', sessionVersion: 4 },
     'restaurants/chez-awa/orders/order-1': {
       id: 'order-1', restaurantSlug: 'chez-awa', status, kitchenItemsCompletedCount: 1,

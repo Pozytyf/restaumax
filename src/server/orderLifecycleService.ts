@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { getRestaurantOwnerUid } from './restaurantOwnership.js';
 
 export interface OrderLifecycleParams {
   restaurantSlug: string;
@@ -41,6 +42,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
       const member = memberSnap.exists ? memberSnap.data() : null;
       const order = orderSnap.exists ? orderSnap.data() : null;
+      const ownerUid = await getRestaurantOwnerUid(db, restaurantSlug, tx, restaurant);
 
       if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
         return { success: false, error: 'Restaurant inactif ou indisponible.' };
@@ -53,7 +55,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         return { success: false, error: 'Commande introuvable dans ce restaurant.' };
       }
 
-      const isOwner = member.role === 'owner' && restaurant.ownerUid === actorUid;
+      const isOwner = member.role === 'owner' && ownerUid === actorUid;
       const permissions = Array.isArray(member.permissions) ? member.permissions : [];
       const canManage = member.role === 'manager' && permissions.includes('orders.manage');
       const canKitchen = (member.role === 'kitchen' && permissions.includes('kitchen.access')) ||

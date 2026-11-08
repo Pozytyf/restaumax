@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { getRestaurantOwnerUid } from './restaurantOwnership.js';
 
 export interface InventoryRequestParams {
   action: 'create' | 'move' | 'update' | 'save_recipe' | 'save_customization_recipe' | 'archive';
@@ -37,12 +38,13 @@ async function authorizeInventoryTransaction(tx: any, db: any, slug: string, uid
   const [restaurantSnap, memberSnap] = await Promise.all([tx.get(restaurantRef), tx.get(memberRef)]);
   const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
   const member = memberSnap.exists ? memberSnap.data() : null;
+  const ownerUid = await getRestaurantOwnerUid(db, slug, tx, restaurant);
   if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
       !member || member.active !== true || member.restaurantSlug !== slug ||
       Number(member.sessionVersion || 0) !== Number(version || 0)) {
     return { ok: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
   }
-  const isOwner = member.role === 'owner' && restaurant.ownerUid === uid;
+  const isOwner = member.role === 'owner' && ownerUid === uid;
   const canManage = member.role === 'manager' && Array.isArray(member.permissions) &&
     member.permissions.includes('inventory.manage');
   if (!isOwner && !canManage) {

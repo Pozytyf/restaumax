@@ -1,3 +1,4 @@
+import { getRestaurantOwnerUid } from './restaurantOwnership.js';
 import { awardLoyaltyPointsInTransaction } from './loyaltyService.ts';
 import { createHash } from 'node:crypto';
 import {
@@ -128,6 +129,7 @@ export async function startPayDunyaOrderPaymentWithDb(
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
     const order = orderSnap.exists ? orderSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(db, slug, tx, restaurant);
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
       return { ok: false, error: 'Restaurant inactif ou accès refusé.' };
     }
@@ -168,7 +170,7 @@ export async function startPayDunyaOrderPaymentWithDb(
           Number(member.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
         return { ok: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
       }
-      const authorized = (member.role === 'owner' && restaurant.ownerUid === actorUid) ||
+      const authorized = (member.role === 'owner' && ownerUid === actorUid) ||
         member.role === 'manager' ||
         (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
       if (!authorized) return { ok: false, error: 'Votre rôle ne permet pas de créer un paiement.' };
@@ -587,12 +589,13 @@ export async function startPayDunyaRefundWithDb(
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
     const payment = paymentSnap.exists ? paymentSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(db, slug, tx, restaurant);
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt ||
         !member || member.active !== true || member.restaurantSlug !== slug ||
         Number(member.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
       return { ok: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
     }
-    const canRefund = (member.role === 'owner' && restaurant.ownerUid === actorUid) ||
+    const canRefund = (member.role === 'owner' && ownerUid === actorUid) ||
       member.role === 'manager' ||
       (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('payments.refund'));
     if (!canRefund) return { ok: false, error: 'La permission distincte payments.refund est requise.' };

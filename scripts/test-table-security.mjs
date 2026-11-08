@@ -71,7 +71,8 @@ function createDb() {
 async function run() {
   console.log('RESTAUMAX — TESTS SÉCURITÉ QR / SESSION');
   const db = createDb();
-  db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true, ownerUid: 'owner-1' });
+  db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true });
+  db.store.set('restaurants/chez-awa/private/ownership', { ownerUid: 'owner-1' });
   db.store.set('restaurants/chez-awa/tables/table-4', { id: 'table-4', tableNumber: '4', isActive: true, qrVersion: 0 });
 
   for (const status of ['provisioning', 'suspended', 'deleted']) {
@@ -241,8 +242,9 @@ async function run() {
   // Two tenants may use the same local table ID, but QR resolution must remain
   // bound to the restaurant stored with each token.
   db.store.set('restaurants/restaumax-demo', {
-    slug: 'restaumax-demo', status: 'active', isActive: true, isOpen: true, ownerUid: 'demo-owner'
+    slug: 'restaumax-demo', status: 'active', isActive: true, isOpen: true
   });
+  db.store.set('restaurants/restaumax-demo/private/ownership', { ownerUid: 'demo-owner' });
   db.store.set('restaurants/restaumax-demo/tables/table-4', {
     id: 'table-4', tableNumber: 'D-4', isActive: true, qrVersion: 0
   });

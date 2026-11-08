@@ -1,3 +1,4 @@
+import { getRestaurantOwnerUid } from './restaurantOwnership.js';
 export interface UpdateKitchenItemCompletionParams {
   restaurantSlug: string;
   orderId: string;
@@ -49,6 +50,7 @@ export async function updateKitchenItemCompletionWithDb(
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
       const member = memberSnap.exists ? memberSnap.data() : null;
       const order = orderSnap.exists ? orderSnap.data() : null;
+      const ownerUid = await getRestaurantOwnerUid(db, restaurantSlug, tx, restaurant);
 
       if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
         return { success: false, error: 'Restaurant inactif ou indisponible.' };
@@ -58,7 +60,7 @@ export async function updateKitchenItemCompletionWithDb(
         return { success: false, error: 'Compte inactif, session révoquée ou accès refusé.' };
       }
 
-      const isOwner = member.role === 'owner' && restaurant.ownerUid === actorUid;
+      const isOwner = member.role === 'owner' && ownerUid === actorUid;
       const permissions = Array.isArray(member.permissions) ? member.permissions : [];
       const canOperateKitchen =
         (member.role === 'manager' && (permissions.includes('kitchen.access') || permissions.includes('orders.manage'))) ||

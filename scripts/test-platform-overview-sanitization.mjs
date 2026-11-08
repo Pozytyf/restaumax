@@ -21,7 +21,7 @@ assert(accountsStart >= 0 && accountsEnd > accountsStart, 'super-admin account a
 const accountAudit = source.slice(accountsStart, accountsEnd);
 assert(accountAudit.includes("collection('managers').where('restaurantSlug', '==', slug)"), 'account audit reconciles global manager records for the selected restaurant');
 assert(accountAudit.includes("collection('staff').get()"), 'account audit reads the restaurant staff subcollection');
-assert(accountAudit.includes('restaurant.ownerUid') && accountAudit.includes('restaurant.ownerEmail'), 'account audit includes canonical owner identity fields');
+assert(accountAudit.includes('ownership.ownerUid') && accountAudit.includes('ownership.ownerEmail'), 'account audit reads canonical owner identity from private ownership metadata');
 assert(accountAudit.includes('emailConflict'), 'account audit flags conflicting email records');
 assert(accountAudit.includes("actorRole: 'super_admin'") && accountAudit.includes('readOnly: true'), 'super-admin account audit is read-only');
 assert(accountAudit.includes('accountLinked: false'), 'unlinked owner metadata is distinguished from an actual Firebase account');
@@ -45,6 +45,10 @@ assert(productModal.includes('initialQuantity = 1'), 'product configuration pres
 console.log('Server table assignment and customer menu list regression checks passed.');
 
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+assert(source.includes('migrateLegacyRestaurantPrivateData'), 'super-admin overview migrates legacy owner identity out of public restaurant documents');
+assert(source.includes("collection('private').doc('ownership')"), 'new restaurant owners are written to the private ownership document');
+assert(firestoreRules.includes("match /private/{privateDoc}") && firestoreRules.includes('function isBoundRestaurantOwner'), 'private owner metadata is inaccessible directly and still binds owner permissions');
+assert(firestoreRules.includes("data.keys().hasOnly(['slug', 'name', 'isOpen'"), 'public restaurant documents use a strict field allowlist');
 const firebaseClient = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const orderService = fs.readFileSync(new URL('../src/server/orderService.ts', import.meta.url), 'utf8');

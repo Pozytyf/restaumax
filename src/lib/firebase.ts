@@ -347,7 +347,8 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
 
     const restaurantSnap = await getDoc(doc(db, 'restaurants', data.restaurantSlug));
     if (!restaurantSnap.exists() || restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt) return false;
-    if (data.role === 'owner') return restaurantSnap.data()?.ownerUid === user.uid;
+    // Owner binding is enforced server-side against private/ownership metadata.
+    // The public restaurant profile intentionally contains no owner identity fields.
     return true;
   } catch (err) {
     console.warn('Erreur lors de la vérification des privilèges gestionnaire:', err);

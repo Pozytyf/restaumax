@@ -51,6 +51,13 @@ service cloud.firestore {
     }
 
 
+    function isBoundRestaurantOwner(targetSlug) {
+      let ownershipPath = /databases/$(database)/documents/restaurants/$(targetSlug)/private/ownership;
+      return exists(ownershipPath)
+        ? get(ownershipPath).data.get('ownerUid', '') == request.auth.uid
+        : get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.get('ownerUid', '') == request.auth.uid;
+    }
+
     function isRestaurantMember(targetSlug) {
       let memberPath = /databases/$(database)/documents/managers/$(request.auth.uid);
       let member = get(memberPath).data;
@@ -62,7 +69,7 @@ service cloud.firestore {
         member.get('active', false) == true &&
         member.get('role', '') in ['owner', 'manager', 'cashier', 'server', 'kitchen'] &&
         (member.get('role', '') != 'owner' ||
-          get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.ownerUid == request.auth.uid);
+          isBoundRestaurantOwner(targetSlug));
     }
 
     // Maximum permission ceilings for the six restaurant roles.
@@ -99,7 +106,7 @@ service cloud.firestore {
         get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active == true &&
         get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role in ['owner', 'manager', 'cashier', 'server', 'kitchen'] &&
         (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role != 'owner' ||
-          get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.ownerUid == request.auth.uid) &&
+          isBoundRestaurantOwner(targetSlug)) &&
         (
           get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.role == 'owner' ||
           (
@@ -118,7 +125,8 @@ service cloud.firestore {
     }
 
     function isValidRestaurant(data) {
-      return data.keys().hasAll(['slug', 'name', 'isOpen'])
+      return data.keys().hasOnly(['slug', 'name', 'isOpen', 'tagline', 'address', 'city', 'phone', 'currency', 'bannerUrl', 'logoUrl', 'openingHours', 'taxRatePercent', 'taxMode', 'loyaltyFcfaPerPoint', 'receiptFooter', 'receiptPaperWidth', 'status', 'createdAt', 'updatedAt', 'country', 'serviceStatusUpdatedAt', 'tableSessionVersion', 'isOpenBeforeSuspension', 'suspendedAt', 'deletedAt', 'ownerUid', 'ownerName', 'ownerEmail', 'createdBy', 'updatedBy', 'deletedBy', 'suspendedBy', 'subscription'])
+        && data.keys().hasAll(['slug', 'name', 'isOpen'])
         && data.slug is string && data.slug.size() > 0 && data.slug.size() <= 100
         && data.name is string && data.name.size() > 0 && data.name.size() <= 200
         && data.isOpen is bool
@@ -218,6 +226,11 @@ service cloud.firestore {
           'loyaltyFcfaPerPoint', 'receiptFooter', 'receiptPaperWidth'
         ]);
       allow delete: if false;
+
+      // Ownership and audit identity metadata is private and server-only.
+      match /private/{privateDoc} {
+        allow read, write: if false;
+      }
 
       // Menu catalog subcollection
       // Public get and list for QR menu viewing

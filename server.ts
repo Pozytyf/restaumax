@@ -44,6 +44,7 @@ import { getRestaurantFinancialReportWithDb } from './src/server/reportService.j
 import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
+import { getRestaurantOwnerUid } from './src/server/restaurantOwnership.js';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
 import { 
   processOrderSubmission, 
@@ -432,6 +433,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
     const menuItemSnapshots = new Map<string, any>();
     menuItemIds.forEach((itemId, index) => menuItemSnapshots.set(itemId, snapshots[menuStockReadStart + index]));
     const restaurantData = snapRestaurant.exists ? snapRestaurant.data() : null;
+    const restaurantOwnerUid = await getRestaurantOwnerUid(db, restaurantSlug, t, restaurantData);
     if (!restaurantData || restaurantData.status !== 'active' || restaurantData.deletedAt || restaurantData.isActive === false) {
       return { success: false, error: 'Commande refusée : restaurant inactif ou indisponible.' };
     }
@@ -440,7 +442,7 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       const memberSnap = snapshots[staffMemberIndex];
       const member = memberSnap?.exists ? memberSnap.data() : null;
       const memberSessionMatches = Number(staffSessionVersion || 0) === Number(member?.sessionVersion || 0);
-      const isOwner = member?.role === 'owner' && restaurantData.ownerUid === staffActorUid;
+      const isOwner = member?.role === 'owner' && restaurantOwnerUid === staffActorUid;
       const hasPosPermission = ['manager', 'cashier', 'server'].includes(member?.role) &&
         Array.isArray(member?.permissions) && member.permissions.includes('pos.access');
       if (!member || member.active !== true || member.restaurantSlug !== restaurantSlug ||
@@ -1234,13 +1236,14 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     const [restaurantSnap, memberSnap] = await Promise.all([restaurantRef.get(), memberRef.get()]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(adminDb, slug, undefined, restaurant);
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
         !member || member.active !== true || member.restaurantSlug !== slug ||
         Number(decoded.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
       return { statusCode: 403, body: { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' } };
     }
 
-    const isOwner = member.role === 'owner' && restaurant.ownerUid === decoded.uid;
+    const isOwner = member.role === 'owner' && ownerUid === decoded.uid;
     const canManageCash = isOwner || member.role === 'manager' ||
       (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
     const canViewCash = isOwner || member.role === 'manager' ||
@@ -1488,6 +1491,7 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
     const [restaurantSnap, membershipSnap] = await Promise.all([restaurantRef.get(), membershipRef.get()]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = membershipSnap.exists ? membershipSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(adminDb, slug, undefined, restaurant);
 
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt ||
         !member || member.active !== true || member.restaurantSlug !== slug ||
@@ -1495,7 +1499,7 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
       return { statusCode: 403, body: { success: false, error: 'Compte inactif ou accès à ce restaurant refusé.' } };
     }
 
-    const isOwner = member.role === 'owner' && restaurant.ownerUid === decoded.uid;
+    const isOwner = member.role === 'owner' && ownerUid === decoded.uid;
     const canUsePos = isOwner || (
       ['manager', 'cashier', 'server'].includes(member.role) &&
       Array.isArray(member.permissions) && member.permissions.includes('pos.access')
@@ -1616,12 +1620,13 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     ]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(adminDb, restaurantSlug, undefined, restaurant);
     if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
         !member || member.active !== true || member.restaurantSlug !== restaurantSlug ||
         Number(member.sessionVersion || 0) !== Number(decoded.sessionVersion || 0)) {
       return { statusCode: 403, body: { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' } };
     }
-    const isOwner = member.role === 'owner' && restaurant.ownerUid === decoded.uid;
+    const isOwner = member.role === 'owner' && ownerUid === decoded.uid;
     const permissions = Array.isArray(member.permissions) ? member.permissions : [];
     const canViewReports = isOwner || permissions.includes('reports.view');
     if (!canViewReports) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les rapports.' } };

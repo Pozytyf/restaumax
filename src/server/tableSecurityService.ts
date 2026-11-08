@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { getRestaurantOwnerUid } from './restaurantOwnership.js';
 
 const SESSION_COOKIE = '__Host-rm_table_session';
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
@@ -373,6 +374,8 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   }
 
   const manager = managerSnap.data();
+  const restaurantData = restaurantSnap.data();
+  const ownerUid = await getRestaurantOwnerUid(db, restaurantSlug, undefined, restaurantData);
   if (manager.active !== true || manager.restaurantSlug !== restaurantSlug) {
     throw new Error('Accès à ce restaurant refusé.');
   }
@@ -384,7 +387,7 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   if (!['owner', 'manager'].includes(managerRole)) {
     throw new Error('Seul le propriétaire ou un manager du restaurant peut administrer les QR de table.');
   }
-  if (managerRole === 'owner' && restaurantSnap.data()?.ownerUid !== decoded.uid) {
+  if (managerRole === 'owner' && ownerUid !== decoded.uid) {
     throw new Error('Le compte propriétaire ne correspond pas au propriétaire enregistré du restaurant.');
   }
   if (managerRole === 'manager' &&
@@ -416,6 +419,7 @@ export async function updateRestaurantServiceStatus(
   const [restaurantSnap, managerSnap] = await Promise.all([restaurantRef.get(), managerRef.get()]);
   const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
   const manager = managerSnap.exists ? managerSnap.data() : null;
+  const ownerUid = await getRestaurantOwnerUid(db, restaurantSlug, undefined, restaurant);
   if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
       !manager || manager.active !== true || manager.restaurantSlug !== restaurantSlug ||
       Number(decoded.sessionVersion || 0) !== Number(manager.sessionVersion || 0)) {
@@ -424,7 +428,7 @@ export async function updateRestaurantServiceStatus(
   if (!['owner', 'manager'].includes(String(manager.role || ''))) {
     throw new Error('Seul le propriétaire ou un manager peut modifier le service.');
   }
-  if (manager.role === 'owner' && restaurant.ownerUid !== decoded.uid) {
+  if (manager.role === 'owner' && ownerUid !== decoded.uid) {
     throw new Error('Le compte propriétaire ne correspond pas au propriétaire enregistré.');
   }
   await db.runTransaction(async (tx: any) => {
@@ -433,6 +437,7 @@ export async function updateRestaurantServiceStatus(
     ]);
     const currentRestaurant = currentRestaurantSnap.exists ? currentRestaurantSnap.data() : null;
     const currentManager = currentManagerSnap.exists ? currentManagerSnap.data() : null;
+    const currentOwnerUid = await getRestaurantOwnerUid(db, restaurantSlug, tx, currentRestaurant);
     if (!currentRestaurant || currentRestaurant.status !== 'active' || currentRestaurant.deletedAt ||
         currentRestaurant.isActive === false || !currentManager || currentManager.active !== true ||
         currentManager.restaurantSlug !== restaurantSlug ||
@@ -442,7 +447,7 @@ export async function updateRestaurantServiceStatus(
     if (!['owner', 'manager'].includes(String(currentManager.role || ''))) {
       throw new Error('Seul le propriétaire ou un manager peut modifier le service.');
     }
-    if (currentManager.role === 'owner' && currentRestaurant.ownerUid !== decoded.uid) {
+    if (currentManager.role === 'owner' && currentOwnerUid !== decoded.uid) {
       throw new Error('Seul le propriétaire enregistré peut modifier le service.');
     }
     tx.update(restaurantRef, {
