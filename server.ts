@@ -393,10 +393,11 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
     ];
     const menuItemQuantities = new Map<string, number>();
     for (const item of Array.isArray(orderToCreate.items) ? orderToCreate.items : []) {
+      if (item.trackStock !== true) continue;
       const itemId = String(item.menuItemId || '');
       const quantity = Number(item.quantity || 0);
       if (!/^[a-zA-Z0-9_-]{1,128}$/.test(itemId) || !Number.isInteger(quantity) || quantity <= 0) {
-        return { success: false, error: 'Commande refusée : ligne de menu invalide.' };
+        return { success: false, error: 'Commande refusée : ligne de stock menu invalide.' };
       }
       menuItemQuantities.set(itemId, (menuItemQuantities.get(itemId) || 0) + quantity);
     }
@@ -568,10 +569,11 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       const itemData = itemSnap?.exists ? itemSnap.data() : null;
       const orderLine = (orderToCreate.items || []).find((line: any) => line.menuItemId === itemId);
       if (!itemData || itemData.id !== itemId || itemData.restaurantSlug !== restaurantSlug ||
-          itemData.available !== true || !orderLine || Number(itemData.price) !== Number(orderLine.basePrice)) {
-        return { success: false, error: 'Commande refusée : un article du menu a changé, est indisponible ou ne correspond pas à ce restaurant. Actualisez le menu.' };
+          itemData.trackStock !== true || itemData.available !== true || !orderLine ||
+          Number(itemData.price) !== Number(orderLine.basePrice)) {
+        return { success: false, error: 'Commande refusée : un article suivi en stock a changé, est indisponible ou ne correspond pas à ce restaurant. Actualisez le menu.' };
       }
-      if (itemData.trackStock === true) {
+      {
         const before = Number(itemData.stockQuantity);
         if (!Number.isInteger(before) || before < quantity) {
           return { success: false, error: `Stock insuffisant pour « ${String(itemData.name || itemId)} » : ${Number.isInteger(before) ? before : 0} unité(s) disponible(s).` };
