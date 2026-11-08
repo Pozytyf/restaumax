@@ -45,6 +45,9 @@ export interface MenuManagementViewProps {
 type CategoryFilter = 'tous' | 'grillades' | 'plats' | 'entrees' | 'accompagnements' | 'boissons' | 'desserts';
 type AvailabilityFilter = 'tous' | 'disponibles' | 'rupture';
 
+const isMenuItemAvailable = (item: RestauMenuItem) =>
+  item.available !== false && !(item.trackStock === true && Number(item.stockQuantity || 0) <= 0);
+
 const CATEGORIES: { id: CategoryFilter; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'tous', label: 'Toutes les catégories', icon: UtensilsCrossed },
   { id: 'grillades', label: 'Grillades au feu', icon: Flame },
@@ -76,8 +79,8 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
 
   // Stats calculation
   const totalDishes = menuItems.length;
-  const availableCount = menuItems.filter(item => item.available !== false).length;
-  const unavailableCount = menuItems.filter(item => item.available === false).length;
+  const availableCount = menuItems.filter(isMenuItemAvailable).length;
+  const unavailableCount = menuItems.filter(item => !isMenuItemAvailable(item)).length;
 
   // Filtered dishes
   const filteredDishes = useMemo(() => {
@@ -86,7 +89,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
       const matchCat = selectedCategory === 'tous' || item.category === selectedCategory;
 
       // Availability match
-      const isAvailable = item.available !== false;
+      const isAvailable = isMenuItemAvailable(item);
       const matchAvailability = 
         availabilityFilter === 'tous' ||
         (availabilityFilter === 'disponibles' && isAvailable) ||
@@ -415,7 +418,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredDishes.map((item) => {
-              const isAvailable = item.available !== false;
+              const isAvailable = isMenuItemAvailable(item);
               const optionGroupsCount = item.optionGroups?.length || 0;
               const extrasCount = item.availableExtras?.length || 0;
 
