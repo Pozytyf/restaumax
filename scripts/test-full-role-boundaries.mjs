@@ -64,7 +64,8 @@ assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const managerRule = firestoreRules.match(/role == 'manager' && permission in \[([\s\S]*?)\]\)/)?.[1] || '';
 assert(managerRule.includes("'orders.cancel'") && managerRule.includes("'payments.refund'"), 'Firestore manager ceiling includes cancellation and refund permissions');
-assert(adminSource.includes("user.role === 'super_admin'"), 'platform super-admin is validated separately from restaurant roles');
+assert(adminSource.includes('user.email_verified === true') && adminSource.includes('configuredSuperAdmins()'), 'platform super-admin requires a verified allowlisted email');
+assert(!adminSource.includes("return user.role === 'super_admin' ||"), 'a stale super-admin custom claim cannot bypass the current allowlist');
 assert(adminSource.includes('configuredSuperAdmins()'), 'platform admin email allowlist remains enforced');
 assert(adminSource.includes("['manager', 'cashier', 'server', 'kitchen'].includes(String(value))"),
   'new restaurant memberships are restricted to the five non-owner staff roles');
