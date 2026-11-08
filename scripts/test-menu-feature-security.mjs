@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const read = path => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
+const types = read('../src/types/restaumax.ts');
+const form = read('../src/components/restaumax/DishFormModal.tsx');
+const client = read('../src/components/restaumax/ClientMenuView.tsx');
+const detail = read('../src/components/restaumax/ProductDetailModal.tsx');
+const menu = read('../src/components/restaumax/MenuManagementView.tsx');
+const panel = read('../src/components/restaumax/InventoryRecipePanel.tsx');
+const server = read('../server.ts');
+const api = read('../api/menu-image.ts');
+const firebase = read('../src/lib/firebase.ts');
+const rules = read('../firestore.rules');
+
+assert(types.includes('lowStockThreshold?: number') && types.includes('allergens?: string[]') && types.includes('spiceLevel?: 0 | 1 | 2 | 3') && types.includes('pairings?: string[]') && types.includes('translations?:'), 'Menu model supports alerts, allergens, spice, pairings and translations');
+assert(form.includes('Seuil d’alerte intelligent du plat') && form.includes('uploadMenuImageWithServerValidation') && form.includes('English — Name') && form.includes('Português — Nome'), 'Manager form configures alert threshold, hosted image and translations');
+assert(form.includes('allergensInput') && form.includes('spiceLevel') && form.includes('pairingsInput'), 'Manager form captures allergen, spice and pairing metadata');
+assert(menu.includes('Alertes intelligentes de stock') && menu.includes('lowStockItems'), 'Menu management surfaces low-stock and depleted-item alerts');
+assert(client.includes('Langue de la carte') && client.includes('localizedDish') && client.includes('dish.allergens') && client.includes('dish.pairings'), 'Customer menu supports localized descriptions and food safety metadata');
+assert(detail.includes('Niveau de piquant') && detail.includes('Allergènes') && detail.includes('Suggestions d’accompagnement'), 'Dish detail shows allergen, spice and pairing details');
+assert(panel.includes('calculateDishProfitability') && panel.includes('where(\'restaurantSlug\', \'==\', restaurantSlug)'), 'Recipe costing uses private inventory costs and tenant-filtered menu reads');
+assert(!types.includes('ingredientCost') && !types.includes('recipeCost'), 'Ingredient costs are not stored on public menu item documents');
+assert(server.includes('handleMenuImageUploadRequest') && server.includes('member.restaurantSlug !== slug') && server.includes("permissions.includes('menu.manage')") && server.includes('firebaseStorageDownloadTokens'), 'Photo upload is authenticated, tenant-scoped, permission-checked and tokenized');
+assert(server.includes('3 * 1024 * 1024') && server.includes('buffer.subarray(0, 8)'), 'Photo upload enforces file-size and real image-signature checks');
+assert(api.includes('handleMenuImageUploadRequest') && firebase.includes("fetch('/api/menu-image'"), 'Vercel API route and client uploader are wired');
+assert(rules.includes("'lowStockThreshold'") && rules.includes("'allergens'") && rules.includes("'translations'"), 'Firestore menu rules validate and allow the new public metadata');
+console.log('Menu feature and photo-upload security checks passed.');
