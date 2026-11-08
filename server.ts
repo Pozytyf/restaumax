@@ -391,6 +391,20 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       t.get(docRefOrder),
       t.get(restaurantRef)
     ];
+    const menuItemQuantities = new Map<string, number>();
+    for (const item of Array.isArray(orderToCreate.items) ? orderToCreate.items : []) {
+      const itemId = String(item.menuItemId || '');
+      const quantity = Number(item.quantity || 0);
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(itemId) || !Number.isInteger(quantity) || quantity <= 0) {
+        return { success: false, error: 'Commande refusée : ligne de menu invalide.' };
+      }
+      menuItemQuantities.set(itemId, (menuItemQuantities.get(itemId) || 0) + quantity);
+    }
+    const menuItemIds = [...menuItemQuantities.keys()];
+    const menuStockReadStart = reads.length;
+    for (const itemId of menuItemIds) {
+      reads.push(t.get(restaurantRef.collection('menuItems').doc(itemId)));
+    }
     let staffMemberIndex = -1;
     let staffTableIndex = -1;
     if (isTrustedStaffOrder) {
@@ -411,6 +425,8 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
     const snapKey = snapshots[0];
     const snapOrder = snapshots[1];
     const snapRestaurant = snapshots[2];
+    const menuItemSnapshots = new Map<string, any>();
+    menuItemIds.forEach((itemId, index) => menuItemSnapshots.set(itemId, snapshots[menuStockReadStart + index]));
     const restaurantData = snapRestaurant.exists ? snapRestaurant.data() : null;
     if (!restaurantData || restaurantData.status !== 'active' || restaurantData.deletedAt || restaurantData.isActive === false) {
       return { success: false, error: 'Commande refusée : restaurant inactif ou indisponible.' };
@@ -544,6 +560,54 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       };
     }
 
+    // Revalidate every menu item inside the same transaction as the order write.
+    // This prevents cross-tenant menu references, stale prices, and overselling stock.
+    const stockUpdates: Array<{ ref: any; itemId: string; before: number; after: number; quantity: number; name: string }> = [];
+    for (const [itemId, quantity] of menuItemQuantities.entries()) {
+      const itemSnap = menuItemSnapshots.get(itemId);
+      const itemData = itemSnap?.exists ? itemSnap.data() : null;
+      const orderLine = (orderToCreate.items || []).find((line: any) => line.menuItemId === itemId);
+      if (!itemData || itemData.id !== itemId || itemData.restaurantSlug !== restaurantSlug ||
+          itemData.available !== true || !orderLine || Number(itemData.price) !== Number(orderLine.basePrice)) {
+        return { success: false, error: 'Commande refusée : un article du menu a changé, est indisponible ou ne correspond pas à ce restaurant. Actualisez le menu.' };
+      }
+      if (itemData.trackStock === true) {
+        const before = Number(itemData.stockQuantity);
+        if (!Number.isInteger(before) || before < quantity) {
+          return { success: false, error: `Stock insuffisant pour « ${String(itemData.name || itemId)} » : ${Number.isInteger(before) ? before : 0} unité(s) disponible(s).` };
+        }
+        stockUpdates.push({
+          ref: restaurantRef.collection('menuItems').doc(itemId),
+          itemId,
+          before,
+          after: before - quantity,
+          quantity,
+          name: String(itemData.name || itemId)
+        });
+      }
+    }
+    for (const update of stockUpdates) {
+      const now = Date.now();
+      t.update(update.ref, {
+        stockQuantity: update.after,
+        ...(update.after === 0 ? { available: false } : {}),
+        stockUpdatedAt: now
+      });
+      const movementId = `order_${orderId}_${update.itemId}`;
+      t.set(restaurantRef.collection('menuStockMovements').doc(movementId), {
+        id: movementId,
+        restaurantSlug,
+        menuItemId: update.itemId,
+        itemName: update.name,
+        orderId,
+        quantityBefore: update.before,
+        delta: -update.quantity,
+        quantityAfter: update.after,
+        createdAt: now,
+        reason: 'Commande client'
+      });
+    }
+
     // CREATE_NOMINAL : Première soumission nominale ou reprise après échec.
     // Persist only the non-secret QR session binding so later customer payments
     // can prove that the order originated from this exact table session.
@@ -593,11 +657,14 @@ export const serverFirestoreProvider: ServerFirestoreProvider = {
     if (!restaurantSnap.exists) throw new Error("Restaurant introuvable.");
     if (restaurantSnap.data()?.status !== 'active' || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.isActive === false) throw new Error("Restaurant inactif ou indisponible : les commandes sont désactivées.");
     const snap = await restaurantRef.collection('menuItems').get();
-    const items = snap.docs.map((d: any) => ({ ...d.data(), id: d.id }));
-    if (items.some((item: any) => item.restaurantSlug !== restaurantSlug || item.id !== item.id)) {
+    const records = snap.docs.map((d: any) => ({ documentId: d.id, data: d.data() }));
+    if (records.some((record: any) =>
+      record.data?.restaurantSlug !== restaurantSlug ||
+      record.data?.id !== record.documentId
+    )) {
       throw new Error('Catalogue incohérent : un article ne correspond pas à son restaurant.');
     }
-    return items;
+    return records.map((record: any) => record.data);
   },
 
   async getRestaurantTaxConfig(restaurantSlug: string) {
