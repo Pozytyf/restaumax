@@ -24,7 +24,7 @@ export const DEFAULT_ADMIN_APP_NAME = '[DEFAULT]';
  * ou si le projectId ou le firestoreDatabaseId est manquant ou vide.
  *
  * @param {string} [targetConfigPath=configPath] - Chemin vers le fichier de configuration JSON
- * @returns {{ projectId: string, firestoreDatabaseId: string, appId?: string, authDomain?: string }}
+ * @returns {{ projectId: string, firestoreDatabaseId: string, appId?: string, authDomain?: string, storageBucket?: string }}
  */
 export function getAppletFirebaseConfig(targetConfigPath = configPath) {
   if (!fs.existsSync(targetConfigPath)) {
@@ -71,7 +71,10 @@ export function getAppletFirebaseConfig(targetConfigPath = configPath) {
     firestoreDatabaseId,
     appId: config.appId,
     authDomain: config.authDomain,
-    storageBucket: projectId === config.projectId ? (config.storageBucket || `${projectId}.appspot.com`) : `${projectId}.firebasestorage.app`,
+    // A non-production project must explicitly name its own bucket. Never infer or reuse the Production bucket.
+    storageBucket: projectId === config.projectId
+      ? (config.storageBucket || `${projectId}.appspot.com`)
+      : (process.env.FIREBASE_STORAGE_BUCKET?.trim().includes(projectId) ? process.env.FIREBASE_STORAGE_BUCKET.trim() : undefined),
   };
 }
 
