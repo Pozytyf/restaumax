@@ -397,6 +397,7 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
     throw new Error('Permission de gestion des tables requise.');
   }
   return decoded;
+}
 
 /**
  * Changes the restaurant service state through the trusted server only.
@@ -447,4 +448,3 @@ export async function updateRestaurantServiceStatus(
   return { success: true, isOpen };
 }
 
-}
