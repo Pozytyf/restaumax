@@ -337,7 +337,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           batch.set(restaurantRef.collection('private').doc('ownership'), {
             ownerUid: ownerUser.uid, ownerName, ownerEmail, createdBy: user.uid, createdAt: now
           });
-          batch.set(db.collection('managers').doc(ownerUser.uid),
+          batch.set(db.collection('managers').doc(ownerUser.uid), {
             uid: ownerUser.uid, email: ownerEmail, displayName: ownerName,
             role: 'owner', restaurantSlug: slug, permissions: PERMISSIONS,
             active: true, createdAt: now, createdBy: user.uid
