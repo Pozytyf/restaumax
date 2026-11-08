@@ -142,6 +142,11 @@ service cloud.firestore {
         && (!data.keys().hasAny(['trackStock']) || data.trackStock is bool)
         && (data.get('trackStock', false) != true || (data.keys().hasAny(['stockQuantity']) && data.stockQuantity is int && data.stockQuantity >= 0 && data.stockQuantity <= 1000000))
         && (!data.keys().hasAny(['stockQuantity']) || (data.stockQuantity is int && data.stockQuantity >= 0 && data.stockQuantity <= 1000000))
+        && (!data.keys().hasAny(['lowStockThreshold']) || (data.lowStockThreshold is int && data.lowStockThreshold >= 0 && data.lowStockThreshold <= 1000000))
+        && (!data.keys().hasAny(['allergens']) || (data.allergens is list && data.allergens.size() <= 30))
+        && (!data.keys().hasAny(['spiceLevel']) || (data.spiceLevel is int && data.spiceLevel >= 0 && data.spiceLevel <= 3))
+        && (!data.keys().hasAny(['pairings']) || (data.pairings is list && data.pairings.size() <= 20))
+        && (!data.keys().hasAny(['translations']) || (data.translations is map && data.translations.keys().hasOnly(['en', 'pt']) && data.translations.size() <= 2))
         && (!data.keys().hasAny(['optionGroups']) || (data.optionGroups is list && data.optionGroups.size() <= 20))
         && (!data.keys().hasAny(['availableExtras']) || (data.availableExtras is list && data.availableExtras.size() <= 50))
         && (!data.keys().hasAny(['tags']) || (data.tags is list && data.tags.size() <= 30));
@@ -218,7 +223,7 @@ service cloud.firestore {
           incoming().restaurantSlug == restaurantSlug && incoming().id == dishId && existing().get('restaurantSlug', '') == restaurantSlug && existing().get('id', '') == dishId &&
           incoming().diff(existing()).affectedKeys().hasOnly([
             'name', 'category', 'price', 'available', 'description', 'imageUrl',
-            'prepTimeMinutes', 'optionGroups', 'availableExtras', 'tags', 'trackStock', 'stockQuantity'
+            'prepTimeMinutes', 'optionGroups', 'availableExtras', 'tags', 'trackStock', 'stockQuantity', 'lowStockThreshold', 'allergens', 'spiceLevel', 'pairings', 'translations'
           ]);
         allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId) && resource.data.get('restaurantSlug', '') == restaurantSlug &&
           !existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuRecipes/$(dishId));
