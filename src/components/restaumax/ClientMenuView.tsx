@@ -130,11 +130,12 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
     return menuItems.filter((item) => {
       const matchAvailable = item.available !== false && !(item.trackStock === true && Number(item.stockQuantity || 0) <= 0);
       const matchCat = selectedCategory === 'tous' || item.category === selectedCategory;
+      const selectedTranslation = menuLanguage === 'fr' ? undefined : item.translations?.[menuLanguage];
       const matchQuery = !searchQuery ||
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.translations?.[menuLanguage]?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.translations?.[menuLanguage]?.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (selectedTranslation?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (selectedTranslation?.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.tags && item.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())));
       return matchAvailable && matchCat && matchQuery;
     });
