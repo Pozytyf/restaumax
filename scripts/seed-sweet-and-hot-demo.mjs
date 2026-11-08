@@ -2,12 +2,12 @@
  * Import non destructif du catalogue RESTO Sweet and Hot dans RestauMax Démo.
  *
  * Cible imposée :
- *   Firebase project: gen-lang-client-0138815290
- *   Firestore DB: ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf
+ *   Firebase project: restaumax-demo
+ *   Firestore DB: (default)
  *   Restaurant: restaurants/restaumax-demo/menuItems
  *
  * Dry-run par défaut. L'écriture exige explicitement --apply.
- * Credentials attendus dans FIREBASE_SERVICE_ACCOUNT_JSON (secret CI), jamais dans Git.
+ * Credentials attendus via GitHub OIDC (ADC) ou un secret dédié Demo, jamais dans Git.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,8 +19,8 @@ import {
 } from './firebase-admin-config.mjs';
 
 const TARGET = Object.freeze({
-  projectId: 'gen-lang-client-0138815290',
-  databaseId: 'ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf',
+  projectId: 'restaumax-demo',
+  databaseId: '(default)',
   restaurantSlug: 'restaumax-demo',
   restaurantName: 'RestauMax Démo',
 });
@@ -157,8 +157,10 @@ async function main() {
       TARGET.projectId,
     );
   } else if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    throw new Error('Authentification Google absente : configurez ADC via GOOGLE_APPLICATION_CREDENTIALS ou FIREBASE_SERVICE_ACCOUNT_JSON.');
+    throw new Error('Authentification Google absente : configurez ADC via GitHub OIDC ou FIREBASE_SERVICE_ACCOUNT_JSON.');
   }
+  // GitHub OIDC may impersonate a service account hosted in a separate IAM project.
+  // Firebase Admin is explicitly scoped to the immutable Demo project/database below.
   const app = initAdminApp(credentials, TARGET.projectId, 'sweet-hot-demo-seed');
   const db = initAdminFirestore(app, TARGET.databaseId);
   const result = await seedSweetAndHotDemo(db, { apply });
