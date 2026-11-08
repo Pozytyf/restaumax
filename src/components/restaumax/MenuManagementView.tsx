@@ -81,6 +81,8 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
   const totalDishes = menuItems.length;
   const availableCount = menuItems.filter(isMenuItemAvailable).length;
   const unavailableCount = menuItems.filter(item => !isMenuItemAvailable(item)).length;
+  const lowStockItems = menuItems.filter(item => item.trackStock === true && Number(item.stockQuantity || 0) > 0 && Number(item.lowStockThreshold ?? 5) > 0 && Number(item.stockQuantity || 0) <= Number(item.lowStockThreshold ?? 5));
+  const depletedItems = menuItems.filter(item => item.trackStock === true && Number(item.stockQuantity || 0) <= 0);
 
   // Filtered dishes
   const filteredDishes = useMemo(() => {
@@ -258,6 +260,22 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
             </div>
           </div>
         </div>
+
+        {(lowStockItems.length > 0 || depletedItems.length > 0) && (
+          <section role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
+            <div className="flex items-start gap-3"><AlertCircle size={20} className="mt-0.5 shrink-0 text-amber-700"/>
+              <div className="min-w-0 flex-1"><h2 className="text-sm font-black text-amber-950">Alertes intelligentes de stock</h2>
+                <p className="mt-1 text-xs text-amber-900">{depletedItems.length} article(s) épuisé(s) · {lowStockItems.length} article(s) au seuil de réapprovisionnement.</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {[...depletedItems, ...lowStockItems].map(item=><div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white/80 px-3 py-2 text-xs">
+                    <span className="min-w-0 truncate font-bold text-slate-800">{item.name}</span>
+                    <span className={Number(item.stockQuantity||0)<=0?"shrink-0 font-black text-rose-700":"shrink-0 font-bold text-amber-800"}>{Number(item.stockQuantity||0)<=0?"Épuisé":String(item.stockQuantity)+" restant(s) · seuil "+String(item.lowStockThreshold ?? 5)}</span>
+                  </div>)}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Operational Notice Banner */}
         <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
@@ -488,6 +506,8 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                           </span>
                         )}
 
+                        {item.allergens?.length ? <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">Allergènes : {item.allergens.join(', ')}</span> : null}
+                        {item.spiceLevel ? <span className="inline-flex items-center gap-1 rounded-md bg-orange-50 px-2 py-0.5 text-[10px] font-bold text-orange-700">Piquant : {'🌶️'.repeat(item.spiceLevel)}</span> : null}
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-semibold">
                           <SlidersHorizontal size={11} className="text-slate-400" />
                           <span>{optionGroupsCount} groupe(s) d'options</span>
