@@ -107,6 +107,8 @@ export interface RestauOrderItem {
   basePrice: number;
   unitPrice: number;
   quantity: number;
+  /** Server-verified menu stock tracking snapshot. */
+  trackStock?: boolean;
   totalPrice: number;
   selectedOption?: OrderItemOption;
   selectedExtras?: OrderItemExtra[];
