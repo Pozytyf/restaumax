@@ -214,7 +214,8 @@ export default function App() {
   );
   const activeMenuLoading = menuCatalogRestaurantSlug !== activeRestaurantSlug || menuCatalogLoading;
   const activeMenuError = menuCatalogRestaurantSlug === activeRestaurantSlug ? menuCatalogError : null;
-  const [restauTables, setRestauTables] = useState<RestaurantTable[]>([]);\n  const [serviceStatusSaving, setServiceStatusSaving] = useState(false);
+  const [restauTables, setRestauTables] = useState<RestaurantTable[]>([]);
+  const [serviceStatusSaving, setServiceStatusSaving] = useState(false);
 
   // The staff POS must use the same live catalogue as the customer QR menu.
   // This prevents different prices, names or availability between the two sales channels.
