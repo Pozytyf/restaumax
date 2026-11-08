@@ -44,6 +44,12 @@ assert(!orderService.includes('error: `Statut d\'écriture ambigu dans Firestore
 assert(!server.includes('Service de commande indisponible : Firebase Admin non configuré'),
   'public order availability errors do not reveal Firebase Admin configuration');
 assert(orderService.includes('hash.substring(0, 12)'), 'fallback ticket identifiers use a longer collision-resistant suffix');
+assert(server.includes("process.env.VERCEL === '1' ? headers['x-vercel-forwarded-for'] : null") &&
+  !server.includes("headers['x-forwarded-for'] || headers['x-real-ip']"),
+  'rate limiting does not trust caller-controlled forwarded IP headers outside Vercel');
+assert(server.includes("process.env.ORDER_RATE_LIMIT_SECRET || ''") &&
+  !server.includes('TABLE_QR_TOKEN_ENCRYPTION_KEY_V${qrKeyVersion}'),
+  'rate limiting uses a dedicated secret instead of reusing QR encryption keys');
 assert(server.includes('consumePublicOrderRateLimit') && server.includes('maxRequests: 5'),
   'takeaway submissions use a persistent per-IP rate limiter');
 assert(server.includes("isProd && process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS !== 'true'") &&
