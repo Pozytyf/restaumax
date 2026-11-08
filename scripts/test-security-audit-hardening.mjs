@@ -38,6 +38,11 @@ assert(tsconfig.compilerOptions.strict === true, 'TypeScript strict mode is enab
 
 assert(orderService.includes('cart.length > 50') && orderService.includes('requestedUnits > 100'),
   'public orders enforce line-count and total-unit limits before Firestore reads');
+assert(!orderService.includes('error: `Statut d\'écriture ambigu dans Firestore : ${writeErr.message}') &&
+  !orderService.includes('error: `La commande a été enregistrée dans Firestore mais la confirmation d\'idempotence a échoué (${commitErr.message})'),
+  'public order responses do not expose raw Firestore write or idempotency errors');
+assert(!server.includes('Service de commande indisponible : Firebase Admin non configuré'),
+  'public order availability errors do not reveal Firebase Admin configuration');
 assert(orderService.includes('hash.substring(0, 12)'), 'fallback ticket identifiers use a longer collision-resistant suffix');
 assert(server.includes('consumePublicOrderRateLimit') && server.includes('maxRequests: 5'),
   'takeaway submissions use a persistent per-IP rate limiter');
