@@ -11,6 +11,10 @@
       "destination": "/api/index?__restaumax_route=tables-resolve-qr&token=:token"
     },
     {
+      "source": "/api/menu-image",
+      "destination": "/api/index?__restaumax_route=menu-image"
+    },
+    {
       "source": "/api/health",
       "destination": "/api/index?__restaumax_route=health"
     },
