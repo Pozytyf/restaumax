@@ -46,7 +46,10 @@ export interface RestaurantHubViewProps {
   totalSessionSales: number;
   tables?: RestaurantTable[];
   onSaveTable?: (table: RestaurantTable) => Promise<void>;
-  onDeleteTable?: (tableId: string) => void;\n  onToggleServiceStatus?: (isOpen: boolean) => Promise<void>;\n  serviceStatusSaving?: boolean;\n  canManageService?: boolean;
+  onDeleteTable?: (tableId: string) => void;
+  onToggleServiceStatus?: (isOpen: boolean) => Promise<void>;
+  serviceStatusSaving?: boolean;
+  canManageService?: boolean;
   onNavigateHome: () => void;
   onNavigateToClientMenu: () => void;
   onNavigateToStaffRole: (role: 'pos' | 'floor' | 'kds' | 'manager') => void;
