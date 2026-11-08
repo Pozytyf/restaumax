@@ -43,7 +43,7 @@ jobs:
         run: npm ci
 
       - name: Install ephemeral Firebase test tooling
-        run: npm install --no-save firebase-tools @firebase/rules-unit-testing@6.0.0
+        run: npm install --no-save firebase-tools@15.34.2 @firebase/rules-unit-testing@6.0.0
 
       - name: Run project test suite and Firestore security rules tests against real emulators
         run: npx firebase emulators:exec --project demo-restaumax --only firestore,auth "FIRESTORE_EMULATOR_STRICT=true npm test && npx tsx scripts/test-role-authorization.mjs && node scripts/test-security-rules.mjs"
