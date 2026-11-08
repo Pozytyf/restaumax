@@ -24,17 +24,24 @@ for (const entry of SWEET_AND_HOT_DEMO_MENU_ITEMS) {
   }
 }
 assert.equal(validateTarget({
-  projectId: 'gen-lang-client-0138815290',
-  firestoreDatabaseId: 'ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf',
-}, {
-  FIREBASE_PROJECT_ID: 'gen-lang-client-0138815290',
-  FIRESTORE_DATABASE_ID: 'ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf',
-}), true);
-assert.throws(() => validateTarget({
   projectId: 'restaumax-demo',
   firestoreDatabaseId: '(default)',
 }, {
   FIREBASE_PROJECT_ID: 'restaumax-demo',
   FIRESTORE_DATABASE_ID: '(default)',
+}), true);
+assert.throws(() => validateTarget({
+  projectId: 'gen-lang-client-0138815290',
+  firestoreDatabaseId: 'ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf',
+}, {
+  FIREBASE_PROJECT_ID: 'gen-lang-client-0138815290',
+  FIRESTORE_DATABASE_ID: 'ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf',
 }), /Cible Firebase incorrecte/);
+assert.throws(() => validateTarget({
+  projectId: 'restaumax-demo',
+  firestoreDatabaseId: '(default)',
+}, {
+  FIREBASE_PROJECT_ID: 'restaumax-demo',
+  FIRESTORE_DATABASE_ID: 'ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf',
+}), /Définis explicitement/);
 console.log('Sweet and Hot seed tests: OK (29 items, target guard, price formats).');
