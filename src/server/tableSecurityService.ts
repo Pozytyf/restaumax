@@ -80,12 +80,23 @@ export function clearSessionCookie(): string {
 }
 
 export function isTrustedQrNavigation(req: any): boolean {
-  const fetchSite = String(req?.headers?.['sec-fetch-site'] || '').toLowerCase();
-  if (fetchSite && !['same-origin', 'none'].includes(fetchSite)) return false;
+  const method = String(req?.method || 'GET').toUpperCase();
+  if (method !== 'GET') return false;
+
   const fetchDest = String(req?.headers?.['sec-fetch-dest'] || '').toLowerCase();
   if (fetchDest && fetchDest !== 'document') return false;
 
+  const fetchSite = String(req?.headers?.['sec-fetch-site'] || '').toLowerCase();
   const referer = req?.headers?.referer;
+
+  // A QR code is intentionally opened from an external camera/scanner app.
+  // Permit only a top-level document navigation with no external Referer.
+  // This endpoint is GET-only; every state-changing API keeps strict Origin+CSRF.
+  if (fetchSite === 'cross-site' || fetchSite === 'same-site') {
+    return !referer;
+  }
+  if (fetchSite && !['same-origin', 'none'].includes(fetchSite)) return false;
+
   if (typeof referer === 'string' && referer) {
     try {
       const refererUrl = new URL(referer);
@@ -386,4 +397,54 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
     throw new Error('Permission de gestion des tables requise.');
   }
   return decoded;
+
+/**
+ * Changes the restaurant service state through the trusted server only.
+ * Owner identity and manager membership/permission are checked against Firestore.
+ */
+export async function updateRestaurantServiceStatus(
+  db: any,
+  auth: any,
+  req: any,
+  restaurantSlug: string,
+  isOpen: boolean
+) {
+  if (typeof isOpen !== 'boolean') throw new Error('État du service invalide.');
+  const decoded = await authorizeTableManager(db, auth, req, restaurantSlug);
+  const restaurantRef = db.collection('restaurants').doc(restaurantSlug);
+  const managerRef = db.collection('managers').doc(decoded.uid);
+  const now = Date.now();
+
+  await db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, managerSnap] = await Promise.all([
+      tx.get(restaurantRef),
+      tx.get(managerRef)
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const manager = managerSnap.exists ? managerSnap.data() : null;
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || !manager ||
+        manager.active !== true || manager.restaurantSlug !== restaurantSlug ||
+        Number(decoded.sessionVersion || 0) !== Number(manager.sessionVersion || 0)) {
+      throw new Error('Accès au restaurant révoqué ou indisponible.');
+    }
+    if (manager.role === 'owner' && restaurant.ownerUid !== decoded.uid) {
+      throw new Error('Seul le propriétaire enregistré peut modifier le service.');
+    }
+    if (manager.role === 'manager' &&
+        (!Array.isArray(manager.permissions) || !manager.permissions.includes('tables.manage'))) {
+      throw new Error('Permission de gestion requise.');
+    }
+    if (!['owner', 'manager'].includes(String(manager.role || ''))) {
+      throw new Error('Seul le propriétaire ou un manager peut modifier le service.');
+    }
+    tx.update(restaurantRef, {
+      isOpen,
+      serviceStatusUpdatedAt: now,
+      serviceStatusUpdatedBy: decoded.uid
+    });
+  });
+
+  return { success: true, isOpen };
+}
+
 }
