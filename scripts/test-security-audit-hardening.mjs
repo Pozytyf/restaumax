@@ -46,6 +46,9 @@ assert(!server.includes('Service de commande indisponible : Firebase Admin non c
 assert(orderService.includes('hash.substring(0, 12)'), 'fallback ticket identifiers use a longer collision-resistant suffix');
 assert(server.includes('consumePublicOrderRateLimit') && server.includes('maxRequests: 5'),
   'takeaway submissions use a persistent per-IP rate limiter');
+assert(server.includes("isProd && process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS !== 'true'") &&
+  server.includes('Protection App Check non activée'),
+  'production takeaway orders fail closed until App Check enforcement is explicitly enabled');
 assert(server.includes("FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS === 'true'") && server.includes('adminAppCheck.verifyToken'),
   'the backend can enforce Firebase App Check on public takeaway orders');
 assert(client.includes('VITE_FIREBASE_APPCHECK_SITE_KEY') && client.includes('X-Firebase-AppCheck'),
