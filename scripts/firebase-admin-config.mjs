@@ -71,6 +71,7 @@ export function getAppletFirebaseConfig(targetConfigPath = configPath) {
     firestoreDatabaseId,
     appId: config.appId,
     authDomain: config.authDomain,
+    storageBucket: config.storageBucket || `${projectId}.appspot.com`,
   };
 }
 
