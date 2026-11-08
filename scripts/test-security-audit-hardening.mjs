@@ -5,6 +5,7 @@ const server = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
 const api = fs.readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8');
 const orderService = fs.readFileSync(new URL('../src/server/orderService.ts', import.meta.url), 'utf8');
 const lifecycle = fs.readFileSync(new URL('../src/server/orderLifecycleService.ts', import.meta.url), 'utf8');
+const client = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
 const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const vercel = JSON.parse(fs.readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
 const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
