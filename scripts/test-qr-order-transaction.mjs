@@ -46,6 +46,7 @@ async function run() {
       id: orderId, orderNumber, restaurantSlug: slug, orderMode: mode, tableNumber,
       items: [{ menuItemId: 'dish-poulet', name: 'Poulet test', basePrice: 9500, quantity, ...(trackStock ? { trackStock: true } : {}), unitPrice: 9500, totalPrice: 9500 * quantity }],
       itemsCount: quantity, totalAmount: 9500 * quantity, currency: 'FCFA', status: 'pending',
+      ...(mode === 'a_emporter' ? { customerPhoneNormalized: '2250700000000' } : {}),
       createdAt: Date.now(), createdAtIso: new Date().toISOString(),
       idempotencyKey: key, idempotencyDocId: keyDocId, contentSignature: signature
     };
@@ -126,6 +127,15 @@ async function run() {
       'Chaque nouveau ticket reçoit un numéro séquentiel unique par restaurant et par jour');
     assert(/^#CMD-\d{8}-\d{4,}$/.test(trackedOrder.order.orderNumber),
       'Le numéro de ticket contient la date et un compteur séquentiel lisible');
+
+    const takeawayOne = await executeOrderTransactionWithDb(db, buildParams('takeaway-open-1-' + Date.now(), 'a_emporter'));
+    const takeawayTwo = await executeOrderTransactionWithDb(db, buildParams('takeaway-open-2-' + Date.now(), 'a_emporter'));
+    const takeawayThree = await executeOrderTransactionWithDb(db, buildParams('takeaway-open-3-' + Date.now(), 'a_emporter'));
+    assert(takeawayOne.success && takeawayTwo.success && takeawayThree.success,
+      'Trois commandes à emporter en attente sont autorisées pour un même numéro');
+    const takeawayFour = await executeOrderTransactionWithDb(db, buildParams('takeaway-open-4-' + Date.now(), 'a_emporter'));
+    assert(takeawayFour.success === false && takeawayFour.error?.includes('trois commandes'),
+      'Une quatrième commande à emporter est bloquée tant que trois commandes du numéro sont ouvertes');
 
     assert(valid.success === true, 'Une session QR valide autorise la commande sur place dans la transaction');
 
