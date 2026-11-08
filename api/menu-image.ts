@@ -1,4 +1,4 @@
-import { adminDb, handleMenuImageUploadRequest } from '../server.ts';
+import { handleMenuImageUploadRequest } from '../server.ts';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
