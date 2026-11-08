@@ -1,0 +1,85 @@
+name: Import Sweet and Hot catalog — RestauMax Demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run vérifie la cible ; apply écrit les 29 plats"
+        required: true
+        type: choice
+        options:
+          - dry-run
+          - apply
+      confirmation:
+        description: "Pour apply uniquement, saisir IMPORT_SWEET_HOT_DEMO_CATALOG"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: sweet-hot-demo-catalog-import
+  cancel-in-progress: false
+
+jobs:
+  import-catalog:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FIREBASE_PROJECT_ID: gen-lang-client-0138815290
+      FIRESTORE_DATABASE_ID: ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf
+      IMPORT_MODE: ${{ inputs.mode }}
+      IMPORT_CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate target and explicit write confirmation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$FIREBASE_PROJECT_ID" = "gen-lang-client-0138815290"
+          test "$FIRESTORE_DATABASE_ID" = "ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf"
+          if [[ "$IMPORT_MODE" == "apply" && "$IMPORT_CONFIRMATION" != "IMPORT_SWEET_HOT_DEMO_CATALOG" ]]; then
+            echo "::error::Confirmation explicite requise pour écrire le catalogue."
+            exit 1
+          fi
+          echo "Cible fixe validée : RestauMax Demo uniquement."
+
+      - name: Checkout main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test catalog and target guards
+        run: npm run test:seed-sweet-hot
+
+      - name: Authenticate to Google Cloud using short-lived GitHub OIDC credentials
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          project_id: gen-lang-client-0138815290
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_FIREBASE_DEPLOYER_SA }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Run dry-run or apply
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$IMPORT_MODE" == "apply" ]]; then
+            node scripts/seed-sweet-and-hot-demo.mjs --apply
+          else
+            node scripts/seed-sweet-and-hot-demo.mjs
+          fi
