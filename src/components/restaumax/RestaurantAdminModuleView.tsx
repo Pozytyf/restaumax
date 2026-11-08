@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   addDoc, collection, deleteDoc, doc, getDocs, limit, onSnapshot, orderBy, query, updateDoc, where
 } from 'firebase/firestore';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings, AlertTriangle } from 'lucide-react';
 import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
@@ -333,6 +333,9 @@ export const RestaurantAdminModuleView: React.FC<{
     const link = document.createElement('a'); link.href = url; link.download = 'restaumax-rapport-financier.csv'; link.click(); URL.revokeObjectURL(url);
   };
 
+  const lowStockInventory = inventory.filter(item => item.active !== false && Number(item.quantity) <= Number(item.minQuantity));
+  const outOfStockInventory = lowStockInventory.filter(item => Number(item.quantity) <= 0);
+
   return <div className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
     <div className="mx-auto max-w-6xl space-y-6">
       <button onClick={onBack} className="flex items-center gap-2 text-sm font-bold text-slate-600"><ArrowLeft size={16}/> Retour au centre de gestion</button>
@@ -356,6 +359,17 @@ export const RestaurantAdminModuleView: React.FC<{
       </>}
 
       {module === 'inventory' && <>
+        {lowStockInventory.length > 0 && <section role="alert" aria-live="polite" className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
+          <div className="flex items-start gap-3"><AlertTriangle size={20} className="mt-0.5 shrink-0 text-amber-700"/>
+            <div className="min-w-0 flex-1"><h2 className="text-sm font-black text-amber-950">Alertes de réapprovisionnement</h2>
+              <p className="mt-1 text-xs text-amber-900">{outOfStockInventory.length} référence(s) épuisée(s) · {lowStockInventory.length} sous leur seuil minimum.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">{lowStockInventory.map(item=><div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white/80 px-3 py-2 text-xs">
+                <span className="min-w-0 truncate font-bold text-slate-800">{item.name}</span>
+                <span className={Number(item.quantity)<=0?"shrink-0 font-black text-rose-700":"shrink-0 font-semibold text-amber-800"}>{Number(item.quantity)<=0?"Épuisé":String(item.quantity)+" "+item.unit} · seuil "+String(item.minQuantity)+" "+item.unit+" · manque "+String(Math.max(0,Number(item.minQuantity)-Number(item.quantity)))+" "+item.unit+"</span>
+              </div>)}</div>
+            </div>
+          </div>
+        </section>}
         {canManage && <form onSubmit={addInventoryItem} className="grid gap-3 rounded-2xl border bg-white p-5 md:grid-cols-3">
           <h2 className="font-bold md:col-span-3">{editingInventoryItemId ? 'Modifier un article de stock' : 'Nouvel article de stock'}</h2>
           <input required placeholder="Désignation" value={itemForm.name} onChange={e=>setItemForm({...itemForm,name:e.target.value})} className="rounded-lg border p-3"/>
@@ -367,7 +381,7 @@ export const RestaurantAdminModuleView: React.FC<{
           <div className="flex gap-2 md:col-span-3"><button disabled={loading} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-900 p-3 font-bold text-white">{editingInventoryItemId ? <Save size={16}/> : <Plus size={16}/>} {editingInventoryItemId ? 'Enregistrer les modifications' : 'Ajouter au stock'}</button>{editingInventoryItemId && <button type="button" disabled={loading} onClick={resetInventoryForm} className="rounded-lg border px-4 py-3 font-bold text-slate-600">Annuler</button>}</div>
         </form>}
         <section className="overflow-hidden rounded-2xl border bg-white"><div className="border-b p-4 font-bold">État du stock · {inventory.length} référence(s)</div>
-          {inventory.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.supplier || 'Fournisseur non renseigné'} · {formatFCFA(item.unitCost)} / {item.unit}</p><p className={`mt-1 text-sm font-bold ${item.quantity <= item.minQuantity ? 'text-rose-700' : 'text-emerald-700'}`}>{item.quantity} {item.unit} · seuil {item.minQuantity} {item.unit}{item.quantity <= item.minQuantity ? ' · STOCK BAS' : ''}</p></div>{canManage && <div className="flex flex-wrap gap-2"><button onClick={()=>startEditInventoryItem(item)} disabled={loading} aria-label={`Modifier ${item.name}`} className="rounded-lg border p-2 text-slate-700"><Pencil size={16}/></button><button onClick={()=>moveStock(item,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">+1 entrée</button><button onClick={()=>moveStock(item,-1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">−1 sortie</button><button onClick={()=>removeInventoryItem(item.id)} disabled={loading} aria-label="Archiver l'article" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
+          {inventory.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{item.name}</p><p className="text-xs text-slate-500">{item.supplier || 'Fournisseur non renseigné'} · {formatFCFA(item.unitCost)} / {item.unit}</p><p className={`mt-1 text-sm font-bold ${item.quantity <= item.minQuantity ? 'text-rose-700' : 'text-emerald-700'}`}>{item.quantity} {item.unit} · seuil {item.minQuantity} {item.unit}{item.quantity <= item.minQuantity ? ' · ALERTE : réapprovisionnement conseillé' : ''}</p></div>{canManage && <div className="flex flex-wrap gap-2"><button onClick={()=>startEditInventoryItem(item)} disabled={loading} aria-label={`Modifier ${item.name}`} className="rounded-lg border p-2 text-slate-700"><Pencil size={16}/></button><button onClick={()=>moveStock(item,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">+1 entrée</button><button onClick={()=>moveStock(item,-1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm">−1 sortie</button><button onClick={()=>removeInventoryItem(item.id)} disabled={loading} aria-label="Archiver l'article" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
           {inventory.length===0 && <p className="p-8 text-center text-sm text-slate-500">Aucun article de stock. Ajoutez les matières premières et consommables.</p>}
         </section>
         <InventoryRecipePanel restaurantSlug={restaurant.slug} canManage={canManage} inventory={inventory} />

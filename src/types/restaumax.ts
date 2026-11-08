@@ -30,6 +30,16 @@ export interface RestauMenuItem {
   /** When enabled, the remaining sellable portions are enforced server-side. */
   trackStock?: boolean;
   stockQuantity?: number;
+  /** Alert threshold for the sellable portions of this menu item. */
+  lowStockThreshold?: number;
+  /** Public menu details; recipe costs remain in the private menuRecipes collection. */
+  allergens?: string[];
+  spiceLevel?: 0 | 1 | 2 | 3;
+  pairings?: string[];
+  translations?: {
+    en?: { name?: string; description?: string };
+    pt?: { name?: string; description?: string };
+  };
   prepTimeMinutes: number;
   optionGroups?: MenuOptionGroup[];
   availableExtras?: MenuExtra[];

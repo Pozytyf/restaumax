@@ -48,7 +48,6 @@ const resolvedFirebaseConfig = {
   apiKey: viteEnv?.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
   authDomain: viteEnv?.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
   projectId: viteEnv?.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
-  storageBucket: viteEnv?.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
   messagingSenderId: viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
   appId: viteEnv?.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
   measurementId: viteEnv?.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfig.measurementId,
@@ -60,7 +59,6 @@ if (isDemoPreview) {
     viteEnv?.VITE_FIREBASE_API_KEY,
     viteEnv?.VITE_FIREBASE_AUTH_DOMAIN,
     viteEnv?.VITE_FIREBASE_PROJECT_ID,
-    viteEnv?.VITE_FIREBASE_STORAGE_BUCKET,
     viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID,
     viteEnv?.VITE_FIREBASE_APP_ID,
     viteEnv?.VITE_FIRESTORE_DATABASE_ID,
@@ -263,6 +261,17 @@ export async function persistMenuItem(restaurantSlug: string, item: RestauMenuIt
   }
   if (item.trackStock === true && (!Number.isInteger(item.stockQuantity) || Number(item.stockQuantity) < 0 || Number(item.stockQuantity) > 1000000)) {
     throw new Error('Quantité de stock invalide.');
+  }
+  if (item.lowStockThreshold !== undefined && (!Number.isInteger(item.lowStockThreshold) || item.lowStockThreshold < 0 || item.lowStockThreshold > 1000000)) {
+    throw new Error('Seuil d’alerte de stock invalide.');
+  }
+  if (item.spiceLevel !== undefined && ![0, 1, 2, 3].includes(item.spiceLevel)) {
+    throw new Error('Niveau de piquant invalide.');
+  }
+  if ((item.allergens?.length || 0) > 30 || (item.pairings?.length || 0) > 20 ||
+      (item.translations?.en?.name?.length || 0) > 200 || (item.translations?.pt?.name?.length || 0) > 200 ||
+      (item.translations?.en?.description?.length || 0) > 2000 || (item.translations?.pt?.description?.length || 0) > 2000) {
+    throw new Error('Les informations complémentaires du plat dépassent les limites autorisées.');
   }
   const path = `restaurants/${restaurantSlug}/menuItems/${item.id}`;
   try {
@@ -990,6 +999,7 @@ export function subscribeToOrders(
     }
   );
 }
+
 
 type InventoryApiResult = { success: true; itemId?: string; quantityBefore?: number; quantityAfter?: number; idempotentReplay?: boolean } | { success: false; error: string; retryable?: boolean };
 

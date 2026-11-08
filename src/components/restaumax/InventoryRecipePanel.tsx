@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { formatFCFA } from '../../utils/format';
+import { calculateDishProfitability } from '../../utils/menuProfitability';
+const formatCost = (amount: number) => formatFCFA(Math.round(amount));
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import {
   db,
   saveInventoryRecipeWithServerValidation,
   saveInventoryCustomizationRecipeWithServerValidation
 } from '../../lib/firebase';
 
-type StockItem = { id: string; name: string; unit: string; active?: boolean };
+type StockItem = { id: string; name: string; unit: string; unitCost: number; active?: boolean };
 type OptionGroup = { id: string; name: string; options: Array<{ id: string; name: string }> };
-type MenuItem = { id: string; name: string; optionGroups?: OptionGroup[]; availableExtras?: Array<{ id: string; name: string }> };
+type MenuItem = { id: string; name: string; price: number; optionGroups?: OptionGroup[]; availableExtras?: Array<{ id: string; name: string }> };
 type Recipe = {
   id?: string;
   menuItemId: string;
@@ -44,11 +47,11 @@ export const InventoryRecipePanel: React.FC<{ restaurantSlug: string; canManage:
       : [];
 
   useEffect(() => {
-    const stopMenu = onSnapshot(collection(db, 'restaurants', restaurantSlug, 'menuItems'), snap => {
+    const stopMenu = onSnapshot(query(collection(db, 'restaurants', restaurantSlug, 'menuItems'), where('restaurantSlug', '==', restaurantSlug)), snap => {
       setMenu(snap.docs.map(d => {
         const data = d.data();
         return {
-          id: d.id, name: String(data.name || ''),
+          id: d.id, name: String(data.name || ''), price: Number(data.price || 0),
           optionGroups: Array.isArray(data.optionGroups) ? data.optionGroups : [],
           availableExtras: Array.isArray(data.availableExtras) ? data.availableExtras : []
         };
@@ -108,12 +111,14 @@ export const InventoryRecipePanel: React.FC<{ restaurantSlug: string; canManage:
     finally { setBusy(false); }
   };
 
+  const inventoryById = new Map(inventory.map(item => [item.id, item]));
+  const menuById = new Map(menu.map(item => [item.id, item]));
   const recipeLabel = (recipe: Recipe) => recipe.customizationType
     ? `${recipe.menuItemName} · ${recipe.targetName || (recipe.customizationType === 'option' ? 'Option' : 'Supplément')}`
     : recipe.menuItemName;
 
   return <section className="mt-5 overflow-hidden rounded-2xl border bg-white">
-    <div className="border-b p-4"><h2 className="font-bold">Fiches de stock · {recipes.length}</h2><p className="mt-1 text-xs text-slate-500">Définissez les composants consommés par un plat, une option ou un supplément. Les quantités utilisent exactement l’unité de l’article de stock ; aucune conversion implicite.</p></div>
+    <div className="border-b p-4"><h2 className="font-bold">Fiches de stock · {recipes.length}</h2><p className="mt-1 text-xs text-slate-500">Définissez les composants consommés par un plat, une option ou un supplément. Le coût matière et la marge brute par portion sont calculés depuis les coûts unitaires de l’inventaire. Les quantités utilisent exactement l’unité de l’article de stock ; aucune conversion implicite. La marge affichée exclut main-d’œuvre, énergie, emballage, taxes et frais de paiement.</p></div>
     {error && <p role="alert" className="p-3 text-sm text-rose-700">{error}</p>}
     {notice && <p role="status" className="p-3 text-sm text-emerald-700">{notice}</p>}
     {canManage && <form onSubmit={save} className="grid gap-3 border-b p-4">
@@ -154,7 +159,24 @@ export const InventoryRecipePanel: React.FC<{ restaurantSlug: string; canManage:
         <button type="button" onClick={resetForm} className="rounded-lg border px-3 py-2 text-sm">Réinitialiser</button>
       </div>
     </form>}
-    {recipes.map(recipe=><div key={recipe.id || recipe.menuItemId} className="flex flex-wrap items-start justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{recipeLabel(recipe)}</p><p className="mt-1 text-sm text-slate-600">{recipe.lines.map(line=>line.itemName + ' : ' + line.quantityPerDish + ' ' + line.unit).join(' · ')}</p></div>{canManage && <button type="button" onClick={()=>edit(recipe)} className="rounded-lg border px-3 py-2 text-sm font-semibold">Modifier</button>}</div>)}
+    {recipes.map(recipe=>{
+      const menuItem = menuById.get(recipe.menuItemId);
+      const profitability = menuItem ? calculateDishProfitability(menuItem.price, recipe.lines, inventory) : null;
+      const cost = profitability?.costFcfa ?? 0;
+      const margin = profitability?.grossMarginFcfa ?? null;
+      const marginPercent = profitability?.grossMarginPercent ?? null;
+      const hasCompleteCost = profitability?.complete === true;
+      return <div key={recipe.id || recipe.menuItemId} className="flex flex-wrap items-start justify-between gap-3 border-b p-4 last:border-0">
+        <div className="min-w-0 flex-1"><p className="font-bold">{recipeLabel(recipe)}</p>
+          <p className="mt-1 text-sm text-slate-600">{recipe.lines.map(line=>line.itemName + ' : ' + line.quantityPerDish + ' ' + line.unit).join(' · ')}</p>
+          {!recipe.customizationType && <div className="mt-2 flex flex-wrap gap-3 text-xs">
+            <span className="text-slate-600">Coût / portion : <strong>{hasCompleteCost ? formatCost(cost) : 'Coût incomplet'}</strong></span>
+            <span className="text-slate-600">Prix : <strong>{menuItem ? formatCost(menuItem.price) : '—'}</strong></span>
+            <span className={margin !== null && margin >= 0 ? 'font-bold text-emerald-700' : 'font-bold text-rose-700'}>Marge brute : {margin === null || !hasCompleteCost ? '—' : formatCost(margin)}{marginPercent === null || !hasCompleteCost ? '' : ' · ' + marginPercent + ' %'}</span>
+          </div>}
+        </div>{canManage && <button type="button" onClick={()=>edit(recipe)} className="rounded-lg border px-3 py-2 text-sm font-semibold">Modifier</button>}
+      </div>;
+    })}
     {recipes.length===0 && <p className="p-5 text-sm text-slate-500">Aucune fiche définie. Créez les fiches des plats, options et suppléments pour activer leur consommation automatique.</p>}
   </section>;
 };
