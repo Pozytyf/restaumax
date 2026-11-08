@@ -15,6 +15,7 @@ import {
   handlePosOrderSubmission,
   handleRestaurantReportsRequest,
   handleResolveTableQr,
+  handleRestaurantServiceStatus,
   handleSubscriptionBillingCycleRequest,
   handleTableQrManagement
 } from '../server.ts';
