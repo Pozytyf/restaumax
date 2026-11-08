@@ -10,7 +10,6 @@ import {
   Check, 
   AlertCircle, 
   UtensilsCrossed,
-  Image as ImageIcon
 } from 'lucide-react';
 import { 
   RestauMenuItem, 
@@ -19,7 +18,6 @@ import {
   RestaurantInfo 
 } from '../../types/restaumax';
 import { sounds } from '../../utils/audio';
-import { uploadMenuImageWithServerValidation } from '../../lib/firebase';
 
 export interface DishFormModalProps {
   isOpen: boolean;
@@ -188,7 +186,6 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const [translationEnDescription, setTranslationEnDescription] = useState('');
   const [translationPtName, setTranslationPtName] = useState('');
   const [translationPtDescription, setTranslationPtDescription] = useState('');
-  const [imageUploading, setImageUploading] = useState(false);
   const [tagsInput, setTagsInput] = useState('');
   const [optionGroups, setOptionGroups] = useState<FormOptionGroup[]>([]);
   const [extras, setExtras] = useState<FormExtra[]>([]);
@@ -196,7 +193,6 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   // Validation Errors State
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState(false);
-  const [imageLoadError, setImageLoadError] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveInFlight = useRef(false);
@@ -279,7 +275,6 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
     }
     setErrors({});
     setTouched(false);
-    setImageLoadError(false);
   }, [isOpen, dishToEdit]);
 
   if (!isOpen) return null;
@@ -329,9 +324,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       errs.stockQuantity = 'La quantité disponible doit être un entier entre 0 et 1 000 000.';
     }
 
-    // 5. URL de l'image (Validation robuste conforme RFC, HTTP/HTTPS, localhost, IPv4, FQDN)
-    const urlValidation = validateImageUrl(imageUrl);
-    if (!urlValidation.isValid && urlValidation.errorMessage) errs.imageUrl = urlValidation.errorMessage;
+    // Les photos sont temporairement désactivées : aucune URL ni aucun stockage d'image requis.
     const threshold = Number(lowStockThreshold);
     if (!lowStockThreshold.trim() || !Number.isInteger(threshold) || threshold < 0 || threshold > 1000000) errs.lowStockThreshold = 'Le seuil doit être un entier entre 0 et 1 000 000.';
     if (allergensInput.split(',').map(v=>v.trim()).filter(Boolean).length > 30) errs.allergens = '30 allergènes maximum.';
@@ -387,7 +380,6 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const handleSubmit = async (e: React.FormEvent | React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     if (saveInFlight.current) return;
-    if (imageUploading) { setSaveError('Attendez la fin de l’hébergement de la photo avant d’enregistrer.'); return; }
     setTouched(true);
     setSaveError(null);
 
@@ -862,60 +854,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               </div>
             {/* Image URL with live preview - Correction 2 & Vérification 3 */}
             <div>
-              <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
-                <label className="block text-xs font-bold text-emerald-900">Héberger la photo du plat dans RestauMax
-                  <input type="file" accept="image/jpeg,image/png,image/webp" disabled={imageUploading || isSaving} onChange={async e=>{
-                    const file=e.target.files?.[0]; if(!file) return;
-                    const fileInput=e.currentTarget;
-                    setImageUploading(true); setSaveError(null);
-                    try { const uploaded=await uploadMenuImageWithServerValidation(restaurant.slug, dishToEdit?.id || newDishIdRef.current, file); if(!uploaded.success) throw new Error(uploaded.error); setImageUrl(uploaded.url); setImageLoadError(false); }
-                    catch(err) { setSaveError(err instanceof Error ? err.message : "Téléversement de la photo impossible."); }
-                    finally { setImageUploading(false); fileInput.value=""; }
-                  }} className="mt-2 block w-full text-xs" />
-                </label>
-                <p className="mt-1 text-[11px] text-emerald-800">{imageUploading ? "Hébergement sécurisé en cours…" : "JPEG, PNG ou WebP · 3 Mo maximum. La photo sera stockée dans le dossier de ce restaurant."}</p>
-              </div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                URL de l'image (photo du plat) <span className="text-rose-500">*</span>
-              </label>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-1">
-                  <input
-                    type="url"
-                    value={imageUrl}
-                    onChange={(e) => {
-                      setImageUrl(e.target.value);
-                      setImageLoadError(false);
-                    }}
-                    placeholder="https://images.unsplash.com/..."
-                    className={`w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:bg-white transition-all ${
-                      errors.imageUrl ? 'border-rose-400 focus:ring-rose-400 bg-rose-50/20' : 'border-slate-200 focus:ring-[#ff6500]'
-                    }`}
-                  />
-                  {errors.imageUrl && <p className="text-[11px] text-rose-600 mt-1 font-medium">{errors.imageUrl}</p>}
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Lien HTTPS vers une image web (Unsplash, hébergeur ou CDN). Requis à la création.
-                  </p>
-                </div>
-
-                {/* Preview Thumbnail */}
-                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 shrink-0 flex items-center justify-center relative">
-                  {imageUrl.trim() && !imageLoadError ? (
-                    <img
-                      src={imageUrl.trim()}
-                      alt="Aperçu plat"
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                      onError={() => setImageLoadError(true)}
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-slate-400 text-center p-1">
-                      <ImageIcon size={20} />
-                      <span className="text-[9px] mt-0.5">Aperçu</span>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <p className="sm:col-span-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Les photos des plats sont temporairement indisponibles. Elles seront réactivées lorsqu’une solution d’hébergement sans surcoût sera disponible.</p>
             </div>
 
             {/* Tags / Badges */}
@@ -1224,7 +1163,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               sounds.playTap();
               onClose();
             }}
-            disabled={isSaving || imageUploading}
+            disabled={isSaving}
             className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors disabled:opacity-50"
           >
             Annuler
@@ -1233,7 +1172,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isSaving || imageUploading}
+            disabled={isSaving}
             className="px-6 py-2.5 rounded-xl bg-[#ff6500] hover:bg-[#e05800] text-white text-xs font-black shadow-sm transition-all flex items-center gap-2 active:scale-95 disabled:opacity-60 disabled:cursor-wait"
           >
             <Check size={16} />
