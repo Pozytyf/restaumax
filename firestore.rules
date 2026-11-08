@@ -206,7 +206,7 @@ service cloud.firestore {
       // Public get and list for QR menu viewing
       // Create/update/delete restricted strictly to verified managers of this restaurant
       match /menuItems/{dishId} {
-        allow get: if resource != null && isValidId(dishId) && isRestaurantActive(restaurantSlug) && resource.data.get('restaurantSlug', '') == restaurantSlug &&
+        allow get: if isValidId(dishId) && isRestaurantActive(restaurantSlug) && (resource == null || resource.data.get('restaurantSlug', '') == restaurantSlug) &&
           (!isSignedIn() || isRestaurantMember(restaurantSlug));
         allow list: if isRestaurantActive(restaurantSlug) && resource.data.get('restaurantSlug', '') == restaurantSlug &&
           (!isSignedIn() || isRestaurantMember(restaurantSlug));
