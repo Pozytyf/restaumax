@@ -865,10 +865,11 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 <label className="block text-xs font-bold text-emerald-900">Héberger la photo du plat dans RestauMax
                   <input type="file" accept="image/jpeg,image/png,image/webp" disabled={imageUploading || isSaving} onChange={async e=>{
                     const file=e.target.files?.[0]; if(!file) return;
+                    const fileInput=e.currentTarget;
                     setImageUploading(true); setSaveError(null);
                     try { const uploaded=await uploadMenuImageWithServerValidation(restaurant.slug, dishToEdit?.id || newDishIdRef.current, file); if(!uploaded.success) throw new Error(uploaded.error); setImageUrl(uploaded.url); setImageLoadError(false); }
                     catch(err) { setSaveError(err instanceof Error ? err.message : "Téléversement de la photo impossible."); }
-                    finally { setImageUploading(false); e.currentTarget.value=""; }
+                    finally { setImageUploading(false); fileInput.value=""; }
                   }} className="mt-2 block w-full text-xs" />
                 </label>
                 <p className="mt-1 text-[11px] text-emerald-800">{imageUploading ? "Hébergement sécurisé en cours…" : "JPEG, PNG ou WebP · 3 Mo maximum. La photo sera stockée dans le dossier de ce restaurant."}</p>
