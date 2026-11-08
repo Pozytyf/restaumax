@@ -43,7 +43,7 @@
     "test:menu-stock": "node scripts/test-menu-tenant-stock-ui.mjs",
     "test:menu-features": "tsx scripts/test-menu-profitability.mjs && node scripts/test-menu-feature-security.mjs && tsx scripts/test-two-restaurant-acceptance.mjs",
     "test:owner-privacy": "tsx scripts/test-restaurant-ownership-private.mjs",
-    "test:order-rate-limit": "node scripts/test-order-rate-limit.mjs",
+    "test:order-rate-limit": "tsx scripts/test-order-rate-limit.mjs",
     "test:security-audit-hardening": "node scripts/test-security-audit-hardening.mjs"
   },
   "dependencies": {
