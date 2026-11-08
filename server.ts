@@ -594,7 +594,6 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
       const now = Date.now();
       t.update(update.ref, {
         stockQuantity: update.after,
-        ...(update.after === 0 ? { available: false } : {}),
         stockUpdatedAt: now
       });
       const movementId = `order_${orderId}_${update.itemId}`;
