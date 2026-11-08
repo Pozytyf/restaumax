@@ -70,11 +70,6 @@ jobs:
           console.log('Production database and required composite index validated.');
           NODE
 
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24
-
       - name: Authenticate to Google Cloud using GitHub OIDC
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
@@ -84,5 +79,34 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
 
-      - name: Publish indexes only — never rules or documents
-        run: npx --yes firebase-tools@15.34.2 deploy --only firestore:indexes --config firebase.production.json --project "$FIREBASE_PROJECT_ID" --non-interactive
+      - name: Create the single required composite index without deleting existing indexes
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v gcloud
+          existing="$(gcloud firestore indexes composite list --project="$FIREBASE_PROJECT_ID" --database="$FIRESTORE_DATABASE_ID" --format=json)"
+          if printf '%s' "$existing" | node --input-type=module -e '
+            let raw = ""; for await (const chunk of process.stdin) raw += chunk;
+            const indexes = JSON.parse(raw);
+            const found = indexes.some(index => {
+              const fields = (index.fields || []).map(field => ({
+                path: field.fieldPath,
+                order: field.order || (field.arrayConfig ? "array" : "")
+              }));
+              return index.collectionGroup === "orders" &&
+                fields.length === 2 &&
+                fields[0].path === "customerPhoneNormalized" && fields[0].order === "ASCENDING" &&
+                fields[1].path === "status" && fields[1].order === "ASCENDING";
+            });
+            process.exit(found ? 0 : 1);
+          '; then
+            echo "Composite index already exists; no mutation required."
+          else
+            gcloud firestore indexes composite create \
+              --project="$FIREBASE_PROJECT_ID" \
+              --database="$FIRESTORE_DATABASE_ID" \
+              --collection-group=orders \
+              --field-config=field-path=customerPhoneNormalized,order=ascending \
+              --field-config=field-path=status,order=ascending
+          fi
+          echo "Only the required composite index was created if absent. No indexes were deleted; no rules or documents were changed."
