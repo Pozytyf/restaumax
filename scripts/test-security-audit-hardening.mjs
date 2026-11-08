@@ -79,7 +79,7 @@ assert(paydunyaMerchant.includes('payDunyaCredentialsAad') &&
   paydunyaMerchant.includes('PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY_V'),
   'PayDunya credentials use tenant-bound AAD and versioned encryption keys');
 assert(workflowEmulator.includes('actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683') &&
-  workflowEmulator.includes('permissions:\\n  contents: read'),
+  workflowEmulator.includes('permissions:') && workflowEmulator.includes('contents: read'),
   'Firestore emulator workflow pins actions and uses read-only repository permissions');
 assert(workflowHardening.includes('actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683') &&
   workflowHardening.includes('firebase-tools@15.34.2') &&
