@@ -46,7 +46,7 @@ export interface RestaurantHubViewProps {
   totalSessionSales: number;
   tables?: RestaurantTable[];
   onSaveTable?: (table: RestaurantTable) => Promise<void>;
-  onDeleteTable?: (tableId: string) => void;
+  onDeleteTable?: (tableId: string) => void;\n  onToggleServiceStatus?: (isOpen: boolean) => Promise<void>;\n  serviceStatusSaving?: boolean;\n  canManageService?: boolean;
   onNavigateHome: () => void;
   onNavigateToClientMenu: () => void;
   onNavigateToStaffRole: (role: 'pos' | 'floor' | 'kds' | 'manager') => void;
@@ -349,6 +349,19 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
                     Service Fermé
                   </span>
+                )}
+                {canManageService && onToggleServiceStatus && (
+                  <button
+                    type="button"
+                    disabled={serviceStatusSaving}
+                    onClick={() => {
+                      sounds.playTap();
+                      void onToggleServiceStatus(!restaurant.isOpen);
+                    }}
+                    className={`ml-2 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors disabled:opacity-50 ${restaurant.isOpen ? 'bg-rose-500/15 text-rose-200 border border-rose-400/30 hover:bg-rose-500/25' : 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/30 hover:bg-emerald-500/25'}`}
+                  >
+                    {serviceStatusSaving ? 'Mise à jour…' : restaurant.isOpen ? 'Fermer le service' : 'Ouvrir le service'}
+                  </button>
                 )}
               </div>
               <p className="text-xs text-slate-300 font-medium">
