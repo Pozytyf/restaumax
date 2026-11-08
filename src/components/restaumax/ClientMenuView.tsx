@@ -132,10 +132,12 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       const matchQuery = !searchQuery ||
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.translations?.[menuLanguage === 'fr' ? 'en' : menuLanguage]?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.translations?.[menuLanguage === 'fr' ? 'en' : menuLanguage]?.description || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (item.tags && item.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase())));
       return matchAvailable && matchCat && matchQuery;
     });
-  }, [menuItems, selectedCategory, searchQuery]);
+  }, [menuItems, selectedCategory, searchQuery, menuLanguage]);
 
   // Cart totals
   const totalItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -276,6 +278,15 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
           )}
         </div>
 
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label className="text-xs font-bold text-slate-700">Langue de la carte
+            <select value={menuLanguage} onChange={e=>setMenuLanguage(e.target.value as "fr"|"en"|"pt")} className="ml-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+              <option value="fr">Français</option><option value="en">English</option><option value="pt">Português</option>
+            </select>
+          </label>
+          <span className="text-[10px] text-slate-500">Les traductions non renseignées restent en français.</span>
+        </div>
+
         {/* Clickable category tiles — drinks remain a separate destination */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {CATEGORIES.map((cat) => {
@@ -352,13 +363,18 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
             <div className="divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200 bg-white">
               {filteredItems.map((dish) => {
                 const quantity = Math.max(1, quantityByDish[dish.id] || 1);
+                const translation = menuLanguage === 'fr' ? undefined : dish.translations?.[menuLanguage];
+                const localizedDish = translation ? { ...dish, name: translation.name || dish.name, description: translation.description || dish.description } : dish;
                 return <div key={dish.id} className="flex items-center gap-3 p-3 sm:p-4">
                   <img src={dish.imageUrl} alt="" referrerPolicy="no-referrer" loading="lazy"
                     className="h-16 w-16 shrink-0 rounded-xl bg-slate-100 object-cover sm:h-20 sm:w-20" />
-                  <button type="button" onClick={() => { sounds.playTap(); setActiveItemModal(dish); }}
+                  <button type="button" onClick={() => { sounds.playTap(); setActiveItemModal(localizedDish); }}
                     className="min-w-0 flex-1 text-left">
-                    <span className="block truncate text-sm font-bold text-slate-900">{dish.name}</span>
-                    <span className="mt-1 line-clamp-2 block text-xs leading-relaxed text-slate-500">{dish.description}</span>
+                    <span className="block truncate text-sm font-bold text-slate-900">{localizedDish.name}</span>
+                    <span className="mt-1 line-clamp-2 block text-xs leading-relaxed text-slate-500">{localizedDish.description}</span>
+                    {dish.allergens?.length ? <span className="mt-1 block text-[10px] font-semibold text-rose-700">Allergènes : {dish.allergens.join(", ")}</span> : null}
+                    {dish.spiceLevel ? <span className="mt-1 block text-[10px] font-bold text-orange-700">Piquant : {"🌶️".repeat(dish.spiceLevel)}</span> : null}
+                    {dish.pairings?.length ? <span className="mt-1 block text-[10px] text-slate-500">À accompagner avec : {dish.pairings.join(", ")}</span> : null}
                     <span className="mt-1 block text-sm font-black text-[#ff6500]">{formatFCFA(dish.price)}</span>
                   </button>
                   <div className="flex shrink-0 flex-col items-center gap-1">
@@ -372,7 +388,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
                         onClick={() => setQuantityByDish(current => ({ ...current, [dish.id]: quantity + 1 }))}
                         className="flex h-8 w-8 items-center justify-center text-slate-700"><Plus size={13}/></button>
                     </div>
-                    <button type="button" onClick={() => { sounds.playTap(); setActiveItemModal(dish); }}
+                    <button type="button" onClick={() => { sounds.playTap(); setActiveItemModal(localizedDish); }}
                       className="mt-1 rounded-lg bg-orange-50 px-2.5 py-1.5 text-[11px] font-bold text-[#ff6500]">Ajouter</button>
                   </div>
                 </div>;
