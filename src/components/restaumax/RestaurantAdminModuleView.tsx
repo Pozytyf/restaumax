@@ -333,6 +333,9 @@ export const RestaurantAdminModuleView: React.FC<{
     const link = document.createElement('a'); link.href = url; link.download = 'restaumax-rapport-financier.csv'; link.click(); URL.revokeObjectURL(url);
   };
 
+  const lowStockInventory = inventory.filter(item => item.active !== false && Number(item.quantity) <= Number(item.minQuantity));
+  const outOfStockInventory = lowStockInventory.filter(item => Number(item.quantity) <= 0);
+
   return <div className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
     <div className="mx-auto max-w-6xl space-y-6">
       <button onClick={onBack} className="flex items-center gap-2 text-sm font-bold text-slate-600"><ArrowLeft size={16}/> Retour au centre de gestion</button>
@@ -356,6 +359,17 @@ export const RestaurantAdminModuleView: React.FC<{
       </>}
 
       {module === 'inventory' && <>
+        {lowStockInventory.length > 0 && <section role="alert" aria-live="polite" className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
+          <div className="flex items-start gap-3"><AlertTriangle size={20} className="mt-0.5 shrink-0 text-amber-700"/>
+            <div className="min-w-0 flex-1"><h2 className="text-sm font-black text-amber-950">Alertes de réapprovisionnement</h2>
+              <p className="mt-1 text-xs text-amber-900">{outOfStockInventory.length} référence(s) épuisée(s) · {lowStockInventory.length} sous leur seuil minimum.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">{lowStockInventory.map(item=><div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white/80 px-3 py-2 text-xs">
+                <span className="min-w-0 truncate font-bold text-slate-800">{item.name}</span>
+                <span className={Number(item.quantity)<=0?"shrink-0 font-black text-rose-700":"shrink-0 font-semibold text-amber-800"}>{Number(item.quantity)<=0?"Épuisé":String(item.quantity)+" "+item.unit} · seuil "+String(item.minQuantity)+" "+item.unit+" · manque "+String(Math.max(0,Number(item.minQuantity)-Number(item.quantity)))+" "+item.unit+"</span>
+              </div>)}</div>
+            </div>
+          </div>
+        </section>}
         {canManage && <form onSubmit={addInventoryItem} className="grid gap-3 rounded-2xl border bg-white p-5 md:grid-cols-3">
           <h2 className="font-bold md:col-span-3">{editingInventoryItemId ? 'Modifier un article de stock' : 'Nouvel article de stock'}</h2>
           <input required placeholder="Désignation" value={itemForm.name} onChange={e=>setItemForm({...itemForm,name:e.target.value})} className="rounded-lg border p-3"/>
