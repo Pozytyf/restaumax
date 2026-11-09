@@ -84,57 +84,48 @@ jobs:
         with:
           project_id: gen-lang-client-0138815290
 
-      - name: Create the single required composite index without deleting existing indexes
+      - name: Ensure the required composite index exists and reaches READY
         shell: bash
         run: |
           set -euo pipefail
           command -v gcloud
+
           existing="$(gcloud firestore indexes composite list --project="$FIREBASE_PROJECT_ID" --database="$FIRESTORE_DATABASE_ID" --format=json)"
-          if printf '%s' "$existing" | node --input-type=module -e '
-            let raw = ""; for await (const chunk of process.stdin) raw += chunk;
-            const indexes = JSON.parse(raw);
-            const found = indexes.some(index => {
-              const fields = (index.fields || []).map(field => ({
-                path: field.fieldPath,
-                order: field.order || (field.arrayConfig ? "array" : "")
-              }));
-              return index.collectionGroup === "orders" &&
-                fields.length === 2 &&
-                fields[0].path === "customerPhoneNormalized" && fields[0].order === "ASCENDING" &&
-                fields[1].path === "status" && fields[1].order === "ASCENDING";
-            });
-            process.exit(found ? 0 : 1);
-          '; then
-            echo "Composite index already exists; no mutation required."
+          if printf '%s' "$existing" | node scripts/check-firestore-index.mjs exists; then
+            echo "Matching composite index already exists; no create request needed."
           else
-            gcloud firestore indexes composite create \
+            set +e
+            create_output="$(gcloud firestore indexes composite create \
               --project="$FIREBASE_PROJECT_ID" \
               --database="$FIRESTORE_DATABASE_ID" \
               --collection-group=orders \
               --field-config=field-path=customerPhoneNormalized,order=ascending \
-              --field-config=field-path=status,order=ascending
+              --field-config=field-path=status,order=ascending 2>&1)"
+            create_status=$?
+            set -e
+            if [[ "$create_status" -ne 0 ]]; then
+              if grep -q "ALREADY_EXISTS" <<< "$create_output"; then
+                echo "Google Cloud reports ALREADY_EXISTS; continue by checking the existing index."
+              else
+                printf '%s\n' "$create_output"
+                exit "$create_status"
+              fi
+            else
+              printf '%s\n' "$create_output"
+            fi
           fi
+
           ready=false
           for attempt in $(seq 1 60); do
             current="$(gcloud firestore indexes composite list --project="$FIREBASE_PROJECT_ID" --database="$FIRESTORE_DATABASE_ID" --format=json)"
-            if printf '%s' "$current" | node --input-type=module -e '
-              let raw = ""; for await (const chunk of process.stdin) raw += chunk;
-              const indexes = JSON.parse(raw);
-              const found = indexes.find(index => {
-                const fields = (index.fields || []).map(field => ({ path: field.fieldPath, order: field.order || (field.arrayConfig ? "array" : "") }));
-                return index.collectionGroup === "orders" && fields.length === 2 &&
-                  fields[0].path === "customerPhoneNormalized" && fields[0].order === "ASCENDING" &&
-                  fields[1].path === "status" && fields[1].order === "ASCENDING";
-              });
-              process.exit(found?.state === "READY" ? 0 : 1);
-            '; then
+            if printf '%s' "$current" | node scripts/check-firestore-index.mjs ready; then
               ready=true
               break
             fi
             sleep 10
           done
           if [[ "$ready" != "true" ]]; then
-            echo "::error::Composite index not READY after 10 minutes; inspect Firestore index status."
+            echo "::error::Required composite index did not reach READY after 10 minutes."
             exit 1
           fi
           echo "Required composite index is READY. No existing indexes were deleted; no rules or documents were changed."
