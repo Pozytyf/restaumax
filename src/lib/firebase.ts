@@ -1,4 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject, connectStorageEmulator } from 'firebase/storage';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken } from 'firebase/app-check';
 import { 
   getAuth, 
@@ -81,6 +82,7 @@ export const appCheck = appCheckSiteKey
 // CRITICAL: Always use the explicitly selected Firestore database.
 export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 
 // Isolate local development from production Firebase when explicitly requested.
 // The server uses FIRESTORE_EMULATOR_HOST; the browser SDK needs its own connections.
@@ -101,6 +103,9 @@ if (useFirebaseEmulators) {
     viteEnv?.VITE_FIREBASE_AUTH_EMULATOR_URL || `http://${emulatorHost}:9099`;
 
   connectFirestoreEmulator(db, emulatorHost, firestorePort);
+  const rawStoragePort = Number(viteEnv?.VITE_FIREBASE_STORAGE_EMULATOR_PORT || 9199);
+  const storagePort = Number.isInteger(rawStoragePort) && rawStoragePort > 0 && rawStoragePort <= 65535 ? rawStoragePort : 9199;
+  connectStorageEmulator(storage, emulatorHost, storagePort);
   connectAuthEmulator(auth, authEmulatorUrl, { disableWarnings: true });
   console.info(
     `[RestauMax] Firebase Emulator activé (Firestore: ${emulatorHost}:${firestorePort}, Auth: ${authEmulatorUrl}).`
@@ -307,6 +312,44 @@ export function subscribeToMenuItems(
     unsubscribeFirestore();
     if (refreshTimer) clearInterval(refreshTimer);
   };
+}
+
+export type RestaurantImageKind = 'menu' | 'branding';
+
+export async function uploadRestaurantImage(
+  file: File,
+  restaurantSlug: string,
+  kind: RestaurantImageKind
+): Promise<{ path: string; url: string }> {
+  const slug = String(restaurantSlug || '').trim();
+  if (!auth.currentUser) throw new Error('Connexion requise pour téléverser une image.');
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) throw new Error('Restaurant invalide.');
+  if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    throw new Error('Format accepté : JPEG, PNG ou WebP.');
+  }
+  if (file.size <= 0 || file.size > 5 * 1024 * 1024) {
+    throw new Error('La taille de l’image doit être comprise entre 1 octet et 5 Mo.');
+  }
+  const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp';
+  const objectId = crypto.randomUUID().replace(/-/g, '');
+  const path = `restaurants/${slug}/${kind}/${objectId}.${extension}`;
+  const objectRef = storageRef(storage, path);
+  const snapshot = await uploadBytes(objectRef, file, {
+    contentType: file.type,
+    customMetadata: { restaurantSlug: slug, uploadedBy: auth.currentUser.uid }
+  });
+  return { path, url: await getDownloadURL(snapshot.ref) };
+}
+
+export async function deleteRestaurantImage(path: string, restaurantSlug: string): Promise<void> {
+  const slug = String(restaurantSlug || '').trim();
+  if (!auth.currentUser) throw new Error('Connexion requise pour supprimer une image.');
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) ||
+      !path.startsWith(`restaurants/${slug}/menu/`) &&
+      !path.startsWith(`restaurants/${slug}/branding/`)) {
+    throw new Error('Chemin de fichier non autorisé pour ce restaurant.');
+  }
+  await deleteObject(storageRef(storage, path));
 }
 
 /**
