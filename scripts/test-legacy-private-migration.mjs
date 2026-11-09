@@ -3,7 +3,7 @@ import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
 import { deleteField, doc, getDoc, setDoc } from 'firebase/firestore';
 import { migrateOneRestaurant, scanLegacyPrivateData } from './migrate-legacy-restaurant-private-data.mjs';
 
-const env = await initializeTestEnvironment({ projectId: 'demo-restaumax' });
+const env = await initializeTestEnvironment({ projectId: 'demo-legacy-migration' });
 const db = env.unauthenticatedContext().firestore();
 const slug = 'migration-legacy-test';
 
@@ -21,7 +21,11 @@ try {
     });
   });
 
-  const scan = await scanLegacyPrivateData(db);
+  const scan = await env.withSecurityRulesDisabled(async context => {
+    const firestore = context.firestore();
+    const restaurantSnap = await getDoc(doc(firestore, `restaurants/${slug}`));
+    return scanLegacyPrivateData(firestore, [restaurantSnap]);
+  });
   assert(scan.restaurantsNeedingMigration >= 1, 'dry-run detects legacy private restaurant metadata');
   assert(scan.privateFieldCounts.ownerUid >= 1, 'dry-run counts legacy ownerUid without printing values');
   assert.equal(scan.ownerUidConflicts, 0, 'matching/missing canonical owner does not create a conflict');
@@ -33,11 +37,17 @@ try {
   assert.equal(result.fieldsMoved, 4, 'four legacy ownership fields moved');
   assert.equal(result.subscriptionMoved, true, 'subscription moved to canonical collection');
 
-  const migratedRoot = await getDoc(doc(db, `restaurants/${slug}`));
-  const ownership = await getDoc(doc(db, `restaurants/${slug}/private/ownership`));
-  const backup = await getDoc(doc(db, `restaurants/${slug}/private/ownership/migration_backups/legacy-private-v1`));
-  const subscription = await getDoc(doc(db, `restaurantSubscriptions/${slug}`));
-  const audit = await getDoc(doc(db, `admin_audit_logs/migrate_restaurant_private_${slug}_legacy-private-v1`));
+  const { migratedRoot, ownership, backup, subscription, audit } = await env.withSecurityRulesDisabled(async context => {
+    const firestore = context.firestore();
+    const [rootSnap, ownershipSnap, backupSnap, subscriptionSnap, auditSnap] = await Promise.all([
+      getDoc(doc(firestore, `restaurants/${slug}`)),
+      getDoc(doc(firestore, `restaurants/${slug}/private/ownership`)),
+      getDoc(doc(firestore, `restaurants/${slug}/private/ownership/migration_backups/legacy-private-v1`)),
+      getDoc(doc(firestore, `restaurantSubscriptions/${slug}`)),
+      getDoc(doc(firestore, `admin_audit_logs/migrate_restaurant_private_${slug}_legacy-private-v1`))
+    ]);
+    return { migratedRoot: rootSnap, ownership: ownershipSnap, backup: backupSnap, subscription: subscriptionSnap, audit: auditSnap };
+  });
   assert.equal(migratedRoot.data().ownerUid, undefined, 'public restaurant root no longer contains ownerUid');
   assert.equal(migratedRoot.data().ownerEmail, undefined, 'public restaurant root no longer contains ownerEmail');
   assert.equal(ownership.data().ownerUid, 'owner-legacy', 'ownerUid moved to private ownership document');
