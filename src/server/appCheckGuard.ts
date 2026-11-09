@@ -24,7 +24,7 @@ export async function verifyPublicOrderAppCheck({ isProduction, enforcementEnabl
       allowed: false,
       statusCode: 401,
       reason: 'invalid-token',
-      code: String(error?.code || 'invalid-token'),
+      code: String((error as any)?.code || 'invalid-token'),
       message: 'Vérification de sécurité invalide. Actualisez la page et réessayez.'
     };
   }
