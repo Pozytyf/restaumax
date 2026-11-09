@@ -104,8 +104,34 @@ jobs:
           CONFIRM_MIGRATION: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_migration || (github.event.before == '02bbfd228209d7d5661af2345eb4c1ef8c67c501' && 'MIGRATE_LEGACY_PRIVATE_DATA_TO_PRODUCTION' || 'NO') }}
         run: |
           set -euo pipefail
-          node scripts/migrate-legacy-restaurant-private-data.mjs --dry-run
+          node scripts/migrate-legacy-restaurant-private-data.mjs --dry-run | tee "$RUNNER_TEMP/legacy-migration-dry-run.json"
           if [[ "$MODE" == "APPLY" ]]; then
+            node --input-type=commonjs - "$RUNNER_TEMP/legacy-migration-dry-run.json" <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const expected = {
+            restaurantsScanned: 5,
+            restaurantsNeedingMigration: 4,
+            ownerMetadataDocuments: 4,
+            subscriptionDocuments: 0,
+            canonicalSubscriptionsAlreadyPresent: 0,
+            subscriptionConflicts: 0,
+            ownerUidConflicts: 0,
+            invalidSubscriptions: 0,
+            backupConflicts: 0
+          };
+          for (const [key, value] of Object.entries(expected)) {
+            if (report[key] !== value) throw new Error(`Production inventory changed: ${key} expected ${value}, got ${report[key]}`);
+          }
+          const expectedFields = { ownerUid: 4, ownerName: 4, ownerEmail: 4, createdBy: 4, updatedBy: 3, deletedBy: 3 };
+          if (JSON.stringify(report.privateFieldCounts) !== JSON.stringify(expectedFields)) {
+            throw new Error('Production private-field inventory changed; refusing migration.');
+          }
+          if (Object.keys(report.unknownFieldCounts || {}).length !== 0) {
+            throw new Error('Unknown Production fields detected; refusing migration.');
+          }
+          console.log('Production dry-run inventory matches the reviewed snapshot exactly.');
+          NODE
             CONFIRM_LEGACY_PRIVATE_MIGRATION="$CONFIRM_MIGRATION" \
               node scripts/migrate-legacy-restaurant-private-data.mjs --apply
           fi
