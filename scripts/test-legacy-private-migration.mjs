@@ -29,6 +29,7 @@ try {
   });
 
   const scan = await scanLegacyPrivateData(db, [await restaurantRef.get()]);
+  assert.equal(scan.restaurantsScanned, 1, 'focused dry-run scans only the selected restaurant');
   assert(scan.restaurantsNeedingMigration >= 1, 'dry-run detects legacy private restaurant metadata');
   assert(scan.privateFieldCounts.ownerUid >= 1, 'dry-run counts legacy ownerUid without printing values');
   assert.equal(scan.ownerUidConflicts, 0, 'matching/missing canonical owner does not create a conflict');
