@@ -1,0 +1,104 @@
+name: Audit / migrate legacy private restaurant metadata — Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "DRY_RUN = lecture seule ; APPLY = migration après validation du rapport"
+        required: true
+        type: choice
+        default: DRY_RUN
+        options:
+          - DRY_RUN
+          - APPLY
+      confirm_migration:
+        description: "Pour APPLY uniquement, sélectionner la confirmation explicite"
+        required: true
+        type: choice
+        default: "NO"
+        options:
+          - "NO"
+          - "MIGRATE_LEGACY_PRIVATE_DATA_TO_PRODUCTION"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firestore-legacy-private-migration-production
+  cancel-in-progress: false
+
+jobs:
+  audit-migrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: firebase-production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FIREBASE_PROJECT_ID: gen-lang-client-0138815290
+      FIRESTORE_DATABASE_ID: ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf
+
+    steps:
+      - name: Validate Production target and mode
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRM_MIGRATION: ${{ inputs.confirm_migration }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$FIREBASE_PROJECT_ID" = "gen-lang-client-0138815290"
+          test "$FIRESTORE_DATABASE_ID" = "ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf"
+          if [[ "$MODE" == "APPLY" && "$CONFIRM_MIGRATION" != "MIGRATE_LEGACY_PRIVATE_DATA_TO_PRODUCTION" ]]; then
+            echo "::error::Explicit Production migration confirmation is required."
+            exit 1
+          fi
+          echo "Mode: $MODE"
+          echo "Target: $FIREBASE_PROJECT_ID / $FIRESTORE_DATABASE_ID"
+
+      - name: Checkout main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Configure Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Authenticate to Google Cloud using short-lived OIDC credentials
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          project_id: gen-lang-client-0138815290
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_FIREBASE_DEPLOYER_SA }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Run read-only audit or explicitly confirmed migration
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRM_MIGRATION: ${{ inputs.confirm_migration }}
+        run: |
+          set -euo pipefail
+          if [[ "$MODE" == "DRY_RUN" ]]; then
+            node scripts/migrate-legacy-restaurant-private-data.mjs --dry-run
+          else
+            CONFIRM_LEGACY_PRIVATE_MIGRATION="$CONFIRM_MIGRATION" \
+              node scripts/migrate-legacy-restaurant-private-data.mjs --apply
+          fi
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "Legacy private metadata audit/migration completed for the named Production database."
+          echo "Any migrated legacy values were preserved in server-only private migration backup documents."
