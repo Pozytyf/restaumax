@@ -161,12 +161,10 @@ export async function adjustCustomerLoyaltyPointsWithDb(
     const member = memberSnap.exists ? memberSnap.data() || {} : null;
     if (!member || member.active !== true || member.restaurantSlug !== slug ||
         Number(member.sessionVersion || 0) !== Number(input.sessionVersion || 0) ||
-        restaurant.status === 'suspended' || restaurant.status === 'deleted' || restaurant.deletedAt) {
+        String(restaurant.status || 'active') !== 'active' || restaurant.deletedAt) {
       return { success: false, error: 'Compte inactif ou accès à ce restaurant refusé.' };
     }
-    const ownerUid = ownershipSnap.exists
-      ? String(ownershipSnap.data()?.ownerUid || '')
-      : String(restaurant.ownerUid || '');
+    const ownerUid = String((ownershipSnap.exists ? ownershipSnap.data()?.ownerUid : '') || restaurant.ownerUid || '');
     const authorized = member.role === 'owner'
       ? ownerUid === actorUid
       : member.role === 'manager' && Array.isArray(member.permissions) && member.permissions.includes('customers.manage');
