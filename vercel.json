@@ -27,6 +27,10 @@
       "destination": "/api/index?__restaumax_route=order-status"
     },
     {
+      "source": "/api/public-menu",
+      "destination": "/api/index?__restaumax_route=public-menu"
+    },
+    {
       "source": "/api/orders",
       "destination": "/api/index?__restaumax_route=orders"
     },
