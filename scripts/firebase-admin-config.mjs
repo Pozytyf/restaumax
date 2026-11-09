@@ -24,7 +24,7 @@ export const DEFAULT_ADMIN_APP_NAME = '[DEFAULT]';
  * ou si le projectId ou le firestoreDatabaseId est manquant ou vide.
  *
  * @param {string} [targetConfigPath=configPath] - Chemin vers le fichier de configuration JSON
- * @returns {{ projectId: string, firestoreDatabaseId: string, appId?: string, authDomain?: string }}
+ * @returns {{ projectId: string, firestoreDatabaseId: string, storageBucket: string, appId?: string, authDomain?: string }}
  */
 export function getAppletFirebaseConfig(targetConfigPath = configPath) {
   if (!fs.existsSync(targetConfigPath)) {
@@ -57,8 +57,13 @@ export function getAppletFirebaseConfig(targetConfigPath = configPath) {
   const isVercelPreview = process.env.VERCEL_ENV === 'preview';
   const projectId = process.env.FIREBASE_PROJECT_ID?.trim() || config.projectId.trim();
   const firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID?.trim() || config.firestoreDatabaseId.trim();
+  const storageBucket = process.env.FIREBASE_STORAGE_BUCKET?.trim() || process.env.VITE_FIREBASE_STORAGE_BUCKET?.trim() || String(config.storageBucket || '').trim();
+  if (!storageBucket) throw new Error(`Configuration invalide : 'storageBucket' est manquant dans ${targetConfigPath}`);
 
   // Preview must never fall back silently to the committed Production project.
+  if (isVercelPreview && !storageBucket.startsWith('restaumax-demo.')) {
+    throw new Error("Configuration Firebase Preview invalide : le bucket Storage doit cibler exclusivement 'restaumax-demo'.");
+  }
   if (isVercelPreview && projectId !== 'restaumax-demo') {
     throw new Error("Configuration Firebase Preview invalide : FIREBASE_PROJECT_ID doit cibler exclusivement 'restaumax-demo'.");
   }
@@ -69,6 +74,7 @@ export function getAppletFirebaseConfig(targetConfigPath = configPath) {
   return {
     projectId,
     firestoreDatabaseId,
+    storageBucket,
     appId: config.appId,
     authDomain: config.authDomain,
   };
