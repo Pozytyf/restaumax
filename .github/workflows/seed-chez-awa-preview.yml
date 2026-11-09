@@ -1,0 +1,81 @@
+name: Seed Chez Awa — Firebase Preview only
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run vérifie la cible et les collisions ; apply écrit le restaurant et ses 5 plats"
+        required: true
+        type: choice
+        options:
+          - dry-run
+          - apply
+      confirmation:
+        description: "Pour apply uniquement, saisir SEED_CHEZ_AWA_PREVIEW"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chez-awa-preview-seed
+  cancel-in-progress: false
+
+jobs:
+  seed-demo:
+    if: github.ref == 'refs/heads/fix/chez-awa-preview-seed-only'
+    environment: demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FIREBASE_PROJECT_ID: restaumax-demo
+      FIRESTORE_DATABASE_ID: (default)
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+      SEED_MODE: ${{ inputs.mode }}
+      SEED_CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate immutable Preview target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/fix/chez-awa-preview-seed-only"
+          test "$FIREBASE_PROJECT_ID" = "restaumax-demo"
+          test "$FIRESTORE_DATABASE_ID" = "(default)"
+          if [[ "$SEED_MODE" == "apply" && "$SEED_CONFIRMATION" != "SEED_CHEZ_AWA_PREVIEW" ]]; then
+            echo "::error::Confirmation explicite requise pour écrire dans Firebase Preview."
+            exit 1
+          fi
+          if [[ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]]; then
+            echo "::error::Le secret FIREBASE_SERVICE_ACCOUNT_JSON doit être configuré dans l'environnement GitHub demo."
+            exit 1
+          fi
+          echo "Cible immuable validée : restaumax-demo / (default)."
+
+      - name: Checkout seed branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: fix/chez-awa-preview-seed-only
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify seed safety guards
+        run: node scripts/test-seed-chez-awa-demo.mjs
+
+      - name: Execute dry-run or confirmed Demo import
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$SEED_MODE" == "apply" ]]; then
+            node scripts/seed-chez-awa-demo.mjs --apply
+          else
+            node scripts/seed-chez-awa-demo.mjs
+          fi
