@@ -9,7 +9,7 @@ assert(!overview.includes('migrateLegacyRestaurantPrivateData'), 'GET overview m
 assert(!overview.includes('.set(') && !overview.includes('.update(') && !overview.includes('.delete('), 'GET overview must remain read-only');
 assert(overview.includes("collection('restaurantSubscriptions').doc(d.id).get()"), 'overview reads canonical subscription data without writing');
 const superAdminStart = source.indexOf('function isSuperAdmin(user: DecodedIdToken) {');
-const superAdminEnd = source.indexOf('\\n}\\n', superAdminStart) + 2;
+const superAdminEnd = source.indexOf('export function canManageStaffMember', superAdminStart);
 assert(superAdminStart >= 0 && superAdminEnd > superAdminStart, 'super-admin authorization helper exists');
 const superAdmin = source.slice(superAdminStart, superAdminEnd);
 assert(superAdmin.includes("user.role === 'super_admin'"), 'trusted server-issued super-admin claim grants access');
