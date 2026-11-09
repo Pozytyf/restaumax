@@ -84,6 +84,18 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
       // Never leave the user without feedback if the SDK or browser rejects unexpectedly.
       console.error("Échec inattendu de la demande de réinitialisation :", error);
       setResetMessage("Impossible de contacter le service de réinitialisation. Vérifiez votre connexion puis réessayez.");
+    } catch (error: any) {
+      console.error('[RestauMax Auth] Échec inattendu de la réinitialisation:', error?.code || 'unknown');
+      const code = error?.code;
+      if (code === 'auth/unauthorized-domain') {
+        setResetMessage("Le domaine restaumax.vercel.app doit être autorisé dans Firebase Authentication.");
+      } else if (code === 'auth/operation-not-allowed') {
+        setResetMessage("La réinitialisation par e-mail n'est pas activée dans Firebase Authentication.");
+      } else if (code === 'auth/network-request-failed') {
+        setResetMessage("Le service Firebase Authentication est injoignable. Vérifiez votre connexion.");
+      } else {
+        setResetMessage("La demande de réinitialisation a échoué. Le code technique a été consigné pour diagnostic.");
+      }
     } finally {
       setIsResettingPassword(false);
     }
