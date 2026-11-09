@@ -29,6 +29,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   const [expandedRestaurant, setExpandedRestaurant] = useState<string | null>(null);
   const [staffByRestaurant, setStaffByRestaurant] = useState<Record<string, StaffRow[]>>({});
   const [loading, setLoading] = useState(false);
+  const [isPlatformAdminAuthorized, setIsPlatformAdminAuthorized] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [email, setEmail] = useState('');
@@ -43,7 +44,13 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   });
   const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '' });
 
-  useEffect(() => onAuthStateChanged(auth, setUser), []);
+  useEffect(() => onAuthStateChanged(auth, (nextUser) => {
+    setUser(nextUser);
+    setIsPlatformAdminAuthorized(false);
+    setRestaurants([]);
+    setSummary(null);
+    setStaffByRestaurant({});
+  }), []);
 
   const request = useCallback(async (body?: Record<string, unknown>) => {
     if (!auth.currentUser) throw new Error('Session non authentifiée.');
@@ -53,17 +60,36 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined
     });
-    const data = await response.json();
-    if (!response.ok || !data.success) throw new Error(data.error || 'Opération refusée.');
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) {
+      // /admin is a separate security boundary: a restaurant session must not
+      // remain authenticated after the platform API rejects it.
+      if (response.status === 401 || response.status === 403) {
+        setIsPlatformAdminAuthorized(false);
+        setRestaurants([]);
+        setSummary(null);
+        setStaffByRestaurant({});
+        await signOut(auth).catch(() => undefined);
+        setUser(null);
+      }
+      throw new Error(data.error || 'Accès super-administrateur refusé.');
+    }
     // The first allowlisted request may have just received the super-admin custom claim.
     await auth.currentUser?.getIdToken(true);
+    setIsPlatformAdminAuthorized(true);
     return data;
   }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
-    try { const data = await request(); setRestaurants(data.restaurants || []); setSummary(data.summary || null); }
-    catch (e: any) { setError(e.message || 'Accès super-administrateur refusé.'); }
+    try {
+      const data = await request();
+      setRestaurants(data.restaurants || []);
+      setSummary(data.summary || null);
+    } catch (e: any) {
+      setIsPlatformAdminAuthorized(false);
+      setError(e.message || 'Accès super-administrateur refusé.');
+    }
     finally { setLoading(false); }
   }, [request]);
 
@@ -280,7 +306,11 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
         <label className="block text-sm">Adresse e-mail<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/></label>
         <label className="block text-sm">Mot de passe<div className="relative mt-1"><input required type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
         <button disabled={loading} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white disabled:opacity-50">{loading ? 'Connexion…' : 'Se connecter'}</button>
-      </form> : <><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      </form> : !isPlatformAdminAuthorized ? <section className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
+        <h2 className="text-xl font-bold">Vérification des droits super-administrateur</h2>
+        <p className="text-sm text-slate-400">{loading ? 'Vérification de votre identité et de vos autorisations côté serveur…' : 'Aucune donnée de plateforme ne sera affichée tant que le serveur n’aura pas confirmé vos droits.'}</p>
+        {!loading && <button type="button" onClick={() => void refresh()} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white">Vérifier à nouveau</button>}
+      </section> : <><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Restaurants enregistrés</p><p className="mt-2 text-3xl font-black">{summary?.totalRestaurants ?? restaurants.length}</p></div>
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements actifs</p><p className="mt-2 text-3xl font-black">{summary?.activeRestaurants ?? 0}</p></div>
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements suspendus</p><p className="mt-2 text-3xl font-black">{summary?.suspendedRestaurants ?? 0}</p></div>
