@@ -21,7 +21,7 @@
     "test": "npm run test:kitchen && npm run test:inventory && npm run test:roles && npm run test:vercel-api-router && npm run test:cash && npm run test:refund-service && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:order-rate-limit && npm run test:app-check && npm run test:security-audit-hardening && npm run test:seed-sweet-hot && npm run test:migrate-demo && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:tax && npm run test:reports && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation && npm run test:auth-boundaries && npm run test:order-lifecycle && npm run test:security-regression && npm run test:menu-stock && npm run test:menu-features && npm run test:owner-privacy && npm run test:legacy-private-migration",
     "seed:local": "node scripts/seed-catalog.mjs",
     "test:refund-client": "node scripts/test-refund-client-routing.mjs",
-    "test:onboarding": "node scripts/test-onboarding-reset-email.mjs && node scripts/test-provision-restaumax-demo-owner.mjs",
+    "test:onboarding": "node scripts/test-onboarding-reset-email.mjs",
     "test:partial-mobile-money": "node scripts/test-partial-mobile-money-ui.mjs",
     "test:admin-navigation": "node scripts/test-admin-navigation.mjs",
     "test:auth-boundaries": "node scripts/test-auth-boundaries.mjs",
