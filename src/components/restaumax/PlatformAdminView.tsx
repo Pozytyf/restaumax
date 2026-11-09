@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
 import { auth, requestManagerPasswordReset } from '../../lib/firebase';
 import { calculateSubscriptionMetrics } from '../../lib/subscriptionMetrics';
@@ -22,13 +22,16 @@ type PlatformSummary = {
 };
 type StaffRow = { uid: string; email: string; displayName: string; role: 'owner' | 'manager' | 'staff' | 'cashier' | 'server' | 'kitchen'; active: boolean; permissions?: string[]; accountLinked?: boolean; activeKnown?: boolean; emailConflict?: boolean; sources?: string[]; readOnly?: boolean };
 
-export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant: (slug: string) => void }> = ({ onBack, onOpenRestaurant }) => {
+export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [user, setUser] = useState<User | null>(auth.currentUser);
   const [restaurants, setRestaurants] = useState<RestaurantRow[]>([]);
   const [summary, setSummary] = useState<PlatformSummary | null>(null);
   const [expandedRestaurant, setExpandedRestaurant] = useState<string | null>(null);
   const [staffByRestaurant, setStaffByRestaurant] = useState<Record<string, StaffRow[]>>({});
   const [loading, setLoading] = useState(false);
+  const [isPlatformAdminAuthorized, setIsPlatformAdminAuthorized] = useState(false);
+  const [needsPlatformAdminLogin, setNeedsPlatformAdminLogin] = useState(false);
+  const adminLoginInProgress = useRef(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [email, setEmail] = useState('');
@@ -43,8 +46,6 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
   });
   const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '' });
 
-  useEffect(() => onAuthStateChanged(auth, setUser), []);
-
   const request = useCallback(async (body?: Record<string, unknown>) => {
     if (!auth.currentUser) throw new Error('Session non authentifiée.');
     const token = await auth.currentUser.getIdToken(true);
@@ -53,27 +54,96 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined
     });
-    const data = await response.json();
-    if (!response.ok || !data.success) throw new Error(data.error || 'Opération refusée.');
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) {
+      // /admin is a separate security boundary: a restaurant session must not
+      // remain authenticated after the platform API rejects it.
+      if (response.status === 401 || response.status === 403) {
+        setIsPlatformAdminAuthorized(false);
+        setRestaurants([]);
+        setSummary(null);
+        setStaffByRestaurant({});
+        await signOut(auth).catch(() => undefined);
+        setUser(null);
+      }
+      throw new Error(data.error || 'Accès super-administrateur refusé.');
+    }
     // The first allowlisted request may have just received the super-admin custom claim.
     await auth.currentUser?.getIdToken(true);
+    setIsPlatformAdminAuthorized(true);
     return data;
   }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
-    try { const data = await request(); setRestaurants(data.restaurants || []); setSummary(data.summary || null); }
-    catch (e: any) { setError(e.message || 'Accès super-administrateur refusé.'); }
+    try {
+      const data = await request();
+      setRestaurants(data.restaurants || []);
+      setSummary(data.summary || null);
+    } catch (e: any) {
+      setIsPlatformAdminAuthorized(false);
+      setError(e.message || 'Accès super-administrateur refusé.');
+    }
     finally { setLoading(false); }
   }, [request]);
 
-  useEffect(() => { if (user) refresh(); else { setRestaurants([]); setSummary(null); } }, [user, refresh]);
+  useEffect(() => {
+    let active = true;
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      if (!nextUser) {
+        setIsPlatformAdminAuthorized(false);
+        setNeedsPlatformAdminLogin(false);
+        setRestaurants([]);
+        setSummary(null);
+        setStaffByRestaurant({});
+        return;
+      }
+
+      // A pre-existing restaurant session is not silently upgraded by the
+      // platform allowlist. It must pass through the dedicated admin login.
+      if (adminLoginInProgress.current) return;
+      setIsPlatformAdminAuthorized(false);
+      setRestaurants([]);
+      setSummary(null);
+      setStaffByRestaurant({});
+      setLoading(true);
+      nextUser.getIdTokenResult().then(async (token) => {
+        if (!active) return;
+        if (token.claims.role !== 'super_admin') {
+          setNeedsPlatformAdminLogin(true);
+          return;
+        }
+        setNeedsPlatformAdminLogin(false);
+        const data = await request();
+        if (!active) return;
+        setRestaurants(data.restaurants || []);
+        setSummary(data.summary || null);
+      }).catch((e: any) => {
+        if (!active) return;
+        // Transient server/network errors keep the session pending and retryable;
+        // only a confirmed non-super-admin claim requires the login form.
+        setError(e?.message || 'Accès super-administrateur refusé.');
+      }).finally(() => {
+        if (active) setLoading(false);
+      });
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [request]);
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault(); setError(''); setLoading(true);
+    adminLoginInProgress.current = true;
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
       setPassword('');
+      const data = await request();
+      setRestaurants(data.restaurants || []);
+      setSummary(data.summary || null);
+      setNeedsPlatformAdminLogin(false);
     } catch (authError: any) {
       const code = authError?.code;
       console.error('[RestauMax SuperAdmin Auth] Échec de connexion:', code || 'unknown');
@@ -92,9 +162,10 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
       } else if (code === 'auth/invalid-api-key' || code === 'auth/api-key-not-valid') {
         setError('La configuration Firebase de cette version de RestauMax est invalide.');
       } else {
-        setError(`Échec de connexion Firebase (code : ${code || 'inconnu'}). Consultez les journaux techniques.`);
+        setError(authError?.message || `Échec de connexion Firebase (code : ${code || 'inconnu'}). Consultez les journaux techniques.`);
       }
     } finally {
+      adminLoginInProgress.current = false;
       setLoading(false);
     }
   };
@@ -275,12 +346,16 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
     <main className="mx-auto max-w-7xl space-y-6 p-5 md:p-8">
       {error && <div role="alert" className="rounded-xl border border-rose-800 bg-rose-950/50 p-3 text-sm text-rose-200">{error}</div>}
       {notice && <div className="rounded-xl border border-emerald-800 bg-emerald-950/50 p-3 text-sm text-emerald-200">{notice}</div>}
-      {!user ? <form onSubmit={login} className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
+      {(!user || needsPlatformAdminLogin) ? <form onSubmit={login} className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
         <h2 className="text-xl font-bold">Connexion super-administrateur</h2><p className="text-sm text-slate-400">Accès réservé aux comptes explicitement autorisés par la configuration sécurisée RestauMax.</p>
         <label className="block text-sm">Adresse e-mail<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/></label>
         <label className="block text-sm">Mot de passe<div className="relative mt-1"><input required type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
         <button disabled={loading} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white disabled:opacity-50">{loading ? 'Connexion…' : 'Se connecter'}</button>
-      </form> : <><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      </form> : !isPlatformAdminAuthorized ? <section className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
+        <h2 className="text-xl font-bold">Vérification des droits super-administrateur</h2>
+        <p className="text-sm text-slate-400">{loading ? 'Vérification de votre identité et de vos autorisations côté serveur…' : 'Aucune donnée de plateforme ne sera affichée tant que le serveur n’aura pas confirmé vos droits.'}</p>
+        {!loading && <button type="button" onClick={() => void refresh()} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white">Vérifier à nouveau</button>}
+      </section> : <><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Restaurants enregistrés</p><p className="mt-2 text-3xl font-black">{summary?.totalRestaurants ?? restaurants.length}</p></div>
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements actifs</p><p className="mt-2 text-3xl font-black">{summary?.activeRestaurants ?? 0}</p></div>
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">Établissements suspendus</p><p className="mt-2 text-3xl font-black">{summary?.suspendedRestaurants ?? 0}</p></div>
@@ -390,7 +465,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
                           ? `${r.subscription.planName} · ${Number(r.subscription.priceFcfa || 0).toLocaleString('fr-FR')} FCFA · ${billingCycleLabel(r.subscription.billingCycle)} · ${subscriptionStatusLabel(r.subscription.status)}`
                           : 'Abonnement non configuré'}
                         {r.subscription?.endsAt ? ` · échéance ${new Date(r.subscription.endsAt).toLocaleDateString('fr-FR')}` : ''}{r.subscription?.nextBillingAt ? ` · prochaine facture ${new Date(r.subscription.nextBillingAt).toLocaleDateString('fr-FR')}` : ''}
-                      </p></div></div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${r.status === 'deleted' || r.deletedAt ? 'bg-slate-700 text-slate-300' : r.status === 'suspended' ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'}`}>{r.status === 'deleted' || r.deletedAt ? 'Supprimé' : r.status === 'suspended' ? 'Suspendu' : 'Actif'}</span>{r.status !== 'deleted' && !r.deletedAt && <><button onClick={()=>onOpenRestaurant(r.slug)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">Gérer</button><button disabled={loading} onClick={()=>editSubscription(r)} className="rounded-lg border border-violet-800 px-3 py-2 text-xs font-bold text-violet-300">Abonnement</button><button disabled={loading} onClick={()=>setStatus(r,r.status === 'suspended' ? 'active' : 'suspended')} className="flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-xs">{r.status === 'suspended' ? <CheckCircle2 size={14}/> : <Ban size={14}/>} {r.status === 'suspended' ? 'Réactiver' : 'Suspendre'}</button><button disabled={loading} onClick={()=>deleteRestaurant(r)} className="rounded-lg border border-rose-900 px-3 py-2 text-xs font-bold text-rose-300">Supprimer</button></>}<button disabled={loading} onClick={()=>toggleRestaurantStaff(r)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">{expandedRestaurant === r.slug ? 'Masquer les comptes' : 'Gérer les comptes'}</button></div></div>{expandedRestaurant === r.slug && <div className="space-y-3 border-b border-slate-800 bg-slate-950/60 p-4">{(staffByRestaurant[r.slug] || []).map(member=><div key={member.uid} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 p-3"><div><p className="font-bold text-sm">{member.displayName || 'Identité non renseignée'} <span className="text-xs text-slate-400">· {member.role === 'owner' ? 'Propriétaire' : member.role === 'manager' ? 'Gérant' : member.role === 'cashier' ? 'Caissier' : member.role === 'server' ? 'Serveur' : member.role === 'kitchen' ? 'Cuisine / Bar' : 'Personnel'}</span></p><p className="text-xs text-slate-400">{member.email || 'E-mail non renseigné'} · {member.accountLinked === false ? 'Aucun compte Firebase lié' : member.activeKnown === false ? 'Statut du compte non vérifié' : member.active ? 'Actif' : 'Inactif / suspendu'}</p>{member.emailConflict && <p className="mt-1 text-xs text-amber-300">Incohérence : plusieurs e-mails sont enregistrés pour ce même identifiant. Sources : {(member.sources || []).join(', ')}.</p>}{member.accountLinked === false && <p className="mt-1 text-xs text-amber-300">Fiche propriétaire présente, mais aucun identifiant de compte associé.</p>}</div>{!member.readOnly && member.accountLinked !== false && member.role !== 'owner' && <div className="flex gap-2">{member.active ? <button disabled={loading || r.status === 'deleted' || Boolean(r.deletedAt)} onClick={()=>setUserStatus(r,member,'suspended')} className="rounded-lg border border-rose-900 px-3 py-2 text-xs text-rose-300">Suspendre</button> : <button disabled={loading || r.status !== 'active'} onClick={()=>setUserStatus(r,member,'active')} className="rounded-lg border border-emerald-900 px-3 py-2 text-xs text-emerald-300">Réactiver</button>}<button disabled={loading || r.status === 'deleted' || Boolean(r.deletedAt)} onClick={()=>deleteUser(r,member)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs">Supprimer</button></div>}</div>)}{(staffByRestaurant[r.slug] || []).length === 0 && <p className="text-sm text-slate-400">Aucun compte lié retrouvé dans les registres du personnel ou des propriétaires.</p>}<p className="text-xs text-slate-500">Consultation super-administrateur en lecture seule : identité propriétaire, e-mail et concordance des registres. Les historiques métier ne sont jamais modifiés.</p></div>}</React.Fragment>)}</div>
+                      </p></div></div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-1 text-xs font-bold ${r.status === 'deleted' || r.deletedAt ? 'bg-slate-700 text-slate-300' : r.status === 'suspended' ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'}`}>{r.status === 'deleted' || r.deletedAt ? 'Supprimé' : r.status === 'suspended' ? 'Suspendu' : 'Actif'}</span>{r.status !== 'deleted' && !r.deletedAt && <><button disabled={loading} onClick={()=>editSubscription(r)} className="rounded-lg border border-violet-800 px-3 py-2 text-xs font-bold text-violet-300">Abonnement</button><button disabled={loading} onClick={()=>setStatus(r,r.status === 'suspended' ? 'active' : 'suspended')} className="flex items-center gap-1 rounded-lg border border-slate-700 px-3 py-2 text-xs">{r.status === 'suspended' ? <CheckCircle2 size={14}/> : <Ban size={14}/>} {r.status === 'suspended' ? 'Réactiver' : 'Suspendre'}</button><button disabled={loading} onClick={()=>deleteRestaurant(r)} className="rounded-lg border border-rose-900 px-3 py-2 text-xs font-bold text-rose-300">Supprimer</button></>}<button disabled={loading} onClick={()=>toggleRestaurantStaff(r)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold">{expandedRestaurant === r.slug ? 'Masquer les comptes' : 'Gérer les comptes'}</button></div></div>{expandedRestaurant === r.slug && <div className="space-y-3 border-b border-slate-800 bg-slate-950/60 p-4">{(staffByRestaurant[r.slug] || []).map(member=><div key={member.uid} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 p-3"><div><p className="font-bold text-sm">{member.displayName || 'Identité non renseignée'} <span className="text-xs text-slate-400">· {member.role === 'owner' ? 'Propriétaire' : member.role === 'manager' ? 'Gérant' : member.role === 'cashier' ? 'Caissier' : member.role === 'server' ? 'Serveur' : member.role === 'kitchen' ? 'Cuisine / Bar' : 'Personnel'}</span></p><p className="text-xs text-slate-400">{member.email || 'E-mail non renseigné'} · {member.accountLinked === false ? 'Aucun compte Firebase lié' : member.activeKnown === false ? 'Statut du compte non vérifié' : member.active ? 'Actif' : 'Inactif / suspendu'}</p>{member.emailConflict && <p className="mt-1 text-xs text-amber-300">Incohérence : plusieurs e-mails sont enregistrés pour ce même identifiant. Sources : {(member.sources || []).join(', ')}.</p>}{member.accountLinked === false && <p className="mt-1 text-xs text-amber-300">Fiche propriétaire présente, mais aucun identifiant de compte associé.</p>}</div>{!member.readOnly && member.accountLinked !== false && member.role !== 'owner' && <div className="flex gap-2">{member.active ? <button disabled={loading || r.status === 'deleted' || Boolean(r.deletedAt)} onClick={()=>setUserStatus(r,member,'suspended')} className="rounded-lg border border-rose-900 px-3 py-2 text-xs text-rose-300">Suspendre</button> : <button disabled={loading || r.status !== 'active'} onClick={()=>setUserStatus(r,member,'active')} className="rounded-lg border border-emerald-900 px-3 py-2 text-xs text-emerald-300">Réactiver</button>}<button disabled={loading || r.status === 'deleted' || Boolean(r.deletedAt)} onClick={()=>deleteUser(r,member)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs">Supprimer</button></div>}</div>)}{(staffByRestaurant[r.slug] || []).length === 0 && <p className="text-sm text-slate-400">Aucun compte lié retrouvé dans les registres du personnel ou des propriétaires.</p>}<p className="text-xs text-slate-500">Consultation super-administrateur en lecture seule : identité propriétaire, e-mail et concordance des registres. Les historiques métier ne sont jamais modifiés.</p></div>}</React.Fragment>)}</div>
       </>}
     </main>
   </div>;

@@ -17,12 +17,14 @@ import { requestManagerPasswordReset } from '../../lib/firebase';
 interface ManagerLoginViewProps {
   onLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   onBackToMenu: () => void;
+  onOpenPlatformAdmin: () => void;
   restaurantName?: string;
 }
 
 export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
   onLogin,
   onBackToMenu,
+  onOpenPlatformAdmin,
   restaurantName = 'Chez Awa'
 }) => {
   const [email, setEmail] = useState('');
@@ -224,6 +226,17 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
                 {resetMessage}
               </p>
             )}
+          </div>
+
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={onOpenPlatformAdmin}
+              disabled={isSubmitting}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-700 hover:border-slate-300 hover:bg-slate-100 transition-colors disabled:opacity-50"
+            >
+              Connexion super-administrateur · Administration plateforme
+            </button>
           </div>
 
           {/* Security & Provisioning Note */}

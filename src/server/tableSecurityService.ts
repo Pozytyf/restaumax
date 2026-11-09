@@ -378,6 +378,9 @@ export async function authorizeTableManager(db: any, auth: any, req: any, restau
   const match = header.match(/^Bearer\s+(.+)$/i);
   if (!match || !auth) throw new Error('Authentification gestionnaire requise.');
   const decoded = await auth.verifyIdToken(match[1], true);
+  if (decoded?.role === 'super_admin' || decoded?.role === 'admin') {
+    throw new Error('Le super-administrateur n’a pas accès aux opérations d’un restaurant.');
+  }
   if (!decoded?.uid) throw new Error('Identité gestionnaire invalide.');
 
   // A platform claim is never a substitute for membership in the target restaurant.
@@ -430,6 +433,9 @@ export async function updateRestaurantServiceStatus(
   const match = header.match(/^Bearer\s+(.+)$/i);
   if (!match || !auth) throw new Error('Authentification gestionnaire requise.');
   const decoded = await auth.verifyIdToken(match[1], true);
+  if (decoded?.role === 'super_admin' || decoded?.role === 'admin') {
+    throw new Error('Le super-administrateur n’a pas accès aux opérations d’un restaurant.');
+  }
   if (!decoded?.uid) throw new Error('Identité gestionnaire invalide.');
   const restaurantRef = db.collection('restaurants').doc(restaurantSlug);
   const managerRef = db.collection('managers').doc(decoded.uid);

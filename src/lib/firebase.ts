@@ -482,6 +482,10 @@ export async function checkIsManager(user: User | null): Promise<boolean> {
   try {
     const tokenResult = await getIdTokenResult(user);
 
+    // Platform identities are mutually exclusive with restaurant identities,
+    // even if a stale / legacy managers document still exists for the UID.
+    if (tokenResult.claims?.role === 'super_admin' || tokenResult.claims?.role === 'admin') return false;
+
     // Restaurant operational access requires a trusted tenant membership.
     // Platform super-admins must use /admin and never inherit restaurant operations.
     const managerDocRef = doc(db, 'managers', user.uid);

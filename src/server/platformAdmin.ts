@@ -127,7 +127,10 @@ export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole:
 }
 
 async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
-   const snap = await db.collection('restaurants').doc(slug).get();
+  // A platform administrator can never inherit restaurant operations from a
+  // stale owner membership or a shared email identity.
+  if (user.role === 'super_admin' || user.role === 'admin') return null;
+  const snap = await db.collection('restaurants').doc(slug).get();
   if (!snap.exists) return null;
   const restaurant = snap.data();
   if (restaurant.status !== 'active' || restaurant.deletedAt) return null;
@@ -140,6 +143,8 @@ async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
 }
 
 async function requireStaffAdministrator(db: any, user: DecodedIdToken, slug: string) {
+  // Keep the platform and restaurant authorization domains mutually exclusive.
+  if (user.role === 'super_admin' || user.role === 'admin') return null;
   const [restaurantSnap, membershipSnap] = await Promise.all([
     db.collection('restaurants').doc(slug).get(),
     db.collection('managers').doc(user.uid).get()
@@ -173,15 +178,57 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const user = await authenticate(req);
   if (!user) return json(res, 401, { success: false, error: 'Authentification requise.' });
 
-  // Promote only explicitly allowlisted identities to a durable global custom claim.
+  // One Firebase identity cannot simultaneously be a restaurant member
+  // and a platform administrator. This check applies even to an already
+  // promoted super-admin, so a stale/legacy tenant membership cannot coexist.
+  const membershipRef = db.collection('managers').doc(user.uid);
+  const membershipSnap = await membershipRef.get();
+  const existingMembership = membershipSnap.exists ? (membershipSnap.data() || {}) : null;
+  if (
+    existingMembership?.active === true &&
+    ['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(String(existingMembership.role || '')) &&
+    typeof existingMembership.restaurantSlug === 'string' &&
+    existingMembership.restaurantSlug.trim()
+  ) {
+    return json(res, 403, {
+      success: false,
+      error: 'Ce compte est déjà rattaché à un restaurant. Un compte super-administrateur distinct est requis.'
+    });
+  }
+
+  // Promote only explicitly allowlisted identities that are not restaurant
+  // members to a durable global custom claim.
   if (
     user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase()) &&
     user.role !== 'super_admin'
   ) {
-    const authUser = await getAuth().getUser(user.uid);
-    await getAuth().setCustomUserClaims(user.uid, { ...(authUser.customClaims || {}), role: 'super_admin' });
+    const auth = getAuth();
+    const authUser = await auth.getUser(user.uid);
+    let nextSessionVersion = Number(user.sessionVersion || 0);
+
+    // Inactive legacy memberships still have every previously issued token
+    // invalidated before the platform role is granted.
+    if (membershipSnap.exists) {
+      const member = existingMembership || {};
+      const memberVersion = Number(member.sessionVersion || 0);
+      const tokenVersion = Number(user.sessionVersion || 0);
+      nextSessionVersion = Math.max(
+        Number.isSafeInteger(memberVersion) && memberVersion >= 0 ? memberVersion : 0,
+        Number.isSafeInteger(tokenVersion) && tokenVersion >= 0 ? tokenVersion : 0
+      ) + 1;
+      await membershipRef.update({
+        sessionVersion: nextSessionVersion,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+    }
+
+    await auth.setCustomUserClaims(user.uid, {
+      ...(authUser.customClaims || {}),
+      role: 'super_admin',
+      sessionVersion: nextSessionVersion
+    });
   }
 
   const body = req.body || {};
