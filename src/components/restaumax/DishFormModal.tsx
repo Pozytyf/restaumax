@@ -875,7 +875,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 onChange={(event) => setImageFile(event.target.files?.[0] || null)}
                 className="block w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-orange-100 file:px-3 file:py-2 file:text-xs file:font-bold file:text-orange-800"
               />
-              <p className="text-[11px] text-slate-500">JPEG, PNG ou WebP · 5 Mo maximum. La photo est hébergée dans le bucket Firebase du restaurant.</p>
+              <p className="text-[11px] text-slate-500">JPEG, PNG ou WebP · 3 Mo maximum. La photo est hébergée dans le bucket Firebase du restaurant.</p>
               {imageFile && <p className="text-[11px] font-semibold text-emerald-700">Fichier sélectionné : {imageFile.name}</p>}
               {!imageFile && imageUrl && <img src={imageUrl} alt="Photo actuelle du plat" className="h-24 w-24 rounded-lg border border-slate-200 object-cover" />}
             </div>
