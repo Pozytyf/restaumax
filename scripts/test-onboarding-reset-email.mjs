@@ -23,4 +23,9 @@ assert(backend.includes("db.collectionGroup('staff').where('uid', '==', existing
 assert(backend.includes('previousCustomClaims'), 'existing custom claims are preserved and restored on provisioning failure');
 assert(backend.includes('ownerCreated && ownerUser?.uid'), 'only newly-created Auth users are deleted during rollback');
 assert(backend.includes('ownerAccountReused: !ownerCreated'), 'restaurant provisioning records whether an existing account was reused');
+assert(backend.includes("ownerUid: ownerUser.uid, ownerName, ownerEmail"), 'existing owner UID is bound in private restaurant ownership metadata');
+assert(backend.includes("role: 'owner', restaurantSlug: slug, permissions: PERMISSIONS"), 'owner membership is created with the restaurant scope and canonical permissions');
+assert(backend.includes("restaurantRef.collection('staff').doc(ownerUser.uid)"), 'owner staff profile is created for restaurant-scoped access');
+assert(backend.includes("action: 'create_restaurant'"), 'restaurant provisioning writes an administrative audit event');
+assert(backend.includes("await auth.setCustomUserClaims(ownerUser.uid, previousCustomClaims)"), 'failed provisioning restores the existing owner custom claims');
 console.log('Account onboarding and existing-owner provisioning checks passed.');
