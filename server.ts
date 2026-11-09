@@ -37,6 +37,7 @@ import 'dotenv/config';
 import express from 'express';
 import { getAuth } from 'firebase-admin/auth';
 import { getAppCheck } from 'firebase-admin/app-check';
+import { getStorage as getAdminStorage } from 'firebase-admin/storage';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -48,6 +49,7 @@ import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.j
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
 import { consumePublicOrderRateLimit } from './src/server/orderRateLimit.ts';
 import { getRestaurantOwnerUid } from './src/server/restaurantOwnership.ts';
+import { createRestaurantImageHandler } from './src/server/restaurantImageService.js';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
 import { 
   processOrderSubmission, 
@@ -104,6 +106,7 @@ app.use((_req, res, next) => {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   next();
 });
+app.use('/api/restaurant-images', express.json({ limit: '4.2mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
@@ -111,8 +114,10 @@ app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 export let adminDb: any = null;
 export let adminAuth: any = null;
 export let adminAppCheck: any = null;
+export let adminApp: any = null;
+export let adminStorage: any = null;
 let adminInitError: string | null = null;
-let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = null;
+let appletConfig: { projectId: string; firestoreDatabaseId: string; storageBucket: string } | null = null;
 
 try {
   appletConfig = getAppletFirebaseConfig();
@@ -123,24 +128,27 @@ try {
     // Vercel/serverless: store the service account JSON as a protected environment variable.
     const parsedCredentials = JSON.parse(serviceAccountJson);
     const serviceAccount = validateServiceAccountCredentials(parsedCredentials, appletConfig.projectId);
-    const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
+    adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
     adminAppCheck = getAppCheck(adminApp);
+    adminStorage = getAdminStorage(adminApp).bucket(appletConfig.storageBucket);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé via variable sécurisée pour la base '${appletConfig.firestoreDatabaseId}'.`);
   } else if (credPath && fs.existsSync(credPath)) {
     // Local/server deployments may continue to use a credentials file.
     const serviceAccount = validateServiceAccountCredentials(credPath, appletConfig.projectId);
-    const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
+    adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
     adminAppCheck = getAppCheck(adminApp);
+    adminStorage = getAdminStorage(adminApp).bucket(appletConfig.storageBucket);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
   } else if (process.env.FIRESTORE_EMULATOR_HOST) {
-    const adminApp = initAdminApp(null as any, appletConfig.projectId);
+    adminApp = initAdminApp(null as any, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
     adminAppCheck = getAppCheck(adminApp);
+    adminStorage = getAdminStorage(adminApp).bucket(appletConfig.storageBucket);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé sur l'émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`);
   } else {
     adminInitError = credPath
@@ -1591,6 +1599,17 @@ export async function handlePublicMenuRequest(req: any): Promise<{ statusCode: n
   }
 }
 
+export async function handleRestaurantImageRequest(payload: unknown, req?: any) {
+  return createRestaurantImageHandler({
+    adminDb,
+    adminAuth,
+    adminStorage,
+    requestHasValidOrigin,
+    getRestaurantOwnerUid,
+    logger: console
+  })(payload, req);
+}
+
 export async function handleOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb) {
     return { statusCode: 503, body: { success: false, error: 'Service de commande temporairement indisponible.' } };
@@ -1951,6 +1970,12 @@ app.post('/api/pos-orders', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handlePosOrderSubmission(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.all('/api/restaurant-images', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const result = await handleRestaurantImageRequest(req.body, req);
   return res.status(result.statusCode).json(result.body);
 });
 
