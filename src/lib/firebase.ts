@@ -397,8 +397,17 @@ export async function signInManager(
       message = "Trop de tentatives infructueuses. Veuillez patienter avant de réessayer.";
     } else if (code === 'auth/user-disabled') {
       message = "Ce compte d'accès a été désactivé.";
+    } else if (code === 'auth/operation-not-allowed') {
+      message = "La connexion par e-mail et mot de passe n'est pas activée dans Firebase Authentication.";
+    } else if (code === 'auth/unauthorized-domain') {
+      message = "Ce domaine n'est pas autorisé dans Firebase Authentication. Vérification de la configuration requise.";
+    } else if (code === 'auth/network-request-failed') {
+      message = "Le service d'authentification est injoignable. Vérifiez la connexion réseau puis réessayez.";
+    } else if (code === 'auth/invalid-api-key' || code === 'auth/api-key-not-valid') {
+      message = "La configuration Firebase de cette version de RestauMax est invalide.";
     }
 
+    console.error('[RestauMax Auth] Échec de connexion:', code || 'unknown');
     return { success: false, error: message };
   }
 }
@@ -419,8 +428,20 @@ export async function requestManagerPasswordReset(email: string): Promise<{ succ
     if (code === 'auth/too-many-requests') {
       return { success: false, error: "Trop de demandes. Veuillez patienter avant de réessayer." };
     }
-    console.error('Erreur de demande de réinitialisation du mot de passe:', code || err);
-    return { success: false, error: "Impossible d'envoyer le lien pour le moment. Réessayez plus tard." };
+    if (code === 'auth/operation-not-allowed') {
+      return { success: false, error: "La réinitialisation par e-mail n'est pas activée dans Firebase Authentication." };
+    }
+    if (code === 'auth/unauthorized-domain') {
+      return { success: false, error: "Le domaine restaumax.vercel.app doit être autorisé dans Firebase Authentication." };
+    }
+    if (code === 'auth/network-request-failed') {
+      return { success: false, error: "Le service Firebase Authentication est injoignable. Vérifiez la connexion réseau." };
+    }
+    if (code === 'auth/invalid-api-key' || code === 'auth/api-key-not-valid') {
+      return { success: false, error: "La clé API Firebase de cette version de RestauMax est invalide." };
+    }
+    console.error('[RestauMax Auth] Échec de réinitialisation:', code || 'unknown');
+    return { success: false, error: "Firebase n'a pas accepté la demande de réinitialisation. Vérifiez la configuration Authentication et le compte concerné." };
   }
 }
 
