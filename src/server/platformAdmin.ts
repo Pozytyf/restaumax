@@ -1,4 +1,5 @@
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
+import { FieldValue } from 'firebase-admin/firestore';
 import { validateSubscriptionInput } from './subscriptionService.js';
 import { settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
 import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.ts';
