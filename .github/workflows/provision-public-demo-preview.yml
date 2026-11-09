@@ -1,0 +1,73 @@
+name: Provision public demo profiles — Preview only
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run vérifie les conflits ; apply crée ou actualise les six comptes Démo"
+        required: true
+        type: choice
+        options: [dry-run, apply]
+      confirmation:
+        description: "Pour apply uniquement, saisir CREATE_PUBLIC_RESTAUMAX_DEMO"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restaumax-public-demo-provisioning
+  cancel-in-progress: false
+
+jobs:
+  provision-demo:
+    if: github.ref == 'refs/heads/feat/public-preview-demo-access'
+    environment: demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FIREBASE_PROJECT_ID: restaumax-demo
+      FIRESTORE_DATABASE_ID: (default)
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+      DEMO_MODE: ${{ inputs.mode }}
+      DEMO_CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate immutable Preview target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/feat/public-preview-demo-access"
+          test "$FIREBASE_PROJECT_ID" = "restaumax-demo"
+          test "$FIRESTORE_DATABASE_ID" = "(default)"
+          if [[ "$DEMO_MODE" == "apply" && "$DEMO_CONFIRMATION" != "CREATE_PUBLIC_RESTAUMAX_DEMO" ]]; then
+            echo "::error::Confirmation explicite requise."
+            exit 1
+          fi
+          test -n "$FIREBASE_SERVICE_ACCOUNT_JSON"
+          echo "Cible immuable validée : restaumax-demo / (default)."
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: feat/public-preview-demo-access
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Test public demo provisioning guards
+        run: node scripts/test-provision-public-demo.mjs
+
+      - name: Dry-run or confirmed provisioning
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$DEMO_MODE" == "apply" ]]; then
+            node scripts/provision-public-demo.mjs --apply
+          else
+            node scripts/provision-public-demo.mjs
+          fi
