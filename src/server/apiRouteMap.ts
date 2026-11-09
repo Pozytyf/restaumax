@@ -4,6 +4,7 @@ export const RESTAUMAX_API_ROUTES = [
   { id: 'kitchen-item', path: 'kitchen-item', methods: ['POST'] },
   { id: 'order-status', path: 'order-status', methods: ['POST'] },
   { id: 'public-menu', path: 'public-menu', methods: ['GET'] },
+  { id: 'restaurant-images', path: 'restaurant-images', methods: ['POST', 'DELETE'] },
   { id: 'orders', path: 'orders', methods: ['POST'] },
   { id: 'payments', path: 'payments', methods: ['GET', 'POST'] },
   { id: 'platform-admin', path: 'platform-admin', methods: ['GET', 'POST'] },
