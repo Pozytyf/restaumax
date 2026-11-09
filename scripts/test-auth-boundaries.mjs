@@ -29,7 +29,6 @@ assert.ok(
   platformAdmin.includes('sessionVersion: nextSessionVersion'),
   'promoting a former restaurant identity invalidates all previously issued restaurant sessions'
 );
-  'promoting a former restaurant identity invalidates all previously issued restaurant sessions');
 
 // Cross-login in the opposite direction: the admin console stays hidden until
 // the platform API authorizes the current Firebase identity. A 401/403 closes it.
