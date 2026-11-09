@@ -174,6 +174,24 @@ export async function migrateAllLegacyPrivateData(db, actorUid) {
       result.subscriptionsMoved += migrated.subscriptionMoved ? 1 : 0;
     }
   }
+
+  const verification = await scanLegacyPrivateData(db);
+  const verificationFailed =
+    verification.restaurantsNeedingMigration !== 0 ||
+    verification.ownerUidConflicts !== 0 ||
+    verification.invalidSubscriptions !== 0 ||
+    verification.backupConflicts !== 0 ||
+    verification.subscriptionConflicts !== 0 ||
+    Object.keys(verification.unknownFieldCounts).length !== 0;
+  if (verificationFailed) {
+    throw new Error(`Vérification post-migration échouée : ${JSON.stringify(verification)}`);
+  }
+  result.verification = {
+    restaurantsScanned: verification.restaurantsScanned,
+    restaurantsNeedingMigration: verification.restaurantsNeedingMigration,
+    privateFieldCounts: verification.privateFieldCounts,
+    unknownFieldCounts: verification.unknownFieldCounts
+  };
   return result;
 }
 
