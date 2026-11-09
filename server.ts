@@ -1251,6 +1251,10 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
 
     const decoded = await adminAuth.verifyIdToken(idToken, true);
+    // Platform administration credentials are never valid for restaurant operations.
+    if (decoded.role === 'super_admin' || decoded.role === 'admin') {
+      return { statusCode: 403, body: { success: false, error: 'Le super-administrateur n’a pas accès aux opérations d’un restaurant.' } };
+    }
     const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
     const rawSlug = method === 'GET' ? req.query?.restaurantSlug : input.restaurantSlug;
     const slug = typeof rawSlug === 'string' ? rawSlug.trim() : '';
@@ -1504,6 +1508,10 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
     if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
 
     const decoded = await adminAuth.verifyIdToken(idToken, true);
+    // Platform administration credentials are never valid for restaurant operations.
+    if (decoded.role === 'super_admin' || decoded.role === 'admin') {
+      return { statusCode: 403, body: { success: false, error: 'Le super-administrateur n’a pas accès aux opérations d’un restaurant.' } };
+    }
     const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
     const slug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) {
@@ -1755,6 +1763,10 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
     if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
     const decoded = await adminAuth.verifyIdToken(idToken, true);
+    // Platform administration credentials are never valid for restaurant operations.
+    if (decoded.role === 'super_admin' || decoded.role === 'admin') {
+      return { statusCode: 403, body: { success: false, error: 'Le super-administrateur n’a pas accès aux opérations d’un restaurant.' } };
+    }
     const restaurantSlug = String(req.query?.restaurantSlug || '').trim();
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
     const [restaurantSnap, memberSnap] = await Promise.all([
@@ -1796,6 +1808,10 @@ export async function handleInventoryRequest(payload: unknown, req?: any): Promi
     const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
     if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
     const decoded = await adminAuth.verifyIdToken(idToken, true);
+    // Platform administration credentials are never valid for restaurant operations.
+    if (decoded.role === 'super_admin' || decoded.role === 'admin') {
+      return { statusCode: 403, body: { success: false, error: 'Le super-administrateur n’a pas accès aux opérations d’un restaurant.' } };
+    }
     const input = payload && typeof payload === 'object' ? { ...(payload as any) } : {};
     const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
@@ -1819,6 +1835,10 @@ export async function handleOrderStatusRequest(payload: unknown, req?: any): Pro
     const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
     if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
     const decoded = await adminAuth.verifyIdToken(idToken, true);
+    // Platform administration credentials are never valid for restaurant operations.
+    if (decoded.role === 'super_admin' || decoded.role === 'admin') {
+      return { statusCode: 403, body: { success: false, error: 'Le super-administrateur n’a pas accès aux opérations d’un restaurant.' } };
+    }
     const input = payload && typeof payload === 'object' ? payload as any : {};
     const restaurantSlug = String(input.restaurantSlug || '').trim();
     const orderId = String(input.orderId || '').trim();
@@ -1851,6 +1871,10 @@ export async function handleKitchenItemRequest(payload: unknown, req?: any): Pro
     const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
     if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
     const decoded = await adminAuth.verifyIdToken(idToken, true);
+    // Platform administration credentials are never valid for restaurant operations.
+    if (decoded.role === 'super_admin' || decoded.role === 'admin') {
+      return { statusCode: 403, body: { success: false, error: 'Le super-administrateur n’a pas accès aux opérations d’un restaurant.' } };
+    }
     const input = payload && typeof payload === 'object' ? { ...(payload as any) } : {};
     const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
     const orderId = typeof input.orderId === 'string' ? input.orderId.trim() : '';
