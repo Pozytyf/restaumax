@@ -1,6 +1,12 @@
 name: Audit / migrate legacy private restaurant metadata — Production
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/migrate-legacy-restaurant-private-data.mjs'
+      - '.github/workflows/migrate-legacy-private-data-production.yml'
   workflow_dispatch:
     inputs:
       mode:
@@ -45,14 +51,18 @@ jobs:
       - name: Validate Production target and mode
         shell: bash
         env:
-          MODE: ${{ inputs.mode }}
-          CONFIRM_MIGRATION: ${{ inputs.confirm_migration }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'DRY_RUN' }}
+          CONFIRM_MIGRATION: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_migration || 'NO' }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main"
           test "$FIREBASE_PROJECT_ID" = "gen-lang-client-0138815290"
           test "$FIRESTORE_DATABASE_ID" = "ai-studio-restomax-85affd15-48b4-463e-b365-b881673ebbcf"
-          if [[ "$MODE" == "APPLY" && "$CONFIRM_MIGRATION" != "MIGRATE_LEGACY_PRIVATE_DATA_TO_PRODUCTION" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" && "$MODE" != "DRY_RUN" ]]; then
+            echo "::error::Automatic Production runs are restricted to read-only DRY_RUN."
+            exit 1
+          fi
+          if [[ "$MODE" == "APPLY" && ( "$GITHUB_EVENT_NAME" != "workflow_dispatch" || "$CONFIRM_MIGRATION" != "MIGRATE_LEGACY_PRIVATE_DATA_TO_PRODUCTION" ) ]]; then
             echo "::error::Explicit Production migration confirmation is required."
             exit 1
           fi
