@@ -106,3 +106,99 @@ export async function awardLoyaltyPointsInTransaction(input: LoyaltyAwardInput):
     orderFields: { loyaltyPointsAwarded: points, loyaltyCustomerId: customerId, loyaltyAwardedAt: now }
   };
 }
+
+export interface ManualLoyaltyAdjustmentInput {
+  restaurantSlug: string;
+  customerId: string;
+  delta: number;
+  reason: string;
+  idempotencyKey: string;
+  actorUid: string;
+  sessionVersion: number;
+  now?: number;
+}
+
+/**
+ * Manually adjusts a customer's points through a tenant-scoped, idempotent
+ * server transaction. Every adjustment is recorded in the private loyalty ledger.
+ */
+export async function adjustCustomerLoyaltyPointsWithDb(
+  db: any,
+  input: ManualLoyaltyAdjustmentInput
+) {
+  const slug = String(input.restaurantSlug || '').trim();
+  const customerId = String(input.customerId || '').trim();
+  const reason = String(input.reason || '').trim().slice(0, 200);
+  const idempotencyKey = String(input.idempotencyKey || '').trim();
+  const actorUid = String(input.actorUid || '').trim();
+  const delta = Number(input.delta);
+  const now = Number(input.now || Date.now());
+
+  if (!db || !/^[a-zA-Z0-9_-]{1,100}$/.test(slug) ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(customerId) ||
+      !Number.isSafeInteger(delta) || delta === 0 || Math.abs(delta) > 1000 ||
+      reason.length < 3 || !/^[a-zA-Z0-9_-]{16,128}$/.test(idempotencyKey) ||
+      !actorUid || !Number.isSafeInteger(now)) {
+    return { success: false, error: 'Ajustement de fidélité invalide.' };
+  }
+
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const memberRef = db.collection('managers').doc(actorUid);
+  const customerRef = restaurantRef.collection('customers').doc(customerId);
+  const ownershipRef = restaurantRef.collection('private').doc('ownership');
+  const ledgerRef = restaurantRef.collection('loyaltyLedger')
+    .doc('manual_' + hash(slug + ':' + idempotencyKey));
+
+  return db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, memberSnap, customerSnap, ownershipSnap, ledgerSnap] = await Promise.all([
+      tx.get(restaurantRef), tx.get(memberRef), tx.get(customerRef),
+      tx.get(ownershipRef), tx.get(ledgerRef)
+    ]);
+    if (!restaurantSnap.exists || !customerSnap.exists) {
+      return { success: false, error: 'Restaurant ou fiche client introuvable.' };
+    }
+    const restaurant = restaurantSnap.data() || {};
+    const member = memberSnap.exists ? memberSnap.data() || {} : null;
+    if (!member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(member.sessionVersion || 0) !== Number(input.sessionVersion || 0) ||
+        restaurant.status === 'suspended' || restaurant.status === 'deleted' || restaurant.deletedAt) {
+      return { success: false, error: 'Compte inactif ou accès à ce restaurant refusé.' };
+    }
+    const ownerUid = ownershipSnap.exists
+      ? String(ownershipSnap.data()?.ownerUid || '')
+      : String(restaurant.ownerUid || '');
+    const authorized = member.role === 'owner'
+      ? ownerUid === actorUid
+      : member.role === 'manager' && Array.isArray(member.permissions) && member.permissions.includes('customers.manage');
+    if (!authorized) {
+      return { success: false, error: 'Votre rôle ne permet pas de modifier les points de fidélité.' };
+    }
+
+    if (ledgerSnap.exists) {
+      const previous = ledgerSnap.data() || {};
+      if (previous.actorUid === actorUid && previous.customerId === customerId &&
+          previous.pointsDelta === delta && previous.reason === reason) {
+        return { success: true, idempotentReplay: true, points: Number(previous.pointsAfter || 0) };
+      }
+      return { success: false, conflict: true, error: 'Cette clé de demande a déjà été utilisée pour un autre ajustement.' };
+    }
+
+    const customer = customerSnap.data() || {};
+    const pointsBefore = Number(customer.loyaltyPoints || 0);
+    const pointsAfter = pointsBefore + delta;
+    if (!Number.isSafeInteger(pointsBefore) || pointsBefore < 0 ||
+        !Number.isSafeInteger(pointsAfter) || pointsAfter < 0 || pointsAfter > 1000000000) {
+      return { success: false, error: 'Le solde de points ne permet pas cet ajustement.' };
+    }
+
+    tx.update(customerRef, { loyaltyPoints: pointsAfter, updatedAt: now });
+    tx.create(ledgerRef, {
+      id: ledgerRef.id, restaurantSlug: slug, customerId,
+      pointsDelta: delta, pointsBefore, pointsAfter, reason,
+      source: 'manual_adjustment', actorUid, createdAt: now,
+      idempotencyKey
+    });
+    return { success: true, idempotentReplay: false, points: pointsAfter };
+  });
+}
+
