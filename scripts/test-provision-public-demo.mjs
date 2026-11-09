@@ -1,4 +1,4 @@
-import { getPublicDemoProfiles, validatePublicDemoTarget } from './provision-public-demo.mjs';
+import { getPublicDemoProfiles, validatePublicDemoTarget } from './provision-public-demo-safe.mjs';
 
 let passed = 0, failed = 0;
 const assert = (ok, label) => { if (ok) { passed++; console.log('✓ '+label); } else { failed++; console.error('✗ '+label); } };
