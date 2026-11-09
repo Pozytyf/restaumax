@@ -17,7 +17,7 @@ const rules = read('../firestore.rules');
 
 assert(types.includes('lowStockThreshold?: number') && types.includes('allergens?: string[]') && types.includes('spiceLevel?: 0 | 1 | 2 | 3') && types.includes('pairings?: string[]') && types.includes('translations?:'), 'Menu model supports alerts, allergens, spice, pairings and translations');
 assert(form.includes('Seuil d’alerte intelligent du plat') && form.includes('English — Name') && form.includes('Português — Nome'), 'Manager form configures alert threshold and translations');
-assert(form.includes('Les photos sont temporairement désactivées') && !form.includes('uploadMenuImageWithServerValidation') && !form.includes('type="file"'), 'Photo upload stays disabled without blocking dish creation');
+assert(form.includes('type="file"') && form.includes('uploadRestaurantImage') && !form.includes('Les photos des plats sont temporairement indisponibles'), 'Dish photo upload uses the tenant Firebase Storage pipeline');
 assert(form.includes('setImageUrl(dishToEdit.imageUrl || \'\')') && form.includes('imageUrl: imageUrl.trim()'), 'Existing photo URLs are preserved when editing dishes');
 assert(form.includes('allergensInput') && form.includes('spiceLevel') && form.includes('pairingsInput'), 'Manager form captures allergen, spice and pairing metadata');
 assert(menu.includes('Alertes intelligentes de stock') && menu.includes('lowStockItems'), 'Menu management surfaces low-stock and depleted-item alerts');
@@ -25,10 +25,10 @@ assert(client.includes('Langue de la carte') && client.includes('localizedDish')
 assert(detail.includes('Niveau de piquant') && detail.includes('Allergènes') && detail.includes('Suggestions d’accompagnement'), 'Dish detail shows allergen, spice and pairing details');
 assert(panel.includes('calculateDishProfitability') && panel.includes('where(\'restaurantSlug\', \'==\', restaurantSlug)'), 'Recipe costing uses private inventory costs and tenant-filtered menu reads');
 assert(!types.includes('ingredientCost') && !types.includes('recipeCost'), 'Ingredient costs are not stored on public menu item documents');
-assert(!server.includes('handleMenuImageUploadRequest') && !server.includes('adminStorageBucket') && !server.includes('firebase-admin/storage'), 'Server has no Firebase Storage initialization or photo upload handler');
-assert(!adminConfig.includes('FIREBASE_STORAGE_BUCKET') && !adminConfig.includes('storageBucket'), 'Firebase Admin configuration does not require a Storage bucket');
-assert(!api.includes('menu-image') && !routeMap.includes('menu-image') && !vercel.includes('/api/menu-image'), 'Photo upload route is removed from the central API router and Vercel rewrites');
+assert(server.includes('handleRestaurantImageRequest') && server.includes('adminStorage = getAdminStorage(adminApp).bucket(appletConfig.storageBucket)') && server.includes('firebase-admin/storage'), 'Server validates and handles tenant photo uploads through Firebase Admin Storage');
+assert(adminConfig.includes('FIREBASE_STORAGE_BUCKET') && adminConfig.includes('storageBucket'), 'Firebase Admin configuration resolves the bucket for the selected environment');
+assert(api.includes('restaurant-images') && routeMap.includes('restaurant-images') && vercel.includes('/api/restaurant-images'), 'Verified restaurant image API is registered in the central router and Vercel rewrites');
 assert(!fs.existsSync(new URL('../api/menu-image.ts', import.meta.url)), 'The project retains a single Vercel function entry point');
-assert(!firebase.includes("fetch('/api/menu-image'") && !firebase.includes('uploadMenuImageWithServerValidation'), 'Client photo upload API is absent while Firebase Storage is disabled');
+assert(firebase.includes('/api/restaurant-images') && firebase.includes('uploadRestaurantImage') && firebase.includes("callRestaurantImageApi('POST'"), 'Client photo uploads use the authenticated restaurant image API');
 assert(rules.includes("'lowStockThreshold'") && rules.includes("'allergens'") && rules.includes("'translations'"), 'Firestore menu rules validate and allow the new public metadata');
 console.log('Menu feature and photo-upload security checks passed.');
