@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { migrateOneRestaurant, scanLegacyPrivateData } from './migrate-legacy-restaurant-private-data.mjs';
+import { LEGACY_MIGRATION_ID, migrateOneRestaurant, scanLegacyPrivateData } from './migrate-legacy-restaurant-private-data.mjs';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   throw new Error('This test must run inside firebase emulators:exec.');
@@ -15,6 +15,7 @@ const slug = `migration-legacy-test-${Date.now()}`;
 const restaurantRef = db.collection('restaurants').doc(slug);
 const conflictRef = db.collection('restaurants').doc(`${slug}-owner-conflict`);
 const unknownRef = db.collection('restaurants').doc(`${slug}-unknown-field`);
+const backupConflictRef = db.collection('restaurants').doc(`${slug}-backup-conflict`);
 
 try {
   await restaurantRef.set({
@@ -74,12 +75,29 @@ try {
   assert.equal(conflictRoot.data().ownerUid, 'owner-b', 'ownerUid conflict is not overwritten');
   assert.equal(unknownRoot.data().unexpectedPrivateField, 'keep', 'unknown fields are never deleted');
 
+  await backupConflictRef.set({
+    slug: backupConflictRef.id, name: 'Backup conflict', isOpen: true, ownerUid: 'owner-c'
+  });
+  await backupConflictRef.collection('private').doc('ownership')
+    .collection('migration_backups').doc(LEGACY_MIGRATION_ID).set({
+      sourceRootPrivateFields: { ownerUid: 'older-owner-value' }
+    });
+  const backupScan = await scanLegacyPrivateData(db, [await backupConflictRef.get()]);
+  assert.equal(backupScan.backupConflicts, 1, 'preflight detects an existing backup while legacy fields remain');
+  await assert.rejects(
+    migrateOneRestaurant(db, backupConflictRef, 'test-admin'),
+    /Sauvegarde existante/
+  );
+  const backupConflictRoot = await backupConflictRef.get();
+  assert.equal(backupConflictRoot.data().ownerUid, 'owner-c', 'existing backup conflict never deletes current root data');
+
   console.log('Legacy private metadata migration emulator tests passed.');
 } finally {
   await Promise.all([
     db.recursiveDelete(restaurantRef),
     db.recursiveDelete(conflictRef),
     db.recursiveDelete(unknownRef),
+    db.recursiveDelete(backupConflictRef),
     db.collection('restaurantSubscriptions').doc(slug).delete().catch(() => {}),
     db.collection('admin_audit_logs').doc(`migrate_restaurant_private_${slug}_legacy-private-v1`).delete().catch(() => {})
   ]);
