@@ -6,7 +6,7 @@ const end = source.indexOf("if (action === 'create_restaurant') {", start);
 assert(start >= 0 && end > start, 'platform overview action exists');
 const overview = source.slice(start, end);
 assert(!overview.includes('migrateLegacyRestaurantPrivateData'), 'GET overview must never run a data migration');
-assert(overview.includes("collection('private').doc('ownership').get()"), 'overview reads private ownership metadata without writing');
+assert(!overview.includes('.set(') && !overview.includes('.update(') && !overview.includes('.delete('), 'GET overview must remain read-only');
 assert(overview.includes("collection('restaurantSubscriptions').doc(d.id).get()"), 'overview reads canonical subscription data without writing');
 const superAdminStart = source.indexOf('function isSuperAdmin(user: DecodedIdToken) {');
 const superAdminEnd = source.indexOf('\\n}\\n', superAdminStart) + 2;
