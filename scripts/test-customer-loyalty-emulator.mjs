@@ -13,6 +13,8 @@ const slug = 'customer-loyalty-emulator';
 const ownerUid = 'customer-loyalty-owner';
 const managerUid = 'customer-loyalty-manager';
 const cashierUid = 'customer-loyalty-cashier';
+const managerWithoutGrantUid = 'customer-loyalty-manager-no-grant';
+const otherTenantManagerUid = 'customer-loyalty-other-tenant';
 const customerId = 'customer-loyalty-target';
 const restaurantRef = db.collection('restaurants').doc(slug);
 const customerRef = restaurantRef.collection('customers').doc(customerId);
@@ -35,6 +37,14 @@ try {
     }),
     db.collection('managers').doc(cashierUid).set({
       uid: cashierUid, role: 'cashier', restaurantSlug: slug, active: true,
+      sessionVersion: 1, permissions: ['customers.manage']
+    }),
+    db.collection('managers').doc(managerWithoutGrantUid).set({
+      uid: managerWithoutGrantUid, role: 'manager', restaurantSlug: slug, active: true,
+      sessionVersion: 1, permissions: ['customers.view']
+    }),
+    db.collection('managers').doc(otherTenantManagerUid).set({
+      uid: otherTenantManagerUid, role: 'manager', restaurantSlug: 'another-tenant', active: true,
       sessionVersion: 1, permissions: ['customers.manage']
     }),
     customerRef.set({ id: customerId, name: 'Client Test', phone: '+2250700000000', phoneNormalized: '0700000000', loyaltyPoints: 4 })
@@ -60,6 +70,12 @@ try {
   const cashierGrant = await adjustCustomerLoyaltyPointsWithDb(db, input(cashierUid, 1, 'customer-loyalty-request-0003'));
   assert.equal(cashierGrant.success, false, 'Un caissier ne peut pas ajuster les points même si une permission est falsifiée');
 
+  const managerWithoutGrant = await adjustCustomerLoyaltyPointsWithDb(db, input(managerWithoutGrantUid, 1, 'customer-loyalty-request-0006'));
+  assert.equal(managerWithoutGrant.success, false, 'Un manager sans customers.manage ne peut pas ajuster les points');
+
+  const otherTenant = await adjustCustomerLoyaltyPointsWithDb(db, input(otherTenantManagerUid, 1, 'customer-loyalty-request-0007'));
+  assert.equal(otherTenant.success, false, 'Un manager d’un autre restaurant ne peut pas modifier ce client');
+
   const staleSession = await adjustCustomerLoyaltyPointsWithDb(db, input(managerUid, 1, 'customer-loyalty-request-0004', 0));
   assert.equal(staleSession.success, false, 'Une session avec sessionVersion obsolète est refusée');
 
@@ -72,7 +88,7 @@ try {
   assert.equal(ledger.docs.every(doc => doc.data().source === 'manual_adjustment'), true,
     'Le journal distingue les ajustements manuels des points gagnés sur commande');
 
-  console.log('Customer loyalty Firestore Emulator tests passed: 12 assertions.');
+  console.log('Customer loyalty Firestore Emulator tests passed: 15 assertions.');
 } finally {
   await app.delete();
 }
