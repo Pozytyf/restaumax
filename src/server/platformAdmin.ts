@@ -107,10 +107,12 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
 }
 
 function isSuperAdmin(user: DecodedIdToken) {
+  // Trust only the server-issued Firebase custom claim or the verified bootstrap allowlist.
+  const hasTrustedSuperAdminClaim = user.role === 'super_admin';
   const verifiedAllowlistedEmail = user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase());
-  if (!verifiedAllowlistedEmail) return false;
+  if (!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail) return false;
   if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true') {
     const secondFactor = (user as any).firebase?.sign_in_second_factor;
     return typeof secondFactor === 'string' && secondFactor.length > 0;
@@ -251,9 +253,16 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (action === 'overview') {
         const snap = await db.collection('restaurants').get();
         const restaurants = await Promise.all(snap.docs.map(async (d: any) => {
-          const migrated = await migrateLegacyRestaurantPrivateData(db, d.ref, user.uid);
           const data = d.data() || {};
-          const raw = migrated.subscription || {};
+          // Dashboard reads are strictly read-only. Legacy metadata migration must
+          // run as an explicit, backed-up maintenance operation, never on GET.
+          const [ownershipSnap, subscriptionSnap] = await Promise.all([
+            d.ref.collection('private').doc('ownership').get(),
+            db.collection('restaurantSubscriptions').doc(d.id).get()
+          ]);
+          const raw = subscriptionSnap.exists
+            ? (subscriptionSnap.data() || {})
+            : (data.subscription && typeof data.subscription === 'object' ? data.subscription : {});
           const subscription = {
             planName: typeof raw.planName === 'string' ? raw.planName : null,
             status: typeof raw.status === 'string' ? raw.status : 'unknown',
