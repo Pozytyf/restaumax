@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { sanitizePublicMenuItem } from '../src/server/publicMenu.ts';
+import { getRestauMaxRequestQueryParam } from '../src/server/apiRouteMap.ts';
 
 const privateRecord = {
   id: 'dish-1', restaurantSlug: 'chez-awa', name: 'Capitaine', category: 'grillades',
@@ -28,4 +29,7 @@ assert.equal(sanitizePublicMenuItem({ ...privateRecord, available: false }), nul
 assert.equal(sanitizePublicMenuItem({ ...privateRecord, stockQuantity: 0 }), null);
 assert.equal(sanitizePublicMenuItem({ ...privateRecord, price: 1.5 }), null);
 assert.equal(sanitizePublicMenuItem({ ...privateRecord, category: 'internal' }), null);
-console.log('Public menu privacy tests: 9 assertions passed.');
+assert.equal(getRestauMaxRequestQueryParam({ url: '/api/index?__restaumax_route=public-menu&restaurantSlug=chez-awa' }, 'restaurantSlug'), 'chez-awa');
+assert.equal(getRestauMaxRequestQueryParam({ query: { restaurantSlug: 'chez-awa' } }, 'restaurantSlug'), 'chez-awa');
+assert.equal(getRestauMaxRequestQueryParam({ url: '/api/index?restaurantSlug=other' }, 'restaurantSlug'), 'other');
+console.log('Public menu privacy tests: 12 assertions passed.');
