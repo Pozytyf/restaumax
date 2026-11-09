@@ -222,24 +222,48 @@ export function subscribeToMenuItems(
   onError?: (err: unknown) => void
 ) {
   const path = `restaurants/${slug}/menuItems`;
+  // Public QR visitors never read raw Firestore menu documents. The backend
+  // returns a strict allowlisted projection and omits stock/cost internals.
+  if (!auth.currentUser) {
+    let active = true;
+    let inFlight = false;
+    const loadPublicMenu = async () => {
+      if (!active || inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch(`/api/public-menu?restaurantSlug=${encodeURIComponent(slug)}`, {
+          method: 'GET',
+          credentials: 'same-origin',
+          cache: 'no-store'
+        });
+        const payload = await response.json();
+        if (!response.ok || payload?.success !== true || !Array.isArray(payload.items)) {
+          throw new Error(payload?.error || 'Carte momentanément indisponible.');
+        }
+        if (active) onData(payload.items as RestauMenuItem[]);
+      } catch (error) {
+        if (active && onError) onError(error);
+      } finally {
+        inFlight = false;
+      }
+    };
+    void loadPublicMenu();
+    const refresh = setInterval(() => void loadPublicMenu(), 15000);
+    return () => { active = false; clearInterval(refresh); };
+  }
+
   const itemsRef = collection(db, 'restaurants', slug, 'menuItems');
   const q = query(itemsRef, where('restaurantSlug', '==', slug));
-
   return onSnapshot(
     q,
     (snapshot) => {
       const items: RestauMenuItem[] = [];
-      snapshot.forEach((d) => {
-        items.push(d.data() as RestauMenuItem);
-      });
+      snapshot.forEach((d) => { items.push(d.data() as RestauMenuItem); });
       onData(items);
     },
     (err) => {
-      if (onError) {
-        onError(err);
-      } else {
-        handleFirestoreError(err, OperationType.LIST, path);
-      }
+      if (onError) onError(err);
+      else handleFirestoreError(err, OperationType.LIST, path);
     }
   );
 }
