@@ -311,6 +311,36 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!name || name.length > 200 || !slug || !ownerName || !validEmail(ownerEmail)) {
           return json(res, 400, { success: false, error: 'Renseignez le restaurant, le propriétaire et une adresse e-mail valide.' });
         }
+        const auth = getAuth();
+        let existingOwner: any = null;
+        try {
+          existingOwner = await auth.getUserByEmail(ownerEmail);
+        } catch (lookupError: any) {
+          if (lookupError?.code !== 'auth/user-not-found') throw lookupError;
+        }
+
+        // Existing Firebase identities may be attached by a platform admin,
+        // but never reassigned from another tenant or converted from platform admin.
+        if (existingOwner) {
+          const claims = existingOwner.customClaims || {};
+          if (existingOwner.disabled) {
+            return json(res, 409, { success: false, error: 'Le compte propriétaire existant est désactivé. Réactivez-le dans Firebase Authentication avant de continuer.' });
+          }
+          if (claims.role === 'super_admin' || claims.role === 'admin') {
+            return json(res, 409, { success: false, error: 'Un compte administrateur plateforme ne peut pas devenir propriétaire d’un restaurant.' });
+          }
+          const [membershipSnap, staffSnap, ownershipSnap, legacyOwnershipSnap] = await Promise.all([
+            db.collection('managers').doc(existingOwner.uid).get(),
+            db.collectionGroup('staff').where('uid', '==', existingOwner.uid).limit(1).get(),
+            db.collectionGroup('private').where('ownerUid', '==', existingOwner.uid).limit(1).get(),
+            db.collection('restaurants').where('ownerUid', '==', existingOwner.uid).limit(1).get()
+          ]);
+          if (membershipSnap.exists || !staffSnap.empty || !ownershipSnap.empty || !legacyOwnershipSnap.empty ||
+              (typeof claims.restaurantSlug === 'string' && claims.restaurantSlug.trim())) {
+            return json(res, 409, { success: false, error: 'Ce compte Firebase est déjà rattaché à un restaurant ou possède une ancienne affectation. Vérification manuelle requise.' });
+          }
+        }
+
         const restaurantRef = db.collection('restaurants').doc(slug);
         let reservationCreated = false;
         try {
@@ -323,13 +353,23 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           throw reservationError;
         }
 
-        const auth = getAuth();
-        let ownerUser: any = null;
+        let ownerUser: any = existingOwner;
+        let ownerCreated = false;
+        let previousCustomClaims: Record<string, any> | null = null;
+        let ownerClaimsChanged = false;
         try {
-          ownerUser = await auth.createUser({
-            email: ownerEmail, displayName: ownerName, disabled: false
+          if (!ownerUser) {
+            ownerUser = await auth.createUser({
+              email: ownerEmail, displayName: ownerName, disabled: false
+            });
+            ownerCreated = true;
+          }
+          previousCustomClaims = { ...(ownerUser.customClaims || {}) };
+          await auth.setCustomUserClaims(ownerUser.uid, {
+            ...previousCustomClaims, role: 'owner', restaurantSlug: slug
           });
-          await auth.setCustomUserClaims(ownerUser.uid, { role: 'owner', restaurantSlug: slug });
+          ownerClaimsChanged = true;
+
           const now = Date.now();
           const batch = db.batch();
           batch.set(restaurantRef, {
@@ -350,10 +390,27 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             uid: ownerUser.uid, email: ownerEmail, displayName: ownerName,
             role: 'owner', permissions: PERMISSIONS, active: true, createdAt: now
           });
+          const auditRef = db.collection('admin_audit_logs').doc();
+          batch.set(auditRef, {
+            action: 'create_restaurant',
+            restaurantSlug: slug,
+            ownerUid: ownerUser.uid,
+            ownerEmail,
+            ownerAccountReused: !ownerCreated,
+            actorUid: user.uid,
+            createdAt: now
+          });
           await batch.commit();
-          return json(res, 201, { success: true, restaurant: { slug, name }, owner: { uid: ownerUser.uid, email: ownerEmail } });
+          return json(res, 201, {
+            success: true,
+            restaurant: { slug, name },
+            owner: { uid: ownerUser.uid, email: ownerEmail, existingAccount: !ownerCreated }
+          });
         } catch (error: any) {
-          if (ownerUser?.uid) await auth.deleteUser(ownerUser.uid).catch(() => undefined);
+          if (ownerUser?.uid && ownerClaimsChanged && previousCustomClaims) {
+            await auth.setCustomUserClaims(ownerUser.uid, previousCustomClaims).catch(() => undefined);
+          }
+          if (ownerCreated && ownerUser?.uid) await auth.deleteUser(ownerUser.uid).catch(() => undefined);
           if (reservationCreated) await restaurantRef.delete().catch(() => undefined);
           throw error;
         }
