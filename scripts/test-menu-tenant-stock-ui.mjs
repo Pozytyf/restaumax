@@ -12,10 +12,11 @@ const dishForm = read('../src/components/restaumax/DishFormModal.tsx');
 const adminMenu = read('../src/components/restaumax/MenuManagementView.tsx');
 const clientMenu = read('../src/components/restaumax/ClientMenuView.tsx');
 
-assert(rules.includes("resource.data.get('restaurantSlug', '') == restaurantSlug"),
-  'Menu get rules verify the document tenant slug');
-assert(rules.includes('allow list: if isRestaurantActive(restaurantSlug);'),
-  'Public menu listing is scoped by the restaurant path without requiring tenant membership');
+assert(rules.includes("hasRestaurantPermission(restaurantSlug, 'menu.manage')") &&
+  rules.includes("hasRestaurantPermission(restaurantSlug, 'pos.access')"),
+  'Raw menu documents require an authorized restaurant role; anonymous access is denied');
+assert(rules.includes('allow get, list: if isValidId(dishId)'),
+  'Raw catalog reads remain scoped to a valid restaurant document path');
 assert(rules.includes("existing().get('restaurantSlug', '') == restaurantSlug"),
   'Menu update rules verify the existing document tenant');
 assert(rules.includes("incoming().restaurantSlug == restaurantSlug"),
@@ -26,10 +27,16 @@ assert(rules.includes('match /menuStockMovements/{movementId}'),
   'Menu stock audit movements have an explicit access rule');
 
 assert(firebase.includes("query(itemsRef, where('restaurantSlug', '==', slug))"),
-  'Client catalog subscriptions query only the active restaurant slug');
+  'Staff catalog subscriptions query only the active restaurant slug');
+assert(firebase.includes('/api/public-menu?restaurantSlug=') &&
+  firebase.includes('startPublicMenu') && firebase.includes('setInterval'),
+  'Anonymous and unrelated users use the sanitized public menu endpoint with refresh');
 assert(firebase.includes('item.restaurantSlug !== restaurantSlug'),
   'Client menu persistence refuses an item from another restaurant');
 
+assert(server.includes('sanitizePublicMenuItem(document.data())') &&
+  server.includes("app.get('/api/public-menu'"),
+  'The public catalog endpoint returns only sanitized menu projections');
 assert(server.includes('record.data?.restaurantSlug !== restaurantSlug') &&
   server.includes('record.data?.id !== record.documentId'),
   'Trusted order provider fails closed on a mismatched menu document');
