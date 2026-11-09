@@ -43,6 +43,7 @@ import { fileURLToPath } from 'url';
 import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
 import { getRestaurantFinancialReportWithDb } from './src/server/reportService.js';
 import { sanitizePublicMenuItem } from './src/server/publicMenu.js';
+import { getRestauMaxRequestQueryParam } from './src/server/apiRouteMap.js';
 import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
@@ -1569,7 +1570,7 @@ export async function handlePublicMenuRequest(req: any): Promise<{ statusCode: n
     return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
   }
   if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Catalogue momentanément indisponible.' } };
-  const restaurantSlug = String(req?.query?.restaurantSlug || '').trim();
+  const restaurantSlug = String(getRestauMaxRequestQueryParam(req, 'restaurantSlug') || '').trim();
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
     return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
   }
