@@ -338,7 +338,7 @@ const managerWithoutRefund = await startPayDunyaRefundWithDb(db, payoutConfig, {
 });
 assert(!managerWithoutRefund.success && managerWithoutRefund.error?.includes('payments.refund'),
   'Un manager sans permission explicite payments.refund ne peut pas initier un décaissement');
-assert.equal(Number(db.read(paymentPath).refundPendingAmount || 0), pendingBeforeUnauthorizedManager,
+assert(Number(db.read(paymentPath).refundPendingAmount || 0) === pendingBeforeUnauthorizedManager,
   'Un remboursement refusé ne réserve aucun montant sur le paiement');
 
 const disbursementCallback = await processPayDunyaDisbursementCallbackWithDb(db, payoutConfig, {
