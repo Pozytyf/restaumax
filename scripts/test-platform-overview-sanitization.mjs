@@ -5,6 +5,17 @@ const start = source.indexOf("if (action === 'overview') {");
 const end = source.indexOf("if (action === 'create_restaurant') {", start);
 assert(start >= 0 && end > start, 'platform overview action exists');
 const overview = source.slice(start, end);
+assert(!overview.includes('migrateLegacyRestaurantPrivateData'), 'GET overview must never run a data migration');
+assert(overview.includes("collection('private').doc('ownership').get()"), 'overview reads private ownership metadata without writing');
+assert(overview.includes("collection('restaurantSubscriptions').doc(d.id).get()"), 'overview reads canonical subscription data without writing');
+const superAdminStart = source.indexOf('function isSuperAdmin(user: DecodedIdToken) {');
+const superAdminEnd = source.indexOf('\\n}\\n', superAdminStart) + 2;
+assert(superAdminStart >= 0 && superAdminEnd > superAdminStart, 'super-admin authorization helper exists');
+const superAdmin = source.slice(superAdminStart, superAdminEnd);
+assert(superAdmin.includes("user.role === 'super_admin'"), 'trusted server-issued super-admin claim grants access');
+assert(superAdmin.includes('verifiedAllowlistedEmail'), 'verified allowlist remains bootstrap path');
+assert(superAdmin.includes('RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA'), 'MFA remains enforced when configured');
+assert(superAdmin.includes('!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail'), 'untrusted users remain denied');
 assert(!overview.includes('...data'), 'overview does not spread arbitrary restaurant fields');
 for (const privateField of ['ownerEmail:', 'ownerName:', 'phone:', 'address:']) {
   assert(!overview.includes(privateField), 'overview excludes private field ' + privateField);
