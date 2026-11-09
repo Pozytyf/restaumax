@@ -20,7 +20,8 @@ import {
   handleResolveTableQr,
   handleRestaurantServiceStatus,
   handleSubscriptionBillingCycleRequest,
-  handleTableQrManagement
+  handleTableQrManagement,
+  handleAppCheckProbeRequest
 } from '../server.ts';
 import { getRestauMaxRequestQueryParam, resolveRestauMaxApiRouteFromRequest } from '../src/server/apiRouteMap.ts';
 
@@ -63,6 +64,10 @@ export default async function handler(req: any, res: any) {
   setPrivateApiHeaders(res);
 
   switch (route.id) {
+    case 'app-check-probe': {
+      const result = await handleAppCheckProbeRequest(req);
+      return res.status(result.statusCode).json(result.body);
+    }
     case 'restaurant-images': {
       const result = await handleRestaurantImageRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);
