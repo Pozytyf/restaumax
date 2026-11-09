@@ -12,6 +12,7 @@ import {
   handlePayDunyaCallbackRequest,
   handlePayDunyaDisbursementCallbackRequest,
   handlePlatformAdmin,
+  handlePublicMenuRequest,
   handlePosOrderSubmission,
   handleRestaurantReportsRequest,
   handleResolveTableQr,
@@ -60,6 +61,10 @@ export default async function handler(req: any, res: any) {
   setPrivateApiHeaders(res);
 
   switch (route.id) {
+    case 'public-menu': {
+      const result = await handlePublicMenuRequest(req);
+      return res.status(result.statusCode).json(result.body);
+    }
     case 'inventory': {
       const result = await handleInventoryRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);

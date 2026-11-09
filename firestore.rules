@@ -246,9 +246,12 @@ service cloud.firestore {
       // Public get and list for QR menu viewing
       // Create/update/delete restricted strictly to verified managers of this restaurant
       match /menuItems/{dishId} {
-        allow get: if isValidId(dishId) && isRestaurantActive(restaurantSlug) && (resource == null || resource.data.get('restaurantSlug', '') == restaurantSlug) &&
-          true;
-        allow list: if isRestaurantActive(restaurantSlug);
+        // Menu documents contain internal stock metadata. Browser clients may
+        // read them only after proving restaurant membership and operational role.
+        // Anonymous customers use the sanitized GET /api/public-menu endpoint.
+        allow get, list: if isValidId(dishId) && isRestaurantActive(restaurantSlug) &&
+          (hasRestaurantPermission(restaurantSlug, 'menu.manage') ||
+           hasRestaurantPermission(restaurantSlug, 'pos.access'));
         allow create: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
           isValidId(dishId) && isValidMenuItem(incoming()) &&
           incoming().restaurantSlug == restaurantSlug && incoming().id == dishId;

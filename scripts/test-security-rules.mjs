@@ -117,17 +117,19 @@ try {
 
   // 1. Strict tenant isolation.
   await allows(getDoc(doc(a('manager-a'),'restaurants/rest-b')), 'Un utilisateur connecté peut lire le profil public du restaurant B');
-  await allows(getDoc(doc(a('manager-a'),'restaurants/rest-b/menuItems/dish-1')), 'Un utilisateur connecté de A peut lire le menu public B');
-  await allows(getDocs(collection(a('manager-a'),'restaurants/rest-b/menuItems')), 'Un utilisateur connecté de A peut lister le menu public B');
-  await allows(getDoc(doc(a('owner-a'),'restaurants/rest-b/menuItems/dish-1')), 'Le propriétaire A peut consulter le menu public B sans accès aux données privées');
+  await denies(getDoc(doc(a('manager-a'),'restaurants/rest-b/menuItems/dish-1')), 'Un utilisateur du restaurant A ne peut pas lire le document brut du menu B');
+  await denies(getDocs(collection(a('manager-a'),'restaurants/rest-b/menuItems')), 'Un utilisateur du restaurant A ne peut pas lister le catalogue brut B');
+  await denies(getDoc(doc(a('owner-a'),'restaurants/rest-b/menuItems/dish-1')), 'Le propriétaire A ne peut pas lire le catalogue brut B');
   await allows(getDoc(doc(a('owner-b'),'restaurants/rest-b/menuItems/dish-1')), 'Le propriétaire B peut lire son propre menu');
-  await allows(getDoc(doc(a('manager-b'),'restaurants/rest-b/menuItems/dish-1')), 'Le manager B peut lire le menu de son restaurant');
-  await allows(getDoc(doc(a('manager-b'),'restaurants/rest-a/menuItems/dish-1')), 'Le manager B peut lire le menu public A sans accéder aux données privées');
+  await allows(getDoc(doc(a('manager-b'),'restaurants/rest-b/menuItems/dish-1')), 'Le manager B peut lire le catalogue brut de son restaurant');
+  await denies(getDoc(doc(a('manager-b'),'restaurants/rest-a/menuItems/dish-1')), 'Le manager B ne peut pas lire le catalogue brut A');
   await allows(getDoc(doc(anonymous,'restaurants/rest-b')), 'Le profil public reste lisible pour un client non authentifié');
   const publicRestaurantSnapshot = await getDoc(doc(anonymous, 'restaurants/rest-a'));
   check(publicRestaurantSnapshot.exists() && !('subscription' in (publicRestaurantSnapshot.data() || {})),
     'Le document restaurant public ne contient aucun champ d’abonnement');
-  await allows(getDoc(doc(anonymous,'restaurants/rest-b/menuItems/dish-1')), 'Le menu public reste lisible pour un client non authentifié');
+  await denies(getDoc(doc(anonymous,'restaurants/rest-b/menuItems/dish-1')), 'Un client anonyme ne peut pas lire directement le document brut du menu');
+  await allows(getDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-1')), 'Le manager A peut lire le catalogue brut de son restaurant');
+  await denies(getDocs(collection(anonymous,'restaurants/rest-b/menuItems')), 'Un client anonyme ne peut pas lister directement le catalogue brut');
   await denies(getDoc(table(a('manager-a'),'rest-b')), 'Restaurant A ne peut pas lire les tables de B');
   await denies(setDoc(table(a('manager-a'),'rest-b'),{id:'table-1',tableNumber:'X',capacity:2,isActive:true}), 'Restaurant A ne peut pas écrire dans B');
   await denies(deleteDoc(table(a('manager-a'),'rest-b')), 'Restaurant A ne peut pas supprimer dans B');
