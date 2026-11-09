@@ -2107,31 +2107,34 @@ app.get('/api/health', (_req, res) => {
   return res.status(200).json(getServerHealth());
 });
 /**
- * Read-only App Check diagnostic. Intentionally unavailable outside the isolated
- * RestauMax Demo Preview project. It verifies only the supplied token with Firebase
- * Admin and never reads or writes Firestore.
+ * Read-only App Check diagnostic shared by Express and the Vercel function adapter.
+ * It is enabled only on a Vercel Preview deployment bound to restaumax-demo.
  */
+export async function handleAppCheckProbeRequest(req: any) {
+  if (process.env.VERCEL !== '1' || process.env.VERCEL_ENV !== 'preview' || appletConfig?.projectId !== 'restaumax-demo') {
+    return { statusCode: 404, body: { success: false, error: 'Diagnostic indisponible.' } };
+  }
+  if (!requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine non autorisée.' } };
+  }
+  const token = String(req.headers?.['x-firebase-appcheck'] || '').trim();
+  if (!token || !adminAppCheck || typeof adminAppCheck.verifyToken !== 'function') {
+    return { statusCode: 401, body: { success: false, valid: false, error: 'Jeton App Check absent ou vérificateur indisponible.' } };
+  }
+  try {
+    await adminAppCheck.verifyToken(token);
+    return { statusCode: 200, body: { success: true, valid: true, verifier: 'firebase-admin', project: 'restaumax-demo' } };
+  } catch {
+    return { statusCode: 401, body: { success: false, valid: false, error: 'Jeton App Check rejeté par Firebase Admin.' } };
+  }
+}
+
 app.post('/api/security/app-check-probe', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-
-  if (isProd || appletConfig?.projectId !== 'restaumax-demo') {
-    return res.status(404).json({ success: false, error: 'Diagnostic indisponible.' });
-  }
-  if (!requestHasValidOrigin(req)) {
-    return res.status(403).json({ success: false, error: 'Origine non autorisée.' });
-  }
-  const token = String(req.headers?.['x-firebase-appcheck'] || '').trim();
-  if (!token || !adminAppCheck || typeof adminAppCheck.verifyToken !== 'function') {
-    return res.status(401).json({ success: false, valid: false, error: 'Jeton App Check absent ou vérificateur indisponible.' });
-  }
-  try {
-    await adminAppCheck.verifyToken(token);
-    return res.status(200).json({ success: true, valid: true, verifier: 'firebase-admin', project: 'restaumax-demo' });
-  } catch {
-    return res.status(401).json({ success: false, valid: false, error: 'Jeton App Check rejeté par Firebase Admin.' });
-  }
+  const result = await handleAppCheckProbeRequest(req);
+  return res.status(result.statusCode).json(result.body);
 });
 
 
