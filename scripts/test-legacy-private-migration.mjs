@@ -4,7 +4,6 @@ import { deleteField, doc, getDoc, setDoc } from 'firebase/firestore';
 import { migrateOneRestaurant, scanLegacyPrivateData } from './migrate-legacy-restaurant-private-data.mjs';
 
 const env = await initializeTestEnvironment({ projectId: 'demo-restaumax' });
-const db = env.unauthenticatedContext().firestore();
 const slug = 'migration-legacy-test';
 
 try {
