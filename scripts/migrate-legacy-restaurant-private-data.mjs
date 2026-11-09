@@ -29,15 +29,18 @@ export async function scanLegacyPrivateData(db, restaurantSnapshots = null) {
     canonicalSubscriptionsAlreadyPresent: 0,
     ownerUidConflicts: 0,
     invalidSubscriptions: 0,
+    backupConflicts: 0,
     privateFieldCounts: {},
     unknownFieldCounts: {}
   };
 
   for (const restaurantDoc of restaurants.docs) {
     const data = restaurantDoc.data() || {};
-    const [ownershipSnap, subscriptionSnap] = await Promise.all([
-      restaurantDoc.ref.collection('private').doc('ownership').get(),
-      db.collection('restaurantSubscriptions').doc(restaurantDoc.id).get()
+    const ownershipRef = restaurantDoc.ref.collection('private').doc('ownership');
+    const [ownershipSnap, subscriptionSnap, backupSnap] = await Promise.all([
+      ownershipRef.get(),
+      db.collection('restaurantSubscriptions').doc(restaurantDoc.id).get(),
+      ownershipRef.collection('migration_backups').doc(LEGACY_MIGRATION_ID).get()
     ]);
     const legacy = LEGACY_PRIVATE_FIELDS.filter((key) => data[key] !== undefined);
     const hasSubscription = data.subscription !== undefined;
@@ -58,6 +61,7 @@ export async function scanLegacyPrivateData(db, restaurantSnapshots = null) {
     if (existingOwnerUid && data.ownerUid && existingOwnerUid !== data.ownerUid) {
       summary.ownerUidConflicts += 1;
     }
+    if (backupSnap.exists && (legacy.length || hasSubscription)) summary.backupConflicts += 1;
     if (hasSubscription && (!data.subscription || typeof data.subscription !== 'object' || Array.isArray(data.subscription))) {
       summary.invalidSubscriptions += 1;
     }
@@ -96,6 +100,7 @@ export async function migrateOneRestaurant(db, restaurantRef, actorUid, deleteFi
       throw new Error(`Abonnement historique invalide pour ${slug}. Migration interrompue.`);
     }
     if (!Object.keys(legacy).length && !hasLegacySubscription) return { migrated: false, slug };
+    if (backupSnap.exists) throw new Error(`Sauvegarde existante avec champs historiques encore présents pour ${slug}. Revue manuelle requise.`);
 
     const now = Date.now();
     const merged = { ...existing };
@@ -148,8 +153,8 @@ export async function migrateOneRestaurant(db, restaurantRef, actorUid, deleteFi
 
 export async function migrateAllLegacyPrivateData(db, actorUid) {
   const preflight = await scanLegacyPrivateData(db);
-  if (preflight.ownerUidConflicts || preflight.invalidSubscriptions || Object.keys(preflight.unknownFieldCounts).length) {
-    throw new Error(`Précontrôle refusé : ownerUidConflicts=${preflight.ownerUidConflicts}, invalidSubscriptions=${preflight.invalidSubscriptions}, unknownFields=${JSON.stringify(preflight.unknownFieldCounts)}. Aucune migration lancée.`);
+  if (preflight.ownerUidConflicts || preflight.invalidSubscriptions || preflight.backupConflicts || Object.keys(preflight.unknownFieldCounts).length) {
+    throw new Error(`Précontrôle refusé : ownerUidConflicts=${preflight.ownerUidConflicts}, invalidSubscriptions=${preflight.invalidSubscriptions}, backupConflicts=${preflight.backupConflicts}, unknownFields=${JSON.stringify(preflight.unknownFieldCounts)}. Aucune migration lancée.`);
   }
   const restaurants = await db.collection('restaurants').get();
   const result = { ...preflight, migratedRestaurants: 0, backupsCreated: 0, fieldsMoved: 0, subscriptionsMoved: 0 };
