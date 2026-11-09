@@ -27,6 +27,9 @@ export function createRestaurantImageHandler(deps: RestaurantImageHandlerDepende
       const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
       if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion requise.' } };
       const decoded = await deps.adminAuth.verifyIdToken(idToken, true);
+      if (decoded?.role === 'super_admin' || decoded?.role === 'admin') {
+        return { statusCode: 403, body: { success: false, error: 'Le super-administrateur n’a pas accès aux opérations d’un restaurant.' } };
+      }
       const input = payload && typeof payload === 'object' ? payload as Record<string, any> : {};
       const restaurantSlug = String(input.restaurantSlug || '').trim();
       if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
