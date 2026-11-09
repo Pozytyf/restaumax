@@ -1670,12 +1670,22 @@ export async function handleRestaurantImageRequest(payload: unknown, req?: any):
       'image/webp': 'webp'
     };
     if (!allowedTypes[contentType] || !Number.isSafeInteger(size) || size <= 0 ||
-        size > 3 * 1024 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(dataBase64)) {
+        size > 3 * 1024 * 1024 || dataBase64.length > 4194304 || !/^[A-Za-z0-9+/]+={0,2}$/.test(dataBase64)) {
       return { statusCode: 400, body: { success: false, error: 'Image invalide : JPEG, PNG ou WebP, 3 Mo maximum.' } };
     }
     const bytes = Buffer.from(dataBase64, 'base64');
     if (bytes.length !== size || bytes.length > 3 * 1024 * 1024) {
       return { statusCode: 400, body: { success: false, error: 'Taille du fichier invalide.' } };
+    }
+    const isJpeg = contentType === 'image/jpeg' && bytes.length >= 3 &&
+      bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    const isPng = contentType === 'image/png' && bytes.length >= 8 &&
+      bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+      bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
+    const isWebp = contentType === 'image/webp' && bytes.length >= 12 &&
+      bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
+    if (!isJpeg && !isPng && !isWebp) {
+      return { statusCode: 400, body: { success: false, error: 'Le contenu du fichier ne correspond pas à un format image autorisé.' } };
     }
 
     const objectPath = `${prefix}${randomUUID().replace(/-/g, '')}.${allowedTypes[contentType]}`;
