@@ -29,3 +29,14 @@ assert(backend.includes("restaurantRef.collection('staff').doc(ownerUser.uid)"),
 assert(backend.includes("action: 'create_restaurant'"), 'restaurant provisioning writes an administrative audit event');
 assert(backend.includes("await auth.setCustomUserClaims(ownerUser.uid, previousCustomClaims)"), 'failed provisioning restores the existing owner custom claims');
 console.log('Account onboarding and existing-owner provisioning checks passed.');
+
+const demoProvision = fs.readFileSync(new URL('../scripts/provision-restaumax-demo-owner.mjs', import.meta.url), 'utf8');
+const demoWorkflow = fs.readFileSync(new URL('../.github/workflows/provision-restaumax-demo-owner.yml', import.meta.url), 'utf8');
+assert(demoProvision.includes("projectId: 'restaumax-demo'") && demoProvision.includes("databaseId: '(default)'"), 'Demo owner provisioning is pinned to the Demo project and default database');
+assert(demoProvision.includes("ownerUid: 'DCL1JQ9KJydgkdDkEBVl5DKoLms1'") && demoProvision.includes("ownerEmail: 'restaumax@hp-logistics.net'"), 'Demo provisioning is pinned to the approved existing Auth identity');
+assert(demoProvision.includes("confirmation: 'PROVISION_RESTAUMAX_DEMO_OWNER'"), 'Demo provisioning requires its explicit apply confirmation');
+assert(demoProvision.includes('preflight-passed-no-writes') && demoProvision.includes('created-and-verified'), 'Demo provisioning supports a no-write dry-run and verifies writes');
+assert(demoProvision.includes('collectionGroup(\'staff\')') && demoProvision.includes('setCustomUserClaims'), 'Demo provisioning checks legacy memberships and binds Auth claims');
+assert(demoProvision.includes('ownerAccountReused') === false, 'Dedicated Demo provisioning does not create or delete an Auth account');
+assert(demoWorkflow.includes("if: github.ref == 'refs/heads/main'") && demoWorkflow.includes('environment: demo'), 'Demo provisioning workflow is restricted to main and the protected Demo environment');
+assert(demoWorkflow.includes('FIREBASE_PROJECT_ID: restaumax-demo') && demoWorkflow.includes('FIRESTORE_DATABASE_ID: (default)'), 'Demo provisioning workflow cannot target Production');
