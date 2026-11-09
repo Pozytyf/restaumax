@@ -15,8 +15,8 @@ const clientMenu = read('../src/components/restaumax/ClientMenuView.tsx');
 assert(rules.includes("hasRestaurantPermission(restaurantSlug, 'menu.manage')") &&
   rules.includes("hasRestaurantPermission(restaurantSlug, 'pos.access')"),
   'Raw menu documents require an authorized restaurant role; anonymous access is denied');
-assert(rules.includes('allow get, list: if isValidId(dishId)'),
-  'Raw catalog reads remain scoped to a valid restaurant document path');
+assert(rules.includes('allow get, list: if isValidId(dishId) && isRestaurantActive(restaurantSlug)'),
+  'Raw catalog reads remain scoped to a valid restaurant and active service');
 assert(rules.includes("existing().get('restaurantSlug', '') == restaurantSlug"),
   'Menu update rules verify the existing document tenant');
 assert(rules.includes("incoming().restaurantSlug == restaurantSlug"),
