@@ -20,9 +20,9 @@ function increment(map, key) {
 }
 
 export async function scanLegacyPrivateData(db, restaurantSnapshots = null) {
-  const restaurants = restaurantSnapshots ? { docs: restaurantSnapshots } : await db.collection('restaurants').get();
+  const restaurantDocs = restaurantSnapshots || (await db.collection('restaurants').get()).docs;
   const summary = {
-    restaurantsScanned: restaurants.size,
+    restaurantsScanned: restaurantDocs.length,
     restaurantsNeedingMigration: 0,
     ownerMetadataDocuments: 0,
     subscriptionDocuments: 0,
@@ -34,7 +34,7 @@ export async function scanLegacyPrivateData(db, restaurantSnapshots = null) {
     unknownFieldCounts: {}
   };
 
-  for (const restaurantDoc of restaurants.docs) {
+  for (const restaurantDoc of restaurantDocs) {
     const data = restaurantDoc.data() || {};
     const ownershipRef = restaurantDoc.ref.collection('private').doc('ownership');
     const [ownershipSnap, subscriptionSnap, backupSnap] = await Promise.all([
