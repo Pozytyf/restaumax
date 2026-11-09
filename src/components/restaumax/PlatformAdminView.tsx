@@ -71,9 +71,32 @@ export const PlatformAdminView: React.FC<{ onBack: () => void; onOpenRestaurant:
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault(); setError(''); setLoading(true);
-    try { await signInWithEmailAndPassword(auth, email.trim(), password); setPassword(''); }
-    catch { setError('Identifiants invalides ou compte désactivé.'); }
-    finally { setLoading(false); }
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      setPassword('');
+    } catch (authError: any) {
+      const code = authError?.code;
+      console.error('[RestauMax SuperAdmin Auth] Échec de connexion:', code || 'unknown');
+      if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+        setError('Adresse e-mail ou mot de passe incorrect.');
+      } else if (code === 'auth/user-disabled') {
+        setError('Ce compte super-administrateur est désactivé dans Firebase Authentication.');
+      } else if (code === 'auth/too-many-requests') {
+        setError('Trop de tentatives. Patientez avant de réessayer.');
+      } else if (code === 'auth/operation-not-allowed') {
+        setError('La connexion par e-mail et mot de passe est désactivée dans Firebase Authentication.');
+      } else if (code === 'auth/unauthorized-domain') {
+        setError('Le domaine restaumax.vercel.app doit être autorisé dans Firebase Authentication.');
+      } else if (code === 'auth/network-request-failed') {
+        setError('Firebase Authentication est injoignable. Vérifiez la connexion réseau.');
+      } else if (code === 'auth/invalid-api-key' || code === 'auth/api-key-not-valid') {
+        setError('La configuration Firebase de cette version de RestauMax est invalide.');
+      } else {
+        setError(`Échec de connexion Firebase (code : ${code || 'inconnu'}). Consultez les journaux techniques.`);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const createRestaurant = async (event: React.FormEvent) => {
