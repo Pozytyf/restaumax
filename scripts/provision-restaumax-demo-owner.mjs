@@ -53,8 +53,6 @@ export async function provisionExistingDemoOwner({ auth, db, apply = false, conf
   const claims = owner.customClaims || {};
   assert(!['admin', 'super_admin'].includes(String(claims.role || '')),
     'Un compte administrateur plateforme ne peut pas devenir propriétaire.');
-  assert(!(typeof claims.restaurantSlug === 'string' && claims.restaurantSlug.trim()),
-    'Le compte propriétaire possède déjà une affectation restaurant.');
 
   const restaurantRef = db.collection('restaurants').doc(TARGET.slug);
   const [restaurantSnap, membershipSnap, staffSnap, ownershipSnap, legacyStaffSnap] = await Promise.all([
@@ -82,6 +80,8 @@ export async function provisionExistingDemoOwner({ auth, db, apply = false, conf
   }
 
   assert(!restaurantSnap.exists, 'Le slug restaurants/restaumax-demo existe déjà : aucune donnée ne sera écrasée.');
+  assert(!(typeof claims.restaurantSlug === 'string' && claims.restaurantSlug.trim()),
+    'Le compte propriétaire possède déjà une affectation restaurant.');
   assert(!membershipSnap.exists && !staffSnap.exists && !ownershipSnap.exists && legacyStaffSnap.empty,
     'Une affectation propriétaire ou staff existe déjà : rattachement automatique refusé.');
 
