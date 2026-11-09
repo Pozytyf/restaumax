@@ -127,7 +127,10 @@ export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole:
 }
 
 async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
-   const snap = await db.collection('restaurants').doc(slug).get();
+  // A platform administrator can never inherit restaurant operations from a
+  // stale owner membership or a shared email identity.
+  if (user.role === 'super_admin' || user.role === 'admin') return null;
+  const snap = await db.collection('restaurants').doc(slug).get();
   if (!snap.exists) return null;
   const restaurant = snap.data();
   if (restaurant.status !== 'active' || restaurant.deletedAt) return null;
@@ -140,6 +143,8 @@ async function requireOwner(db: any, user: DecodedIdToken, slug: string) {
 }
 
 async function requireStaffAdministrator(db: any, user: DecodedIdToken, slug: string) {
+  // Keep the platform and restaurant authorization domains mutually exclusive.
+  if (user.role === 'super_admin' || user.role === 'admin') return null;
   const [restaurantSnap, membershipSnap] = await Promise.all([
     db.collection('restaurants').doc(slug).get(),
     db.collection('managers').doc(user.uid).get()
