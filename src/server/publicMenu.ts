@@ -1,20 +1,22 @@
 const MENU_CATEGORIES = new Set(['grillades', 'plats', 'entrees', 'accompagnements', 'boissons', 'desserts']);
 const text = (value, max) => typeof value === 'string' ? value.slice(0, max) : '';
-const money = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+const money = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
 const plain = value => value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 
 function sanitizeOptionGroups(value) {
   if (!Array.isArray(value)) return [];
   return value.slice(0, 20).flatMap(groupValue => {
     const group = plain(groupValue);
-    if (!group || !Array.isArray(group.options)) return [];
+    if (!group || typeof group.id !== 'string' || !group.id.trim() || typeof group.name !== 'string' || !group.name.trim() || !Array.isArray(group.options)) return [];
     const options = group.options.slice(0, 50).flatMap(optionValue => {
       const option = plain(optionValue);
-      if (!option || !text(option.id, 128) || !text(option.name, 200)) return [];
+      if (!option || typeof option.id !== 'string' || !option.id.trim() || typeof option.name !== 'string' || !option.name.trim()) return [];
+      const extraPrice = money(option.extraPrice);
+      if (extraPrice === null) return [];
       return [{
         id: text(option.id, 128),
         name: text(option.name, 200),
-        extraPrice: money(option.extraPrice),
+        extraPrice,
         ...(option.isDefault === true ? { isDefault: true } : {})
       }];
     });
@@ -31,8 +33,10 @@ function sanitizeExtras(value) {
   if (!Array.isArray(value)) return [];
   return value.slice(0, 50).flatMap(extraValue => {
     const extra = plain(extraValue);
-    if (!extra || !text(extra.id, 128) || !text(extra.name, 200)) return [];
-    return [{ id: text(extra.id, 128), name: text(extra.name, 200), price: money(extra.price) }];
+    if (!extra || typeof extra.id !== 'string' || !extra.id.trim() || typeof extra.name !== 'string' || !extra.name.trim()) return [];
+    const price = money(extra.price);
+    if (price === null) return [];
+    return [{ id: text(extra.id, 128), name: text(extra.name, 200), price }];
   });
 }
 
@@ -58,6 +62,7 @@ export function sanitizePublicMenuItem(raw) {
       typeof item.name !== 'string' || !MENU_CATEGORIES.has(item.category) ||
       !Number.isSafeInteger(item.price) || item.price <= 0 || item.available !== true) return null;
   if (item.trackStock === true && (!Number.isSafeInteger(item.stockQuantity) || item.stockQuantity <= 0)) return null;
+  const translations = sanitizeTranslations(item.translations);
   return {
     id: text(item.id, 128),
     restaurantSlug: text(item.restaurantSlug, 100),
@@ -74,6 +79,6 @@ export function sanitizePublicMenuItem(raw) {
     ...(Array.isArray(item.pairings) ? { pairings: item.pairings.slice(0, 20).filter(x => typeof x === 'string').map(x => text(x, 120)) } : {}),
     ...(Array.isArray(item.optionGroups) ? { optionGroups: sanitizeOptionGroups(item.optionGroups) } : {}),
     ...(Array.isArray(item.availableExtras) ? { availableExtras: sanitizeExtras(item.availableExtras) } : {}),
-    ...(sanitizeTranslations(item.translations) ? { translations: sanitizeTranslations(item.translations) } : {})
+    ...(translations ? { translations } : {})
   };
 }
