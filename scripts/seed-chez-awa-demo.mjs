@@ -24,7 +24,7 @@ export function validateDemoSeedTarget(env = process.env, credentials = {}) {
 }
 
 export async function seedChezAwaDemo(db, { apply = false } = {}) {
-  if (db.databaseId !== TARGET.databaseId || db.app?.options?.projectId !== TARGET.projectId) {
+  if (db.databaseId !== TARGET.databaseId) {
     throw new Error('Import refusé : instance Firestore hors cible Démo.');
   }
 
@@ -93,6 +93,7 @@ async function main() {
   const credentials = JSON.parse(raw);
   validateDemoSeedTarget(process.env, credentials);
   const app = initializeApp({ credential: cert(credentials), projectId: TARGET.projectId }, 'chez-awa-preview-seed');
+  if (app.options.projectId !== TARGET.projectId) throw new Error('Application Admin hors cible Démo.');
   const db = getFirestore(app, TARGET.databaseId);
   const result = await seedChezAwaDemo(db, { apply });
   process.stdout.write(JSON.stringify(result, null, 2) + '\n');
