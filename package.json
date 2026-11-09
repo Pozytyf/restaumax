@@ -30,7 +30,7 @@
     "test:order-lifecycle": "tsx scripts/test-order-lifecycle-stock.mjs",
     "test:order-lifecycle-emulator": "tsx scripts/test-order-lifecycle-emulator.mjs",
     "test:order-kds-cash": "tsx scripts/test-order-kds-cash-integration.mjs",
-    "test:security-regression": "node scripts/test-firestore-owner-rule.mjs && tsx scripts/test-full-role-boundaries.mjs && tsx scripts/test-owner-refund-binding.mjs && tsx scripts/test-platform-overview-sanitization.mjs && tsx scripts/test-public-menu-security.mjs",
+    "test:security-regression": "node scripts/test-firestore-owner-rule.mjs && tsx scripts/test-full-role-boundaries.mjs && tsx scripts/test-owner-refund-binding.mjs && tsx scripts/test-platform-overview-sanitization.mjs && tsx scripts/test-public-menu-security.mjs && npm run test:firebase-storage-config && npm run test:restaurant-image-api",
     "test:tax": "tsx scripts/test-tax-calculation.mjs",
     "test:reports": "tsx scripts/test-financial-report.mjs",
     "test:subscription-billing-emulator": "tsx scripts/test-subscription-billing-emulator.mjs",
@@ -45,7 +45,10 @@
     "test:owner-privacy": "tsx scripts/test-restaurant-ownership-private.mjs",
     "test:order-rate-limit": "tsx scripts/test-order-rate-limit.mjs",
     "test:security-audit-hardening": "node scripts/test-security-audit-hardening.mjs",
-    "test:migrate-demo": "node scripts/test-demo-migration-guards.mjs"
+    "test:migrate-demo": "node scripts/test-demo-migration-guards.mjs",
+    "test:firebase-storage-config": "node scripts/test-firebase-storage-config.mjs",
+    "test:storage-rules": "node scripts/test-storage-rules.mjs",
+    "test:restaurant-image-api": "tsx scripts/test-restaurant-image-api.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
