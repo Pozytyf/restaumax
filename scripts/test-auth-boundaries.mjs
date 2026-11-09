@@ -19,6 +19,8 @@ assert.match(platformAdmin, /verifyIdToken\(token, true\)/,
   'platform API verifies token revocation');
 assert.match(platformAdmin, /function isSuperAdmin\(user: DecodedIdToken\)/,
   'platform API independently checks the super-admin allowlist/custom claim');
+assert.match(platformAdmin, /nextSessionVersion = Math\.max\([\s\S]*?Number\(user\.sessionVersion \|\| 0\)\)[\s\S]*?membershipRef\.update\([\s\S]*?sessionVersion: nextSessionVersion/,
+  'promoting a former restaurant identity invalidates all previously issued restaurant sessions');
 
 // Cross-login in the opposite direction: the admin console stays hidden until
 // the platform API authorizes the current Firebase identity. A 401/403 closes it.
