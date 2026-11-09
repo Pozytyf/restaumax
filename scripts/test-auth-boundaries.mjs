@@ -7,6 +7,8 @@ const firebase = read('src/lib/firebase.ts');
 const adminView = read('src/components/restaumax/PlatformAdminView.tsx');
 const platformAdmin = read('src/server/platformAdmin.ts');
 const server = read('server.ts');
+const tableSecurity = read('src/server/tableSecurityService.ts');
+const imageService = read('src/server/restaurantImageService.ts');
 const rules = read('firestore.rules');
 
 // Cross-login: a platform identity cannot pass the restaurant membership gate,
@@ -58,6 +60,14 @@ for (const [index, match] of tokenChecks.entries()) {
   assert.match(match[1], /decoded\.role === 'super_admin' \|\| decoded\.role === 'admin'/,
     `restaurant API handler ${index + 1} rejects platform-admin identities`);
 }
+const tableTokenChecks = [...tableSecurity.matchAll(/const decoded = await auth\.verifyIdToken\(match\[1\], true\);([\s\S]{0,220})/g)];
+assert.equal(tableTokenChecks.length, 2, 'both table/service manager entry points are covered');
+for (const [index, match] of tableTokenChecks.entries()) {
+  assert.match(match[1], /decoded\?\.role === 'super_admin' \|\| decoded\?\.role === 'admin'/,
+    `table/service authorization ${index + 1} rejects platform-admin identities`);
+}
+assert.match(imageService, /decoded\?\.role === 'super_admin' \|\| decoded\?\.role === 'admin'/,
+  'restaurant image upload and deletion reject platform-admin identities');
 
 // The two route renderers must remain distinct and role-gated.
 assert.match(app, /Le super-administrateur n’a pas accès aux opérations d’un restaurant\./,
