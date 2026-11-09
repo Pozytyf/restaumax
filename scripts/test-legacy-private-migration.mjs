@@ -16,6 +16,7 @@ const restaurantRef = db.collection('restaurants').doc(slug);
 const conflictRef = db.collection('restaurants').doc(`${slug}-owner-conflict`);
 const unknownRef = db.collection('restaurants').doc(`${slug}-unknown-field`);
 const backupConflictRef = db.collection('restaurants').doc(`${slug}-backup-conflict`);
+const subscriptionConflictRef = db.collection('restaurants').doc(`${slug}-subscription-conflict`);
 
 try {
   await restaurantRef.set({
@@ -92,6 +93,26 @@ try {
   const backupConflictRoot = await backupConflictRef.get();
   assert.equal(backupConflictRoot.data().ownerUid, 'owner-c', 'existing backup conflict never deletes current root data');
 
+  await subscriptionConflictRef.set({
+    slug: subscriptionConflictRef.id, name: 'Subscription conflict', isOpen: true,
+    subscription: { planName: 'legacy', status: 'active' }
+  });
+  await db.collection('restaurantSubscriptions').doc(subscriptionConflictRef.id).set({
+    planName: 'canonical', status: 'active'
+  });
+  const subscriptionScan = await scanLegacyPrivateData(db, [await subscriptionConflictRef.get()]);
+  assert.equal(subscriptionScan.subscriptionConflicts, 1, 'preflight detects legacy and canonical subscription collision');
+  await assert.rejects(
+    migrateOneRestaurant(db, subscriptionConflictRef, 'test-admin'),
+    /Abonnement canonique déjà présent/
+  );
+  const [subscriptionRoot, canonicalSubscription] = await Promise.all([
+    subscriptionConflictRef.get(),
+    db.collection('restaurantSubscriptions').doc(subscriptionConflictRef.id).get()
+  ]);
+  assert.equal(subscriptionRoot.data().subscription.planName, 'legacy', 'legacy subscription is preserved on conflict');
+  assert.equal(canonicalSubscription.data().planName, 'canonical', 'canonical subscription is preserved on conflict');
+
   console.log('Legacy private metadata migration emulator tests passed.');
 } finally {
   await Promise.all([
@@ -99,6 +120,8 @@ try {
     db.recursiveDelete(conflictRef),
     db.recursiveDelete(unknownRef),
     db.recursiveDelete(backupConflictRef),
+    db.recursiveDelete(subscriptionConflictRef),
+    db.collection('restaurantSubscriptions').doc(subscriptionConflictRef.id).delete().catch(() => {}),
     db.collection('restaurantSubscriptions').doc(slug).delete().catch(() => {}),
     db.collection('admin_audit_logs').doc(`migrate_restaurant_private_${slug}_legacy-private-v1`).delete().catch(() => {})
   ]);
