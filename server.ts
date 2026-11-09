@@ -1576,7 +1576,7 @@ export async function handlePublicMenuRequest(req: any): Promise<{ statusCode: n
   try {
     const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
-    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
+    if (!restaurant || (restaurant.status ?? 'active') !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
       return { statusCode: 404, body: { success: false, error: 'Restaurant indisponible.' } };
     }
     const snapshot = await adminDb.collection('restaurants').doc(restaurantSlug)
