@@ -32,6 +32,12 @@ assert.match(adminView, /useState<User \| null>\(auth\.currentUser\)/,
   'an already-open Firebase session is evaluated when /admin mounts');
 assert.match(adminView, /onAuthStateChanged\(auth, \(nextUser\)/,
   'a restored or changed Firebase session is revalidated on /admin');
+assert.match(adminView, /token\.claims\.role !== 'super_admin'/,
+  'an existing owner/staff session must not be silently promoted by the admin allowlist');
+assert.match(adminView, /adminLoginInProgress\.current = true[\s\S]*?const data = await request\(\)/,
+  'the dedicated admin login explicitly authenticates before requesting platform access');
+assert.match(adminView, /\(!user \|\| needsPlatformAdminLogin\) \? <form/,
+  'a pre-existing non-platform Firebase session is shown the dedicated admin login form');
 assert.match(adminView, /response\.status === 401 \|\| response\.status === 403/,
   'platform API rejection is explicitly handled');
 assert.match(adminView, /await signOut\(auth\)/,
