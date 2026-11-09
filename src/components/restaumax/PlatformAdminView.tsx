@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
 import { auth, requestManagerPasswordReset } from '../../lib/firebase';
 import { calculateSubscriptionMetrics } from '../../lib/subscriptionMetrics';
@@ -30,6 +30,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const [staffByRestaurant, setStaffByRestaurant] = useState<Record<string, StaffRow[]>>({});
   const [loading, setLoading] = useState(false);
   const [isPlatformAdminAuthorized, setIsPlatformAdminAuthorized] = useState(false);
+  const [needsPlatformAdminLogin, setNeedsPlatformAdminLogin] = useState(false);
+  const adminLoginInProgress = useRef(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [email, setEmail] = useState('');
@@ -43,14 +45,6 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     status: 'trial', startsOn: '', endsOn: '', notes: '', autoRenew: true, gracePeriodDays: '7'
   });
   const [form, setForm] = useState({ name: '', ownerName: '', ownerEmail: '' });
-
-  useEffect(() => onAuthStateChanged(auth, (nextUser) => {
-    setUser(nextUser);
-    setIsPlatformAdminAuthorized(false);
-    setRestaurants([]);
-    setSummary(null);
-    setStaffByRestaurant({});
-  }), []);
 
   const request = useCallback(async (body?: Record<string, unknown>) => {
     if (!auth.currentUser) throw new Error('Session non authentifiée.');
@@ -93,13 +87,62 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     finally { setLoading(false); }
   }, [request]);
 
-  useEffect(() => { if (user) refresh(); else { setRestaurants([]); setSummary(null); } }, [user, refresh]);
+  useEffect(() => {
+    let active = true;
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      if (!nextUser) {
+        setIsPlatformAdminAuthorized(false);
+        setNeedsPlatformAdminLogin(false);
+        setRestaurants([]);
+        setSummary(null);
+        setStaffByRestaurant({});
+        return;
+      }
+
+      // A pre-existing restaurant session is not silently upgraded by the
+      // platform allowlist. It must pass through the dedicated admin login.
+      if (adminLoginInProgress.current) return;
+      setIsPlatformAdminAuthorized(false);
+      setRestaurants([]);
+      setSummary(null);
+      setStaffByRestaurant({});
+      setLoading(true);
+      nextUser.getIdTokenResult().then(async (token) => {
+        if (!active) return;
+        if (token.claims.role !== 'super_admin') {
+          setNeedsPlatformAdminLogin(true);
+          return;
+        }
+        setNeedsPlatformAdminLogin(false);
+        const data = await request();
+        if (!active) return;
+        setRestaurants(data.restaurants || []);
+        setSummary(data.summary || null);
+      }).catch((e: any) => {
+        if (!active) return;
+        setNeedsPlatformAdminLogin(true);
+        setError(e?.message || 'Accès super-administrateur refusé.');
+      }).finally(() => {
+        if (active) setLoading(false);
+      });
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [request]);
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault(); setError(''); setLoading(true);
+    adminLoginInProgress.current = true;
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
       setPassword('');
+      const data = await request();
+      setRestaurants(data.restaurants || []);
+      setSummary(data.summary || null);
+      setNeedsPlatformAdminLogin(false);
     } catch (authError: any) {
       const code = authError?.code;
       console.error('[RestauMax SuperAdmin Auth] Échec de connexion:', code || 'unknown');
@@ -118,9 +161,10 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       } else if (code === 'auth/invalid-api-key' || code === 'auth/api-key-not-valid') {
         setError('La configuration Firebase de cette version de RestauMax est invalide.');
       } else {
-        setError(`Échec de connexion Firebase (code : ${code || 'inconnu'}). Consultez les journaux techniques.`);
+        setError(authError?.message || `Échec de connexion Firebase (code : ${code || 'inconnu'}). Consultez les journaux techniques.`);
       }
     } finally {
+      adminLoginInProgress.current = false;
       setLoading(false);
     }
   };
@@ -301,7 +345,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     <main className="mx-auto max-w-7xl space-y-6 p-5 md:p-8">
       {error && <div role="alert" className="rounded-xl border border-rose-800 bg-rose-950/50 p-3 text-sm text-rose-200">{error}</div>}
       {notice && <div className="rounded-xl border border-emerald-800 bg-emerald-950/50 p-3 text-sm text-emerald-200">{notice}</div>}
-      {!user ? <form onSubmit={login} className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
+      {(!user || needsPlatformAdminLogin) ? <form onSubmit={login} className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
         <h2 className="text-xl font-bold">Connexion super-administrateur</h2><p className="text-sm text-slate-400">Accès réservé aux comptes explicitement autorisés par la configuration sécurisée RestauMax.</p>
         <label className="block text-sm">Adresse e-mail<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/></label>
         <label className="block text-sm">Mot de passe<div className="relative mt-1"><input required type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
