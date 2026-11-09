@@ -107,10 +107,16 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
 }
 
 function isSuperAdmin(user: DecodedIdToken) {
+  // A super_admin custom claim is trusted because it can only be written by the
+  // Firebase Admin SDK. The allowlist remains the bootstrap path for first access.
+  // Requiring the allowlist again after a claim has been issued incorrectly locks
+  // out an already-provisioned administrator when the allowlist changes or the
+  // account's email verification state is refreshed.
+  const hasTrustedSuperAdminClaim = user.role === 'super_admin';
   const verifiedAllowlistedEmail = user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase());
-  if (!verifiedAllowlistedEmail) return false;
+  if (!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail) return false;
   if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true') {
     const secondFactor = (user as any).firebase?.sign_in_second_factor;
     return typeof secondFactor === 'string' && secondFactor.length > 0;
