@@ -10,7 +10,8 @@ const members = {
   'owner-2': { active: true, role: 'owner', restaurantSlug: 'rest-a', sessionVersion: 1 },
   'manager-1': { active: true, role: 'manager', restaurantSlug: 'rest-a', sessionVersion: 4, permissions: ['menu.manage'] },
   'manager-2': { active: true, role: 'manager', restaurantSlug: 'rest-a', sessionVersion: 1, permissions: [] },
-  'suspended-1': { active: false, role: 'manager', restaurantSlug: 'rest-a', sessionVersion: 1, permissions: ['menu.manage'] }
+  'suspended-1': { active: false, role: 'manager', restaurantSlug: 'rest-a', sessionVersion: 1, permissions: ['menu.manage'] },
+  'owner-suspended': { active: true, role: 'owner', restaurantSlug: 'rest-suspended', sessionVersion: 1 }
 };
 const tokens = {
   'owner-token': { uid: 'owner-1', sessionVersion: 2 },
@@ -19,7 +20,8 @@ const tokens = {
   'suspended-token': { uid: 'suspended-1', sessionVersion: 1 },
   'stale-session-token': { uid: 'manager-1', sessionVersion: 3 },
   'wrong-owner-token': { uid: 'owner-2', sessionVersion: 1 },
-  'revoked-token': new Error('revoked')
+  'revoked-token': new Error('revoked'),
+  'owner-suspended-token': { uid: 'owner-suspended', sessionVersion: 1 }
 };
 const saved = new Map();
 const deleted = [];
@@ -86,7 +88,7 @@ assert.equal((await handler(base, request('manager-no-permission-token'))).statu
 assert.equal((await handler(base, request('suspended-token'))).statusCode, 403);
 assert.equal((await handler(base, request('stale-session-token'))).statusCode, 403);
 assert.equal((await handler(base, request('wrong-owner-token'))).statusCode, 403);
-assert.equal((await handler({ ...base, restaurantSlug: 'rest-suspended' }, request('owner-token'))).statusCode, 403);
+assert.equal((await handler({ ...base, restaurantSlug: 'rest-suspended' }, request('owner-suspended-token'))).statusCode, 403);
 assert.equal((await handler({ ...base, contentType: 'image/gif' }, request('owner-token'))).statusCode, 400);
 assert.equal((await handler({ ...base, dataBase64: Buffer.from('not an image').toString('base64'), size: 12 }, request('owner-token'))).statusCode, 400);
 assert.equal((await handler({ ...base, size: 3 * 1024 * 1024 + 1 }, request('owner-token'))).statusCode, 400);
@@ -97,4 +99,4 @@ assert.equal((await handler({ ...base, path: 'restaurants/rest-b/menu/other.jpg'
 assert.equal((await handler(base, request('revoked-token'))).statusCode, 401);
 assert.equal((await handler(base, { method: 'GET', headers: { origin: 'https://restaumax.test' } })).statusCode, 405);
 
-console.log('Restaurant image API authorization tests: 17 assertions passed.');
+console.log('Restaurant image API authorization tests: 21 assertions passed.');
