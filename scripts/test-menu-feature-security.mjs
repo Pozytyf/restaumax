@@ -17,7 +17,7 @@ const rules = read('../firestore.rules');
 
 assert(types.includes('lowStockThreshold?: number') && types.includes('allergens?: string[]') && types.includes('spiceLevel?: 0 | 1 | 2 | 3') && types.includes('pairings?: string[]') && types.includes('translations?:'), 'Menu model supports alerts, allergens, spice, pairings and translations');
 assert(form.includes('Seuil d’alerte intelligent du plat') && form.includes('English — Name') && form.includes('Português — Nome'), 'Manager form configures alert threshold and translations');
-assert(form.includes('Les photos sont temporairement désactivées') && !form.includes('uploadMenuImageWithServerValidation') && !form.includes('type="file"'), 'Photo upload stays disabled without blocking dish creation');
+assert(form.includes('type="file"') && form.includes('uploadRestaurantImage') && !form.includes('Les photos des plats sont temporairement indisponibles'), 'Dish photo upload uses the tenant Firebase Storage pipeline');
 assert(form.includes('setImageUrl(dishToEdit.imageUrl || \'\')') && form.includes('imageUrl: imageUrl.trim()'), 'Existing photo URLs are preserved when editing dishes');
 assert(form.includes('allergensInput') && form.includes('spiceLevel') && form.includes('pairingsInput'), 'Manager form captures allergen, spice and pairing metadata');
 assert(menu.includes('Alertes intelligentes de stock') && menu.includes('lowStockItems'), 'Menu management surfaces low-stock and depleted-item alerts');
