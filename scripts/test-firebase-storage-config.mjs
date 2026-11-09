@@ -28,6 +28,6 @@ assert(server.includes('adminAuth.verifyIdToken(idToken, true)') &&
   server.includes('member.active !== true') &&
   server.includes('member.restaurantSlug !== restaurantSlug') &&
   server.includes('member.permissions.includes(requiredPermission)') &&
-  server.includes('bytes.length > 3 * 1024 * 1024'),
+  server.includes('bytes.length > 3 * 1024 * 1024') && server.includes('const isJpeg') && server.includes('const isPng') && server.includes('const isWebp'),
   'Image writes are server-mediated, revocation-aware, tenant-bound and size-limited');
 console.log('Firebase Storage config and upload pipeline checks passed.');
