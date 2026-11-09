@@ -31,7 +31,10 @@ service cloud.firestore {
     }
 
     function isAccountActive() {
-      return isSignedIn() && (
+      // A platform admin session is never a restaurant session, even if a
+      // legacy managers/{uid} membership remains in Firestore.
+      return isSignedIn() &&
+        !(request.auth.token.get('role', '') in ['super_admin', 'admin']) && (
         !exists(/databases/$(database)/documents/managers/$(request.auth.uid)) ||
         (
           get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.active == true &&
