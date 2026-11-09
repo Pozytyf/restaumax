@@ -80,10 +80,6 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
       } else {
         setResetMessage(result.error || "La demande n'a pas pu être traitée. Réessayez plus tard.");
       }
-    } catch (error) {
-      // Never leave the user without feedback if the SDK or browser rejects unexpectedly.
-      console.error("Échec inattendu de la demande de réinitialisation :", error);
-      setResetMessage("Impossible de contacter le service de réinitialisation. Vérifiez votre connexion puis réessayez.");
     } catch (error: any) {
       console.error('[RestauMax Auth] Échec inattendu de la réinitialisation:', error?.code || 'unknown');
       const code = error?.code;
