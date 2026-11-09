@@ -1768,6 +1768,7 @@ export default function App() {
           <ManagerLoginView
             onLogin={handleManagerLogin}
             onBackToMenu={() => navigateTo(`/r/${activeRestaurantSlug}`)}
+            onOpenPlatformAdmin={() => navigateTo('/admin')}
             restaurantName={restaurant.name}
           />
         ) : (
