@@ -187,8 +187,15 @@ export async function provisionExistingDemoOwner({ auth, db, apply = false, conf
 
     return { ...summary, status: 'created-and-verified', ownerName, verified: ['restaurant', 'private-ownership', 'manager-membership', 'staff-profile', 'firebase-custom-claims'] };
   } catch (error) {
+    if (reservationCreated) {
+      const rollback = db.batch();
+      rollback.delete(restaurantRef.collection('private').doc('ownership'));
+      rollback.delete(restaurantRef.collection('staff').doc(TARGET.ownerUid));
+      rollback.delete(db.collection('managers').doc(TARGET.ownerUid));
+      rollback.delete(restaurantRef);
+      await rollback.commit().catch(() => undefined);
+    }
     if (claimsChanged) await auth.setCustomUserClaims(TARGET.ownerUid, claims).catch(() => undefined);
-    if (reservationCreated) await restaurantRef.delete().catch(() => undefined);
     throw error;
   }
 }
