@@ -1,14 +1,26 @@
 import assert from 'node:assert/strict';
-import { initializeApp } from 'firebase-admin/app';
+import { generateKeyPairSync } from 'node:crypto';
+import { cert, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { LEGACY_MIGRATION_ID, migrateOneRestaurant, scanLegacyPrivateData } from './migrate-legacy-restaurant-private-data.mjs';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   throw new Error('This test must run inside firebase emulators:exec.');
 }
+// A throwaway in-memory service-account key satisfies Admin SDK credential
+// validation. FIRESTORE_EMULATOR_HOST guarantees no Google API is contacted.
+const { privateKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  publicKeyEncoding: { type: 'spki', format: 'pem' }
+});
 const app = initializeApp({
   projectId: 'demo-restaumax',
-  credential: { getAccessToken: async () => ({ access_token: 'emulator-test-token', expires_in: 3600 }) }
+  credential: cert({
+    projectId: 'demo-restaumax',
+    clientEmail: 'firebase-adminsdk-test@demo-restaumax.iam.gserviceaccount.com',
+    privateKey
+  })
 }, 'legacy-private-migration-test');
 const db = getFirestore(app);
 const slug = `migration-legacy-test-${Date.now()}`;
