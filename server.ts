@@ -2106,6 +2106,34 @@ app.get('/api/health', (_req, res) => {
   if (!adminDb) return res.status(503).json({ status: 'unavailable' });
   return res.status(200).json(getServerHealth());
 });
+/**
+ * Read-only App Check diagnostic. Intentionally unavailable outside the isolated
+ * RestauMax Demo Preview project. It verifies only the supplied token with Firebase
+ * Admin and never reads or writes Firestore.
+ */
+app.post('/api/security/app-check-probe', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  if (isProd || appletConfig?.projectId !== 'restaumax-demo') {
+    return res.status(404).json({ success: false, error: 'Diagnostic indisponible.' });
+  }
+  if (!requestHasValidOrigin(req)) {
+    return res.status(403).json({ success: false, error: 'Origine non autorisée.' });
+  }
+  const token = String(req.headers?.['x-firebase-appcheck'] || '').trim();
+  if (!token || !adminAppCheck || typeof adminAppCheck.verifyToken !== 'function') {
+    return res.status(401).json({ success: false, valid: false, error: 'Jeton App Check absent ou vérificateur indisponible.' });
+  }
+  try {
+    await adminAppCheck.verifyToken(token);
+    return res.status(200).json({ success: true, valid: true, verifier: 'firebase-admin', project: 'restaumax-demo' });
+  } catch {
+    return res.status(401).json({ success: false, valid: false, error: 'Jeton App Check rejeté par Firebase Admin.' });
+  }
+});
+
 
 // 5. Middleware Vite en développement / Fichiers statiques en production
 async function startServer() {
