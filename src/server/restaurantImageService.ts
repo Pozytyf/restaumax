@@ -65,7 +65,7 @@ export function createRestaurantImageHandler(deps: RestaurantImageHandlerDepende
       if (method === 'DELETE') {
         const objectPath = String(input.path || '');
         if (!objectPath.startsWith(prefix) ||
-            !/^[A-Za-z0-9_-]{1,80}\\.(jpg|jpeg|png|webp)$/.test(objectPath.slice(prefix.length))) {
+            !/^[A-Za-z0-9_-]{1,80}\.(jpg|jpeg|png|webp)$/.test(objectPath.slice(prefix.length))) {
           return { statusCode: 400, body: { success: false, error: 'Chemin de photo invalide.' } };
         }
         await deps.adminStorage.file(objectPath).delete({ ignoreNotFound: true });
