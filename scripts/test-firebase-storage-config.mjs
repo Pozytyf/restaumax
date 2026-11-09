@@ -15,7 +15,7 @@ assert.equal(typeof config.storageBucket, 'string');
 assert(config.storageBucket.length > 0, 'Production Firebase config must declare its Storage bucket');
 assert(firebase.includes("from 'firebase/storage'") && firebase.includes('export const storage = getStorage(app)'),
   'Firebase Storage SDK must be initialized from the selected Firebase app');
-assert(firebase.includes('uploadRestaurantImage') && firebase.includes("callRestaurantImageApi('POST'") && firebase.includes('getDownloadURL'),
+assert(firebase.includes('uploadRestaurantImage') && firebase.includes("callRestaurantImageApi('POST'") && firebase.includes('getDownloadURL') && firebase.includes("VITE_RESTAUMAX_STORAGE_IMAGES_ENABLED === 'true'"),
   'Restaurant images must upload through the verified server API and return their hosted URL');
 assert(firebaseJson.storage?.rules === 'storage.rules' && firebaseJson.emulators?.storage?.port === 9199,
   'The default Firebase project must declare Storage rules and its emulator');
@@ -25,7 +25,7 @@ const server = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
 const imageService = readFileSync(new URL('../src/server/restaurantImageService.ts', import.meta.url), 'utf8');
 assert(rules.includes('allow read: if true') && rules.includes('allow write: if false'),
   'Storage images are public-read and all client-side writes are denied');
-assert(server.includes('handleRestaurantImageRequest') && server.includes('createRestaurantImageHandler') &&
+assert(server.includes("process.env.RESTAUMAX_STORAGE_IMAGES_ENABLED !== 'true'") && server.includes('handleRestaurantImageRequest') && server.includes('createRestaurantImageHandler') &&
   server.includes('adminStorage = getAdminStorage(adminApp).bucket(appletConfig.storageBucket)'),
   'Server wires the image handler to the selected Firebase Storage bucket');
 assert(imageService.includes('deps.adminAuth.verifyIdToken(idToken, true)') &&
