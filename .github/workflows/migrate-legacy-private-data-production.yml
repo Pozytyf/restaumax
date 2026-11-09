@@ -62,9 +62,11 @@ jobs:
             echo "::error::Automatic Production runs are restricted to read-only DRY_RUN."
             exit 1
           fi
-          if [[ "$MODE" == "APPLY" && ( "$GITHUB_EVENT_NAME" != "workflow_dispatch" || "$CONFIRM_MIGRATION" != "MIGRATE_LEGACY_PRIVATE_DATA_TO_PRODUCTION" ) ]]; then
-            echo "::error::Explicit Production migration confirmation is required."
-            exit 1
+          if [[ "$MODE" == "APPLY" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" || "$CONFIRM_MIGRATION" != "MIGRATE_LEGACY_PRIVATE_DATA_TO_PRODUCTION" ]]; then
+              echo "::error::Explicit Production migration confirmation is required."
+              exit 1
+            fi
           fi
           echo "Mode: $MODE"
           echo "Target: $FIREBASE_PROJECT_ID / $FIRESTORE_DATABASE_ID"
@@ -96,8 +98,8 @@ jobs:
       - name: Run read-only audit or explicitly confirmed migration
         shell: bash
         env:
-          MODE: ${{ inputs.mode }}
-          CONFIRM_MIGRATION: ${{ inputs.confirm_migration }}
+          MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'DRY_RUN' }}
+          CONFIRM_MIGRATION: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_migration || 'NO' }}
         run: |
           set -euo pipefail
           if [[ "$MODE" == "DRY_RUN" ]]; then
