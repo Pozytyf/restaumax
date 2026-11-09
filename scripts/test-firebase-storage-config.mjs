@@ -15,8 +15,8 @@ assert.equal(typeof config.storageBucket, 'string');
 assert(config.storageBucket.length > 0, 'Production Firebase config must declare its Storage bucket');
 assert(firebase.includes("from 'firebase/storage'") && firebase.includes('export const storage = getStorage(app)'),
   'Firebase Storage SDK must be initialized from the selected Firebase app');
-assert(firebase.includes('uploadRestaurantImage') && firebase.includes('uploadBytes') && firebase.includes('getDownloadURL'),
-  'Restaurant images must upload to Firebase Storage and return their hosted URL');
+assert(firebase.includes('uploadRestaurantImage') && firebase.includes("callRestaurantImageApi('POST'") && firebase.includes('getDownloadURL'),
+  'Restaurant images must upload through the verified server API and return their hosted URL');
 assert(firebaseJson.storage?.rules === 'storage.rules' && firebaseJson.emulators?.storage?.port === 9199,
   'The default Firebase project must declare Storage rules and its emulator');
 assert(productionConfig.storage?.rules === 'storage.rules',
