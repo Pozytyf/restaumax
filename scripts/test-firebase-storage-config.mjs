@@ -21,9 +21,13 @@ assert(firebaseJson.storage?.rules === 'storage.rules' && firebaseJson.emulators
   'The default Firebase project must declare Storage rules and its emulator');
 assert(productionConfig.storage?.rules === 'storage.rules',
   'Production Firebase config must deploy the reviewed Storage rules');
-assert(rules.includes("request.auth.token.restaurantSlug == restaurantSlug") &&
-  rules.includes("hasManagerPermission('menu.manage')") &&
-  rules.includes("request.resource.size <= 5242880") &&
-  rules.includes("request.resource.contentType.matches('image/(jpeg|png|webp)')"),
-  'Storage uploads are tenant-bound, permission-gated, size-limited and image-only');
+const server = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+assert(rules.includes('allow read: if true') && rules.includes('allow write: if false'),
+  'Storage images are public-read and all client-side writes are denied');
+assert(server.includes('adminAuth.verifyIdToken(idToken, true)') &&
+  server.includes('member.active !== true') &&
+  server.includes('member.restaurantSlug !== restaurantSlug') &&
+  server.includes('member.permissions.includes(requiredPermission)') &&
+  server.includes('bytes.length > 3 * 1024 * 1024'),
+  'Image writes are server-mediated, revocation-aware, tenant-bound and size-limited');
 console.log('Firebase Storage config and upload pipeline checks passed.');
