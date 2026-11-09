@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$DEMO_MODE" == "apply" ]]; then
-            node scripts/provision-public-demo.mjs --apply
+            node scripts/provision-public-demo-safe.mjs --apply
           else
-            node scripts/provision-public-demo.mjs
+            node scripts/provision-public-demo-safe.mjs
           fi
