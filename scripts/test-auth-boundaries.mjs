@@ -38,6 +38,8 @@ assert.match(adminView, /await signOut\(auth\)/,
   'a rejected owner/staff Firebase session is closed after platform API denial');
 assert.match(adminView, /!isPlatformAdminAuthorized \? <section/,
   'platform dashboard is not rendered before server authorization');
+assert.doesNotMatch(adminView, /onOpenRestaurant/,
+  'platform administration cannot navigate into a restaurant operations workspace');
 
 // Refresh/session restoration: role resolution completes before protected
 // management routes leave their loading state; token changes re-run the check.
