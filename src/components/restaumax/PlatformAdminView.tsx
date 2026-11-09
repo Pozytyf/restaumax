@@ -121,7 +121,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         setSummary(data.summary || null);
       }).catch((e: any) => {
         if (!active) return;
-        setNeedsPlatformAdminLogin(true);
+        // Transient server/network errors keep the session pending and retryable;
+        // only a confirmed non-super-admin claim requires the login form.
         setError(e?.message || 'Accès super-administrateur refusé.');
       }).finally(() => {
         if (active) setLoading(false);
