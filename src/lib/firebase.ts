@@ -82,6 +82,7 @@ export const appCheck = appCheckSiteKey
 // CRITICAL: Always use the explicitly selected Firestore database.
 export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+export const restaurantImageUploadsEnabled = viteEnv?.VITE_RESTAUMAX_STORAGE_IMAGES_ENABLED === 'true';
 export const storage = getStorage(app);
 
 // Isolate local development from production Firebase when explicitly requested.
@@ -344,6 +345,7 @@ export async function uploadRestaurantImage(
   restaurantSlug: string,
   kind: RestaurantImageKind
 ): Promise<{ path: string; url: string }> {
+  if (!restaurantImageUploadsEnabled) throw new Error('Les photos seront activées après publication des règles Firebase Storage.');
   const slug = String(restaurantSlug || '').trim();
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) throw new Error('Restaurant invalide.');
   if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
