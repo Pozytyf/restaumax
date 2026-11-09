@@ -19,8 +19,8 @@ function increment(map, key) {
   map[key] = (map[key] || 0) + 1;
 }
 
-export async function scanLegacyPrivateData(db) {
-  const restaurants = await db.collection('restaurants').get();
+export async function scanLegacyPrivateData(db, restaurantSnapshots = null) {
+  const restaurants = restaurantSnapshots ? { docs: restaurantSnapshots } : await db.collection('restaurants').get();
   const summary = {
     restaurantsScanned: restaurants.size,
     restaurantsNeedingMigration: 0,
