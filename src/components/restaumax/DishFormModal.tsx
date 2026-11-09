@@ -18,6 +18,7 @@ import {
   RestaurantInfo 
 } from '../../types/restaumax';
 import { sounds } from '../../utils/audio';
+import { uploadRestaurantImage, deleteRestaurantImage } from '../../lib/firebase';
 
 export interface DishFormModalProps {
   isOpen: boolean;
@@ -175,6 +176,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   const [price, setPrice] = useState<string>('');
   const [prepTimeMinutes, setPrepTimeMinutes] = useState<string>('20');
   const [imageUrl, setImageUrl] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [available, setAvailable] = useState(true);
   const [trackStock, setTrackStock] = useState(false);
   const [stockQuantity, setStockQuantity] = useState('0');
@@ -205,6 +207,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
     newDishIdRef.current = dishToEdit?.id || `dish-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     setIsSaving(false);
     setSaveError(null);
+    setImageFile(null);
 
     if (dishToEdit) {
       setName(dishToEdit.name || '');
@@ -324,7 +327,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
       errs.stockQuantity = 'La quantité disponible doit être un entier entre 0 et 1 000 000.';
     }
 
-    // Les photos sont temporairement désactivées : aucune URL ni aucun stockage d'image requis.
+    // L'image existante est conservée si aucun nouveau fichier n'est sélectionné.
     const threshold = Number(lowStockThreshold);
     if (!lowStockThreshold.trim() || !Number.isInteger(threshold) || threshold < 0 || threshold > 1000000) errs.lowStockThreshold = 'Le seuil doit être un entier entre 0 et 1 000 000.';
     if (allergensInput.split(',').map(v=>v.trim()).filter(Boolean).length > 30) errs.allergens = '30 allergènes maximum.';
@@ -462,10 +465,19 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
     saveInFlight.current = true;
     setIsSaving(true);
     sounds.playTap();
+    let uploadedImagePath: string | null = null;
     try {
+      if (imageFile) {
+        const uploaded = await uploadRestaurantImage(imageFile, restaurant.slug, 'menu');
+        uploadedImagePath = uploaded.path;
+        savedDish.imageUrl = uploaded.url;
+      }
       await onSave(savedDish);
       onClose();
     } catch (error) {
+      if (uploadedImagePath) {
+        await deleteRestaurantImage(uploadedImagePath, restaurant.slug).catch(() => undefined);
+      }
       const message = error instanceof Error ? error.message : "Le plat n'a pas pu être enregistré. Réessayez.";
       setSaveError(message);
       sounds.playAlert();
@@ -852,9 +864,20 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                   <label className="text-xs font-bold text-slate-700">Português — Nome<input value={translationPtName} onChange={e=>setTranslationPtName(e.target.value)} maxLength={200} className="mt-1 w-full rounded-lg border p-2.5 text-xs font-normal" /><textarea rows={2} value={translationPtDescription} onChange={e=>setTranslationPtDescription(e.target.value)} maxLength={2000} placeholder="Descrição em português" className="mt-1 w-full rounded-lg border p-2.5 text-xs font-normal" /></label>
                 </div>{errors.translations && <p className="text-[11px] text-rose-600">{errors.translations}</p>}
               </div>
-            {/* Image URL with live preview - Correction 2 & Vérification 3 */}
-            <div>
-              <p className="sm:col-span-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Les photos des plats sont temporairement indisponibles. Elles seront réactivées lorsqu’une solution d’hébergement sans surcoût sera disponible.</p>
+            {/* Photo stockée directement dans le bucket Firebase Storage du restaurant */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+              <label className="block text-xs font-bold text-slate-700" htmlFor="dish-image-upload">Photo du plat</label>
+              <input
+                id="dish-image-upload"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={isSaving}
+                onChange={(event) => setImageFile(event.target.files?.[0] || null)}
+                className="block w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-orange-100 file:px-3 file:py-2 file:text-xs file:font-bold file:text-orange-800"
+              />
+              <p className="text-[11px] text-slate-500">JPEG, PNG ou WebP · 5 Mo maximum. La photo est hébergée dans le bucket Firebase du restaurant.</p>
+              {imageFile && <p className="text-[11px] font-semibold text-emerald-700">Fichier sélectionné : {imageFile.name}</p>}
+              {!imageFile && imageUrl && <img src={imageUrl} alt="Photo actuelle du plat" className="h-24 w-24 rounded-lg border border-slate-200 object-cover" />}
             </div>
 
             {/* Tags / Badges */}
