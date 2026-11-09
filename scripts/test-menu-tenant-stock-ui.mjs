@@ -57,6 +57,9 @@ assert(types.includes('trackStock?: boolean') && types.includes('stockQuantity?:
 assert(dishForm.includes('Suivre la quantité disponible de cet article') &&
   dishForm.includes('stockQuantity'),
   'Owner/manager dish form can save a sellable quantity');
+assert(dishForm.includes('type="file"') && dishForm.includes('uploadRestaurantImage') &&
+  !dishForm.includes('Les photos des plats sont temporairement indisponibles'),
+  'Menu form uploads dish photos directly to the tenant Storage bucket');
 assert(adminMenu.includes('aria-pressed={isSelected}') &&
   adminMenu.includes('grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'),
   'Management catalog categories are accessible clickable tiles');
