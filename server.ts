@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, randomUUID } from 'node:crypto';
 /**
  * RESTAUMAX — SERVEUR BACKEND SÉCURISÉ & PASSERELLE API RESTAUMAX
  *
@@ -37,6 +37,7 @@ import 'dotenv/config';
 import express from 'express';
 import { getAuth } from 'firebase-admin/auth';
 import { getAppCheck } from 'firebase-admin/app-check';
+import { getStorage as getAdminStorage } from 'firebase-admin/storage';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -112,8 +113,10 @@ app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 export let adminDb: any = null;
 export let adminAuth: any = null;
 export let adminAppCheck: any = null;
+export let adminApp: any = null;
+export let adminStorage: any = null;
 let adminInitError: string | null = null;
-let appletConfig: { projectId: string; firestoreDatabaseId: string } | null = null;
+let appletConfig: { projectId: string; firestoreDatabaseId: string; storageBucket: string } | null = null;
 
 try {
   appletConfig = getAppletFirebaseConfig();
@@ -124,24 +127,27 @@ try {
     // Vercel/serverless: store the service account JSON as a protected environment variable.
     const parsedCredentials = JSON.parse(serviceAccountJson);
     const serviceAccount = validateServiceAccountCredentials(parsedCredentials, appletConfig.projectId);
-    const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
+    adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
     adminAppCheck = getAppCheck(adminApp);
+    adminStorage = getAdminStorage(adminApp).bucket(appletConfig.storageBucket);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé via variable sécurisée pour la base '${appletConfig.firestoreDatabaseId}'.`);
   } else if (credPath && fs.existsSync(credPath)) {
     // Local/server deployments may continue to use a credentials file.
     const serviceAccount = validateServiceAccountCredentials(credPath, appletConfig.projectId);
-    const adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
+    adminApp = initAdminApp(serviceAccount, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
     adminAppCheck = getAppCheck(adminApp);
+    adminStorage = getAdminStorage(adminApp).bucket(appletConfig.storageBucket);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé avec succès pour la base '${appletConfig.firestoreDatabaseId}' (Projet: ${appletConfig.projectId})`);
   } else if (process.env.FIRESTORE_EMULATOR_HOST) {
-    const adminApp = initAdminApp(null as any, appletConfig.projectId);
+    adminApp = initAdminApp(null as any, appletConfig.projectId);
     adminDb = initAdminFirestore(adminApp, appletConfig.firestoreDatabaseId);
     adminAuth = getAuth(adminApp);
     adminAppCheck = getAppCheck(adminApp);
+    adminStorage = getAdminStorage(adminApp).bucket(appletConfig.storageBucket);
     console.log(`[RestauMax Server] Firebase Admin SDK initialisé sur l'émulateur Firestore (${process.env.FIRESTORE_EMULATOR_HOST})`);
   } else {
     adminInitError = credPath
