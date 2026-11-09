@@ -24,6 +24,10 @@ assert.match(platformAdmin, /function isSuperAdmin\(user: DecodedIdToken\)/,
 // the platform API authorizes the current Firebase identity. A 401/403 closes it.
 assert.match(adminView, /isPlatformAdminAuthorized/,
   'platform console has a separate server-authorization state');
+assert.match(adminView, /useState<User \| null>\(auth\.currentUser\)/,
+  'an already-open Firebase session is evaluated when /admin mounts');
+assert.match(adminView, /onAuthStateChanged\(auth, \(nextUser\)/,
+  'a restored or changed Firebase session is revalidated on /admin');
 assert.match(adminView, /response\.status === 401 \|\| response\.status === 403/,
   'platform API rejection is explicitly handled');
 assert.match(adminView, /await signOut\(auth\)/,
