@@ -1,6 +1,7 @@
 export const RESTAUMAX_API_ROUTES = [
   { id: 'health', path: 'health', methods: ['GET'] },
   { id: 'inventory', path: 'inventory', methods: ['POST'] },
+  { id: 'customer-loyalty', path: 'customer-loyalty', methods: ['POST'] },
   { id: 'kitchen-item', path: 'kitchen-item', methods: ['POST'] },
   { id: 'order-status', path: 'order-status', methods: ['POST'] },
   { id: 'public-menu', path: 'public-menu', methods: ['GET'] },

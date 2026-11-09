@@ -1255,6 +1255,35 @@ export async function archiveInventoryItemWithServerValidation(
   return inventoryRequest(restaurantSlug, { action: 'archive', itemId });
 }
 
+export async function adjustCustomerLoyaltyPointsWithServerValidation(
+  restaurantSlug: string,
+  customerId: string,
+  delta: number,
+  reason: string,
+  idempotencyKey: string
+): Promise<{ success: true; points: number; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/customer-loyalty', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, customerId, delta, reason, idempotencyKey })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) {
+      return { success: false, error: data.error || 'Ajustement de fidélité refusé.', conflict: response.status === 409 };
+    }
+    return data;
+  } catch (error: any) {
+    console.error('Erreur appel /api/customer-loyalty:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant l’ajustement des points.' };
+  }
+}
+
 /**
  * Persists a kitchen line completion state through the trusted backend.
  * The client never writes KDS progress directly to Firestore.

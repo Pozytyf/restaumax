@@ -52,6 +52,7 @@ import { verifyPublicOrderAppCheck } from './src/server/appCheckGuard.js';
 import { getRestaurantOwnerUid } from './src/server/restaurantOwnership.ts';
 import { createRestaurantImageHandler } from './src/server/restaurantImageService.js';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
+import { adjustCustomerLoyaltyPointsWithDb } from './src/server/loyaltyService.js';
 import { 
   processOrderSubmission, 
   ServerFirestoreProvider,
@@ -1826,6 +1827,42 @@ export async function handleInventoryRequest(payload: unknown, req?: any): Promi
   }
 }
 
+export async function handleCustomerLoyaltyAdjustmentRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service fidélité indisponible : Firebase Admin non configuré.' } };
+  if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    if (decoded.role === 'super_admin' || decoded.role === 'admin') {
+      return { statusCode: 403, body: { success: false, error: 'Le super-administrateur n’a pas accès aux opérations d’un restaurant.' } };
+    }
+    const input = payload && typeof payload === 'object' ? { ...(payload as any) } : {};
+    const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
+    const customerId = typeof input.customerId === 'string' ? input.customerId.trim() : '';
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) ||
+        !/^[a-zA-Z0-9_-]{1,128}$/.test(customerId)) {
+      return { statusCode: 400, body: { success: false, error: 'Restaurant ou fiche client invalide.' } };
+    }
+    const result = await adjustCustomerLoyaltyPointsWithDb(adminDb, {
+      restaurantSlug, customerId, delta: input.delta,
+      reason: input.reason, idempotencyKey: input.idempotencyKey,
+      actorUid: decoded.uid, sessionVersion: Number(decoded.sessionVersion || 0)
+    });
+    if (result.success) return { statusCode: 200, body: result };
+    return { statusCode: result.conflict ? 409 : 403, body: result };
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (/auth|token|revoked|expired/i.test(message)) {
+      return { statusCode: 401, body: { success: false, error: 'Session du personnel invalide. Reconnectez-vous.' } };
+    }
+    console.error('[RestauMax customer loyalty] Request failed:', message);
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant l’ajustement des points de fidélité.' } };
+  }
+}
+
 export async function handleOrderStatusRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service RestauMax temporairement indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
@@ -1987,6 +2024,14 @@ app.post('/api/inventory', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handleInventoryRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/customer-loyalty', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleCustomerLoyaltyAdjustmentRequest(req.body, req);
   return res.status(result.statusCode).json(result.body);
 });
 

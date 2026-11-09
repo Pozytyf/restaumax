@@ -146,6 +146,14 @@ try {
   await denies(getDoc(doc(a('manager-b'),'restaurants/rest-a/menuRecipes/dish-1')), 'Le manager B ne peut pas lire les coûts de recette A');
   await denies(getDoc(doc(anonymous,'restaurants/rest-a/menuRecipes/dish-1')), 'Les clients QR ne peuvent pas lire les fiches techniques ni les coûts');
   await denies(updateDoc(doc(a('owner-a'),'restaurants/rest-a/customers/customer-1'), { loyaltyPoints: 5000 }), 'Les points de fidélité ne peuvent pas être modifiés directement par le SDK client');
+  await allows(setDoc(doc(a('owner-a'),'restaurants/rest-a/customers/customer-created'), {
+    name: 'Client créé', phone: '+2250700000001', phoneNormalized: '0700000001',
+    email: '', notes: '', loyaltyPoints: 0, createdAt: 2, updatedAt: 2
+  }), 'Le propriétaire peut créer un client avec un numéro ivoirien normalisé validé');
+  await denies(setDoc(doc(a('owner-a'),'restaurants/rest-a/customers/customer-invalid-phone'), {
+    name: 'Client invalide', phone: 'abc', phoneNormalized: 'abc',
+    loyaltyPoints: 0, createdAt: 3, updatedAt: 3
+  }), 'Un numéro normalisé invalide est refusé à la création du client');
   await allows(updateDoc(doc(a('owner-a'),'restaurants/rest-a/customers/customer-1'), { name: 'Client A modifié' }), 'Le propriétaire peut modifier les coordonnées du client sans toucher aux points');
   await denies(setDoc(doc(a('owner-a'),'restaurants/rest-a/inventoryItems/rice-forged'),{
     id:'rice-forged',name:'Riz falsifié',unit:'kg',quantity:999,minQuantity:0,unitCost:1,active:true

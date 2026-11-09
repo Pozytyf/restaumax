@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  addDoc, collection, deleteDoc, doc, getDocs, limit, onSnapshot, orderBy, query, updateDoc, where
+  addDoc, collection, deleteDoc, doc, getDocs, limit, onSnapshot, orderBy, query, where
 } from 'firebase/firestore';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings, AlertTriangle } from 'lucide-react';
-import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation } from '../../lib/firebase';
+import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation, adjustCustomerLoyaltyPointsWithServerValidation } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { InventoryRecipePanel } from './InventoryRecipePanel';
@@ -176,12 +176,30 @@ export const RestaurantAdminModuleView: React.FC<{
   };
 
   const adjustPoints = async (customer: Customer, delta: number) => {
-    if (!canManage) return;
+    if (!canManage || loading) return;
+    setLoading(true); setError(''); setNotice('');
+    const storageKey = `restaumax:loyalty:pending:${restaurant.slug}:${customer.id}:${delta}`;
+    let idempotencyKey = '';
     try {
-      await updateDoc(doc(db, 'restaurants', restaurant.slug, 'customers', customer.id), {
-        loyaltyPoints: Math.max(0, customer.loyaltyPoints + delta), updatedAt: Date.now()
-      });
-    } catch (e) { setError(e instanceof Error ? e.message : 'Mise à jour des points impossible.'); }
+      try {
+        idempotencyKey = sessionStorage.getItem(storageKey) || crypto.randomUUID().replaceAll('-', '');
+        sessionStorage.setItem(storageKey, idempotencyKey);
+      } catch {
+        idempotencyKey = crypto.randomUUID().replaceAll('-', '');
+      }
+      const result = await adjustCustomerLoyaltyPointsWithServerValidation(
+        restaurant.slug, customer.id, delta,
+        'Bonus manuel attribué depuis le répertoire clients',
+        idempotencyKey
+      );
+      if (!result.success) throw new Error(result.error);
+      try { sessionStorage.removeItem(storageKey); } catch { /* session storage may be unavailable */ }
+      setNotice(`Solde fidélité de ${customer.name} mis à jour : ${result.points} point(s). Ajustement journalisé.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Mise à jour des points impossible.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resetInventoryForm = () => {
@@ -353,7 +371,7 @@ export const RestaurantAdminModuleView: React.FC<{
           <button disabled={loading} className="flex items-center justify-center gap-2 rounded-lg bg-slate-900 p-3 font-bold text-white md:col-span-2"><Plus size={16}/> Enregistrer le client</button>
         </form>}
         <section className="overflow-hidden rounded-2xl border bg-white"><div className="border-b p-4 font-bold">Répertoire clients · {customers.length}</div>
-          {customers.map(c=><div key={c.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{c.name}</p><p className="text-xs text-slate-500">{c.phone}{c.email ? ' · '+c.email : ''}</p>{c.notes && <p className="mt-1 text-sm text-slate-600">{c.notes}</p>}<p className="mt-1 text-xs font-semibold text-orange-700">{c.loyaltyPoints || 0} point(s) fidélité</p></div>{canManage && <div className="flex items-center gap-2"><button onClick={()=>adjustPoints(c,1)} className="rounded-lg border px-3 py-2 text-sm">+1 point</button><button onClick={()=>removeCustomer(c.id)} aria-label="Supprimer le client" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
+          {customers.map(c=><div key={c.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{c.name}</p><p className="text-xs text-slate-500">{c.phone}{c.email ? ' · '+c.email : ''}</p>{c.notes && <p className="mt-1 text-sm text-slate-600">{c.notes}</p>}<p className="mt-1 text-xs font-semibold text-orange-700">{c.loyaltyPoints || 0} point(s) fidélité</p></div>{canManage && <div className="flex items-center gap-2"><button onClick={()=>adjustPoints(c,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">+1 point</button><button onClick={()=>removeCustomer(c.id)} aria-label="Supprimer le client" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
           {customers.length===0 && <p className="p-8 text-center text-sm text-slate-500">Aucun client enregistré pour le moment.</p>}
         </section>
       </>}
