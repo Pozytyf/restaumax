@@ -107,10 +107,12 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
 }
 
 function isSuperAdmin(user: DecodedIdToken) {
+  // Trust only the server-issued Firebase custom claim or the verified bootstrap allowlist.
+  const hasTrustedSuperAdminClaim = user.role === 'super_admin';
   const verifiedAllowlistedEmail = user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase());
-  if (!verifiedAllowlistedEmail) return false;
+  if (!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail) return false;
   if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true') {
     const secondFactor = (user as any).firebase?.sign_in_second_factor;
     return typeof secondFactor === 'string' && secondFactor.length > 0;
@@ -160,64 +162,6 @@ async function requireStaffAdministrator(db: any, user: DecodedIdToken, slug: st
 }
 
 
-async function migrateLegacyRestaurantPrivateData(db: any, restaurantRef: any, actorUid: string) {
-  const slug = String(restaurantRef.id || '');
-  const ownershipRef = restaurantRef.collection('private').doc('ownership');
-  const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
-  return db.runTransaction(async (tx: any) => {
-    const [restaurantSnap, ownershipSnap, subscriptionSnap] = await Promise.all([
-      tx.get(restaurantRef), tx.get(ownershipRef), tx.get(subscriptionRef)
-    ]);
-    if (!restaurantSnap.exists) return { ownership: {}, subscription: {}, migrated: false };
-    const restaurant = restaurantSnap.data() || {};
-    const existing = ownershipSnap.exists ? ownershipSnap.data() || {} : {};
-    const privateFields = [
-      'ownerUid', 'ownerName', 'ownerEmail', 'createdBy', 'updatedBy',
-      'deletedBy', 'suspendedBy', 'ownerRemovedBy', 'serviceStatusUpdatedBy'
-    ];
-    const legacy = Object.fromEntries(privateFields
-      .filter((key) => restaurant[key] !== undefined)
-      .map((key) => [key, restaurant[key]]));
-    if (existing.ownerUid && legacy.ownerUid && existing.ownerUid !== legacy.ownerUid) {
-      throw new Error(`Conflit d’identité propriétaire pour le restaurant ${slug}. Migration interrompue.`);
-    }
-    const merged = { ...existing };
-    for (const [key, value] of Object.entries(legacy)) {
-      if (merged[key] === undefined) merged[key] = value;
-    }
-    const hasLegacySubscription = restaurant.subscription !== undefined;
-    const now = Date.now();
-    if (Object.keys(legacy).length) {
-      tx.set(ownershipRef, { ...merged, migratedAt: now, migratedBy: actorUid }, { merge: true });
-    }
-    if (hasLegacySubscription && !subscriptionSnap.exists && restaurant.subscription &&
-        typeof restaurant.subscription === 'object') {
-      tx.create(subscriptionRef, restaurant.subscription);
-    }
-    const removals: Record<string, any> = {};
-    for (const key of [...privateFields, 'subscription']) {
-      if (restaurant[key] !== undefined) removals[key] = FieldValue.delete();
-    }
-    if (Object.keys(removals).length) {
-      tx.update(restaurantRef, removals);
-      tx.create(db.collection('admin_audit_logs').doc(`migrate_restaurant_private_${slug}_${now}`), {
-        action: 'migrate_restaurant_private_metadata',
-        restaurantSlug: slug,
-        actorUid,
-        ownerMetadataMoved: Object.keys(legacy).length > 0,
-        subscriptionMoved: hasLegacySubscription && !subscriptionSnap.exists,
-        fieldsMoved: Object.keys(legacy),
-        createdAt: now
-      });
-    }
-    return {
-      ownership: merged,
-      subscription: subscriptionSnap.exists ? subscriptionSnap.data() : (hasLegacySubscription ? restaurant.subscription || {} : {}),
-      migrated: Object.keys(removals).length > 0
-    };
-  });
-}
-
 export async function handlePlatformAdmin(req: any, res: any, db: any) {
   res.setHeader?.('Cache-Control', 'no-store');
   if (req.method !== 'GET' && req.method !== 'POST') {
@@ -251,9 +195,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (action === 'overview') {
         const snap = await db.collection('restaurants').get();
         const restaurants = await Promise.all(snap.docs.map(async (d: any) => {
-          const migrated = await migrateLegacyRestaurantPrivateData(db, d.ref, user.uid);
           const data = d.data() || {};
-          const raw = migrated.subscription || {};
+          // Dashboard reads are strictly read-only. Legacy metadata migration must
+          // run as an explicit, backed-up maintenance operation, never on GET.
+          const subscriptionSnap = await db.collection('restaurantSubscriptions').doc(d.id).get();
+          const raw = subscriptionSnap.exists
+            ? (subscriptionSnap.data() || {})
+            : (data.subscription && typeof data.subscription === 'object' ? data.subscription : {});
           const subscription = {
             planName: typeof raw.planName === 'string' ? raw.planName : null,
             status: typeof raw.status === 'string' ? raw.status : 'unknown',
