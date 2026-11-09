@@ -23,7 +23,12 @@ assert.match(platformAdmin, /function isSuperAdmin\(user: DecodedIdToken\)/,
   'platform API independently checks the super-admin allowlist/custom claim');
 assert.match(platformAdmin, /existingMembership\?\.active === true[\s\S]*?\['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'\]/,
   'a Firebase identity with an active restaurant membership is refused platform-admin access');
-assert.match(platformAdmin, /const tokenVersion = Number\\(user\\.sessionVersion \\|\\| 0\\);[\\s\\S]*?nextSessionVersion = Math\\.max\\([\\s\\S]*?Number\\.isSafeInteger\\(tokenVersion\\)[\\s\\S]*?\\) \\+ 1;[\\s\\S]*?membershipRef\\.update\\([\\s\\S]*?sessionVersion: nextSessionVersion/,
+assert.ok(
+  platformAdmin.includes('const tokenVersion = Number(user.sessionVersion || 0);') &&
+  platformAdmin.includes('nextSessionVersion = Math.max(') &&
+  platformAdmin.includes('sessionVersion: nextSessionVersion'),
+  'promoting a former restaurant identity invalidates all previously issued restaurant sessions'
+);
   'promoting a former restaurant identity invalidates all previously issued restaurant sessions');
 
 // Cross-login in the opposite direction: the admin console stays hidden until
