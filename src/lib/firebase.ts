@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { initializeAppCheck, ReCaptchaV3Provider, getToken } from 'firebase/app-check';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken } from 'firebase/app-check';
 import { 
   getAuth, 
   signInWithEmailAndPassword, 
@@ -73,7 +73,7 @@ if (isDemoPreview) {
 const app = getApps().length > 0 ? getApp() : initializeApp(resolvedFirebaseConfig);
 const appCheckSiteKey = String(viteEnv?.VITE_FIREBASE_APPCHECK_SITE_KEY || '').trim();
 export const appCheck = appCheckSiteKey
-  ? initializeAppCheck(app, { provider: new ReCaptchaV3Provider(appCheckSiteKey), isTokenAutoRefreshEnabled: true })
+  ? initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey), isTokenAutoRefreshEnabled: true })
   : null;
 
 // CRITICAL: Always use the explicitly selected Firestore database.
