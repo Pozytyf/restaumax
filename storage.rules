@@ -1,0 +1,24 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Public menu and branding images are readable by customers.
+    // All writes and deletes go through the authenticated server API, which
+    // checks the current membership in the named Firestore database and uses
+    // the Admin SDK. Client ID-token claims alone are not sufficient because
+    // they can remain valid briefly after a staff suspension.
+    match /restaurants/{restaurantSlug}/menu/{fileName} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /restaurants/{restaurantSlug}/branding/{fileName} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
