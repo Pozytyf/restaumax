@@ -27,8 +27,18 @@ export const ManagerLoginView: React.FC<ManagerLoginViewProps> = ({
   onOpenPlatformAdmin,
   restaurantName = 'Chez Awa'
 }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const demoRole = typeof window !== 'undefined' && import.meta.env.VITE_APP_ENV === 'preview'
+    ? new URLSearchParams(window.location.search).get('demo') : null;
+  const demoCredentials: Record<string, string> = {
+    owner: 'proprietaire@restaumax.test',
+    manager: 'manager@restaumax.test',
+    cashier: 'caissier@restaumax.test',
+    server: 'serveur@restaumax.test',
+    kitchen: 'cuisine@restaumax.test',
+  };
+  const demoEmail = demoRole ? demoCredentials[demoRole] : undefined;
+  const [email, setEmail] = useState(demoEmail || '');
+  const [password, setPassword] = useState(demoEmail ? 'Demo-RestauMax-2026!' : '');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);

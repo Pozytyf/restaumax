@@ -34,8 +34,11 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const adminLoginInProgress = useRef(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const isPublicDemoAccess = typeof window !== 'undefined' &&
+    import.meta.env.VITE_APP_ENV === 'preview' &&
+    new URLSearchParams(window.location.search).get('demo') === 'super_admin';
+  const [email, setEmail] = useState(isPublicDemoAccess ? 'superadmin@restaumax.test' : '');
+  const [password, setPassword] = useState(isPublicDemoAccess ? 'Demo-RestauMax-2026!' : '');
   const [showPassword, setShowPassword] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [subscriptionRestaurant, setSubscriptionRestaurant] = useState<RestaurantRow | null>(null);
