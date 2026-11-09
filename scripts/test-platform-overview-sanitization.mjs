@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const source = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
+const authorizationStart = source.indexOf('function isSuperAdmin(user: DecodedIdToken) {');
+const authorizationEnd = source.indexOf('\n}\n', authorizationStart) + 2;
+assert(authorizationStart >= 0 && authorizationEnd > authorizationStart, 'super-admin authorization helper exists');
+const authorization = source.slice(authorizationStart, authorizationEnd);
+assert(authorization.includes("user.role === 'super_admin'"), 'trusted server-issued super-admin custom claim grants platform access');
+assert(authorization.includes('verifiedAllowlistedEmail'), 'verified email allowlist remains the bootstrap path');
+assert(authorization.includes('RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA'), 'MFA remains enforced for all super-admin access paths');
+assert(authorization.includes('!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail'), 'unclaimed and non-allowlisted accounts remain denied');
+
 const start = source.indexOf("if (action === 'overview') {");
 const end = source.indexOf("if (action === 'create_restaurant') {", start);
 assert(start >= 0 && end > start, 'platform overview action exists');
