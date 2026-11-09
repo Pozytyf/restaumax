@@ -1,6 +1,7 @@
 import {
   adminDb,
   getServerHealth,
+  handleCustomerLoyaltyAdjustmentRequest,
   handleCustomerPayDunyaInvoiceRequest,
   handleCustomerPayDunyaReconcileRequest,
   handleGetTableSession,
@@ -72,6 +73,10 @@ export default async function handler(req: any, res: any) {
     }
     case 'inventory': {
       const result = await handleInventoryRequest(req.body, req);
+      return res.status(result.statusCode).json(result.body);
+    }
+    case 'customer-loyalty': {
+      const result = await handleCustomerLoyaltyAdjustmentRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);
     }
     case 'kitchen-item': {
