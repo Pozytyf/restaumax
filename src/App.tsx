@@ -1710,7 +1710,7 @@ export default function App() {
       )}
 
       {/* 3. Central platform administration: /admin */}
-      {isPlatformAdminRoute && <PlatformAdminView onBack={() => navigateTo('/')} onOpenRestaurant={(slug) => navigateTo(`/gestion?restaurant=${encodeURIComponent(slug)}`)} />}
+      {isPlatformAdminRoute && <PlatformAdminView onBack={() => navigateTo('/')} />}
 
       {/* PayDunya hosted checkout return: provider callback remains the payment source of truth */}
       {isPaymentReturnRoute && (
