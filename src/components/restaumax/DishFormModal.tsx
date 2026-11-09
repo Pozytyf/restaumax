@@ -18,7 +18,7 @@ import {
   RestaurantInfo 
 } from '../../types/restaumax';
 import { sounds } from '../../utils/audio';
-import { uploadRestaurantImage, deleteRestaurantImage } from '../../lib/firebase';
+import { uploadRestaurantImage, deleteRestaurantImage, restaurantImageUploadsEnabled } from '../../lib/firebase';
 
 export interface DishFormModalProps {
   isOpen: boolean;
@@ -864,6 +864,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                   <label className="text-xs font-bold text-slate-700">Português — Nome<input value={translationPtName} onChange={e=>setTranslationPtName(e.target.value)} maxLength={200} className="mt-1 w-full rounded-lg border p-2.5 text-xs font-normal" /><textarea rows={2} value={translationPtDescription} onChange={e=>setTranslationPtDescription(e.target.value)} maxLength={2000} placeholder="Descrição em português" className="mt-1 w-full rounded-lg border p-2.5 text-xs font-normal" /></label>
                 </div>{errors.translations && <p className="text-[11px] text-rose-600">{errors.translations}</p>}
               </div>
+            {restaurantImageUploadsEnabled ? (
             {/* Photo stockée directement dans le bucket Firebase Storage du restaurant */}
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
               <label className="block text-xs font-bold text-slate-700" htmlFor="dish-image-upload">Photo du plat</label>
@@ -879,6 +880,9 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               {imageFile && <p className="text-[11px] font-semibold text-emerald-700">Fichier sélectionné : {imageFile.name}</p>}
               {!imageFile && imageUrl && <img src={imageUrl} alt="Photo actuelle du plat" className="h-24 w-24 rounded-lg border border-slate-200 object-cover" />}
             </div>
+            ) : (
+              <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">L’ajout de photos sera activé après la publication et la vérification des règles Firebase Storage.</p>
+            )}
 
             {/* Tags / Badges */}
             <div>
