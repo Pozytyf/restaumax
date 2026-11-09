@@ -39,7 +39,7 @@ export function createRestaurantImageHandler(deps: RestaurantImageHandlerDepende
       ]);
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
       const member = memberSnap.exists ? memberSnap.data() : null;
-      if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
+      if (!restaurant || (restaurant.status ?? 'active') !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
           !member || member.active !== true || member.restaurantSlug !== restaurantSlug ||
           (member.status && member.status !== 'active') ||
           Number(decoded.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
