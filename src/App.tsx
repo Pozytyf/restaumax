@@ -434,51 +434,59 @@ export default function App() {
 
   const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
 
-  useEffect(() => {
-    let active = true;
-    if (!authUser) { setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); return; }
-    authUser.getIdTokenResult(true).then((token) => {
-      if (!active) return;
-      const owner = token.claims.role === 'owner';
-      const superAdmin = token.claims.role === 'super_admin' || token.claims.role === 'admin';
-      setIsRestaurantOwner(owner);
-      setUserPermissions(owner
-        ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
-        : superAdmin ? [] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
-      setAuthRestaurantRole(typeof token.claims.role === 'string' ? token.claims.role : '');
-    }).catch(() => { if (active) { setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); } });
-    return () => { active = false; };
-  }, [authUser]);
-
   // Subscribe to Firebase Auth and evaluate Manager privileges
   useEffect(() => {
+    let active = true;
+    let authResolution = 0;
     const unsubAuth = subscribeToAuth((user, isManager) => {
+      if (!active) return;
+      const resolution = ++authResolution;
       setAuthUser(user);
       setIsAuthorizedManager(isManager);
-      setIsLoadingAuth(false);
-      if (user) user.getIdTokenResult().then((token) => {
-        const owner = token.claims.role === 'owner';
-        const superAdmin = token.claims.role === 'super_admin' || token.claims.role === 'admin';
+      if (!user) {
+        setAuthRestaurantSlug('');
+        setAuthIsSuperAdmin(false);
+        setIsRestaurantOwner(false);
+        setAuthRestaurantRole('');
+        setUserPermissions([]);
+        setIsLoadingAuth(false);
+        return;
+      }
+
+      // Do not release a protected route until the current identity's claims
+      // have been resolved. This prevents a flash of the wrong login workspace
+      // after a browser refresh restores an existing Firebase session.
+      setIsLoadingAuth(true);
+      user.getIdTokenResult().then((token) => {
+        if (!active || resolution !== authResolution) return;
+        const role = typeof token.claims.role === 'string' ? token.claims.role : '';
+        const owner = role === 'owner';
+        const superAdmin = role === 'super_admin' || role === 'admin';
         setAuthRestaurantSlug(typeof token.claims.restaurantSlug === 'string' ? token.claims.restaurantSlug : '');
         setAuthIsSuperAdmin(superAdmin);
         setIsRestaurantOwner(owner);
         setUserPermissions(owner
-        ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
-        : superAdmin ? [] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
-      setAuthRestaurantRole(typeof token.claims.role === 'string' ? token.claims.role : '');
-      }).catch(() => { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); });
-      else { setAuthRestaurantSlug(''); setAuthIsSuperAdmin(false); setIsRestaurantOwner(false); setAuthRestaurantRole(''); setUserPermissions([]); }
+          ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
+          : superAdmin ? [] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
+        setAuthRestaurantRole(role);
+      }).catch(() => {
+        if (!active || resolution !== authResolution) return;
+        setAuthRestaurantSlug('');
+        setAuthIsSuperAdmin(false);
+        setIsRestaurantOwner(false);
+        setAuthRestaurantRole('');
+        setUserPermissions([]);
+        setIsAuthorizedManager(false);
+      }).finally(() => {
+        if (active && resolution === authResolution) setIsLoadingAuth(false);
+      });
     });
 
-    return () => unsubAuth();
+    return () => {
+      active = false;
+      unsubAuth();
+    };
   }, []);
-
-  // A platform super-admin belongs in the platform console, never the restaurant workspace.
-  useEffect(() => {
-    if (!isLoadingAuth && isRestaurantHubRoute && authUser && authIsSuperAdmin) {
-      navigateTo('/admin');
-    }
-  }, [isLoadingAuth, isRestaurantHubRoute, authUser, authIsSuperAdmin]);
 
   // Subscribe to tables only for members with the explicit tables.view permission.
   useEffect(() => {
