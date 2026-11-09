@@ -87,7 +87,7 @@ db.seed('restaurants/maquis-awa', {
   status: 'active', isActive: true, ownerUid: 'owner-1', name: 'Maquis Awa', loyaltyFcfaPerPoint: 1000
 });
 db.seed('managers/manager-1', {
-  active: true, restaurantSlug: 'maquis-awa', role: 'manager', sessionVersion: 3
+  active: true, restaurantSlug: 'maquis-awa', role: 'manager', sessionVersion: 3, permissions: ['payments.refund']
 });
 db.seed('restaurants/maquis-awa/orders/order-100', {
   id: 'order-100', restaurantSlug: 'maquis-awa', orderNumber: 'CMD-100',
@@ -323,6 +323,23 @@ const refundReplay = await startPayDunyaRefundWithDb(db, payoutConfig, {
 });
 assert(refundReplay.success && refundReplay.idempotentReplay === true,
   'La répétition de la même demande ne déclenche pas un second décaissement');
+
+const pendingBeforeUnauthorizedManager = Number(db.read(paymentPath).refundPendingAmount || 0);
+db.seed('managers/manager-no-refund', {
+  active: true, restaurantSlug: 'maquis-awa', role: 'manager',
+  sessionVersion: 3, permissions: ['orders.view']
+});
+const managerWithoutRefund = await startPayDunyaRefundWithDb(db, payoutConfig, {
+  restaurantSlug: 'maquis-awa', paymentId: storedPayment.id,
+  actorUid: 'manager-no-refund', actorName: 'Manager without refund', sessionVersion: 3,
+  amount: 500, reason: 'Test permission manager',
+  idempotencyKey: 'manager_without_refund_001',
+  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-disbursement-callback'
+});
+assert(!managerWithoutRefund.success && managerWithoutRefund.error?.includes('payments.refund'),
+  'Un manager sans permission explicite payments.refund ne peut pas initier un décaissement');
+assert(Number(db.read(paymentPath).refundPendingAmount || 0) === pendingBeforeUnauthorizedManager,
+  'Un remboursement refusé ne réserve aucun montant sur le paiement');
 
 const disbursementCallback = await processPayDunyaDisbursementCallbackWithDb(db, payoutConfig, {
   data: JSON.stringify({ hash: signedHash, token: 'PUSH_FLOW123', status: 'success' })
