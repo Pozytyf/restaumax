@@ -56,7 +56,7 @@ assert(productModal.includes('initialQuantity = 1'), 'product configuration pres
 console.log('Server table assignment and customer menu list regression checks passed.');
 
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
-assert(source.includes('migrateLegacyRestaurantPrivateData'), 'super-admin overview migrates legacy owner identity out of public restaurant documents');
+assert(!source.includes('migrateLegacyRestaurantPrivateData'), 'legacy migration is not hidden inside the administrative API');
 assert(source.includes("collection('private').doc('ownership')"), 'new restaurant owners are written to the private ownership document');
 assert(firestoreRules.includes("match /private/{privateDoc}") && firestoreRules.includes('function isBoundRestaurantOwner'), 'private owner metadata is inaccessible directly and still binds owner permissions');
 assert(firestoreRules.includes('function isPublicRestaurant') && firestoreRules.includes('isPublicRestaurant(incoming())'), 'new public restaurant profiles reject owner identity fields');
