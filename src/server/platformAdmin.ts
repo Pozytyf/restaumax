@@ -329,11 +329,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           if (claims.role === 'super_admin' || claims.role === 'admin') {
             return json(res, 409, { success: false, error: 'Un compte administrateur plateforme ne peut pas devenir propriétaire d’un restaurant.' });
           }
-          const [membershipSnap, staffSnap] = await Promise.all([
+          const [membershipSnap, staffSnap, ownershipSnap, legacyOwnershipSnap] = await Promise.all([
             db.collection('managers').doc(existingOwner.uid).get(),
-            db.collectionGroup('staff').where('uid', '==', existingOwner.uid).limit(1).get()
+            db.collectionGroup('staff').where('uid', '==', existingOwner.uid).limit(1).get(),
+            db.collectionGroup('private').where('ownerUid', '==', existingOwner.uid).limit(1).get(),
+            db.collection('restaurants').where('ownerUid', '==', existingOwner.uid).limit(1).get()
           ]);
-          if (membershipSnap.exists || !staffSnap.empty ||
+          if (membershipSnap.exists || !staffSnap.empty || !ownershipSnap.empty || !legacyOwnershipSnap.empty ||
               (typeof claims.restaurantSlug === 'string' && claims.restaurantSlug.trim())) {
             return json(res, 409, { success: false, error: 'Ce compte Firebase est déjà rattaché à un restaurant ou possède une ancienne affectation. Vérification manuelle requise.' });
           }
