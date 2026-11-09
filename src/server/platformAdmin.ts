@@ -185,8 +185,33 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     configuredSuperAdmins().includes(user.email.toLowerCase()) &&
     user.role !== 'super_admin'
   ) {
-    const authUser = await getAuth().getUser(user.uid);
-    await getAuth().setCustomUserClaims(user.uid, { ...(authUser.customClaims || {}), role: 'super_admin' });
+    const auth = getAuth();
+    const authUser = await auth.getUser(user.uid);
+    const membershipRef = db.collection('managers').doc(user.uid);
+    const membershipSnap = await membershipRef.get();
+    let nextSessionVersion = Number(user.sessionVersion || 0);
+
+    // If this allowlisted identity previously had a restaurant account, bump
+    // its authoritative membership version before granting the platform claim.
+    // This invalidates every previously issued owner/staff ID token, including
+    // tokens in other tabs or browsers that still carry the old restaurant role.
+    if (membershipSnap.exists) {
+      const member = membershipSnap.data() || {};
+      nextSessionVersion = Math.max(
+        Number(member.sessionVersion || 0),
+        Number(user.sessionVersion || 0)
+      ) + 1;
+      await membershipRef.update({
+        sessionVersion: nextSessionVersion,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+    }
+
+    await auth.setCustomUserClaims(user.uid, {
+      ...(authUser.customClaims || {}),
+      role: 'super_admin',
+      sessionVersion: nextSessionVersion
+    });
   }
 
   const body = req.body || {};
