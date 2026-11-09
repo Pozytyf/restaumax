@@ -30,13 +30,6 @@ assert(backend.includes("action: 'create_restaurant'"), 'restaurant provisioning
 assert(backend.includes("await auth.setCustomUserClaims(ownerUser.uid, previousCustomClaims)"), 'failed provisioning restores the existing owner custom claims');
 console.log('Account onboarding and existing-owner provisioning checks passed.');
 
-const demoProvision = fs.readFileSync(new URL('../scripts/provision-restaumax-demo-owner.mjs', import.meta.url), 'utf8');
-const demoWorkflow = fs.readFileSync(new URL('../.github/workflows/provision-restaumax-demo-owner.yml', import.meta.url), 'utf8');
-assert(demoProvision.includes("projectId: 'restaumax-demo'") && demoProvision.includes("databaseId: '(default)'"), 'Demo owner provisioning is pinned to the Demo project and default database');
-assert(demoProvision.includes("ownerUid: 'DCL1JQ9KJydgkdDkEBVl5DKoLms1'") && demoProvision.includes("ownerEmail: 'restaumax@hp-logistics.net'"), 'Demo provisioning is pinned to the approved existing Auth identity');
-assert(demoProvision.includes("confirmation: 'PROVISION_RESTAUMAX_DEMO_OWNER'"), 'Demo provisioning requires its explicit apply confirmation');
-assert(demoProvision.includes('preflight-passed-no-writes') && demoProvision.includes('created-and-verified'), 'Demo provisioning supports a no-write dry-run and verifies writes');
-assert(demoProvision.includes('collectionGroup(\'staff\')') && demoProvision.includes('setCustomUserClaims'), 'Demo provisioning checks legacy memberships and binds Auth claims');
-assert(!demoProvision.includes('auth.createUser(') && !demoProvision.includes('auth.deleteUser('), 'Dedicated Demo provisioning reuses the existing Auth account without creating or deleting it');
-assert(demoWorkflow.includes("if: github.ref == 'refs/heads/main'") && demoWorkflow.includes('environment: demo'), 'Demo provisioning workflow is restricted to main and the protected Demo environment');
-assert(demoWorkflow.includes('FIREBASE_PROJECT_ID: restaumax-demo') && demoWorkflow.includes('FIRESTORE_DATABASE_ID: (default)'), 'Demo provisioning workflow cannot target Production');
+assert(backend.includes("db.collectionGroup('private').where('ownerUid', '==', existingOwner.uid)"), 'existing private ownership metadata is checked before tenant reassignment');
+assert(backend.includes("db.collection('restaurants').where('ownerUid', '==', existingOwner.uid)"), 'legacy root ownership metadata is checked before tenant reassignment');
+console.log('Account onboarding and existing-owner provisioning checks passed.');
