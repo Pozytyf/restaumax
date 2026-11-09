@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject, connectStorageEmulator } from 'firebase/storage';
+import { getStorage, ref as storageRef, getDownloadURL, connectStorageEmulator } from 'firebase/storage';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken } from 'firebase/app-check';
 import { 
   getAuth, 
@@ -316,40 +316,76 @@ export function subscribeToMenuItems(
 
 export type RestaurantImageKind = 'menu' | 'branding';
 
+async function getRestaurantImageApiToken(): Promise<string> {
+  if (!auth.currentUser) throw new Error('Connexion requise pour gérer les photos.');
+  return auth.currentUser.getIdToken();
+}
+
+async function callRestaurantImageApi(method: 'POST' | 'DELETE', body: Record<string, unknown>) {
+  const token = await getRestaurantImageApiToken();
+  const response = await fetch('/api/restaurant-images', {
+    method,
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json();
+  if (!response.ok || payload?.success !== true) {
+    throw new Error(payload?.error || 'Opération photo impossible.');
+  }
+  return payload;
+}
+
 export async function uploadRestaurantImage(
   file: File,
   restaurantSlug: string,
   kind: RestaurantImageKind
 ): Promise<{ path: string; url: string }> {
   const slug = String(restaurantSlug || '').trim();
-  if (!auth.currentUser) throw new Error('Connexion requise pour téléverser une image.');
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) throw new Error('Restaurant invalide.');
   if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
     throw new Error('Format accepté : JPEG, PNG ou WebP.');
   }
-  if (file.size <= 0 || file.size > 5 * 1024 * 1024) {
-    throw new Error('La taille de l’image doit être comprise entre 1 octet et 5 Mo.');
+  if (file.size <= 0 || file.size > 3 * 1024 * 1024) {
+    throw new Error('La taille de l’image doit être comprise entre 1 octet et 3 Mo.');
   }
-  const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp';
-  const objectId = crypto.randomUUID().replace(/-/g, '');
-  const path = `restaurants/${slug}/${kind}/${objectId}.${extension}`;
-  const objectRef = storageRef(storage, path);
-  const snapshot = await uploadBytes(objectRef, file, {
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  const dataBase64 = btoa(binary);
+  const result = await callRestaurantImageApi('POST', {
+    restaurantSlug: slug,
+    kind,
     contentType: file.type,
-    customMetadata: { restaurantSlug: slug, uploadedBy: auth.currentUser.uid }
+    size: file.size,
+    dataBase64
   });
-  return { path, url: await getDownloadURL(snapshot.ref) };
+  const path = String(result.path || '');
+  if (!path.startsWith(`restaurants/${slug}/${kind}/`)) {
+    throw new Error('Le serveur a retourné un chemin de photo invalide.');
+  }
+  try {
+    return { path, url: await getDownloadURL(storageRef(storage, path)) };
+  } catch (error) {
+    await callRestaurantImageApi('DELETE', { restaurantSlug: slug, kind, path }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function deleteRestaurantImage(path: string, restaurantSlug: string): Promise<void> {
   const slug = String(restaurantSlug || '').trim();
-  if (!auth.currentUser) throw new Error('Connexion requise pour supprimer une image.');
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) ||
-      !path.startsWith(`restaurants/${slug}/menu/`) &&
-      !path.startsWith(`restaurants/${slug}/branding/`)) {
+      (!path.startsWith(`restaurants/${slug}/menu/`) &&
+       !path.startsWith(`restaurants/${slug}/branding/`))) {
     throw new Error('Chemin de fichier non autorisé pour ce restaurant.');
   }
-  await deleteObject(storageRef(storage, path));
+  await callRestaurantImageApi('DELETE', { restaurantSlug: slug, kind: path.includes('/branding/') ? 'branding' : 'menu', path });
 }
 
 /**
