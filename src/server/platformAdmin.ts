@@ -178,7 +178,26 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const user = await authenticate(req);
   if (!user) return json(res, 401, { success: false, error: 'Authentification requise.' });
 
-  // Promote only explicitly allowlisted identities to a durable global custom claim.
+  // One Firebase identity cannot simultaneously be a restaurant member
+  // and a platform administrator. This check applies even to an already
+  // promoted super-admin, so a stale/legacy tenant membership cannot coexist.
+  const membershipRef = db.collection('managers').doc(user.uid);
+  const membershipSnap = await membershipRef.get();
+  const existingMembership = membershipSnap.exists ? (membershipSnap.data() || {}) : null;
+  if (
+    existingMembership?.active === true &&
+    ['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(String(existingMembership.role || '')) &&
+    typeof existingMembership.restaurantSlug === 'string' &&
+    existingMembership.restaurantSlug.trim()
+  ) {
+    return json(res, 403, {
+      success: false,
+      error: 'Ce compte est déjà rattaché à un restaurant. Un compte super-administrateur distinct est requis.'
+    });
+  }
+
+  // Promote only explicitly allowlisted identities that are not restaurant
+  // members to a durable global custom claim.
   if (
     user.email_verified === true &&
     typeof user.email === 'string' &&
@@ -187,19 +206,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   ) {
     const auth = getAuth();
     const authUser = await auth.getUser(user.uid);
-    const membershipRef = db.collection('managers').doc(user.uid);
-    const membershipSnap = await membershipRef.get();
     let nextSessionVersion = Number(user.sessionVersion || 0);
 
-    // If this allowlisted identity previously had a restaurant account, bump
-    // its authoritative membership version before granting the platform claim.
-    // This invalidates every previously issued owner/staff ID token, including
-    // tokens in other tabs or browsers that still carry the old restaurant role.
+    // Inactive legacy memberships still have every previously issued token
+    // invalidated before the platform role is granted.
     if (membershipSnap.exists) {
-      const member = membershipSnap.data() || {};
+      const member = existingMembership || {};
+      const memberVersion = Number(member.sessionVersion || 0);
+      const tokenVersion = Number(user.sessionVersion || 0);
       nextSessionVersion = Math.max(
-        Number(member.sessionVersion || 0),
-        Number(user.sessionVersion || 0)
+        Number.isSafeInteger(memberVersion) && memberVersion >= 0 ? memberVersion : 0,
+        Number.isSafeInteger(tokenVersion) && tokenVersion >= 0 ? tokenVersion : 0
       ) + 1;
       await membershipRef.update({
         sessionVersion: nextSessionVersion,
