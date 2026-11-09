@@ -284,6 +284,35 @@ export const HomePage: React.FC<HomePageProps> = ({
             </div>
           </div>
         </section>
+        {import.meta.env.VITE_APP_ENV === 'preview' && (
+          <section id="demo-access" className="bg-[#14263d] py-16 text-white">
+            <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+              <div className="mx-auto max-w-3xl text-center">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-orange-300">Accès libre · environnement de démonstration</p>
+                <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Essayez RestauMax par profil</h2>
+                <p className="mt-4 text-sm leading-7 text-slate-300">Choisissez un espace. Les comptes et les données sont partagés entre visiteurs et peuvent être réinitialisés. Aucune donnée de production n'est utilisée.</p>
+              </div>
+              <div className="mt-9 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {[
+                  { label:'Super-administrateur', detail:'Administration de la plateforme Démo', href:'/admin?demo=super_admin' },
+                  { label:'Propriétaire', detail:'Pilotage complet de Chez Awa', href:'/gestion?demo=owner' },
+                  { label:'Manager', detail:'Gestion opérationnelle du restaurant', href:'/gestion?demo=manager' },
+                  { label:'Caissier', detail:'Ventes et encaissements de démonstration', href:'/staff?demo=cashier' },
+                  { label:'Serveur', detail:'Prise en charge et suivi des commandes', href:'/staff?demo=server' },
+                  { label:'Cuisine / Bar', detail:'Préparation et suivi en cuisine', href:'/staff?demo=kitchen' },
+                ].map((profile) => (
+                  <a key={profile.href} href={profile.href} className="group flex items-center justify-between rounded-2xl border border-white/15 bg-white/5 p-5 transition hover:border-orange-300/60 hover:bg-white/10 focus:outline-none focus:ring-4 focus:ring-orange-300/40">
+                    <span>
+                      <span className="block text-sm font-extrabold">{profile.label}</span>
+                      <span className="mt-1 block text-xs text-slate-300">{profile.detail}</span>
+                    </span>
+                    <ArrowRight size={18} className="shrink-0 text-orange-300 transition group-hover:translate-x-1" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
       </main>
 
       <footer className="border-t border-slate-200 bg-white">
