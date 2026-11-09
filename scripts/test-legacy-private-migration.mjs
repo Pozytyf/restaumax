@@ -64,6 +64,9 @@ try {
   assert.equal(ownership.data().ownerUid, 'owner-legacy', 'ownerUid moved to private ownership document');
   assert.equal(ownership.data().ownerName, 'Canonical Owner', 'existing canonical ownership value is preserved');
   assert.equal(backup.exists, true, 'sensitive legacy values are preserved in server-only backup');
+  const postMigrationScan = await scanLegacyPrivateData(db, [await restaurantRef.get()]);
+  assert.equal(postMigrationScan.restaurantsNeedingMigration, 0, 'post-migration scan confirms no legacy metadata remains on the public root');
+  assert.deepEqual(postMigrationScan.privateFieldCounts, {}, 'post-migration scan reports no root private fields');
   assert.equal(subscription.data().planName, 'starter', 'subscription moved to canonical subscription document');
   assert.equal(audit.data().action, 'migrate_restaurant_private_metadata', 'migration audit record created');
 
