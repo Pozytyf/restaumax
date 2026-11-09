@@ -2,58 +2,21 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function belongsToRestaurant(restaurantSlug) {
-      return signedIn() &&
-        request.auth.token.restaurantSlug == restaurantSlug &&
-        request.auth.token.role in ['owner', 'manager'];
-    }
-
-    function hasManagerPermission(permission) {
-      return signedIn() &&
-        request.auth.token.role == 'manager' &&
-        request.auth.token.permissions is list &&
-        request.auth.token.permissions.hasAny([permission]);
-    }
-
-    function canManageMenu(restaurantSlug) {
-      return belongsToRestaurant(restaurantSlug) &&
-        (request.auth.token.role == 'owner' || hasManagerPermission('menu.manage'));
-    }
-
-    function canManageBranding(restaurantSlug) {
-      return belongsToRestaurant(restaurantSlug) &&
-        (request.auth.token.role == 'owner' || hasManagerPermission('settings.manage'));
-    }
-
-    function validImageUpload(fileName) {
-      return fileName.matches('^[A-Za-z0-9_-]{1,80}\\.(jpg|jpeg|png|webp)$') &&
-        request.resource != null &&
-        request.resource.size <= 5242880 &&
-        request.resource.contentType.matches('image/(jpeg|png|webp)');
-    }
-
-    function validImageName(fileName) {
-      return fileName.matches('^[A-Za-z0-9_-]{1,80}\\.(jpg|jpeg|png|webp)$');
-    }
-
-    // Menu and branding images are public assets; uploads remain tenant-bound.
+    // Public menu and branding images are readable by customers.
+    // All writes and deletes go through the authenticated server API, which
+    // checks the current membership in the named Firestore database and uses
+    // the Admin SDK. Client ID-token claims alone are not sufficient because
+    // they can remain valid briefly after a staff suspension.
     match /restaurants/{restaurantSlug}/menu/{fileName} {
       allow read: if true;
-      allow create, update: if canManageMenu(restaurantSlug) && validImageUpload(fileName);
-      allow delete: if canManageMenu(restaurantSlug) && validImageName(fileName);
+      allow write: if false;
     }
 
     match /restaurants/{restaurantSlug}/branding/{fileName} {
       allow read: if true;
-      allow create, update: if canManageBranding(restaurantSlug) && validImageUpload(fileName);
-      allow delete: if canManageBranding(restaurantSlug) && validImageName(fileName);
+      allow write: if false;
     }
 
-    // All other object paths are denied by default.
     match /{allPaths=**} {
       allow read, write: if false;
     }
