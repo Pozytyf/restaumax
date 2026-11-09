@@ -1,4 +1,28 @@
-export async function verifyPublicOrderAppCheck({ isProduction, enforcementEnabled, token, verifier }) {
+type AppCheckVerifier = { verifyToken(token: string): Promise<unknown> } | null | undefined;
+
+type AppCheckResult =
+  | { allowed: true }
+  | {
+      allowed: false;
+      statusCode: number;
+      reason: 'not-configured' | 'missing-token' | 'invalid-token';
+      message: string;
+      code?: string;
+    };
+
+type AppCheckGuardInput = {
+  isProduction: boolean;
+  enforcementEnabled: boolean;
+  token: string;
+  verifier: AppCheckVerifier;
+};
+
+export async function verifyPublicOrderAppCheck({
+  isProduction,
+  enforcementEnabled,
+  token,
+  verifier
+}: AppCheckGuardInput): Promise<AppCheckResult> {
   if (isProduction && !enforcementEnabled) {
     return {
       allowed: false,
@@ -19,12 +43,16 @@ export async function verifyPublicOrderAppCheck({ isProduction, enforcementEnabl
   try {
     await verifier.verifyToken(token.trim());
     return { allowed: true };
-  } catch (error) {
+  } catch (error: unknown) {
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code || 'invalid-token')
+        : 'invalid-token';
     return {
       allowed: false,
       statusCode: 401,
       reason: 'invalid-token',
-      code: String((error as any)?.code || 'invalid-token'),
+      code,
       message: 'Vérification de sécurité invalide. Actualisez la page et réessayez.'
     };
   }
