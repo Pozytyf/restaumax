@@ -473,6 +473,13 @@ export default function App() {
     return () => unsubAuth();
   }, []);
 
+  // A platform super-admin belongs in the platform console, never the restaurant workspace.
+  useEffect(() => {
+    if (!isLoadingAuth && isRestaurantHubRoute && authUser && authIsSuperAdmin) {
+      navigateTo('/admin');
+    }
+  }, [isLoadingAuth, isRestaurantHubRoute, authUser, authIsSuperAdmin]);
+
   // Subscribe to tables only for members with the explicit tables.view permission.
   useEffect(() => {
     const canViewTables = !!authUser && (
