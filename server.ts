@@ -48,6 +48,7 @@ import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBill
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
 import { consumePublicOrderRateLimit } from './src/server/orderRateLimit.ts';
+import { verifyPublicOrderAppCheck } from './src/server/appCheckGuard.js';
 import { getRestaurantOwnerUid } from './src/server/restaurantOwnership.ts';
 import { createRestaurantImageHandler } from './src/server/restaurantImageService.js';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
@@ -1630,20 +1631,17 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       // Production must never silently accept public takeaway orders without App Check.
       // Keep previews usable for controlled tests, but fail closed in production until the
       // browser site key and server enforcement flag are both configured.
-      if (isProd && process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS !== 'true') {
-        return { statusCode: 503, body: { success: false, error: 'Protection App Check non activée. Commande temporairement indisponible.' } };
-      }
-      if (process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS === 'true') {
-        const appCheckToken = String(req.headers?.['x-firebase-appcheck'] || '');
-        if (!adminAppCheck || !appCheckToken) {
-          return { statusCode: 401, body: { success: false, error: 'Vérification de sécurité requise pour cette commande.' } };
+      const appCheckResult = await verifyPublicOrderAppCheck({
+        isProduction: isProd,
+        enforcementEnabled: process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS === 'true',
+        token: String(req.headers?.['x-firebase-appcheck'] || ''),
+        verifier: adminAppCheck
+      });
+      if (!appCheckResult.allowed) {
+        if (appCheckResult.reason === 'invalid-token') {
+          console.warn('[RestauMax orders] App Check rejected a public order:', appCheckResult.code || 'invalid-token');
         }
-        try {
-          await adminAppCheck.verifyToken(appCheckToken);
-        } catch (appCheckError: any) {
-          console.warn('[RestauMax orders] App Check rejected a public order:', appCheckError?.code || 'invalid-token');
-          return { statusCode: 401, body: { success: false, error: 'Vérification de sécurité invalide. Actualisez la page et réessayez.' } };
-        }
+        return { statusCode: appCheckResult.statusCode, body: { success: false, error: appCheckResult.message } };
       }
       const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;

@@ -6,6 +6,7 @@ const api = fs.readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8')
 const orderService = fs.readFileSync(new URL('../src/server/orderService.ts', import.meta.url), 'utf8');
 const lifecycle = fs.readFileSync(new URL('../src/server/orderLifecycleService.ts', import.meta.url), 'utf8');
 const client = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
+const appCheckGuard = fs.readFileSync(new URL('../src/server/appCheckGuard.ts', import.meta.url), 'utf8');
 const rateLimit = fs.readFileSync(new URL('../src/server/orderRateLimit.ts', import.meta.url), 'utf8');
 const qrSecurity = fs.readFileSync(new URL('../src/server/tableSecurityService.ts', import.meta.url), 'utf8');
 const paydunyaMerchant = fs.readFileSync(new URL('../src/server/paydunyaMerchantConfig.ts', import.meta.url), 'utf8');
@@ -89,11 +90,12 @@ assert(workflowHardening.includes('actions/checkout@11bd71901bbe5b1630ceea73d275
   !workflowHardening.includes('fix/security-full-hardening'),
   'security hardening workflow pins actions/tooling and no longer targets a stale branch');
 
-assert(server.includes("isProd && process.env.FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS !== 'true'") &&
-  server.includes('Protection App Check non activée'),
+assert(appCheckGuard.includes('isProduction && !enforcementEnabled') &&
+  appCheckGuard.includes('Protection App Check non activée'),
   'production takeaway orders fail closed until App Check enforcement is explicitly enabled');
-assert(server.includes("FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS === 'true'") && server.includes('adminAppCheck.verifyToken'),
-  'the backend can enforce Firebase App Check on public takeaway orders');
+assert(appCheckGuard.includes('verifier.verifyToken(token.trim())') &&
+  server.includes('verifyPublicOrderAppCheck'),
+  'the backend delegates public takeaway App Check verification to the typed guard');
 assert(client.includes('VITE_FIREBASE_APPCHECK_SITE_KEY') && client.includes('X-Firebase-AppCheck'),
   'the browser can initialize App Check and attach its token to public orders');
 assert(server.includes('orderCounters') && server.includes('lastSequence') && server.includes('padStart(4'),
