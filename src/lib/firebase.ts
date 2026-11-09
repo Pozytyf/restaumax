@@ -222,26 +222,89 @@ export function subscribeToMenuItems(
   onError?: (err: unknown) => void
 ) {
   const path = `restaurants/${slug}/menuItems`;
-  const itemsRef = collection(db, 'restaurants', slug, 'menuItems');
-  const q = query(itemsRef, where('restaurantSlug', '==', slug));
+  let active = true;
+  let unsubscribeFirestore = () => {};
+  let refreshTimer: ReturnType<typeof setInterval> | undefined;
+  let inFlight = false;
 
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const items: RestauMenuItem[] = [];
-      snapshot.forEach((d) => {
-        items.push(d.data() as RestauMenuItem);
+  const loadPublicMenu = async () => {
+    if (!active || inFlight) return;
+    inFlight = true;
+    try {
+      const response = await fetch(`/api/public-menu?restaurantSlug=${encodeURIComponent(slug)}`, {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store'
       });
-      onData(items);
-    },
-    (err) => {
-      if (onError) {
-        onError(err);
-      } else {
-        handleFirestoreError(err, OperationType.LIST, path);
+      const payload = await response.json();
+      if (!response.ok || payload?.success !== true || !Array.isArray(payload.items)) {
+        throw new Error(payload?.error || 'Carte momentanément indisponible.');
       }
+      if (active) onData(payload.items as RestauMenuItem[]);
+    } catch (error) {
+      if (active && onError) onError(error);
+    } finally {
+      inFlight = false;
     }
-  );
+  };
+
+  const startPublicMenu = () => {
+    if (!active || refreshTimer) return;
+    void loadPublicMenu();
+    refreshTimer = setInterval(() => void loadPublicMenu(), 15000);
+  };
+
+  const startPrivateMenu = () => {
+    if (!active) return;
+    const itemsRef = collection(db, 'restaurants', slug, 'menuItems');
+    const q = query(itemsRef, where('restaurantSlug', '==', slug));
+    unsubscribeFirestore = onSnapshot(
+      q,
+      (snapshot) => {
+        const items: RestauMenuItem[] = [];
+        snapshot.forEach((d) => { items.push(d.data() as RestauMenuItem); });
+        onData(items);
+      },
+      (err) => {
+        // A stale token, suspended membership, or owner-binding mismatch must
+        // never fall back to raw data. Switch to the sanitized public projection.
+        unsubscribeFirestore();
+        unsubscribeFirestore = () => {};
+        startPublicMenu();
+        if (!refreshTimer && onError) onError(err);
+      }
+    );
+  };
+
+  const start = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      startPublicMenu();
+      return;
+    }
+    try {
+      const memberSnapshot = await getDoc(doc(db, 'managers', user.uid));
+      const member = memberSnapshot.exists() ? memberSnapshot.data() : null;
+      const roleCanRead = member && (
+        member.role === 'owner' || member.role === 'manager' ||
+        member.role === 'cashier' || member.role === 'server'
+      );
+      if (member?.restaurantSlug === slug && member.active === true && roleCanRead) {
+        startPrivateMenu();
+      } else {
+        startPublicMenu();
+      }
+    } catch {
+      startPublicMenu();
+    }
+  };
+
+  void start();
+  return () => {
+    active = false;
+    unsubscribeFirestore();
+    if (refreshTimer) clearInterval(refreshTimer);
+  };
 }
 
 /**

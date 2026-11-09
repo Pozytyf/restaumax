@@ -42,6 +42,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
 import { getRestaurantFinancialReportWithDb } from './src/server/reportService.js';
+import { sanitizePublicMenuItem } from './src/server/publicMenu.js';
 import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
@@ -1563,6 +1564,33 @@ function resolveOrderClientIp(req: any): string {
   return value.split(',')[0].trim().slice(0, 100);
 }
 
+export async function handlePublicMenuRequest(req: any): Promise<{ statusCode: number; body: any }> {
+  if (String(req?.method || '').toUpperCase() !== 'GET') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Catalogue momentanément indisponible.' } };
+  const restaurantSlug = String(req?.query?.restaurantSlug || '').trim();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) {
+    return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+  }
+  try {
+    const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    if (!restaurant || (restaurant.status ?? 'active') !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
+      return { statusCode: 404, body: { success: false, error: 'Restaurant indisponible.' } };
+    }
+    const snapshot = await adminDb.collection('restaurants').doc(restaurantSlug)
+      .collection('menuItems').where('restaurantSlug', '==', restaurantSlug).get();
+    const items = snapshot.docs
+      .map((document: any) => sanitizePublicMenuItem(document.data()))
+      .filter((item: any) => item !== null);
+    return { statusCode: 200, body: { success: true, items } };
+  } catch (error: any) {
+    console.error('[RestauMax public menu] Read failed:', error?.message || String(error));
+    return { statusCode: 503, body: { success: false, error: 'Catalogue momentanément indisponible.' } };
+  }
+}
+
 export async function handleOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb) {
     return { statusCode: 503, body: { success: false, error: 'Service de commande temporairement indisponible.' } };
@@ -1923,6 +1951,14 @@ app.post('/api/pos-orders', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handlePosOrderSubmission(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.get('/api/public-menu', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handlePublicMenuRequest(req);
   return res.status(result.statusCode).json(result.body);
 });
 
