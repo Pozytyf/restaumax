@@ -84,6 +84,16 @@ try {
     )),
     /Champs restaurant non reconnus/
   );
+  const unchanged = await env.withSecurityRulesDisabled(async context => {
+    const firestore = context.firestore();
+    const [conflictRoot, unknownRoot] = await Promise.all([
+      getDoc(doc(firestore, 'restaurants/migration-owner-conflict')),
+      getDoc(doc(firestore, 'restaurants/migration-unknown-field'))
+    ]);
+    return { conflictRoot, unknownRoot };
+  });
+  assert.equal(unchanged.conflictRoot.data().ownerUid, 'owner-b', 'ownerUid conflict is not overwritten');
+  assert.equal(unchanged.unknownRoot.data().unexpectedPrivateField, 'keep', 'unknown fields are never deleted');
 
   console.log('Legacy private metadata migration emulator tests passed.');
 } finally {
