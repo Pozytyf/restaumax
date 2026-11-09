@@ -30,7 +30,7 @@
     "test:order-lifecycle": "tsx scripts/test-order-lifecycle-stock.mjs",
     "test:order-lifecycle-emulator": "tsx scripts/test-order-lifecycle-emulator.mjs",
     "test:order-kds-cash": "tsx scripts/test-order-kds-cash-integration.mjs",
-    "test:security-regression": "node scripts/test-firestore-owner-rule.mjs && tsx scripts/test-full-role-boundaries.mjs && tsx scripts/test-owner-refund-binding.mjs && tsx scripts/test-platform-overview-sanitization.mjs",
+    "test:security-regression": "node scripts/test-firestore-owner-rule.mjs && tsx scripts/test-full-role-boundaries.mjs && tsx scripts/test-owner-refund-binding.mjs && tsx scripts/test-platform-overview-sanitization.mjs && tsx scripts/test-public-menu-security.mjs",
     "test:tax": "tsx scripts/test-tax-calculation.mjs",
     "test:reports": "tsx scripts/test-financial-report.mjs",
     "test:subscription-billing-emulator": "tsx scripts/test-subscription-billing-emulator.mjs",
