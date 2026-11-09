@@ -865,7 +865,6 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 </div>{errors.translations && <p className="text-[11px] text-rose-600">{errors.translations}</p>}
               </div>
             {restaurantImageUploadsEnabled ? (
-            {/* Photo stockée directement dans le bucket Firebase Storage du restaurant */}
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
               <label className="block text-xs font-bold text-slate-700" htmlFor="dish-image-upload">Photo du plat</label>
               <input
