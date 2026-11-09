@@ -1,7 +1,7 @@
 name: Platform overview privacy regression
 on:
   pull_request:
-    branches: [main]
+    branches: [main, fix/separate-platform-admin-login]
     paths:
       - 'src/server/platformAdmin.ts'
       - 'scripts/test-platform-overview-sanitization.mjs'
