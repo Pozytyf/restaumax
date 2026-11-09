@@ -35,6 +35,9 @@ jobs:
       - name: Typecheck
         run: npm run lint
 
+      - name: Test Firestore index readiness matching
+        run: node scripts/test-firestore-index-status.mjs
+
       - name: Start Firestore Emulator and run the complete test suite
         env:
           FIRESTORE_EMULATOR_STRICT: "true"
