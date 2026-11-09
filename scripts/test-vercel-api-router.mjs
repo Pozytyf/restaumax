@@ -21,13 +21,14 @@ function collectApiFiles(directory, prefix = '') {
 collectApiFiles(apiRoot);
 assert.deepEqual(apiFiles.sort(), ['index.ts'], 'Hobby doit compiler un seul point d’entrée de fonction Vercel.');
 
-assert.equal(RESTAUMAX_API_ROUTES.length, 20, 'Les 20 points d’entrée actifs doivent être conservés.');
-assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.path)).size, 20, 'Chaque chemin doit être unique.');
-assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.id)).size, 20, 'Chaque identifiant doit être unique.');
+assert.equal(RESTAUMAX_API_ROUTES.length, 21, 'Les 21 points d’entrée actifs doivent être conservés.');
+assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.path)).size, 21, 'Chaque chemin doit être unique.');
+assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.id)).size, 21, 'Chaque identifiant doit être unique.');
 
 const expectedMethods = {
   health: ['GET'],
   inventory: ['POST'],
+  'customer-loyalty': ['POST'],
   'kitchen-item': ['POST'],
   'order-status': ['POST'],
   'public-menu': ['GET'],
@@ -101,4 +102,4 @@ assert.equal(resolveRestauMaxApiRoute(['orders']), null);
 assert.equal(resolveRestauMaxApiRoute('unknown'), null);
 assert.equal(resolveRestauMaxApiRoute('../server.ts'), null);
 
-console.log('PASS: 1 fonction Vercel, 20 routes conservées, réécritures et méthodes HTTP vérifiées.');
+console.log('PASS: 1 fonction Vercel, 21 routes conservées, réécritures et méthodes HTTP vérifiées.');
