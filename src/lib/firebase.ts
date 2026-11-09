@@ -50,6 +50,7 @@ const resolvedFirebaseConfig = {
   authDomain: viteEnv?.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
   projectId: viteEnv?.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
   messagingSenderId: viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
+  storageBucket: viteEnv?.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
   appId: viteEnv?.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
   measurementId: viteEnv?.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfig.measurementId,
   firestoreDatabaseId: viteEnv?.VITE_FIRESTORE_DATABASE_ID || firebaseConfig.firestoreDatabaseId,
@@ -61,6 +62,7 @@ if (isDemoPreview) {
     viteEnv?.VITE_FIREBASE_AUTH_DOMAIN,
     viteEnv?.VITE_FIREBASE_PROJECT_ID,
     viteEnv?.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    viteEnv?.VITE_FIREBASE_STORAGE_BUCKET,
     viteEnv?.VITE_FIREBASE_APP_ID,
     viteEnv?.VITE_FIRESTORE_DATABASE_ID,
   ];
