@@ -186,7 +186,7 @@ async function main() {
   if (mode === '--dry-run') {
     const summary = await scanLegacyPrivateData(db);
     console.log(JSON.stringify({ mode: 'DRY_RUN', projectId, databaseId, ...summary }, null, 2));
-    if (summary.ownerUidConflicts || summary.invalidSubscriptions || Object.keys(summary.unknownFieldCounts).length) {
+    if (summary.ownerUidConflicts || summary.invalidSubscriptions || summary.backupConflicts || Object.keys(summary.unknownFieldCounts).length) {
       throw new Error('Précontrôle détecte des conflits/champs inconnus. Aucune donnée modifiée.');
     }
     return;
