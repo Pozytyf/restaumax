@@ -595,9 +595,9 @@ export async function startPayDunyaRefundWithDb(
         Number(member.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
       return { ok: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
     }
+    const hasRefundPermission = Array.isArray(member.permissions) && member.permissions.includes('payments.refund');
     const canRefund = (member.role === 'owner' && ownerUid === actorUid) ||
-      member.role === 'manager' ||
-      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('payments.refund'));
+      ((member.role === 'manager' || member.role === 'cashier') && hasRefundPermission);
     if (!canRefund) return { ok: false, error: 'La permission distincte payments.refund est requise.' };
     if (refundSnap.exists) {
       const previous = refundSnap.data();
