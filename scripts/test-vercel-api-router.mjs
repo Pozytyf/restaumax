@@ -27,6 +27,7 @@ assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.id)).size, 22, 'C
 
 const expectedMethods = {
   health: ['GET'],
+  'app-check-probe': ['POST'],
   inventory: ['POST'],
   'customer-loyalty': ['POST'],
   'kitchen-item': ['POST'],
@@ -103,4 +104,9 @@ assert.equal(resolveRestauMaxApiRoute(['orders']), null);
 assert.equal(resolveRestauMaxApiRoute('unknown'), null);
 assert.equal(resolveRestauMaxApiRoute('../server.ts'), null);
 
-console.log('PASS: 1 fonction Vercel, 21 routes conservées, réécritures et méthodes HTTP vérifiées.');
+const server = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+assert.ok(server.includes('export async function handleAppCheckProbeRequest'), 'Le diagnostic doit être partagé avec l’adaptateur Vercel.');
+assert.ok(server.includes("process.env.VERCEL_ENV !== 'preview'"), 'Le diagnostic doit refuser tout environnement autre que Preview.');
+assert.ok(server.includes("appletConfig?.projectId !== 'restaumax-demo'"), 'Le diagnostic doit refuser tout projet Firebase autre que restaumax-demo.');
+
+console.log('PASS: 1 fonction Vercel, 22 routes conservées, réécritures, méthodes HTTP et garde Preview vérifiées.');

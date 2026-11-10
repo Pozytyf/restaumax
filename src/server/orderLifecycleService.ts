@@ -35,7 +35,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
   const consumptionRef = restaurantRef.collection('stockOrderConsumptions').doc(orderId);
 
   try {
-    return await db.runTransaction(async (tx: any) => {
+    const executeTransition = () => db.runTransaction(async (tx: any) => {
       const [restaurantSnap, memberSnap, orderSnap] = await Promise.all([
         tx.get(restaurantRef), tx.get(memberRef), tx.get(orderRef)
       ]);
@@ -391,6 +391,19 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       tx.update(orderRef, orderUpdate);
       return { success: true, status: targetStatus, idempotentReplay: false, stockLines: recipeLines.length };
     }, { maxAttempts: 10 });
+    try {
+      return await executeTransition();
+    } catch (error: any) {
+      // Firestore Emulator can close a contended transaction before the SDK retry
+      // completes. Retry only this explicit transient closure with a fresh transaction;
+      // the transaction re-reads the order and returns an idempotent replay if already applied.
+      const message = String(error?.message || '');
+      if (!(Number(error?.code) === 3 && /transaction is invalid or closed/i.test(message))) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return await executeTransition();
+    }
   } catch (error: any) {
     console.error('[RestauMax order lifecycle] Transaction failed:', error?.message || String(error));
     return { success: false, error: 'Impossible de mettre à jour la commande et son stock. Réessayez.' };
