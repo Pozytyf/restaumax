@@ -78,6 +78,7 @@ import { PlatformAdminView } from './components/restaumax/PlatformAdminView';
 
 
 export default function App() {
+  const cashSnapshotScopeRef = useRef('');
   // Navigation / Routing State
   const [currentPath, setCurrentPath] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -562,6 +563,7 @@ export default function App() {
   useEffect(() => {
     const canViewCash = canViewCashForCashPanel;
     if (!authUser?.uid || !canViewCash) {
+      cashSnapshotScopeRef.current = '';
       setTransactions([]);
       setCashSession(null);
       setCashSessionLoading(false);
@@ -572,9 +574,20 @@ export default function App() {
       return;
     }
 
+    const nextCashScope = `${authUser.uid}:${activeRestaurantSlug}`;
+    if (cashSnapshotScopeRef.current !== nextCashScope) {
+      cashSnapshotScopeRef.current = nextCashScope;
+      setTransactions([]);
+      setCashSession(null);
+      setDrawerState({
+        openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
+        mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
+      });
+    }
+
     let active = true;
     let paymentRefreshInFlight = false;
-    // Keep the last rendered snapshot visible while refreshing. Never blank the cashier panel.
+    // Keep the last rendered snapshot visible during same-user refreshes; clear only on tenant/user change.
     setCashSessionLoading(true);
     getCashSessionWithServerValidation(activeRestaurantSlug).then((result) => {
       if (!active) return;
