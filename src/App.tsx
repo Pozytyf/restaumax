@@ -732,6 +732,15 @@ export default function App() {
     const saved = loadPendingOrderIntent(activeRestaurantSlug);
     return Boolean(saved?.isUncertain);
   });
+  const [pendingOrderCustomerNote, setPendingOrderCustomerNote] = useState<string>(() =>
+    loadPendingOrderIntent(activeRestaurantSlug)?.customerNote || ''
+  );
+  const [pendingOrderCustomerName, setPendingOrderCustomerName] = useState<string>(() =>
+    loadPendingOrderIntent(activeRestaurantSlug)?.customerName || ''
+  );
+  const [pendingOrderCustomerPhone, setPendingOrderCustomerPhone] = useState<string>(() =>
+    loadPendingOrderIntent(activeRestaurantSlug)?.customerPhone || ''
+  );
 
   // Synchronisation automatique de l'intention de commande avec sessionStorage
   useEffect(() => {
@@ -742,13 +751,16 @@ export default function App() {
         tableNumber: activeTableNumber,
         cart: clientCart,
         idempotencyKey: clientOrderIdempotencyKey,
+        customerNote: pendingOrderCustomerNote,
+        customerName: pendingOrderCustomerName,
+        customerPhone: pendingOrderCustomerPhone,
         timestamp: Date.now(),
         isUncertain: isOrderUncertain
       });
     } else if (!isOrderUncertain) {
       clearPendingOrderIntent();
     }
-  }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber, activeRestaurantSlug]);
+  }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber, activeRestaurantSlug, pendingOrderCustomerNote, pendingOrderCustomerName, pendingOrderCustomerPhone]);
 
   // A cart is tenant-scoped. Switching restaurant clears the previous tenant's
   // cart and uncertain intent, while availability snapshots within one tenant
@@ -759,6 +771,9 @@ export default function App() {
     cartRestaurantSlugRef.current = activeRestaurantSlug;
     setClientCart([]);
     setIsOrderUncertain(false);
+    setPendingOrderCustomerNote('');
+    setPendingOrderCustomerName('');
+    setPendingOrderCustomerPhone('');
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
     clearPendingOrderIntent();
   }, [activeRestaurantSlug]);
@@ -885,12 +900,18 @@ export default function App() {
     if (isOrderUncertain) return;
     clearPendingOrderIntent();
     setClientCart([]);
+    setPendingOrderCustomerNote('');
+    setPendingOrderCustomerName('');
+    setPendingOrderCustomerPhone('');
   };
 
   const handleResetUncertainty = () => {
     clearPendingOrderIntent();
     setIsOrderUncertain(false);
     setClientCart([]);
+    setPendingOrderCustomerNote('');
+    setPendingOrderCustomerName('');
+    setPendingOrderCustomerPhone('');
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
   };
 
@@ -930,6 +951,9 @@ export default function App() {
       return { success: false, error: 'La session de cette table est indisponible ou a été révoquée. Scannez à nouveau le QR code physique.' };
     }
     const orderMode = tableSession ? 'sur_place' : 'a_emporter';
+    setPendingOrderCustomerNote(customerNote || '');
+    setPendingOrderCustomerName(customer?.name || '');
+    setPendingOrderCustomerPhone(customer?.phone || '');
     
     // Sauvegarder l'intention client complète dans sessionStorage AVANT la soumission
     savePendingOrderIntent({
@@ -971,14 +995,13 @@ export default function App() {
 
     if (!submitRes.success) {
       if (submitRes.conflict) {
-        // Conflit d'intégrité d'idempotence : l'ancienne intention est abandonnée
-        // et une nouvelle clé sera utilisée pour la prochaine soumission.
-        clearPendingOrderIntent();
-        setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
-        setIsOrderUncertain(false);
+        // Un conflit de clé ne prouve pas que la commande précédente n'existe pas.
+        // Garder le panier et la clé : aucune nouvelle clé ne doit être générée automatiquement.
+        setIsOrderUncertain(true);
+        updatePendingOrderIntentUncertainty(true);
         return {
           success: false,
-          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Veuillez vérifier le panier avant de recommencer."
+          error: submitRes.error || "Cette clé est déjà associée à une autre demande. Ne recommencez pas avec une nouvelle clé avant d'avoir vérifié la commande auprès du restaurant."
         };
       }
 
@@ -1002,6 +1025,9 @@ export default function App() {
     // Succès confirmé (écriture Firestore confirmée) : nettoyage strict de l'intention persistée
     clearPendingOrderIntent();
     setIsOrderUncertain(false);
+    setPendingOrderCustomerNote('');
+    setPendingOrderCustomerName('');
+    setPendingOrderCustomerPhone('');
 
     // Renouvellement de la clé d'idempotence pour la prochaine intention de commande
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
@@ -1742,6 +1768,9 @@ export default function App() {
           onRemoveItem={handleRemoveClientCartItem}
           onClearCart={handleClearClientCart}
           onConfirmOrder={handleClientOrderConfirm}
+          pendingCustomerNote={pendingOrderCustomerNote}
+          pendingCustomerName={pendingOrderCustomerName}
+          pendingCustomerPhone={pendingOrderCustomerPhone}
           onStartPayDunyaPayment={handleStartClientPayDunya}
           onSelectCashPayment={handleSelectClientCashPayment}
           isUncertain={isOrderUncertain}

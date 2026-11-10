@@ -38,6 +38,9 @@ export interface ClientMenuViewProps {
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
   onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
+  pendingCustomerNote?: string;
+  pendingCustomerName?: string;
+  pendingCustomerPhone?: string;
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
   onSelectCashPayment?: (order: RestauOrder) => Promise<{ success: boolean; error?: string }>;
   isUncertain?: boolean;
@@ -114,6 +117,9 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   onRemoveItem,
   onClearCart,
   onConfirmOrder,
+  pendingCustomerNote = '',
+  pendingCustomerName = '',
+  pendingCustomerPhone = '',
   onStartPayDunyaPayment,
   onSelectCashPayment,
   isUncertain = false,
@@ -464,6 +470,9 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         onUpdateQuantity={onUpdateQuantity}
         onRemoveItem={onRemoveItem}
         onClearCart={onClearCart}
+        initialCustomerNote={pendingCustomerNote}
+        initialCustomerName={pendingCustomerName}
+        initialCustomerPhone={pendingCustomerPhone}
         isUncertain={isUncertain}
         onResetUncertainty={onResetUncertainty}
         onConfirmOrder={async (note, customer) => {
