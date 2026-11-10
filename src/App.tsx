@@ -424,7 +424,7 @@ export default function App() {
         : payment.providerChannel === 'orange-money-ci' ? 'orange_money'
         : payment.providerChannel === 'mtn-ci' ? 'mtn_money'
         : payment.providerChannel === 'moov-ci' ? 'moov_money'
-        : payment.providerChannel === 'djamo-ci' ? 'djamo' : 'especes')
+        : payment.providerChannel === 'djamo-ci' ? 'djamo' : 'carte')
       : 'especes',
     items: Array.isArray(payment.items) ? payment.items.map((item: any) => ({
       name: String(item.name || 'Article'),
@@ -1605,7 +1605,10 @@ export default function App() {
       const remaining = Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0)));
       return Number.isFinite(remaining) && remaining > 0;
     })
-    .sort((a, b) => b.createdAt - a.createdAt)
+    .sort((a, b) =>
+      Number(b.paymentPreference === 'especes') - Number(a.paymentPreference === 'especes') ||
+      b.createdAt - a.createdAt
+    )
     .slice(0, 8), [restauOrders]);
 
   const handleCollectExistingOrder = (order: RestauOrder) => {
