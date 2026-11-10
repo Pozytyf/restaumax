@@ -575,7 +575,8 @@ export default function App() {
     }
 
     const nextCashScope = `${authUser.uid}:${activeRestaurantSlug}`;
-    if (cashSnapshotScopeRef.current !== nextCashScope) {
+    const cashScopeChanged = cashSnapshotScopeRef.current !== nextCashScope;
+    if (cashScopeChanged) {
       cashSnapshotScopeRef.current = nextCashScope;
       setTransactions([]);
       setCashSession(null);
@@ -583,17 +584,20 @@ export default function App() {
         openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
         mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
       });
+      // A blocking loading state is only appropriate when switching user/restaurant,
+      // never during an ordinary background refresh of the same cash panel.
+      setCashSessionLoading(true);
     }
 
     let active = true;
     let paymentRefreshInFlight = false;
-    // Keep the last rendered snapshot visible during same-user refreshes; clear only on tenant/user change.
-    setCashSessionLoading(true);
     getCashSessionWithServerValidation(activeRestaurantSlug)
       .then((result) => {
         if (!active) return;
         if (result.success) {
-          setCashSession(result.session);
+          setCashSession((previous) =>
+            JSON.stringify(previous) === JSON.stringify(result.session) ? previous : result.session
+          );
           setDrawerState((previous) => ({
             ...previous,
             openingBalance: Number(result.session?.openingBalance || 0),
