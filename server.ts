@@ -1634,10 +1634,10 @@ export async function handleRestaurantImageRequest(payload: unknown, req?: any) 
 
 export async function handleOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb) {
-    return { statusCode: 503, body: { success: false, error: 'Service de commande temporairement indisponible.' } };
+    return { statusCode: 503, body: { success: false, outcomeUnknown: false, error: 'Service de commande temporairement indisponible.' } };
   }
   if (!req || !requestHasValidOrigin(req)) {
-    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+    return { statusCode: 403, body: { success: false, outcomeUnknown: false, error: 'Origine de requête non autorisée.' } };
   }
   try {
     const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
@@ -1735,11 +1735,16 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       if (safeOrder) delete safeOrder.tableSession;
       return { statusCode: 200, body: { ...result, order: safeOrder } };
     }
+    if (result.outcomeUnknown) return { statusCode: 503, body: result };
     if (result.conflict) return { statusCode: 409, body: result };
-    return { statusCode: 400, body: result };
+    return { statusCode: 400, body: { ...result, outcomeUnknown: false } };
   } catch (err: any) {
+    // Session and validation checks fail before the atomic order write.
     console.error('Erreur inattendue API /api/orders:', err?.message || String(err));
-    return { statusCode: 500, body: { success: false, error: 'Erreur interne du serveur lors du traitement de la commande.' } };
+    return {
+      statusCode: 500,
+      body: { success: false, outcomeUnknown: false, error: 'Erreur interne du serveur lors du traitement de la commande.' }
+    };
   }
 }
 
