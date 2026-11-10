@@ -44,4 +44,4 @@ assert(orderService.includes('outcomeUnknown: true'),
 assert(server.includes('if (result.outcomeUnknown) return { statusCode: 503, body: result };'),
   'Le serveur doit renvoyer un statut retryable pour une transaction dont le résultat est ambigu.');
 
-console.log('Tests transport commande QR et idempotence : 12/12 assertions réussies.');
+console.log('Tests transport commande QR et idempotence : 13/13 assertions réussies.');
