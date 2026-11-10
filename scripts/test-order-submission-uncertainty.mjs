@@ -6,6 +6,7 @@ const firebase = read('../src/lib/firebase.ts');
 const app = read('../src/App.tsx');
 const server = read('../server.ts');
 const orderService = read('../src/server/orderService.ts');
+const cartDrawer = read('../src/components/restaumax/CartDrawer.tsx');
 
 const submitStart = firebase.indexOf('export async function submitOrderWithServerValidation');
 const submitEnd = firebase.indexOf('Soumet une commande POS', submitStart);
@@ -43,5 +44,7 @@ assert(orderService.includes('outcomeUnknown: true'),
   'Une exception de transaction atomique doit être signalée comme ambiguë.');
 assert(server.includes('if (result.outcomeUnknown) return { statusCode: 503, body: result };'),
   'Le serveur doit renvoyer un statut retryable pour une transaction dont le résultat est ambigu.');
+assert(cartDrawer.includes('{submitError && (') && cartDrawer.includes('Vérification toujours incertaine :'),
+  'Le panier doit afficher aussi le résultat de la tentative de vérification quand il reste verrouillé.');
 
-console.log('Tests transport commande QR et idempotence : 13/13 assertions réussies.');
+console.log('Tests transport commande QR et idempotence : 14/14 assertions réussies.');
