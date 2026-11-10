@@ -69,7 +69,9 @@ assert.match(rules, /request\.auth\.token\.get\('sessionVersion', 0\) == get\([\
 // Server-side route boundary: all authenticated restaurant API handlers verify
 // revocation and then reject platform-admin identities before reading tenant data.
 const tokenChecks = [...server.matchAll(/const decoded = await adminAuth\.verifyIdToken\(idToken, true\);([\s\S]{0,280})/g)];
-assert.equal(tokenChecks.length, 9, 'all nine authenticated restaurant API handlers are covered');
+assert.equal(tokenChecks.length, 8, 'all eight direct-token restaurant API handlers are covered');
+assert.match(server, /handleTableCreateRequest[\\s\\S]*?authorizeTableManager\\(adminDb, adminAuth, req, restaurantSlug\\)[\\s\\S]*?createTableWithDb/,
+  'table creation delegates identity, session and tables.manage checks to the shared table authorization service');
 assert.match(server, /handleCustomerLoyaltyAdjustmentRequest[\s\S]*?verifyIdToken\(idToken, true\)[\s\S]*?adjustCustomerLoyaltyPointsWithDb/,
   'manual loyalty adjustments verify a non-revoked identity before invoking the tenant-scoped service');
 for (const [index, match] of tokenChecks.entries()) {
