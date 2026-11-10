@@ -37,4 +37,4 @@ assert(types.includes("paymentPreference?: 'especes' | 'mobile_money'"), 'Le typ
 assert(pos.includes("order.paymentPreference === 'especes' ? 'Espèces demandées'"), 'La caisse identifie les commandes dont le client a choisi les espèces.');
 assert(modal.includes('|| cashPreferenceSaved'), 'Le client ne peut pas lancer PayDunya après avoir confirmé son choix espèces.');
 
-console.log('Tests choix espèces QR / séparation PayDunya : 16/16 assertions réussies.');
+console.log('Tests choix espèces QR / séparation PayDunya : 19/19 assertions réussies.');
