@@ -301,8 +301,8 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
 
   if (activeTab === 'customers' || activeTab === 'inventory' || activeTab === 'reports' || activeTab === 'settings') {
     const requiredPermission = activeTab === 'customers' ? 'customers.view' : activeTab === 'inventory' ? 'inventory.view' : activeTab === 'reports' ? 'reports.view' : 'settings.view';
-    if (!permissions.includes(requiredPermission)) setActiveTab('overview');
-    else return <RestaurantAdminModuleView module={activeTab} restaurant={restaurant} permissions={permissions} onBack={() => setActiveTab('overview')} />;
+    if (!permissions.includes(requiredPermission)) return <div className="min-h-screen bg-slate-50 p-6 text-slate-900"><div className="mx-auto max-w-xl rounded-2xl border border-rose-200 bg-white p-6"><h1 className="text-lg font-black">Accès refusé</h1><p className="mt-2 text-sm text-slate-600">Votre rôle ne dispose pas de l’autorisation nécessaire pour consulter ce module.</p><button onClick={() => setActiveTab('overview')} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white">Retour</button></div></div>;
+    return <RestaurantAdminModuleView module={activeTab} restaurant={restaurant} permissions={permissions} onBack={() => setActiveTab('overview')} />;
   }
 
   if (activeTab === 'staff' && canManageStaff) {
