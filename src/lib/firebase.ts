@@ -1515,3 +1515,26 @@ export async function createCustomerWithServerValidation(
     return { success: false, error: error?.message || 'Erreur réseau pendant la création du client.' };
   }
 }
+
+
+export async function createTableWithServerValidation(
+  restaurantSlug: string,
+  table: RestaurantTable
+): Promise<{ success: true } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/tables', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin', cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, table })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Création de table refusée.', conflict: response.status === 409 };
+    return { success: true };
+  } catch (error: any) {
+    console.error('Erreur appel /api/tables:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant la création de la table.' };
+  }
+}

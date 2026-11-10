@@ -40,6 +40,7 @@ import {
   updateKitchenItemCompletionWithServerValidation,
   subscribeToTables,
   persistTable,
+  createTableWithServerValidation,
   setRestaurantServiceStatusWithServerValidation,
   deleteTable,
   testConnection,
@@ -1064,9 +1065,15 @@ export default function App() {
   };
 
   const handleSaveTable = async (table: RestaurantTable): Promise<void> => {
-    // Ne confirmer la création dans l'interface qu'après l'écriture Firestore.
-    // En cas de refus (droits, restaurant inactif ou réseau), l'erreur remonte au formulaire.
-    await persistTable(activeRestaurantSlug, table);
+    // Existing table edits remain scoped to Firestore rules. New table creation
+    // uses the server transaction so two managers cannot reserve the same number.
+    const alreadyExists = restauTables.some(existing => existing.id === table.id);
+    if (alreadyExists) {
+      await persistTable(activeRestaurantSlug, table);
+    } else {
+      const result = await createTableWithServerValidation(activeRestaurantSlug, table);
+      if (!result.success) throw new Error(result.error);
+    }
     setRestauTables(prev => {
       const idx = prev.findIndex(t => t.id === table.id);
       if (idx >= 0) {
