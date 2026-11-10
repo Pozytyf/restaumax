@@ -638,7 +638,7 @@ export async function submitOrderWithServerValidation(
     fallbackCatalog?: RestauMenuItem[];
     csrfToken?: string;
   }
-): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean; definitive?: boolean }> {
   try {
     let appCheckToken = '';
     if (appCheck) {
@@ -677,6 +677,7 @@ export async function submitOrderWithServerValidation(
       return {
         success: false,
         conflict: response.status === 409 || data.conflict === true,
+        definitive: response.status >= 400 && response.status < 500,
         error: data.error || 'Erreur lors de la validation serveur de la commande.',
       };
     }
