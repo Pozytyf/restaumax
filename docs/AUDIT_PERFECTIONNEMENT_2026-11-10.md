@@ -180,3 +180,39 @@ Ce document est un registre vivant. Pour chaque correction, ajouter :
 - état final : corrigé, non reproduit, ou bloqué par configuration.
 
 Aucune donnée Firebase Production ne doit servir de fixture de test. Utiliser exclusivement des mocks ou Firebase Emulator/Preview.
+
+## Avancement de l'audit — PR #110
+
+Dernier commit intégré au relevé : `57f606b7c82d62719647f1414e8a3173f43845c5`.  
+PR : `https://github.com/Pozytyf/restaumax/pull/110` (brouillon, non fusionnée).
+
+### Corrections implémentées sur la branche
+
+- **S1/S2 — Sécurité :** les autorisations caisse/remboursement sont contrôlées côté serveur selon les permissions effectives ; les gardes des modules administratifs sont renforcées. Les tests dédiés de rôles, de remboursement propriétaire et de PayDunya ont été verts sur le commit précédent `de32370`.
+- **Q1 — Reprise QR :** note, nom et téléphone sont sauvegardés/restaurés avec la même intention de commande.
+- **Q2 — Incertitude transactionnelle :** les erreurs d'infrastructure sont classées rejouables (HTTP 503) ; la clé d'idempotence n'est pas renouvelée automatiquement.
+- **K1/K2/K3 — Cuisine/Bar :** catégorie catalogue propagée aux tickets, filtres Grillades/Fourneaux/Bar, raccourcis clavier non intrusifs ; le succès visuel attend la confirmation du serveur.
+- **C1 — Clients :** création par endpoint serveur transactionnel, identifiant déterministe partagé avec la fidélité et contrôle d'unicité par téléphone ; la création directe par SDK client est interdite.
+- **C2 — Fidélité :** la suppression physique est remplacée par l'archivage ; le ledger et les points restent conservés.
+- **A1 — Abonnements :** la documentation Cron a été mise à jour ; l'exécution réelle du cycle reste à prouver.
+- **API Vercel :** la nouvelle route `POST /api/customers` est ajoutée au routeur central et à ses réécritures Vercel.
+
+### Contrôles déjà observés
+
+- TypeScript : vert sur les commits de correction précédents.
+- Rôles, remboursements propriétaire, PayDunya et liaison propriétaire : verts sur les commits précédents de la branche.
+- QR : 60/60 tests ; cohérence QR/environnement : 4/4 ; diagnostic session/index : 16/16 ; choix espèces/caisse : 39 assertions réussies.
+- La suite complète a mis en évidence des tests devenus obsolètes et un défaut dans la validation d'adresse e-mail du nouveau service client. Ces points ont été corrigés sur la branche ; la suite doit être rejouée sur le dernier commit.
+- Au dernier relevé, les workflows du commit `57f606b` sont en cours. **Aucune validation globale n'est donc revendiquée.**
+
+### Points toujours ouverts / bloquants
+
+- **Q3 :** App Check Production non configuré pour les commandes à emporter ; aucune modification de Production n'est autorisée pendant cet audit.
+- **Q4 :** unicité concurrente du numéro de table côté serveur non corrigée ; création locale encore vulnérable à une course entre deux gestionnaires.
+- **A2 :** origine précise de `DEP0169 url.parse()` non identifiée.
+- **A3 :** pas encore de parcours navigateur Playwright/Cypress automatisé.
+- **MFA Super-admin :** activation différée à une validation Preview de l'enrôlement et de la récupération.
+- **Cron abonnements :** déploiement et secret présents, mais aucun cycle d'exécution réussi observé.
+- **Validation manuelle Preview :** à effectuer après le passage complet des contrôles CI, sans publier ni modifier Production.
+
+Les prochaines étapes restent dans l'ordre du plan initial. Aucun correctif de cette PR n'est fusionné ou déployé.
