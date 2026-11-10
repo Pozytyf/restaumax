@@ -2,6 +2,7 @@ import {
   adminDb,
   getServerHealth,
   handleCustomerCreateRequest,
+  handleTableCreateRequest,
   handleCustomerLoyaltyAdjustmentRequest,
   handleCustomerCashPreferenceRequest,
   handleCustomerPayDunyaInvoiceRequest,
@@ -75,6 +76,10 @@ export default async function handler(req: any, res: any) {
     }
     case 'inventory': {
       const result = await handleInventoryRequest(req.body, req);
+      return res.status(result.statusCode).json(result.body);
+    }
+    case 'tables': {
+      const result = await handleTableCreateRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);
     }
     case 'customers': {
