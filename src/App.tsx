@@ -557,7 +557,8 @@ export default function App() {
 
   useEffect(() => {
     const canViewCash = isRestaurantOwner || authRestaurantRole === 'manager' ||
-      userPermissions.includes('cash.view') || userPermissions.includes('cash.manage');
+      userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') ||
+      userPermissions.includes('reports.cash.view');
     if (!authUser || !canViewCash) {
       setTransactions([]);
       setCashSession(null);
@@ -570,10 +571,12 @@ export default function App() {
     }
 
     let active = true;
+    let paymentRefreshInFlight = false;
     setTransactions([]);
     setDrawerState({
-      openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
-      mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
+      openingBalance: 0, currentCash: 0, cashSales: 0,
+      mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0,
+      totalSales: 0
     });
     setCashSessionLoading(true);
     getCashSessionWithServerValidation(activeRestaurantSlug).then((result) => {
@@ -591,29 +594,43 @@ export default function App() {
       }
       setCashSessionLoading(false);
     });
-    listRecentCashPaymentsWithServerValidation(activeRestaurantSlug).then((result) => {
-      if (!active || !result.success) {
-        if (active && !result.success) console.warn('Journal de caisse indisponible:', result.error);
-        return;
-      }
-      const records = result.payments.map(mapCashPaymentRecord);
-      const totalSales = records.reduce((sum, record) => sum + record.paidAmount, 0);
-      const cashSales = records.filter((record) => record.paymentMethod === 'especes')
-        .reduce((sum, record) => sum + record.paidAmount, 0);
-      setTransactions(records);
-      setDrawerState((previous) => ({
-        ...previous,
-        totalSales,
-        cashSales,
-        mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte')
-          .reduce((sum, record) => sum + record.paidAmount, 0),
-        cardSales: 0,
-        discountsTotal: 0,
-        transactionCount: records.length
-      }));
-    });
 
-    return () => { active = false; };
+    const refreshPayments = async () => {
+      if (!active || paymentRefreshInFlight) return;
+      paymentRefreshInFlight = true;
+      try {
+        const result = await listRecentCashPaymentsWithServerValidation(activeRestaurantSlug);
+        if (!active || !result.success) {
+          if (active && !result.success) console.warn('Journal de caisse indisponible:', result.error);
+          return;
+        }
+        const records = result.payments.map(mapCashPaymentRecord);
+        const totalSales = records.reduce((sum, record) => sum + record.paidAmount, 0);
+        const cashSales = records.filter((record) => record.paymentMethod === 'especes')
+          .reduce((sum, record) => sum + record.paidAmount, 0);
+        setTransactions(records);
+        setDrawerState((previous) => ({
+          ...previous,
+          totalSales,
+          cashSales,
+          mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte')
+            .reduce((sum, record) => sum + record.paidAmount, 0),
+          cardSales: 0,
+          discountsTotal: 0,
+          transactionCount: records.length
+        }));
+      } finally {
+        paymentRefreshInFlight = false;
+      }
+    };
+
+    void refreshPayments();
+    const paymentRefreshInterval = window.setInterval(() => void refreshPayments(), 15000);
+
+    return () => {
+      active = false;
+      window.clearInterval(paymentRefreshInterval);
+    };
   }, [authUser, activeRestaurantSlug, isRestaurantOwner, authRestaurantRole, userPermissions]);
 
   const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
