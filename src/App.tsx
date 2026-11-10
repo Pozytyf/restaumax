@@ -930,17 +930,28 @@ export default function App() {
 
     if (!submitRes.success) {
       if (submitRes.conflict) {
-        // Conflit d'intégrité d'idempotence (Cas D) : vider l'intention et régénérer la clé pour une nouvelle intention propre
+        // Conflit d'intégrité d'idempotence : l'ancienne intention est abandonnée
+        // et une nouvelle clé sera utilisée pour la prochaine soumission.
         clearPendingOrderIntent();
         setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
         setIsOrderUncertain(false);
-        return { 
-          success: false, 
-          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Veuillez soumettre à nouveau." 
+        return {
+          success: false,
+          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Veuillez vérifier le panier avant de recommencer."
         };
       }
 
-      // Échec serveur / réseau : état incertain, panier verrouillé, conservation stricte de la même clé et du panier dans sessionStorage
+      if (submitRes.definitive) {
+        // Un 4xx est un refus explicite du serveur (validation, session, permission,
+        // limitation) : aucune commande ne doit être considérée comme incertaine.
+        // On conserve le panier, mais on libère l'intention refusée et sa clé.
+        clearPendingOrderIntent();
+        setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
+        setIsOrderUncertain(false);
+        return { success: false, error: submitRes.error };
+      }
+
+      // Échec serveur / réseau ambigu : panier verrouillé et même clé conservée
       setIsOrderUncertain(true);
       updatePendingOrderIntentUncertainty(true);
       return { success: false, error: submitRes.error };
