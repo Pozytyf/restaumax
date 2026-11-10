@@ -1901,7 +1901,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'manager' && (isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')) && (
+            {currentRole === 'manager' && (isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') || userPermissions.includes('reports.cash.view')) && (
               <ManagerView
                 restaurantSlug={activeRestaurantSlug}
                 isOwner={isRestaurantOwner}
