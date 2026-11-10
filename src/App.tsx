@@ -24,6 +24,7 @@ import {
   collectCashPaymentWithServerValidation,
   createPayDunyaPaymentWithServerValidation,
   createCustomerPayDunyaPaymentWithServerValidation,
+  selectCustomerCashPaymentWithServerValidation,
   reconcileCustomerPayDunyaPaymentWithServerValidation,
   refundPayDunyaPaymentWithServerValidation,
   refundCashPaymentWithServerValidation,
@@ -77,6 +78,7 @@ import { PlatformAdminView } from './components/restaumax/PlatformAdminView';
 
 
 export default function App() {
+  const cashSnapshotScopeRef = useRef('');
   // Navigation / Routing State
   const [currentPath, setCurrentPath] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -423,7 +425,7 @@ export default function App() {
         : payment.providerChannel === 'orange-money-ci' ? 'orange_money'
         : payment.providerChannel === 'mtn-ci' ? 'mtn_money'
         : payment.providerChannel === 'moov-ci' ? 'moov_money'
-        : payment.providerChannel === 'djamo-ci' ? 'djamo' : 'especes')
+        : payment.providerChannel === 'djamo-ci' ? 'djamo' : 'carte')
       : 'especes',
     items: Array.isArray(payment.items) ? payment.items.map((item: any) => ({
       name: String(item.name || 'Article'),
@@ -554,10 +556,14 @@ export default function App() {
   }, [authUser, authRestaurantRole, activeRestaurantSlug, isRestaurantOwner, userPermissions]);
 
 
+  const canViewCashForCashPanel = isRestaurantOwner || authRestaurantRole === 'manager' ||
+    userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') ||
+    userPermissions.includes('reports.cash.view');
+
   useEffect(() => {
-    const canViewCash = isRestaurantOwner || authRestaurantRole === 'manager' ||
-      userPermissions.includes('cash.view') || userPermissions.includes('cash.manage');
-    if (!authUser || !canViewCash) {
+    const canViewCash = canViewCashForCashPanel;
+    if (!authUser?.uid || !canViewCash) {
+      cashSnapshotScopeRef.current = '';
       setTransactions([]);
       setCashSession(null);
       setCashSessionLoading(false);
@@ -568,52 +574,107 @@ export default function App() {
       return;
     }
 
-    let active = true;
-    setTransactions([]);
-    setDrawerState({
-      openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
-      mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
-    });
-    setCashSessionLoading(true);
-    getCashSessionWithServerValidation(activeRestaurantSlug).then((result) => {
-      if (!active) return;
-      if (result.success) {
-        setCashSession(result.session);
-        setDrawerState((previous) => ({
-          ...previous,
-          openingBalance: Number(result.session?.openingBalance || 0),
-          currentCash: Number(result.session?.openingBalance || 0) + Number(result.session?.cashCollected || 0) - Number(result.session?.cashOut || 0)
-        }));
-      } else {
-        setCashSession(null);
-        console.warn('Session de caisse indisponible:', result.error);
-      }
-      setCashSessionLoading(false);
-    });
-    listRecentCashPaymentsWithServerValidation(activeRestaurantSlug).then((result) => {
-      if (!active || !result.success) {
-        if (active && !result.success) console.warn('Journal de caisse indisponible:', result.error);
-        return;
-      }
-      const records = result.payments.map(mapCashPaymentRecord);
-      const totalSales = records.reduce((sum, record) => sum + record.paidAmount, 0);
-      const cashSales = records.filter((record) => record.paymentMethod === 'especes')
-        .reduce((sum, record) => sum + record.paidAmount, 0);
-      setTransactions(records);
-      setDrawerState((previous) => ({
-        ...previous,
-        totalSales,
-        cashSales,
-        mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte')
-          .reduce((sum, record) => sum + record.paidAmount, 0),
-        cardSales: 0,
-        discountsTotal: 0,
-        transactionCount: records.length
-      }));
-    });
+    const nextCashScope = `${authUser.uid}:${activeRestaurantSlug}`;
+    const cashScopeChanged = cashSnapshotScopeRef.current !== nextCashScope;
+    if (cashScopeChanged) {
+      cashSnapshotScopeRef.current = nextCashScope;
+      setTransactions([]);
+      setCashSession(null);
+      setDrawerState({
+        openingBalance: 0, currentCash: 0, totalSales: 0, cashSales: 0,
+        mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0
+      });
+      // A blocking loading state is only appropriate when switching user/restaurant,
+      // never during an ordinary background refresh of the same cash panel.
+      setCashSessionLoading(true);
+    }
 
-    return () => { active = false; };
-  }, [authUser, activeRestaurantSlug, isRestaurantOwner, authRestaurantRole, userPermissions]);
+    let active = true;
+    let paymentRefreshInFlight = false;
+    getCashSessionWithServerValidation(activeRestaurantSlug)
+      .then((result) => {
+        if (!active) return;
+        if (result.success) {
+          setCashSession((previous) =>
+            JSON.stringify(previous) === JSON.stringify(result.session) ? previous : result.session
+          );
+          setDrawerState((previous) => ({
+            ...previous,
+            openingBalance: Number(result.session?.openingBalance || 0),
+            currentCash: Number(result.session?.openingBalance || 0) + Number(result.session?.cashCollected || 0) - Number(result.session?.cashOut || 0)
+          }));
+        } else {
+          // A transient read failure must not erase the last known cashier session.
+          console.warn('Session de caisse indisponible:', result.error);
+        }
+      })
+      .catch((error) => {
+        if (active) console.warn('Erreur temporaire de lecture de la session de caisse:', error);
+      })
+      .finally(() => {
+        if (active) setCashSessionLoading(false);
+      });
+
+    const refreshPayments = async () => {
+      if (!active || paymentRefreshInFlight) return;
+      paymentRefreshInFlight = true;
+      try {
+        const result = await listRecentCashPaymentsWithServerValidation(activeRestaurantSlug);
+        if (!active || !result.success) {
+          if (active && !result.success) console.warn('Journal de caisse indisponible:', result.error);
+          return;
+        }
+        const records = result.payments.map(mapCashPaymentRecord).sort((left, right) =>
+          right.timestamp.getTime() - left.timestamp.getTime() || left.id.localeCompare(right.id)
+        );
+        const totalSales = records.reduce((sum, record) => sum + record.paidAmount, 0);
+        const cashSales = records.filter((record) => record.paymentMethod === 'especes')
+          .reduce((sum, record) => sum + record.paidAmount, 0);
+        // Polling remains silent: preserve the existing UI state when the server
+        // returns the same journal, instead of forcing a visible cashier refresh.
+        setTransactions((previous) => {
+          const unchanged = previous.length === records.length && previous.every((record, index) => {
+            const next = records[index];
+            return record.id === next.id &&
+              record.paidAmount === next.paidAmount &&
+              record.paymentMethod === next.paymentMethod &&
+              record.timestamp.getTime() === next.timestamp.getTime() &&
+              record.paymentStatus === next.paymentStatus &&
+              record.remainingAmount === next.remainingAmount;
+          });
+          return unchanged ? previous : records;
+        });
+        const nextCashTotals = {
+          totalSales,
+          cashSales,
+          mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte')
+            .reduce((sum, record) => sum + record.paidAmount, 0),
+          cardSales: 0,
+          discountsTotal: 0,
+          transactionCount: records.length
+        };
+        setDrawerState((previous) => {
+          const unchanged = previous.totalSales === nextCashTotals.totalSales &&
+            previous.cashSales === nextCashTotals.cashSales &&
+            previous.mobileMoneySales === nextCashTotals.mobileMoneySales &&
+            previous.cardSales === nextCashTotals.cardSales &&
+            previous.discountsTotal === nextCashTotals.discountsTotal &&
+            previous.transactionCount === nextCashTotals.transactionCount;
+          return unchanged ? previous : { ...previous, ...nextCashTotals };
+        });
+      } finally {
+        paymentRefreshInFlight = false;
+      }
+    };
+
+    void refreshPayments();
+    const paymentRefreshInterval = window.setInterval(() => void refreshPayments(), 15000);
+
+    return () => {
+      active = false;
+      window.clearInterval(paymentRefreshInterval);
+    };
+  }, [authUser?.uid, activeRestaurantSlug, isRestaurantOwner, authRestaurantRole, canViewCashForCashPanel]);
 
   const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const res = await signInManager(email, pass);
@@ -836,6 +897,17 @@ export default function App() {
   };
 
   // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation & atomic idempotency)
+  const handleSelectClientCashPayment = async (order: RestauOrder): Promise<{ success: boolean; error?: string }> => {
+    if (!tableSession || tableSession.restaurantSlug !== activeRestaurantSlug) {
+      return { success: false, error: 'Scannez à nouveau le QR physique pour sécuriser le choix du règlement.' };
+    }
+    const result = await selectCustomerCashPaymentWithServerValidation(
+      activeRestaurantSlug, order.id, tableSession.csrfToken
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true };
+  };
+
   const handleStartClientPayDunya = async (
     order: RestauOrder,
     channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci',
@@ -901,17 +973,28 @@ export default function App() {
 
     if (!submitRes.success) {
       if (submitRes.conflict) {
-        // Conflit d'intégrité d'idempotence (Cas D) : vider l'intention et régénérer la clé pour une nouvelle intention propre
+        // Conflit d'intégrité d'idempotence : l'ancienne intention est abandonnée
+        // et une nouvelle clé sera utilisée pour la prochaine soumission.
         clearPendingOrderIntent();
         setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
         setIsOrderUncertain(false);
-        return { 
-          success: false, 
-          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Veuillez soumettre à nouveau." 
+        return {
+          success: false,
+          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Veuillez vérifier le panier avant de recommencer."
         };
       }
 
-      // Échec serveur / réseau : état incertain, panier verrouillé, conservation stricte de la même clé et du panier dans sessionStorage
+      if (submitRes.definitive) {
+        // Un 4xx est un refus explicite du serveur (validation, session, permission,
+        // limitation) : aucune commande ne doit être considérée comme incertaine.
+        // On conserve le panier, mais on libère l'intention refusée et sa clé.
+        clearPendingOrderIntent();
+        setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
+        setIsOrderUncertain(false);
+        return { success: false, error: submitRes.error };
+      }
+
+      // Échec serveur / réseau ambigu : panier verrouillé et même clé conservée
       setIsOrderUncertain(true);
       updatePendingOrderIntentUncertainty(true);
       return { success: false, error: submitRes.error };
@@ -1424,15 +1507,36 @@ export default function App() {
     }
     const refreshed = await listRecentCashPaymentsWithServerValidation(activeRestaurantSlug);
     if (refreshed.success) {
-      const records = refreshed.payments.map(mapCashPaymentRecord);
-      setTransactions(records);
-      setDrawerState((previous) => ({
-        ...previous,
-        totalSales: records.reduce((sum, record) => sum + record.paidAmount, 0),
-        cashSales: records.filter((record) => record.paymentMethod === 'especes').reduce((sum, record) => sum + record.paidAmount, 0),
-        mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte').reduce((sum, record) => sum + record.paidAmount, 0),
-        transactionCount: records.length
-      }));
+      const records = refreshed.payments.map(mapCashPaymentRecord).sort((left, right) =>
+        right.timestamp.getTime() - left.timestamp.getTime() || left.id.localeCompare(right.id)
+      );
+      setTransactions((previous) => {
+        const unchanged = previous.length === records.length && previous.every((record, index) => {
+          const updated = records[index];
+          return record.id === updated.id &&
+            record.paidAmount === updated.paidAmount &&
+            record.paymentMethod === updated.paymentMethod &&
+            record.timestamp.getTime() === updated.timestamp.getTime() &&
+            record.paymentStatus === updated.paymentStatus &&
+            record.refundedAmount === updated.refundedAmount &&
+            record.refundPendingAmount === updated.refundPendingAmount;
+        });
+        return unchanged ? previous : records;
+      });
+      setDrawerState((previous) => {
+        const nextTotals = {
+          totalSales: records.reduce((sum, record) => sum + record.paidAmount, 0),
+          cashSales: records.filter((record) => record.paymentMethod === 'especes').reduce((sum, record) => sum + record.paidAmount, 0),
+          mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte').reduce((sum, record) => sum + record.paidAmount, 0),
+          transactionCount: records.length
+        };
+        return previous.totalSales === nextTotals.totalSales &&
+          previous.cashSales === nextTotals.cashSales &&
+          previous.mobileMoneySales === nextTotals.mobileMoneySales &&
+          previous.transactionCount === nextTotals.transactionCount
+          ? previous
+          : { ...previous, ...nextTotals };
+      });
     }
   };
 
@@ -1565,7 +1669,10 @@ export default function App() {
       const remaining = Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0)));
       return Number.isFinite(remaining) && remaining > 0;
     })
-    .sort((a, b) => b.createdAt - a.createdAt)
+    .sort((a, b) =>
+      Number(b.paymentPreference === 'especes') - Number(a.paymentPreference === 'especes') ||
+      b.createdAt - a.createdAt
+    )
     .slice(0, 8), [restauOrders]);
 
   const handleCollectExistingOrder = (order: RestauOrder) => {
@@ -1639,6 +1746,7 @@ export default function App() {
           onClearCart={handleClearClientCart}
           onConfirmOrder={handleClientOrderConfirm}
           onStartPayDunyaPayment={handleStartClientPayDunya}
+          onSelectCashPayment={handleSelectClientCashPayment}
           isUncertain={isOrderUncertain}
           tableSessionUnavailable={tableSessionExpected && !tableSessionChecking && !tableSession}
           catalogLoading={activeMenuLoading}
@@ -1860,7 +1968,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'manager' && (isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')) && (
+            {currentRole === 'manager' && (isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') || userPermissions.includes('reports.cash.view')) && (
               <ManagerView
                 restaurantSlug={activeRestaurantSlug}
                 isOwner={isRestaurantOwner}

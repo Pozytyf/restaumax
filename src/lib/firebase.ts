@@ -638,9 +638,19 @@ export async function submitOrderWithServerValidation(
     fallbackCatalog?: RestauMenuItem[];
     csrfToken?: string;
   }
-): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean; definitive?: boolean }> {
   try {
-    const appCheckToken = appCheck ? (await getToken(appCheck)).token : '';
+    let appCheckToken = '';
+    if (appCheck) {
+      try {
+        appCheckToken = (await getToken(appCheck)).token;
+      } catch (appCheckError) {
+        // Never let a browser-side App Check token acquisition failure prevent the
+        // request from reaching the server. Preview may accept requests without a
+        // token; Production enforcement remains authoritative and fails closed.
+        console.warn('[RestauMax orders] App Check token unavailable; continuing to server-side validation.', appCheckError);
+      }
+    }
     const response = await fetch('/api/orders', {
       method: 'POST',
       headers: {
@@ -667,6 +677,7 @@ export async function submitOrderWithServerValidation(
       return {
         success: false,
         conflict: response.status === 409 || data.conflict === true,
+        definitive: response.status >= 400 && response.status < 500,
         error: data.error || 'Erreur lors de la validation serveur de la commande.',
       };
     }
@@ -975,6 +986,45 @@ export async function createPayDunyaPaymentWithServerValidation(
   }
 }
 
+export async function selectCustomerCashPaymentWithServerValidation(
+  restaurantSlug: string,
+  orderId: string,
+  csrfToken: string
+): Promise<{ success: true; remainingAmount: number } | { success: false; error: string }> {
+  try {
+    const response = await fetch('/api/payments/customer-cash-preference', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-RM-CSRF-Token': csrfToken },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, orderId, csrfToken })
+    });
+    const responseText = await response.text();
+    let data: any;
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      console.error('[RestauMax] Réponse non JSON pour le choix espèces:', {
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+        preview: responseText.slice(0, 160)
+      });
+      return {
+        success: false,
+        error: response.status === 404
+          ? 'Le service de règlement en espèces est momentanément inaccessible. Actualisez le menu puis réessayez.'
+          : 'Le serveur n’a pas renvoyé une réponse valide pour le règlement en espèces. Votre paiement n’a pas été confirmé.'
+      };
+    }
+    if (!response.ok || !data.success || data.paymentPreference !== 'especes') {
+      return { success: false, error: data?.error || 'Le choix du règlement en espèces n’a pas pu être enregistré.' };
+    }
+    return { success: true, remainingAmount: Number(data.remainingAmount || 0) };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau lors de l’enregistrement du choix espèces.' };
+  }
+}
+
 export async function createCustomerPayDunyaPaymentWithServerValidation(
   restaurantSlug: string,
   orderId: string,
@@ -1126,7 +1176,9 @@ export async function listRecentCashPaymentsWithServerValidation(
   try {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'Connexion du personnel requise.' };
-    const idToken = await user.getIdToken(true);
+    // Reuse the current token; Firebase refreshes it automatically when it is near expiry.
+    // Forcing a refresh on every 15-second journal poll creates needless auth churn.
+    const idToken = await user.getIdToken();
     const response = await fetch(`/api/payments?restaurantSlug=${encodeURIComponent(restaurantSlug)}`, {
       method: 'GET',
       headers: { Authorization: `Bearer ${idToken}` },

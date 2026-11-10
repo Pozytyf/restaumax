@@ -162,6 +162,10 @@ export interface RestauOrder {
   netPaidAmount?: number;
   remainingAmount?: number;
   paymentStatus?: 'partial' | 'paid' | 'unpaid';
+  /** Customer's requested settlement method; cash is only marked paid after staff records receipt. */
+  paymentPreference?: 'especes' | 'mobile_money';
+  paymentPreferenceSource?: 'customer_qr' | 'staff';
+  paymentPreferenceUpdatedAt?: number;
   splitGuests?: number;
   guestAccounts?: RestauGuestAccount[];
   lastPaymentAt?: number;

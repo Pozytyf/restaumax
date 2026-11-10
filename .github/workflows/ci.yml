@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, fix/authorization-refunds-platform-audit]
   pull_request:
-    branches: [main, fix/separate-platform-admin-login]
+    branches: [main, fix/separate-platform-admin-login, fix/qr-table-session-diagnostics]
 
   workflow_dispatch:
 permissions:

@@ -67,6 +67,10 @@
       "destination": "/api/index?__restaumax_route=table-session"
     },
     {
+      "source": "/api/payments/customer-cash-preference",
+      "destination": "/api/index?__restaumax_route=customer-cash-preference"
+    },
+    {
       "source": "/api/payments/customer-paydunya",
       "destination": "/api/index?__restaumax_route=customer-paydunya"
     },

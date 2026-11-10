@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CashDrawerState, PaymentRecord } from '../../types/pos';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
@@ -87,28 +87,47 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
   const [closedSessions, setClosedSessions] = useState<CashSessionApiRecord[]>([]);
   const [closedSessionsLoading, setClosedSessionsLoading] = useState(false);
+  const hasLoadedClosedSessionsRef = useRef(false);
 
   const loadClosedSessions = useCallback(async () => {
     if (!restaurantSlug) return;
-    setClosedSessionsLoading(true);
+    // Keep the existing history visible during background refreshes.
+    if (!hasLoadedClosedSessionsRef.current) setClosedSessionsLoading(true);
     try {
       const res = await listClosedCashSessionsWithServerValidation(restaurantSlug, 20);
       if (res.success && Array.isArray(res.closedSessions)) {
-        setClosedSessions(res.closedSessions);
+        setClosedSessions((previous) => {
+          const next = res.closedSessions as CashSessionApiRecord[];
+          return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+        });
       }
     } catch (e) {
       console.warn('Erreur chargement sessions clôturées:', e);
     } finally {
+      hasLoadedClosedSessionsRef.current = true;
       setClosedSessionsLoading(false);
     }
   }, [restaurantSlug]);
 
+  // The history is independent from the active session snapshot: do not reload it
+  // every time a cash-session object is refreshed by the background poller.
   useEffect(() => {
+    hasLoadedClosedSessionsRef.current = false;
     void loadClosedSessions();
-  }, [loadClosedSessions, cashSession]);
+  }, [loadClosedSessions]);
 
-  const averageTicket = drawerState.transactionCount > 0 
-    ? Math.round(drawerState.totalSales / drawerState.transactionCount) 
+  const averageTicket = useMemo(() => drawerState.transactionCount > 0
+    ? Math.round(drawerState.totalSales / drawerState.transactionCount)
+    : 0, [drawerState.transactionCount, drawerState.totalSales]);
+  const channelSales = useMemo(() => ({
+    cash: transactions.filter((tx) => tx.paymentMethod === 'especes').reduce((sum, tx) => sum + tx.paidAmount, 0),
+    wave: transactions.filter((tx) => tx.paymentMethod === 'wave').reduce((sum, tx) => sum + tx.paidAmount, 0),
+    orangeMoney: transactions.filter((tx) => tx.paymentMethod === 'orange_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
+    mtnMoney: transactions.filter((tx) => tx.paymentMethod === 'mtn_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
+    moovMoney: transactions.filter((tx) => tx.paymentMethod === 'moov_money').reduce((sum, tx) => sum + tx.paidAmount, 0)
+  }), [transactions]);
+  const channelPercent = (amount: number) => drawerState.totalSales > 0
+    ? Math.round((amount / drawerState.totalSales) * 100)
     : 0;
 
   return (
@@ -148,7 +167,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             {cashSession && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Session ouverte</span>}
           </div>
 
-          {cashSessionLoading ? (
+          {cashSessionLoading && !cashSession ? (
             <p className="mt-4 text-sm text-slate-500">Chargement de la session de caisse…</p>
           ) : cashSession ? (
             <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr]">
@@ -257,7 +276,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     event.preventDefault();
                     const amount = Number(closingCountInput);
                     if (!Number.isSafeInteger(amount) || amount < 0) return;
-                    void onCloseCashSession(amount);
+                    void onCloseCashSession(amount).then(() => loadClosedSessions());
                     setClosingCountInput('');
                   }} className="flex flex-col justify-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
                     <label className="text-sm font-bold text-slate-800">Comptage physique en caisse (FCFA)
@@ -407,44 +426,41 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               Répartition par Canal de Paiement
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50">
-                <div className="flex items-center gap-2 text-slate-600 text-xs font-bold mb-1">
-                  <Coins size={14} className="text-amber-500" />
-                  Espèces FCFA
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+              <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/60">
+                <div className="flex items-center gap-2 text-amber-900 text-xs font-bold mb-1">
+                  <Coins size={14} className="text-amber-600" /> Espèces
                 </div>
-                <div className="text-lg font-black text-slate-900 tnum">
-                  {formatFCFA(drawerState.cashSales)}
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1">
-                  {drawerState.totalSales > 0 ? Math.round((drawerState.cashSales / drawerState.totalSales) * 100) : 0}% du total
-                </div>
+                <div className="text-lg font-black text-amber-950 tnum">{formatFCFA(channelSales.cash)}</div>
+                <div className="text-[11px] text-amber-800 mt-1">{channelPercent(channelSales.cash)}% des encaissements</div>
               </div>
-
               <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50">
                 <div className="flex items-center gap-2 text-blue-900 text-xs font-bold mb-1">
-                  <Smartphone size={14} className="text-blue-500" />
-                  Mobile Money (Wave / OM)
+                  <Smartphone size={14} className="text-blue-500" /> Wave
                 </div>
-                <div className="text-lg font-black text-blue-950 tnum">
-                  {formatFCFA(drawerState.mobileMoneySales)}
-                </div>
-                <div className="text-[11px] text-blue-600 mt-1 font-semibold">
-                  {drawerState.totalSales > 0 ? Math.round((drawerState.mobileMoneySales / drawerState.totalSales) * 100) : 0}% des encaissements enregistrés
-                </div>
+                <div className="text-lg font-black text-blue-950 tnum">{formatFCFA(channelSales.wave)}</div>
+                <div className="text-[11px] text-blue-700 mt-1">{channelPercent(channelSales.wave)}% des encaissements</div>
               </div>
-
-              <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/50">
-                <div className="flex items-center gap-2 text-emerald-900 text-xs font-bold mb-1">
-                  <CreditCard size={14} className="text-emerald-500" />
-                  Cartes Bancaires Visa/MC
+              <div className="p-4 rounded-xl border border-orange-200 bg-orange-50/50">
+                <div className="flex items-center gap-2 text-orange-900 text-xs font-bold mb-1">
+                  <Smartphone size={14} className="text-orange-500" /> Orange Money
                 </div>
-                <div className="text-lg font-black text-emerald-950 tnum">
-                  {formatFCFA(drawerState.cardSales)}
+                <div className="text-lg font-black text-orange-950 tnum">{formatFCFA(channelSales.orangeMoney)}</div>
+                <div className="text-[11px] text-orange-700 mt-1">{channelPercent(channelSales.orangeMoney)}% des encaissements</div>
+              </div>
+              <div className="p-4 rounded-xl border border-yellow-200 bg-yellow-50/60">
+                <div className="flex items-center gap-2 text-yellow-900 text-xs font-bold mb-1">
+                  <Smartphone size={14} className="text-yellow-600" /> MTN Money
                 </div>
-                <div className="text-[11px] text-emerald-600 mt-1">
-                  {drawerState.totalSales > 0 ? Math.round((drawerState.cardSales / drawerState.totalSales) * 100) : 0}% du total
+                <div className="text-lg font-black text-yellow-950 tnum">{formatFCFA(channelSales.mtnMoney)}</div>
+                <div className="text-[11px] text-yellow-800 mt-1">{channelPercent(channelSales.mtnMoney)}% des encaissements</div>
+              </div>
+              <div className="p-4 rounded-xl border border-cyan-200 bg-cyan-50/50">
+                <div className="flex items-center gap-2 text-cyan-900 text-xs font-bold mb-1">
+                  <Smartphone size={14} className="text-cyan-600" /> Moov Money
                 </div>
+                <div className="text-lg font-black text-cyan-950 tnum">{formatFCFA(channelSales.moovMoney)}</div>
+                <div className="text-[11px] text-cyan-800 mt-1">{channelPercent(channelSales.moovMoney)}% des encaissements</div>
               </div>
             </div>
 
@@ -452,15 +468,15 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <div className="mt-5">
               <div className="h-3 w-full rounded-full bg-slate-200 overflow-hidden flex">
                 <div 
-                  className="bg-amber-500 h-full transition-all" 
+                  className="bg-amber-500 h-full" 
                   style={{ width: `${drawerState.totalSales > 0 ? (drawerState.cashSales / drawerState.totalSales) * 100 : 30}%` }} 
                 />
                 <div 
-                  className="bg-[#1ba8f0] h-full transition-all" 
+                  className="bg-[#1ba8f0] h-full" 
                   style={{ width: `${drawerState.totalSales > 0 ? (drawerState.mobileMoneySales / drawerState.totalSales) * 100 : 50}%` }} 
                 />
                 <div 
-                  className="bg-emerald-500 h-full transition-all" 
+                  className="bg-emerald-500 h-full" 
                   style={{ width: `${drawerState.totalSales > 0 ? (drawerState.cardSales / drawerState.totalSales) * 100 : 20}%` }} 
                 />
               </div>
@@ -524,7 +540,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                           {tx.paymentMethod === 'especes' ? 'Espèces'
                             : tx.paymentMethod === 'wave' ? 'Wave'
                             : tx.paymentMethod === 'orange_money' ? 'Orange Money'
-                            : tx.paymentMethod === 'mtn_money' ? 'MTN MoMo'
+                            : tx.paymentMethod === 'mtn_money' ? 'MTN Money'
                             : tx.paymentMethod === 'moov_money' ? 'Moov Money'
                             : tx.paymentMethod === 'djamo' ? 'Djamo'
                             : 'Carte Bancaire'}
@@ -624,8 +640,20 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <span className="tnum">{formatFCFA(drawerState.cashSales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>MOBILE MONEY:</span>
-                  <span className="tnum">{formatFCFA(drawerState.mobileMoneySales)}</span>
+                  <span>WAVE:</span>
+                  <span className="tnum">{formatFCFA(channelSales.wave)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>ORANGE MONEY:</span>
+                  <span className="tnum">{formatFCFA(channelSales.orangeMoney)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>MTN MONEY:</span>
+                  <span className="tnum">{formatFCFA(channelSales.mtnMoney)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>MOOV MONEY:</span>
+                  <span className="tnum">{formatFCFA(channelSales.moovMoney)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>CARTES BANCAIRES:</span>

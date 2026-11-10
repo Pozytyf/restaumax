@@ -2,6 +2,7 @@ import {
   adminDb,
   getServerHealth,
   handleCustomerLoyaltyAdjustmentRequest,
+  handleCustomerCashPreferenceRequest,
   handleCustomerPayDunyaInvoiceRequest,
   handleCustomerPayDunyaReconcileRequest,
   handleGetTableSession,
@@ -109,6 +110,10 @@ export default async function handler(req: any, res: any) {
     }
     case 'table-session': {
       const result = await handleGetTableSession(req);
+      return res.status(result.statusCode).json(result.body);
+    }
+    case 'customer-cash-preference': {
+      const result = await handleCustomerCashPreferenceRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);
     }
     case 'customer-paydunya': {
