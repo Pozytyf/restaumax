@@ -20,6 +20,7 @@ interface OrderConfirmationModalProps {
   onClose: () => void;
   onNewOrder: () => void;
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
+  onSelectCashPayment?: (order: RestauOrder) => Promise<{ success: boolean; error?: string }>;
 }
 
 export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
@@ -27,14 +28,22 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   restaurantName,
   onClose,
   onNewOrder,
-  onStartPayDunyaPayment
+  onStartPayDunyaPayment,
+  onSelectCashPayment
 }) => {
   const [selectedChannel, setSelectedChannel] = useState<'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci'>('wave-ci');
   const [isStartingPayment, setIsStartingPayment] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [isSelectingCash, setIsSelectingCash] = useState(false);
+  const [cashPreferenceSaved, setCashPreferenceSaved] = useState(false);
+  const [cashPreferenceError, setCashPreferenceError] = useState<string | null>(null);
   useEffect(() => {
-    if (order) setPaymentAmount(String(Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))))));
-  }, [order?.id, order?.remainingAmount, order?.paidAmount, order?.totalAmount]);
+    if (order) {
+      setPaymentAmount(String(Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))))));
+      setCashPreferenceSaved(order.paymentPreference === 'especes');
+      setCashPreferenceError(null);
+    }
+  }, [order?.id, order?.remainingAmount, order?.paidAmount, order?.totalAmount, order?.paymentPreference]);
   if (!order) return null;
   const remainingDue = Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))));
   const requestedPaymentAmount = Number(paymentAmount);
@@ -217,6 +226,42 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                 className="w-full rounded-xl bg-[#101d2d] px-4 py-3 text-xs font-black text-white disabled:opacity-50">
                 {isStartingPayment ? 'Préparation du paiement…' : `Payer ${formatFCFA(requestedPaymentAmount)} avec PayDunya`}
               </button>
+            </div>
+          )}
+
+          {order.orderMode === 'sur_place' && onSelectCashPayment && remainingDue > 0 && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 space-y-3">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wide text-emerald-950">Régler en espèces</h3>
+                <p className="mt-1 text-[11px] leading-relaxed text-emerald-900">
+                  Vous pouvez régler directement auprès du serveur ou du caissier. Ce règlement est enregistré dans la caisse RestauMax après réception effective des espèces. Il ne passe jamais par PayDunya.
+                </p>
+              </div>
+              {cashPreferenceSaved ? (
+                <div role="status" className="rounded-xl border border-emerald-300 bg-white p-3 text-xs font-bold text-emerald-900">
+                  <CheckCircle2 size={15} className="inline mr-1.5" />
+                  Choix espèces enregistré. Solde à régler au personnel : {formatFCFA(remainingDue)}.
+                </div>
+              ) : (
+                <button type="button" disabled={isSelectingCash || isStartingPayment}
+                  onClick={async () => {
+                    setIsSelectingCash(true);
+                    setCashPreferenceError(null);
+                    try {
+                      const result = await onSelectCashPayment(order);
+                      if (result.success) setCashPreferenceSaved(true);
+                      else setCashPreferenceError(result.error || 'Le choix espèces n’a pas pu être enregistré.');
+                    } catch (error: any) {
+                      setCashPreferenceError(error?.message || 'Erreur réseau lors du choix espèces.');
+                    } finally {
+                      setIsSelectingCash(false);
+                    }
+                  }}
+                  className="w-full rounded-xl bg-emerald-700 px-4 py-3 text-xs font-black text-white disabled:opacity-50">
+                  {isSelectingCash ? 'Enregistrement du choix…' : 'Choisir le règlement en espèces'}
+                </button>
+              )}
+              {cashPreferenceError && <p role="alert" className="text-[11px] font-semibold text-rose-700">{cashPreferenceError}</p>}
             </div>
           )}
 
