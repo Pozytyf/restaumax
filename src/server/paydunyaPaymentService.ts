@@ -175,7 +175,7 @@ export async function startPayDunyaOrderPaymentWithDb(
       }
       const authorized = (member.role === 'owner' && ownerUid === actorUid) ||
         (['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
-      if (!authorized) return { ok: false, error: 'Votre rôle ne permet pas de créer un paiement.' };
+      if (!authorized) return { ok: false, error: 'Votre rôle ne permet pas de créer un paiement : la permission cash.manage est requise.' };
       actorRole = member.role;
     }
     if (Number(order.splitGuests || 1) > 1 ||
