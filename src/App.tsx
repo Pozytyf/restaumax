@@ -572,13 +572,8 @@ export default function App() {
 
     let active = true;
     let paymentRefreshInFlight = false;
-    setTransactions([]);
-    setDrawerState({
-      openingBalance: 0, currentCash: 0, cashSales: 0,
-      mobileMoneySales: 0, cardSales: 0, discountsTotal: 0, transactionCount: 0,
-      totalSales: 0
-    });
-    setCashSessionLoading(true);
+    // Keep the last rendered snapshot visible while refreshing. Never blank the cashier panel.
+    setCashSessionLoading((previous) => cashSession === null ? true : previous);
     getCashSessionWithServerValidation(activeRestaurantSlug).then((result) => {
       if (!active) return;
       if (result.success) {
@@ -654,7 +649,7 @@ export default function App() {
       active = false;
       window.clearInterval(paymentRefreshInterval);
     };
-  }, [authUser, activeRestaurantSlug, isRestaurantOwner, authRestaurantRole, userPermissions]);
+  }, [authUser?.uid, activeRestaurantSlug, isRestaurantOwner, authRestaurantRole, canViewCash]);
 
   const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const res = await signInManager(email, pass);
