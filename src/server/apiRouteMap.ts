@@ -13,6 +13,7 @@ export const RESTAUMAX_API_ROUTES = [
   { id: 'reports', path: 'reports', methods: ['GET'] },
   { id: 'restaurant-service', path: 'restaurant-service', methods: ['POST'] },
   { id: 'table-session', path: 'table-session', methods: ['GET'] },
+  { id: 'customer-cash-preference', path: 'payments/customer-cash-preference', methods: ['POST'] },
   { id: 'customer-paydunya', path: 'payments/customer-paydunya', methods: ['POST'] },
   { id: 'customer-paydunya-reconcile', path: 'payments/customer-paydunya-reconcile', methods: ['POST'] },
   { id: 'paydunya-callback', path: 'payments/paydunya-callback', methods: ['POST'] },
