@@ -21,9 +21,9 @@ function collectApiFiles(directory, prefix = '') {
 collectApiFiles(apiRoot);
 assert.deepEqual(apiFiles.sort(), ['index.ts'], 'Hobby doit compiler un seul point d’entrée de fonction Vercel.');
 
-assert.equal(RESTAUMAX_API_ROUTES.length, 21, 'Les 21 points d’entrée actifs doivent être conservés.');
-assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.path)).size, 21, 'Chaque chemin doit être unique.');
-assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.id)).size, 21, 'Chaque identifiant doit être unique.');
+assert.equal(RESTAUMAX_API_ROUTES.length, 22, 'Les 22 points d’entrée actifs doivent être conservés.');
+assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.path)).size, 22, 'Chaque chemin doit être unique.');
+assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.id)).size, 22, 'Chaque identifiant doit être unique.');
 
 const expectedMethods = {
   health: ['GET'],
@@ -40,6 +40,7 @@ const expectedMethods = {
   reports: ['GET'],
   'restaurant-service': ['POST'],
   'table-session': ['GET'],
+  'customer-cash-preference': ['POST'],
   'customer-paydunya': ['POST'],
   'customer-paydunya-reconcile': ['POST'],
   'paydunya-callback': ['POST'],
