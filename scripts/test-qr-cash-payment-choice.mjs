@@ -59,4 +59,10 @@ assert(managerView.includes('formatFCFA(channelSales.mtnMoney)'), 'Le journal af
 assert(managerView.includes('formatFCFA(channelSales.moovMoney)'), 'Le journal affiche le montant Moov Money en FCFA.');
 assert(modal.includes('|| cashPreferenceSaved'), 'Le client ne peut pas lancer PayDunya après avoir confirmé son choix espèces.');
 
+
+assert(app.includes('const cashScopeChanged = cashSnapshotScopeRef.current !== nextCashScope;'), 'Le chargement bloquant du panneau ne se déclenche que lors d’un changement de restaurant ou d’utilisateur.');
+assert(app.includes('if (cashScopeChanged) {') && app.includes('setCashSessionLoading(true);'), 'Le panneau conserve ses cartes pendant les actualisations ordinaires.');
+assert(app.includes('JSON.stringify(previous) === JSON.stringify(result.session)'), 'Une session identique ne remplace pas l’objet déjà affiché.');
+assert(managerView.includes('void onCloseCashSession(amount).then(() => loadClosedSessions())'), 'La clôture actualise immédiatement l’historique sans recharger les cartes actives.');
+
 console.log('Tests QR, caisse, demandes espèces et montants par canal : 39 assertions réussies.');
