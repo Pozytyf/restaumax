@@ -198,7 +198,7 @@ export const PosView: React.FC<PosViewProps> = ({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[11px] font-black text-slate-900">{order.orderNumber}</span>
-                      <span className="text-[9px] font-bold uppercase text-amber-800">{order.paymentStatus === 'partial' ? 'Partiel' : 'À régler'}</span>
+                      <span className="text-[9px] font-bold uppercase text-amber-800">{order.paymentPreference === 'especes' ? 'Espèces demandées' : order.paymentStatus === 'partial' ? 'Partiel' : 'À régler'}</span>
                     </div>
                     <div className="text-[10px] text-slate-500 mt-0.5">{order.tableNumber ? `Table ${order.tableNumber}` : 'À emporter'}</div>
                     <div className="text-xs font-black text-[#ff6500] tnum mt-1">{formatFCFA(remaining)}</div>
