@@ -555,8 +555,12 @@ export default function App() {
   }, [authUser, authRestaurantRole, activeRestaurantSlug, isRestaurantOwner, userPermissions]);
 
 
+  const canViewCashForCashPanel = isRestaurantOwner || authRestaurantRole === 'manager' ||
+    userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') ||
+    userPermissions.includes('reports.cash.view');
+
   useEffect(() => {
-    const canViewCash = isRestaurantOwner || authRestaurantRole === 'manager' ||
+    const canViewCash = canViewCashForCashPanel;
       userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') ||
       userPermissions.includes('reports.cash.view');
     if (!authUser || !canViewCash) {
@@ -573,7 +577,7 @@ export default function App() {
     let active = true;
     let paymentRefreshInFlight = false;
     // Keep the last rendered snapshot visible while refreshing. Never blank the cashier panel.
-    setCashSessionLoading((previous) => cashSession === null ? true : previous);
+    setCashSessionLoading(true);
     getCashSessionWithServerValidation(activeRestaurantSlug).then((result) => {
       if (!active) return;
       if (result.success) {
@@ -649,7 +653,7 @@ export default function App() {
       active = false;
       window.clearInterval(paymentRefreshInterval);
     };
-  }, [authUser?.uid, activeRestaurantSlug, isRestaurantOwner, authRestaurantRole, canViewCash]);
+  }, [authUser?.uid, activeRestaurantSlug, isRestaurantOwner, authRestaurantRole, canViewCashForCashPanel]);
 
   const handleManagerLogin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     const res = await signInManager(email, pass);
