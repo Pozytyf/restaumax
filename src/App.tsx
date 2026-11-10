@@ -674,15 +674,21 @@ export default function App() {
     return Boolean(saved?.isUncertain);
   });
 
-  // Synchronisation automatique de l'intention de commande avec sessionStorage
+  // Synchronisation automatique de l'intention client. Keep the original
+  // customer details when the same idempotency key is being reconciled after reload.
   useEffect(() => {
     if (clientCart.length > 0) {
+      const storedIntent = loadPendingOrderIntent(activeRestaurantSlug);
+      const sameIntent = storedIntent?.idempotencyKey === clientOrderIdempotencyKey;
       savePendingOrderIntent({
         restaurantSlug: activeRestaurantSlug,
         orderMode: activeTableNumber ? 'sur_place' : 'a_emporter',
         tableNumber: activeTableNumber,
         cart: clientCart,
         idempotencyKey: clientOrderIdempotencyKey,
+        customerNote: sameIntent ? storedIntent.customerNote : undefined,
+        customerName: sameIntent ? storedIntent.customerName : undefined,
+        customerPhone: sameIntent ? storedIntent.customerPhone : undefined,
         timestamp: Date.now(),
         isUncertain: isOrderUncertain
       });
@@ -859,20 +865,33 @@ export default function App() {
     if (tableSessionExpected && !tableSession) {
       return { success: false, error: 'La session de cette table est indisponible ou a été révoquée. Scannez à nouveau le QR code physique.' };
     }
+
+    const savedIntent = loadPendingOrderIntent(activeRestaurantSlug);
+    const samePendingKey = savedIntent?.idempotencyKey === clientOrderIdempotencyKey;
+    const retryingUncertainIntent = Boolean(
+      samePendingKey && (isOrderUncertain || savedIntent?.isUncertain)
+    );
+    // Reuse every signed field from the original intent after a reload. Changing
+    // a note/name/phone while reusing the key would correctly trigger a conflict.
+    const effectiveCustomerNote = retryingUncertainIntent ? savedIntent?.customerNote : customerNote;
+    const effectiveCustomer = retryingUncertainIntent
+      ? { name: savedIntent?.customerName, phone: savedIntent?.customerPhone }
+      : customer;
     const orderMode = tableSession ? 'sur_place' : 'a_emporter';
-    
-    // Sauvegarder l'intention client complète dans sessionStorage AVANT la soumission
+
+    // Persist the full intent before submission. During reconciliation, keep its
+    // uncertain marker set so a refresh cannot unlock the cart mid-verification.
     savePendingOrderIntent({
       restaurantSlug: activeRestaurantSlug,
       orderMode,
       tableNumber: tableSession?.tableNumber || null,
       cart: clientCart,
       idempotencyKey: clientOrderIdempotencyKey,
-      customerNote,
-      customerName: customer?.name,
-      customerPhone: customer?.phone,
+      customerNote: effectiveCustomerNote,
+      customerName: effectiveCustomer?.name,
+      customerPhone: effectiveCustomer?.phone,
       timestamp: Date.now(),
-      isUncertain: false
+      isUncertain: retryingUncertainIntent
     });
 
     const clientSubtotal = clientCart.reduce(
@@ -890,9 +909,9 @@ export default function App() {
       orderMode,
       tableNumber: tableSession?.tableNumber || null,
       csrfToken: tableSession?.csrfToken,
-      customerNote,
-      customerName: customer?.name,
-      customerPhone: customer?.phone,
+      customerNote: effectiveCustomerNote,
+      customerName: effectiveCustomer?.name,
+      customerPhone: effectiveCustomer?.phone,
       idempotencyKey: clientOrderIdempotencyKey,
       allowedTables: restauTables.length > 0 ? restauTables : undefined,
       declaredTotal: clientDeclaredTotal,
@@ -901,31 +920,36 @@ export default function App() {
 
     if (!submitRes.success) {
       if (submitRes.conflict) {
-        // Conflit d'intégrité d'idempotence (Cas D) : vider l'intention et régénérer la clé pour une nouvelle intention propre
-        clearPendingOrderIntent();
-        setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
-        setIsOrderUncertain(false);
-        return { 
-          success: false, 
-          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Veuillez soumettre à nouveau." 
+        // Never discard a key/cart after a conflict: it may refer to an earlier
+        // attempt with a different signed payload. Keep the intent locked for review.
+        setIsOrderUncertain(true);
+        updatePendingOrderIntentUncertainty(true);
+        return {
+          success: false,
+          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Ne recommencez pas avec une nouvelle clé ; demandez une vérification au personnel."
         };
       }
 
-      // Échec serveur / réseau : état incertain, panier verrouillé, conservation stricte de la même clé et du panier dans sessionStorage
-      setIsOrderUncertain(true);
-      updatePendingOrderIntentUncertainty(true);
+      if (submitRes.outcomeUnknown === true) {
+        // The request may have committed. Only the same key and exact payload
+        // can safely reconcile it without creating a duplicate.
+        setIsOrderUncertain(true);
+        updatePendingOrderIntentUncertainty(true);
+      } else {
+        // Definitive preflight/server rejection: no order was committed.
+        // Preserve the cart and key, but allow a correction or safe retry.
+        setIsOrderUncertain(false);
+        updatePendingOrderIntentUncertainty(false);
+      }
       return { success: false, error: submitRes.error };
     }
 
     const confirmedOrder = submitRes.order;
-    // Succès confirmé (écriture Firestore confirmée) : nettoyage strict de l'intention persistée
+    // A confirmed write or idempotent replay is the only path that clears intent.
     clearPendingOrderIntent();
     setIsOrderUncertain(false);
-
-    // Renouvellement de la clé d'idempotence pour la prochaine intention de commande
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
 
-    // Add to internal staff KDS tickets with deterministic ID matching Firestore order
     const newKitchenTicket: KitchenTicket = {
       id: `ord-${confirmedOrder.id}`,
       ticketNumber: confirmedOrder.orderNumber,
@@ -948,13 +972,10 @@ export default function App() {
       return [newKitchenTicket, ...prev];
     });
     setRestauOrders(previous => [confirmedOrder, ...previous.filter(order => order.id !== confirmedOrder.id)]);
-
-    // Clear client cart strictly only upon confirmed write
     setClientCart([]);
 
     return { success: true, order: confirmedOrder, isReplay: submitRes.idempotentReplay };
   };
-
   const handleSaveTable = async (table: RestaurantTable): Promise<void> => {
     // Ne confirmer la création dans l'interface qu'après l'écriture Firestore.
     // En cas de refus (droits, restaurant inactif ou réseau), l'erreur remonte au formulaire.
