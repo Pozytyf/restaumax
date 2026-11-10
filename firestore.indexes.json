@@ -13,6 +13,26 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "table_qr_tokens",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "tokenHash",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "table_sessions",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "sessionHash",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []
