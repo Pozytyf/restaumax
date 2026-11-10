@@ -228,7 +228,7 @@ export async function createCustomerWithDb(db: any, input: CreateCustomerInput) 
   const actorUid = String(input.actorUid || '').trim();
   const now = Number(input.now || Date.now());
   if (!db || !/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || name.length < 2 || !phoneNormalized ||
-      (email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) || !actorUid || !Number.isSafeInteger(now)) {
+      (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) || !actorUid || !Number.isSafeInteger(now)) {
     return { success: false, error: 'Les informations du client sont invalides.' };
   }
   const restaurantRef = db.collection('restaurants').doc(slug);

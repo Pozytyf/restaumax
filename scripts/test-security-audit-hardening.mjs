@@ -113,7 +113,7 @@ assert(restaurantRules.includes('isPublicRestaurant(resource.data)'),
 const customerRuleStart = rules.indexOf('match /customers/{customerId}');
 const customerRuleEnd = rules.indexOf('\n      }', customerRuleStart);
 const customerRules = rules.slice(customerRuleStart, customerRuleEnd);
-assert(customerRules.includes("hasOnly(['name', 'phone', 'email', 'notes', 'updatedAt'])") &&
-  !customerRules.includes("incoming().loyaltyPoints is number"), 'loyalty points cannot be changed directly by a client SDK');
+assert(customerRules.includes('allow create: if false;') &&
+  !customerRules.includes("incoming().loyaltyPoints is number"), 'customer creation and loyalty point writes are server-only');
 
 console.log('RestauMax security audit hardening checks passed.');
