@@ -298,13 +298,8 @@ service cloud.firestore {
       // Customer directory: private to authorized restaurant staff.
       match /customers/{customerId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'customers.view') || hasRestaurantPermission(restaurantSlug, 'customers.manage');
-        allow create: if hasRestaurantPermission(restaurantSlug, 'customers.manage')
-          && isValidId(customerId)
-          && incoming().keys().hasOnly(['name', 'phone', 'phoneNormalized', 'email', 'notes', 'loyaltyPoints', 'createdAt', 'updatedAt'])
-          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
-          && incoming().phone is string && incoming().phone.size() > 0 && incoming().phone.size() <= 40
-          && incoming().phoneNormalized is string && incoming().phoneNormalized.matches('^[0-9]{10}$')
-          && incoming().get('loyaltyPoints', 0) == 0;
+        // Customer creation is server-only so normalized phone uniqueness is transactional.
+        allow create: if false;
         allow update: if hasRestaurantPermission(restaurantSlug, 'customers.manage')
           && isValidId(customerId)
           && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'notes', 'updatedAt'])

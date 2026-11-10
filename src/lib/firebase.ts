@@ -1492,3 +1492,26 @@ export async function deleteTable(
   }
 }
 
+
+
+export async function createCustomerWithServerValidation(
+  restaurantSlug: string,
+  input: { name: string; phone: string; email?: string; notes?: string }
+): Promise<{ success: true; customerId: string; loyaltyPoints: number; alreadyExisted?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/customers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin', cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, ...input })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Création de la fiche client refusée.', conflict: response.status === 409 };
+    return data;
+  } catch (error: any) {
+    console.error('Erreur appel /api/customers:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant la création du client.' };
+  }
+}

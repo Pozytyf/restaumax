@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  addDoc, collection, deleteDoc, doc, getDocs, limit, onSnapshot, orderBy, query, where
+  collection, deleteDoc, doc, getDocs, limit, onSnapshot, orderBy, query, where
 } from 'firebase/firestore';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings, AlertTriangle } from 'lucide-react';
-import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation, adjustCustomerLoyaltyPointsWithServerValidation } from '../../lib/firebase';
+import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation, adjustCustomerLoyaltyPointsWithServerValidation, createCustomerWithServerValidation } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { InventoryRecipePanel } from './InventoryRecipePanel';
@@ -157,19 +157,16 @@ export const RestaurantAdminModuleView: React.FC<{
       setLoading(false); return;
     }
     try {
-      const duplicate = await getDocs(query(
-        collection(db, 'restaurants', restaurant.slug, 'customers'),
-        where('phoneNormalized', '==', phoneNormalized), limit(1)
-      ));
-      if (!duplicate.empty) {
-        setError('Un client utilise déjà ce numéro de téléphone dans ce restaurant.');
-        setLoading(false); return;
-      }
-      await addDoc(collection(db, 'restaurants', restaurant.slug, 'customers'), {
-        ...customerForm, name: customerForm.name.trim(), phone: customerForm.phone.trim(), phoneNormalized,
-        email: customerForm.email.trim(), loyaltyPoints: 0, createdAt: Date.now(), updatedAt: Date.now()
+      const result = await createCustomerWithServerValidation(restaurant.slug, {
+        name: customerForm.name.trim(), phone: customerForm.phone.trim(),
+        email: customerForm.email.trim(), notes: customerForm.notes.trim()
       });
-      setCustomerForm({ name: '', phone: '', email: '', notes: '' }); setNotice('Client enregistré.');
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      setCustomerForm({ name: '', phone: '', email: '', notes: '' });
+      setNotice(result.alreadyExisted ? 'Fiche fidélité existante complétée.' : 'Client enregistré.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Impossible d’enregistrer le client.'); }
     finally { setLoading(false); }
   };

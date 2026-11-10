@@ -85,6 +85,8 @@ assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
   'QR administration entry points are restricted to members with tables.manage');
 
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+assert(firestoreRules.includes('allow create: if false;') && firestoreRules.includes('Customer creation is server-only'),
+  'customer creation is restricted to the transactional server endpoint');
 const managerRule = firestoreRules.match(/role == 'manager' && permission in \[([\s\S]*?)\]\)/)?.[1] || '';
 assert(managerRule.includes("'orders.cancel'") && managerRule.includes("'payments.refund'"), 'Firestore manager ceiling includes cancellation and refund permissions');
 assert(adminSource.includes('user.email_verified === true') && adminSource.includes('configuredSuperAdmins()'), 'platform super-admin requires a verified allowlisted email');

@@ -36,7 +36,7 @@
     "test:reports": "tsx scripts/test-financial-report.mjs",
     "test:subscription-billing-emulator": "tsx scripts/test-subscription-billing-emulator.mjs",
     "test:loyalty-refund-emulator": "tsx scripts/test-loyalty-refund-emulator.mjs",
-    "test:customer-loyalty": "tsx scripts/test-customer-loyalty-emulator.mjs",
+    "test:customer-loyalty": "tsx scripts/test-customer-loyalty-emulator.mjs && tsx scripts/test-customer-create-transaction.mjs",
     "test:loyalty-tax-base-emulator": "tsx scripts/test-loyalty-tax-base-emulator.mjs",
     "test:financial-report-emulator": "tsx scripts/test-financial-report-emulator.mjs",
     "test:vercel-api-router": "tsx scripts/test-vercel-api-router.mjs",
