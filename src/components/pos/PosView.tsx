@@ -182,26 +182,38 @@ export const PosView: React.FC<PosViewProps> = ({
         {unpaidOrders.length > 0 && (
           <div className="shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-2.5">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[11px] font-black uppercase tracking-wide text-amber-900">Commandes à solder</span>
+              <span className="text-[11px] font-black uppercase tracking-wide text-amber-900">Règlements en attente</span>
               <span className="text-[10px] font-bold text-amber-800 bg-amber-100 rounded-full px-2 py-0.5">{unpaidOrders.length}</span>
-              <span className="text-[10px] text-amber-800">Reprenez un encaissement en attente</span>
+              <span className="text-[10px] text-amber-800">Sélectionnez une commande pour ouvrir son encaissement.</span>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
               {unpaidOrders.map((order) => {
                 const remaining = Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))));
+                const cashRequested = order.paymentPreference === 'especes';
                 return (
                   <button
                     key={order.id}
                     type="button"
                     onClick={() => onCollectOrder(order)}
-                    className="shrink-0 min-w-[170px] rounded-lg border border-amber-200 bg-white px-3 py-2 text-left hover:border-amber-400 hover:shadow-sm transition-all"
+                    aria-label={cashRequested
+                      ? `Ouvrir l'encaissement en espèces de la commande ${order.orderNumber}, montant ${formatFCFA(remaining)}`
+                      : `Ouvrir l'encaissement de la commande ${order.orderNumber}, montant ${formatFCFA(remaining)}`}
+                    className={`shrink-0 min-w-[190px] rounded-lg border px-3 py-2 text-left transition-all hover:shadow-sm ${cashRequested
+                      ? 'border-amber-400 bg-amber-100/70 hover:border-amber-500'
+                      : 'border-amber-200 bg-white hover:border-amber-400'}`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[11px] font-black text-slate-900">{order.orderNumber}</span>
-                      <span className="text-[9px] font-bold uppercase text-amber-800">{order.paymentPreference === 'especes' ? 'Espèces demandées' : order.paymentStatus === 'partial' ? 'Partiel' : 'À régler'}</span>
+                      <span className={`text-[9px] font-bold uppercase ${cashRequested ? 'text-amber-900' : 'text-slate-600'}`}>
+                        {cashRequested ? 'Espèces à encaisser' : order.paymentStatus === 'partial' ? 'Paiement partiel' : 'À régler'}
+                      </span>
                     </div>
-                    <div className="text-[10px] text-slate-500 mt-0.5">{order.tableNumber ? `Table ${order.tableNumber}` : 'À emporter'}</div>
-                    <div className="text-xs font-black text-[#ff6500] tnum mt-1">{formatFCFA(remaining)}</div>
+                    <div className="text-[10px] text-slate-600 mt-0.5">{order.tableNumber ? `Table ${order.tableNumber}` : 'À emporter'}</div>
+                    <div className="mt-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                      {cashRequested ? 'Montant à recevoir en espèces' : 'Reste à encaisser'}
+                    </div>
+                    <div className="text-sm font-black text-[#ff6500] tnum">{formatFCFA(remaining)}</div>
+                    <div className="mt-1 text-[9px] font-bold text-amber-800">Ouvrir l’encaissement →</div>
                   </button>
                 );
               })}
