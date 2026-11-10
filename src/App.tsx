@@ -604,7 +604,9 @@ export default function App() {
           if (active && !result.success) console.warn('Journal de caisse indisponible:', result.error);
           return;
         }
-        const records = result.payments.map(mapCashPaymentRecord);
+        const records = result.payments.map(mapCashPaymentRecord).sort((left, right) =>
+          right.timestamp.getTime() - left.timestamp.getTime() || left.id.localeCompare(right.id)
+        );
         const totalSales = records.reduce((sum, record) => sum + record.paidAmount, 0);
         const cashSales = records.filter((record) => record.paymentMethod === 'especes')
           .reduce((sum, record) => sum + record.paidAmount, 0);
