@@ -975,6 +975,29 @@ export async function createPayDunyaPaymentWithServerValidation(
   }
 }
 
+export async function selectCustomerCashPaymentWithServerValidation(
+  restaurantSlug: string,
+  orderId: string,
+  csrfToken: string
+): Promise<{ success: true; remainingAmount: number } | { success: false; error: string }> {
+  try {
+    const response = await fetch('/api/payments/customer-cash-preference', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-RM-CSRF-Token': csrfToken },
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, orderId, csrfToken })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success || data.paymentPreference !== 'especes') {
+      return { success: false, error: data.error || 'Le choix du règlement en espèces n’a pas pu être enregistré.' };
+    }
+    return { success: true, remainingAmount: Number(data.remainingAmount || 0) };
+  } catch (error: any) {
+    return { success: false, error: error?.message || 'Erreur réseau lors de l’enregistrement du choix espèces.' };
+  }
+}
+
 export async function createCustomerPayDunyaPaymentWithServerValidation(
   restaurantSlug: string,
   orderId: string,
