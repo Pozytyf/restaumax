@@ -1017,8 +1017,18 @@ export async function handleGetTableSession(req: any) {
         expiresAt: session.expiresAt
       }
     };
-  } catch {
-    return { statusCode: 401, body: { success: false, error: 'Session de table invalide.' } };
+  } catch (error: any) {
+    // A Firestore/index/network failure is an infrastructure outage, not proof
+    // that the visitor's session is invalid. Keep the client fail-closed while
+    // preserving the real diagnostic in server logs (never log cookie values).
+    console.error('[RestauMax table session] Session lookup failed:', {
+      code: String(error?.code || 'unknown'),
+      message: String(error?.message || 'Erreur inconnue').slice(0, 240)
+    });
+    return {
+      statusCode: 503,
+      body: { success: false, error: 'Service de session temporairement indisponible. Réessayez dans quelques instants.' }
+    };
   }
 }
 
