@@ -10,6 +10,7 @@ const modal = read('../src/components/restaumax/OrderConfirmationModal.tsx');
 const paydunya = read('../src/server/paydunyaPaymentService.ts');
 const types = read('../src/types/restaumax.ts');
 const pos = read('../src/components/pos/PosView.tsx');
+const managerView = read('../src/components/manager/ManagerView.tsx');
 
 const handlerStart = server.indexOf('export async function handleCustomerCashPreferenceRequest');
 const handlerEnd = server.indexOf('export async function handleCustomerPayDunyaInvoiceRequest', handlerStart);
@@ -44,7 +45,18 @@ assert(modal.includes('ne passe jamais par PayDunya'), 'Le client est informé q
 assert(modal.includes('après réception effective des espèces'), 'La caisse n’enregistre les espèces qu’après réception effective.');
 assert(paydunya.includes("if (order.paymentPreference === 'especes')"), 'PayDunya refuse les commandes affectées aux espèces.');
 assert(types.includes("paymentPreference?: 'especes' | 'mobile_money'"), 'Le type de commande expose la préférence de règlement.');
-assert(pos.includes("order.paymentPreference === 'especes' ? 'Espèces demandées'"), 'La caisse identifie les commandes dont le client a choisi les espèces.');
+assert(pos.includes("const cashRequested = order.paymentPreference === 'especes'"), 'La caisse identifie les demandes espèces QR en attente.');
+assert(pos.includes('Montant à recevoir en espèces'), 'La caisse affiche explicitement le montant restant à recevoir en espèces.');
+assert(pos.includes('Ouvrir l’encaissement'), 'La demande QR espèces ouvre le parcours de confirmation en caisse.');
+assert(managerView.includes("transactions.filter((tx) => tx.paymentMethod === 'wave')"), 'Le journal calcule séparément les encaissements Wave.');
+assert(managerView.includes("transactions.filter((tx) => tx.paymentMethod === 'orange_money')"), 'Le journal calcule séparément les encaissements Orange Money.');
+assert(managerView.includes("transactions.filter((tx) => tx.paymentMethod === 'mtn_money')"), 'Le journal calcule séparément les encaissements MTN Money.');
+assert(managerView.includes("transactions.filter((tx) => tx.paymentMethod === 'moov_money')"), 'Le journal calcule séparément les encaissements Moov Money.');
+assert(managerView.includes('formatFCFA(channelSales.cash)'), 'Le journal affiche le montant des espèces en FCFA.');
+assert(managerView.includes('formatFCFA(channelSales.wave)'), 'Le journal affiche le montant Wave en FCFA.');
+assert(managerView.includes('formatFCFA(channelSales.orangeMoney)'), 'Le journal affiche le montant Orange Money en FCFA.');
+assert(managerView.includes('formatFCFA(channelSales.mtnMoney)'), 'Le journal affiche le montant MTN Money en FCFA.');
+assert(managerView.includes('formatFCFA(channelSales.moovMoney)'), 'Le journal affiche le montant Moov Money en FCFA.');
 assert(modal.includes('|| cashPreferenceSaved'), 'Le client ne peut pas lancer PayDunya après avoir confirmé son choix espèces.');
 
-console.log('Tests QR, caisse et actualisation du journal / séparation PayDunya : 26 assertions réussies.');
+console.log('Tests QR, caisse, demandes espèces et montants par canal : 36 assertions réussies.');
