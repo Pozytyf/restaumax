@@ -59,4 +59,4 @@ assert(managerView.includes('formatFCFA(channelSales.mtnMoney)'), 'Le journal af
 assert(managerView.includes('formatFCFA(channelSales.moovMoney)'), 'Le journal affiche le montant Moov Money en FCFA.');
 assert(modal.includes('|| cashPreferenceSaved'), 'Le client ne peut pas lancer PayDunya après avoir confirmé son choix espèces.');
 
-console.log('Tests QR, caisse, demandes espèces et montants par canal : 36 assertions réussies.');
+console.log('Tests QR, caisse, demandes espèces et montants par canal : 39 assertions réussies.');
