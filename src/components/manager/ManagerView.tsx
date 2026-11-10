@@ -158,7 +158,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             {cashSession && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Session ouverte</span>}
           </div>
 
-          {cashSessionLoading ? (
+          {cashSessionLoading && !cashSession ? (
             <p className="mt-4 text-sm text-slate-500">Chargement de la session de caisse…</p>
           ) : cashSession ? (
             <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr]">
@@ -459,15 +459,15 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <div className="mt-5">
               <div className="h-3 w-full rounded-full bg-slate-200 overflow-hidden flex">
                 <div 
-                  className="bg-amber-500 h-full transition-all" 
+                  className="bg-amber-500 h-full" 
                   style={{ width: `${drawerState.totalSales > 0 ? (drawerState.cashSales / drawerState.totalSales) * 100 : 30}%` }} 
                 />
                 <div 
-                  className="bg-[#1ba8f0] h-full transition-all" 
+                  className="bg-[#1ba8f0] h-full" 
                   style={{ width: `${drawerState.totalSales > 0 ? (drawerState.mobileMoneySales / drawerState.totalSales) * 100 : 50}%` }} 
                 />
                 <div 
-                  className="bg-emerald-500 h-full transition-all" 
+                  className="bg-emerald-500 h-full" 
                   style={{ width: `${drawerState.totalSales > 0 ? (drawerState.cardSales / drawerState.totalSales) * 100 : 20}%` }} 
                 />
               </div>
