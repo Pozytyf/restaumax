@@ -1017,8 +1017,16 @@ export async function handleGetTableSession(req: any) {
         expiresAt: session.expiresAt
       }
     };
-  } catch {
-    return { statusCode: 401, body: { success: false, error: 'Session de table invalide.' } };
+  } catch (error: any) {
+    const failure = classifyTableSessionLookupError(error);
+    console.warn('[RestauMax table session] Échec de vérification Firestore.', {
+      firestoreCode: failure.diagnosticCode,
+      reason: failure.diagnosticMessage
+    });
+    return {
+      statusCode: failure.statusCode,
+      body: { success: false, error: failure.publicMessage }
+    };
   }
 }
 
