@@ -25,7 +25,7 @@
     "test:partial-mobile-money": "node scripts/test-partial-mobile-money-ui.mjs",
     "test:admin-navigation": "node scripts/test-admin-navigation.mjs",
     "test:auth-boundaries": "node scripts/test-auth-boundaries.mjs",
-    "test:kitchen": "tsx scripts/test-kitchen-item-service.mjs",
+    "test:kitchen": "tsx scripts/test-kitchen-item-service.mjs && tsx scripts/test-kds-station-accessibility.mjs",
     "test:inventory": "tsx scripts/test-inventory-service.mjs",
     "test:roles": "tsx scripts/test-role-authorization.mjs",
     "test:order-lifecycle": "tsx scripts/test-order-lifecycle-stock.mjs",

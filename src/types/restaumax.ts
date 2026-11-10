@@ -114,6 +114,8 @@ export interface RestauOrderItem {
   id: string;
   menuItemId: string;
   name: string;
+  /** Trusted catalogue category snapshot used by kitchen station routing. */
+  category?: string;
   basePrice: number;
   unitPrice: number;
   quantity: number;

@@ -58,7 +58,7 @@ import {
 import { formatFCFA } from './utils/format';
 import { getPosCartConfigurationKey, toClientCartItem } from './utils/posCart';
 import { sounds } from './utils/audio';
-import { mapRestauOrderToKitchenTicket } from './utils/kitchenTicket';
+import { mapRestauOrderToKitchenTicket, getKitchenCourseFromCategory, getKitchenStationFromCategory } from './utils/kitchenTicket';
 export { mapRestauOrderToKitchenTicket } from './utils/kitchenTicket';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -1045,7 +1045,8 @@ export default function App() {
         id: `ki-${confirmedOrder.id}-${idx}`,
         name: it.name,
         quantity: it.quantity,
-        course: 'plat',
+        course: getKitchenCourseFromCategory(it.category),
+        station: getKitchenStationFromCategory(it.category),
         notes: [it.selectedOption?.optionName, it.prepNotes].filter(Boolean).join(' · '),
         completed: false
       }))
@@ -1608,17 +1609,17 @@ export default function App() {
     );
   };
 
-  const handleUpdateTicketStatus = async (ticketId: string, status: TicketStatus) => {
+  const handleUpdateTicketStatus = async (ticketId: string, status: TicketStatus): Promise<boolean> => {
     const canManageOrders = isRestaurantOwner || userPermissions.includes('orders.manage');
     const canCancelOrders = canManageOrders || userPermissions.includes('orders.cancel');
     const canMarkServed = canManageOrders || userPermissions.includes('orders.serve');
     if (status === 'cancelled' && !canCancelOrders) {
       window.alert("Votre rôle ne permet pas d'annuler une commande.");
-      return;
+      return false;
     }
     if (status === 'served' && !canMarkServed) {
       window.alert("La remise au client doit être confirmée par un serveur ou un responsable autorisé.");
-      return;
+      return false;
     }
 
     // Persist Firestore order transitions before changing the visible KDS state.
@@ -1640,13 +1641,14 @@ export default function App() {
       } catch (err) {
         console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
         window.alert(err instanceof Error && err.message ? err.message : "La mise à jour a été refusée. Vérifiez les droits du compte et réessayez.");
-        return;
+        return false;
       }
     }
 
     setKitchenTickets((prev) =>
       prev.map((t) => (t.id === ticketId ? { ...t, status } : t))
     );
+    return true;
   };
 
   const handleSelectTableForOrder = (table: Table) => {

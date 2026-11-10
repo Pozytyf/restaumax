@@ -528,6 +528,7 @@ export async function processOrderSubmission(
       id: `line-${orderId}-${i}`,
       menuItemId: catalogItem.id,
       name: catalogItem.name,
+      category: catalogItem.category,
       basePrice: trustedBasePrice,
       unitPrice: trustedUnitPrice,
       quantity: qty,

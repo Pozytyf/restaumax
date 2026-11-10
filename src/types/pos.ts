@@ -58,6 +58,8 @@ export interface KitchenItem {
   name: string;
   quantity: number;
   course: 'entree' | 'plat' | 'dessert' | 'boisson';
+  /** Preparation station derived from the trusted menu category. */
+  station?: 'grillades' | 'plats' | 'bar';
   notes?: string;
   completed: boolean;
 }
