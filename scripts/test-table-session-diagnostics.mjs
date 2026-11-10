@@ -13,7 +13,7 @@ assert.match(handler, /statusCode: 401, body: \{ success: false, error: 'Session
   'Une absence/expiration/révocation réelle reste une réponse 401.');
 assert.match(handler, /catch \(error: any\)/,
   'Les exceptions d’infrastructure sont capturées avec leur diagnostic.');
-assert.match(handler, /console\\.error\\('\\[RestauMax table session\\] Session lookup failed:'/,
+assert.ok(handler.includes("console.error('[RestauMax table session] Session lookup failed:'"),
   'Le code et le message Firestore sont conservés dans les logs serveur.');
 assert.match(handler, /statusCode: 503,/,
   'Une panne Firestore/index renvoie 503 et non un faux 401.');
@@ -47,4 +47,4 @@ for (const override of [qrTokenOverride, tableSessionOverride]) {
   }
 }
 
-console.log('Tests diagnostic session QR et configuration des index : 11/11 réussis.');
+console.log('Tests diagnostic session QR et configuration des index : 16/16 réussis.');
