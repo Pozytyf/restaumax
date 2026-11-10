@@ -66,6 +66,7 @@ import { resolveTableQrOrigin } from './src/server/tableQrOrigin.ts';
 import { loadRestaurantPayDunyaConfig, saveRestaurantPayDunyaCredentials } from './src/server/paydunyaMerchantConfig.js';
 import { startPayDunyaOrderPaymentWithDb, processPayDunyaInvoiceCallbackWithDb, startPayDunyaRefundWithDb, processPayDunyaDisbursementCallbackWithDb, reconcilePayDunyaInvoiceIntentWithDb } from './src/server/paydunyaPaymentService.js';
 import {
+  classifyTableSessionLookupError,
   authorizeTableManager,
   buildCsrfCookie,
   buildSessionCookie,
