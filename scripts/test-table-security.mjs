@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import {
   issueTableQr, getActiveTableQr, resolveTableQr, getActiveTableSession, revokeTableQr,
   buildSessionCookie, buildCsrfCookie, readCookie, validateCsrf, requestHasValidOrigin, isTrustedQrNavigation,
-  authorizeTableManager, updateRestaurantServiceStatus
+  authorizeTableManager, updateRestaurantServiceStatus, classifyTableSessionLookupError
 } from '../src/server/tableSecurityService.ts';
 import { resolveTableQrOrigin } from '../src/server/tableQrOrigin.ts';
 
@@ -70,6 +70,36 @@ function createDb() {
 }
 async function run() {
   console.log('RESTAUMAX — TESTS SÉCURITÉ QR / SESSION');
+  const indexFailureDb = createDb();
+  indexFailureDb.collectionGroup = () => ({
+    where() {
+      return {
+        limit() {
+          return {
+            async get() {
+              const error = new Error('The query requires an index. You can create it here.');
+              error.code = 9;
+              throw error;
+            }
+          };
+        }
+      };
+    }
+  });
+  let indexFailurePropagated = false;
+  try { await getActiveTableSession(indexFailureDb, 'valid-session-secret'); }
+  catch (error) {
+    indexFailurePropagated = error?.code === 9;
+    const failure = classifyTableSessionLookupError(error);
+    assert(failure.statusCode === 503, 'Une erreur Firestore FAILED_PRECONDITION est diagnostiquée comme indisponibilité, pas comme session invalide');
+    assert(failure.diagnosticCode === '9' && failure.diagnosticMessage.includes('requires an index'),
+      'Le diagnostic conserve le code Firestore et le motif technique pour les journaux serveur');
+  }
+  assert(indexFailurePropagated, 'Une erreur d’index Firestore pendant la recherche de session remonte au gestionnaire API');
+  const unexpectedFailure = classifyTableSessionLookupError(new Error('Unexpected session validation failure'));
+  assert(unexpectedFailure.statusCode === 500 && unexpectedFailure.diagnosticCode === null,
+    'Une erreur applicative sans code Firestore ne se fait pas passer pour une session invalide ni pour une erreur d’index');
+
   const db = createDb();
   db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true });
   db.store.set('restaurants/chez-awa/private/ownership', { ownerUid: 'owner-1' });
@@ -339,7 +369,7 @@ async function run() {
   assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'empty' } }), 'Navigation QR cross-site non-document rejetée');
   assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site' } }), 'Navigation QR cross-site sans preuve de document rejetée');
   assert(!isTrustedQrNavigation({ method: 'POST', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' } }), 'POST cross-site rejeté');
-  assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document', referer: 'https://attacker.example/' } }), 'Referer tiers rejeté');
+  assert(isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document', referer: 'https://camera-app.example/scan' } }), 'Ouverture QR depuis une caméra externe acceptée même avec son Referer');
   assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-site', 'sec-fetch-dest': 'document' } }), 'Navigation depuis un sous-domaine tiers rejetée');
   assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'iframe', host: 'restaumax.example', 'x-forwarded-proto': 'https' } }), 'Résolution QR intégrée dans une iframe rejetée');
   assert(!isTrustedQrNavigation({ headers: { host: 'restaumax.example', 'x-forwarded-proto': 'https', referer: 'https://attacker.example/redirect' } }), 'Referer externe rejeté pour le bootstrap QR');

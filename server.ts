@@ -66,6 +66,7 @@ import { resolveTableQrOrigin } from './src/server/tableQrOrigin.ts';
 import { loadRestaurantPayDunyaConfig, saveRestaurantPayDunyaCredentials } from './src/server/paydunyaMerchantConfig.js';
 import { startPayDunyaOrderPaymentWithDb, processPayDunyaInvoiceCallbackWithDb, startPayDunyaRefundWithDb, processPayDunyaDisbursementCallbackWithDb, reconcilePayDunyaInvoiceIntentWithDb } from './src/server/paydunyaPaymentService.js';
 import {
+  classifyTableSessionLookupError,
   authorizeTableManager,
   buildCsrfCookie,
   buildSessionCookie,
@@ -1017,8 +1018,16 @@ export async function handleGetTableSession(req: any) {
         expiresAt: session.expiresAt
       }
     };
-  } catch {
-    return { statusCode: 401, body: { success: false, error: 'Session de table invalide.' } };
+  } catch (error: any) {
+    const failure = classifyTableSessionLookupError(error);
+    console.warn('[RestauMax table session] Échec de vérification Firestore.', {
+      firestoreCode: failure.diagnosticCode,
+      reason: failure.diagnosticMessage
+    });
+    return {
+      statusCode: failure.statusCode,
+      body: { success: false, error: failure.publicMessage }
+    };
   }
 }
 
@@ -1625,10 +1634,10 @@ export async function handleRestaurantImageRequest(payload: unknown, req?: any) 
 
 export async function handleOrderSubmission(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb) {
-    return { statusCode: 503, body: { success: false, error: 'Service de commande temporairement indisponible.' } };
+    return { statusCode: 503, body: { success: false, outcomeUnknown: false, error: 'Service de commande temporairement indisponible.' } };
   }
   if (!req || !requestHasValidOrigin(req)) {
-    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+    return { statusCode: 403, body: { success: false, outcomeUnknown: false, error: 'Origine de requête non autorisée.' } };
   }
   try {
     const input = (payload && typeof payload === 'object') ? { ...(payload as any) } : {};
@@ -1650,7 +1659,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
         if (appCheckResult.reason === 'invalid-token') {
           console.warn('[RestauMax orders] App Check rejected a public order:', appCheckResult.code || 'invalid-token');
         }
-        return { statusCode: appCheckResult.statusCode, body: { success: false, error: appCheckResult.message } };
+        return { statusCode: appCheckResult.statusCode, body: { success: false, outcomeUnknown: false, error: appCheckResult.message } };
       }
       const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
@@ -1663,7 +1672,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       const clientIp = resolveOrderClientIp(req);
       const rateLimitSecret = String(process.env.ORDER_RATE_LIMIT_SECRET || '');
       if (!clientIp || rateLimitSecret.length < 32) {
-        return { statusCode: 503, body: { success: false, error: 'Protection anti-abus momentanément indisponible. Réessayez plus tard.' } };
+        return { statusCode: 503, body: { success: false, outcomeUnknown: false, error: 'Protection anti-abus momentanément indisponible. Réessayez plus tard.' } };
       }
       try {
         const quota = await consumePublicOrderRateLimit(adminDb, { restaurantSlug, clientIp, secret: rateLimitSecret, maxRequests: 5, windowMs: 10 * 60 * 1000 });
@@ -1694,7 +1703,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
         }
       } catch (rateLimitError: any) {
         console.error('[RestauMax order rate limit] Failed:', rateLimitError?.message || String(rateLimitError));
-        return { statusCode: 503, body: { success: false, error: 'Protection anti-abus indisponible. Commande non enregistrée.' } };
+        return { statusCode: 503, body: { success: false, outcomeUnknown: false, error: 'Protection anti-abus indisponible. Commande non enregistrée.' } };
       }
     }
     if (input.orderMode === 'sur_place') {
@@ -1726,11 +1735,16 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       if (safeOrder) delete safeOrder.tableSession;
       return { statusCode: 200, body: { ...result, order: safeOrder } };
     }
+    if (result.outcomeUnknown) return { statusCode: 503, body: result };
     if (result.conflict) return { statusCode: 409, body: result };
-    return { statusCode: 400, body: result };
+    return { statusCode: 400, body: { ...result, outcomeUnknown: false } };
   } catch (err: any) {
+    // Session and validation checks fail before the atomic order write.
     console.error('Erreur inattendue API /api/orders:', err?.message || String(err));
-    return { statusCode: 500, body: { success: false, error: 'Erreur interne du serveur lors du traitement de la commande.' } };
+    return {
+      statusCode: 500,
+      body: { success: false, outcomeUnknown: false, error: 'Erreur interne du serveur lors du traitement de la commande.' }
+    };
   }
 }
 

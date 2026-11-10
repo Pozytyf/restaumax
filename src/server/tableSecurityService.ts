@@ -107,7 +107,11 @@ export function isTrustedQrNavigation(req: any): boolean {
   // Camera apps open QR URLs as top-level cross-site GET navigations.
   // State-changing endpoints continue to enforce strict Origin and CSRF checks.
   if (fetchSite === 'cross-site') {
-    return fetchDest === 'document' && !referer;
+    // QR scanners and camera apps may attach their own Referer when opening
+    // a physical QR link. A top-level document GET is safe here: it only
+    // exchanges the bearer QR token for an HttpOnly table session. All
+    // state-changing APIs still require same-origin + CSRF validation.
+    return fetchDest === 'document';
   }
   if (fetchSite && !['same-origin', 'none'].includes(fetchSite)) return false;
   if (typeof referer === 'string' && referer) {
@@ -365,6 +369,19 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
     restaurantSessionVersion: Number(session.restaurantSessionVersion || 0),
     csrfHash: String(session.csrfHash || ''),
     expiresAt: session.expiresAt
+  };
+}
+
+export function classifyTableSessionLookupError(error: any) {
+  const code = String(error?.code ?? '');
+  const message = String(error?.message || 'Unknown table-session lookup failure').slice(0, 180);
+  return {
+    statusCode: code ? 503 : 500,
+    publicMessage: code
+      ? 'Service de vérification de session momentanément indisponible.'
+      : 'Impossible de vérifier la session de table.',
+    diagnosticCode: code || null,
+    diagnosticMessage: message
   };
 }
 

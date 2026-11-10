@@ -198,11 +198,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         )}
 
         {/* Error notification if submission failed */}
-        {submitError && !isUncertain && (
-          <div className="mx-4 mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 shrink-0 animate-in fade-in">
+        {submitError && (
+          <div role="alert" className="mx-4 mt-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2 shrink-0 animate-in fade-in">
             <AlertCircle size={15} className="text-rose-600 shrink-0 mt-0.5" />
             <div className="flex-1 leading-snug">
-              <span className="font-bold">Commande non transmise : </span>
+              <span className="font-bold">{isUncertain ? 'Vérification toujours incertaine : ' : 'Commande non transmise : '}</span>
               {submitError}
             </div>
           </div>
