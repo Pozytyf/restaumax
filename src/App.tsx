@@ -589,21 +589,27 @@ export default function App() {
     let paymentRefreshInFlight = false;
     // Keep the last rendered snapshot visible during same-user refreshes; clear only on tenant/user change.
     setCashSessionLoading(true);
-    getCashSessionWithServerValidation(activeRestaurantSlug).then((result) => {
-      if (!active) return;
-      if (result.success) {
-        setCashSession(result.session);
-        setDrawerState((previous) => ({
-          ...previous,
-          openingBalance: Number(result.session?.openingBalance || 0),
-          currentCash: Number(result.session?.openingBalance || 0) + Number(result.session?.cashCollected || 0) - Number(result.session?.cashOut || 0)
-        }));
-      } else {
-        setCashSession(null);
-        console.warn('Session de caisse indisponible:', result.error);
-      }
-      setCashSessionLoading(false);
-    });
+    getCashSessionWithServerValidation(activeRestaurantSlug)
+      .then((result) => {
+        if (!active) return;
+        if (result.success) {
+          setCashSession(result.session);
+          setDrawerState((previous) => ({
+            ...previous,
+            openingBalance: Number(result.session?.openingBalance || 0),
+            currentCash: Number(result.session?.openingBalance || 0) + Number(result.session?.cashCollected || 0) - Number(result.session?.cashOut || 0)
+          }));
+        } else {
+          // A transient read failure must not erase the last known cashier session.
+          console.warn('Session de caisse indisponible:', result.error);
+        }
+      })
+      .catch((error) => {
+        if (active) console.warn('Erreur temporaire de lecture de la session de caisse:', error);
+      })
+      .finally(() => {
+        if (active) setCashSessionLoading(false);
+      });
 
     const refreshPayments = async () => {
       if (!active || paymentRefreshInFlight) return;
