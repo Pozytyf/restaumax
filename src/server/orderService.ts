@@ -45,6 +45,8 @@ export interface OrderSubmissionResult {
   error?: string;
   idempotentReplay?: boolean;
   conflict?: boolean;
+  /** True only when the server cannot prove whether the atomic order write committed. */
+  outcomeUnknown?: boolean;
 }
 
 /**
@@ -611,7 +613,13 @@ export async function processOrderSubmission(
       return txResult;
     } catch (err: any) {
       console.error('[RestauMax orders] Order transaction failed:', err?.message || String(err));
-      return { success: false, error: 'Impossible d’enregistrer la commande pour le moment. Réessayez.' };
+      // A Firestore transaction can fail after the commit outcome becomes unknown.
+      // The client must retry with the same idempotency key, never generate a new one.
+      return {
+        success: false,
+        outcomeUnknown: true,
+        error: 'Impossible de confirmer le résultat de l’enregistrement. Vérifiez la commande avec la même clé avant toute nouvelle tentative.'
+      };
     }
   }
 
