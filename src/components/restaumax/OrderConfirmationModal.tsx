@@ -216,7 +216,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                 <option value="moov-ci">Moov Money</option>
                 <option value="djamo-ci">Djamo</option>
               </select>
-              <button type="button" disabled={isStartingPayment || !validPaymentAmount || !onStartPayDunyaPayment}
+              <button type="button" disabled={isStartingPayment || !validPaymentAmount || !onStartPayDunyaPayment || cashPreferenceSaved}
                 onClick={async () => {
                   if (!validPaymentAmount) return;
                   setIsStartingPayment(true);
