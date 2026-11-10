@@ -18,7 +18,7 @@
     "test:subscriptions": "tsx scripts/test-subscription-validation.mjs",
     "test:github-token": "node scripts/test-github-installation-token.mjs",
     "test:paydunya": "node scripts/test-paydunya-service.mjs && tsx scripts/test-paydunya-payment-flow.mjs && tsx scripts/test-paydunya-merchant-config.mjs",
-    "test": "npm run test:kitchen && npm run test:inventory && npm run test:roles && npm run test:vercel-api-router && npm run test:cash && npm run test:refund-service && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:order-rate-limit && npm run test:app-check && npm run test:security-audit-hardening && npm run test:seed-sweet-hot && npm run test:migrate-demo && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:tax && npm run test:reports && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation && npm run test:auth-boundaries && npm run test:order-lifecycle && npm run test:security-regression && npm run test:menu-stock && npm run test:menu-features && npm run test:owner-privacy && npm run test:legacy-private-migration",
+    "test": "npm run test:kitchen && npm run test:table-create && npm run test:inventory && npm run test:roles && npm run test:vercel-api-router && npm run test:cash && npm run test:refund-service && npm run test:lot1 && npm run test:lot2 && npm run test:qr && npm run test:order-rate-limit && npm run test:app-check && npm run test:security-audit-hardening && npm run test:seed-sweet-hot && npm run test:migrate-demo && npm run test:emulator && npm run test:intent && npm run test:subscriptions && npm run test:tax && npm run test:reports && npm run test:paydunya && npm run test:refund-client && npm run test:onboarding && npm run test:partial-mobile-money && npm run test:admin-navigation && npm run test:auth-boundaries && npm run test:order-lifecycle && npm run test:security-regression && npm run test:menu-stock && npm run test:menu-features && npm run test:owner-privacy && npm run test:legacy-private-migration",
     "seed:local": "node scripts/seed-catalog.mjs",
     "test:refund-client": "node scripts/test-refund-client-routing.mjs",
     "test:onboarding": "node scripts/test-onboarding-reset-email.mjs",
@@ -54,7 +54,8 @@
     "test:legacy-private-migration": "node scripts/test-legacy-private-migration.mjs",
     "test:refund-service": "node scripts/test-refund-service.mjs",
     "test:app-check": "node scripts/test-app-check-guard.mjs",
-    "test:qr-cash": "node scripts/test-qr-cash-payment-choice.mjs"
+    "test:qr-cash": "node scripts/test-qr-cash-payment-choice.mjs",
+    "test:table-create": "tsx scripts/test-table-create-transaction.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
