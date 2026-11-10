@@ -107,7 +107,11 @@ export function isTrustedQrNavigation(req: any): boolean {
   // Camera apps open QR URLs as top-level cross-site GET navigations.
   // State-changing endpoints continue to enforce strict Origin and CSRF checks.
   if (fetchSite === 'cross-site') {
-    return fetchDest === 'document' && !referer;
+    // QR scanners and camera apps may attach their own Referer when opening
+    // a physical QR link. A top-level document GET is safe here: it only
+    // exchanges the bearer QR token for an HttpOnly table session. All
+    // state-changing APIs still require same-origin + CSRF validation.
+    return fetchDest === 'document';
   }
   if (fetchSite && !['same-origin', 'none'].includes(fetchSite)) return false;
   if (typeof referer === 'string' && referer) {
