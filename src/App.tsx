@@ -24,6 +24,7 @@ import {
   collectCashPaymentWithServerValidation,
   createPayDunyaPaymentWithServerValidation,
   createCustomerPayDunyaPaymentWithServerValidation,
+  selectCustomerCashPaymentWithServerValidation,
   reconcileCustomerPayDunyaPaymentWithServerValidation,
   refundPayDunyaPaymentWithServerValidation,
   refundCashPaymentWithServerValidation,
@@ -836,6 +837,17 @@ export default function App() {
   };
 
   // Client Order Confirmation Handler (Firestore Persisted with trusted FCFA recalculation & atomic idempotency)
+  const handleSelectClientCashPayment = async (order: RestauOrder): Promise<{ success: boolean; error?: string }> => {
+    if (!tableSession || tableSession.restaurantSlug !== activeRestaurantSlug) {
+      return { success: false, error: 'Scannez à nouveau le QR physique pour sécuriser le choix du règlement.' };
+    }
+    const result = await selectCustomerCashPaymentWithServerValidation(
+      activeRestaurantSlug, order.id, tableSession.csrfToken
+    );
+    if (!result.success) return { success: false, error: result.error };
+    return { success: true };
+  };
+
   const handleStartClientPayDunya = async (
     order: RestauOrder,
     channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci',
@@ -1639,6 +1651,7 @@ export default function App() {
           onClearCart={handleClearClientCart}
           onConfirmOrder={handleClientOrderConfirm}
           onStartPayDunyaPayment={handleStartClientPayDunya}
+          onSelectCashPayment={handleSelectClientCashPayment}
           isUncertain={isOrderUncertain}
           tableSessionUnavailable={tableSessionExpected && !tableSessionChecking && !tableSession}
           catalogLoading={activeMenuLoading}
