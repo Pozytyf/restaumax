@@ -174,8 +174,7 @@ export async function startPayDunyaOrderPaymentWithDb(
         return { ok: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
       }
       const authorized = (member.role === 'owner' && ownerUid === actorUid) ||
-        member.role === 'manager' ||
-        (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
+        (['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
       if (!authorized) return { ok: false, error: 'Votre rôle ne permet pas de créer un paiement.' };
       actorRole = member.role;
     }

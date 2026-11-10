@@ -1370,11 +1370,12 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     }
 
     const isOwner = member.role === 'owner' && ownerUid === decoded.uid;
-    const canManageCash = isOwner || member.role === 'manager' ||
-      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
-    const canViewCash = isOwner || member.role === 'manager' ||
-      (member.role === 'cashier' && Array.isArray(member.permissions) &&
-        (member.permissions.includes('cash.view') || member.permissions.includes('cash.manage') || member.permissions.includes('reports.cash.view')));
+    const memberPermissions = Array.isArray(member.permissions) ? member.permissions : [];
+    const canManageCash = isOwner ||
+      (['manager', 'cashier'].includes(member.role) && memberPermissions.includes('cash.manage'));
+    const canViewCash = isOwner ||
+      (['manager', 'cashier'].includes(member.role) &&
+        (memberPermissions.includes('cash.view') || memberPermissions.includes('cash.manage') || memberPermissions.includes('reports.cash.view')));
 
     if (method === 'GET' && String(req.query?.action || '') === 'paydunya_account_status') {
       if (!isOwner) return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire vérifié peut consulter la configuration du compte marchand.' } };
@@ -1472,8 +1473,8 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     }
 
     if (input.action === 'refund_paydunya_payment') {
-      const canRefund = isOwner || member.role === 'manager' ||
-        (member.role === 'cashier' && Array.isArray(member.permissions) &&
+      const canRefund = isOwner ||
+        (['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions) &&
           member.permissions.includes('payments.refund'));
       if (!canRefund) return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };
       const merchantConfig = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
@@ -1504,8 +1505,8 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     }
 
     if (input.action === 'refund_cash_payment') {
-      const canRefund = isOwner || member.role === 'manager' ||
-        (member.role === 'cashier' && Array.isArray(member.permissions) &&
+      const canRefund = isOwner ||
+        (['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions) &&
           member.permissions.includes('payments.refund'));
       if (!canRefund) {
         return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };

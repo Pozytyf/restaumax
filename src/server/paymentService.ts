@@ -129,8 +129,7 @@ export async function recordCashPaymentWithDb(db: any, input: CashPaymentInput):
 
     const isOwner = member.role === 'owner' && ownerUid === actorUid;
     const canManageCash = isOwner ||
-      member.role === 'manager' ||
-      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
+      (['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
     if (!canManageCash) {
       return { success: false, error: 'Votre rôle ne permet pas d’encaisser des paiements en espèces.' };
     }
@@ -352,8 +351,7 @@ export async function listRecentCashPaymentsWithDb(db: any, restaurantSlug: stri
 
 function canManageCashSession(member: any, ownerUid: string | null, actorUid: string): boolean {
   return (member?.role === 'owner' && ownerUid === actorUid) ||
-    member?.role === 'manager' ||
-    (member?.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
+    (['manager', 'cashier'].includes(member?.role) && Array.isArray(member?.permissions) && member.permissions.includes('cash.manage'));
 }
 
 export async function getCashSessionWithDb(db: any, restaurantSlug: string, actorUid: string): Promise<Record<string, any> | null> {
@@ -687,10 +685,9 @@ export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput
       return { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
     }
     const owner = member.role === 'owner' && ownerUid === actorUid;
-    const manager = member.role === 'manager';
-    const cashierGrant = member.role === 'cashier' && Array.isArray(member.permissions) &&
+    const refundGrant = ['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions) &&
       member.permissions.includes('payments.refund');
-    if (!owner && !manager && !cashierGrant) {
+    if (!owner && !refundGrant) {
       return { success: false, error: 'La permission distincte payments.refund est requise.' };
     }
 
