@@ -561,9 +561,7 @@ export default function App() {
 
   useEffect(() => {
     const canViewCash = canViewCashForCashPanel;
-      userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') ||
-      userPermissions.includes('reports.cash.view');
-    if (!authUser || !canViewCash) {
+    if (!authUser?.uid || !canViewCash) {
       setTransactions([]);
       setCashSession(null);
       setCashSessionLoading(false);
