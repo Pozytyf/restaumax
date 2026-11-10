@@ -640,7 +640,17 @@ export async function submitOrderWithServerValidation(
   }
 ): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
   try {
-    const appCheckToken = appCheck ? (await getToken(appCheck)).token : '';
+    let appCheckToken = '';
+    if (appCheck) {
+      try {
+        appCheckToken = (await getToken(appCheck)).token;
+      } catch (appCheckError) {
+        // Never let a browser-side App Check token acquisition failure prevent the
+        // request from reaching the server. Preview may accept requests without a
+        // token; Production enforcement remains authoritative and fails closed.
+        console.warn('[RestauMax orders] App Check token unavailable; continuing to server-side validation.', appCheckError);
+      }
+    }
     const response = await fetch('/api/orders', {
       method: 'POST',
       headers: {
