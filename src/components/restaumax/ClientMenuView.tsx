@@ -39,6 +39,7 @@ export interface ClientMenuViewProps {
   onClearCart: () => void;
   onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
+  onSelectCashPayment?: (order: RestauOrder) => Promise<{ success: boolean; error?: string }>;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
 }
@@ -114,6 +115,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   onClearCart,
   onConfirmOrder,
   onStartPayDunyaPayment,
+  onSelectCashPayment,
   isUncertain = false,
   onResetUncertainty
 }) => {
@@ -483,6 +485,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         order={confirmedOrder}
         restaurantName={restaurant.name}
         onStartPayDunyaPayment={onStartPayDunyaPayment}
+        onSelectCashPayment={onSelectCashPayment}
         onClose={() => setConfirmedOrder(null)}
         onNewOrder={() => {
           setConfirmedOrder(null);
