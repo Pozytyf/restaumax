@@ -53,6 +53,7 @@ import { getRestaurantOwnerUid } from './src/server/restaurantOwnership.ts';
 import { createRestaurantImageHandler } from './src/server/restaurantImageService.js';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
 import { adjustCustomerLoyaltyPointsWithDb, createCustomerWithDb } from './src/server/loyaltyService.js';
+import { createTableWithDb } from './src/server/tableService.js';
 import { 
   processOrderSubmission, 
   ServerFirestoreProvider,
@@ -1029,6 +1030,28 @@ export async function handleGetTableSession(req: any) {
       statusCode: 503,
       body: { success: false, error: 'Service de session temporairement indisponible. Réessayez dans quelques instants.' }
     };
+  }
+}
+
+
+
+export async function handleTableCreateRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de gestion des tables indisponible.' } };
+  if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  const input = payload && typeof payload === 'object' ? payload as any : {};
+  const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+  try {
+    await authorizeTableManager(adminDb, adminAuth, req, restaurantSlug);
+    const result = await createTableWithDb(adminDb, restaurantSlug, input.table);
+    if (result.success) return { statusCode: 201, body: result };
+    return { statusCode: result.conflict ? 409 : 400, body: result };
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (/auth|token|revoked|expired/i.test(message)) return { statusCode: 401, body: { success: false, error: 'Session gestionnaire invalide. Reconnectez-vous.' } };
+    console.error('[RestauMax table create] Request failed:', message);
+    return { statusCode: 403, body: { success: false, error: message || 'Création de table refusée.' } };
   }
 }
 
@@ -2163,6 +2186,14 @@ app.post('/api/customers', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handleCustomerCreateRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/tables', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleTableCreateRequest(req.body, req);
   return res.status(result.statusCode).json(result.body);
 });
 
