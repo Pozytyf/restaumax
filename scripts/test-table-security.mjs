@@ -96,6 +96,9 @@ async function run() {
       'Le diagnostic conserve le code Firestore et le motif technique pour les journaux serveur');
   }
   assert(indexFailurePropagated, 'Une erreur d’index Firestore pendant la recherche de session remonte au gestionnaire API');
+  const unexpectedFailure = classifyTableSessionLookupError(new Error('Unexpected session validation failure'));
+  assert(unexpectedFailure.statusCode === 500 && unexpectedFailure.diagnosticCode === null,
+    'Une erreur applicative sans code Firestore ne se fait pas passer pour une session invalide ni pour une erreur d’index');
 
   const db = createDb();
   db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true });
