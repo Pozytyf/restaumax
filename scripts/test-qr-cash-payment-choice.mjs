@@ -28,6 +28,8 @@ assert(!handler.includes("paymentStatus: 'paid'") && !handler.includes('paidAmou
 
 assert(server.includes("app.post('/api/payments/customer-cash-preference'"), 'La route client espèces doit être exposée.');
 assert(firebase.includes("fetch('/api/payments/customer-cash-preference'"), 'Le client appelle la route espèces dédiée.');
+assert(firebase.includes('definitive: response.status >= 400 && response.status < 500'), 'Un refus HTTP 4xx de validation est distingué d’une transmission réseau incertaine.');
+assert(app.includes('if (submitRes.definitive)'), 'Une validation refusée libère le verrou sans perdre le panier client.');
 assert(firebase.includes('App Check token unavailable; continuing to server-side validation.'), 'Une erreur de jeton App Check navigateur ne doit pas empêcher l’appel serveur idempotent ; le serveur garde la décision de sécurité.');
 assert(app.includes('selectCustomerCashPaymentWithServerValidation'), 'App branche le choix espèces sécurisé.');
 assert(app.includes("userPermissions.includes('reports.cash.view')"), 'Le journal de paiements est accessible aux rôles explicitement autorisés à consulter la caisse.');
@@ -42,4 +44,4 @@ assert(types.includes("paymentPreference?: 'especes' | 'mobile_money'"), 'Le typ
 assert(pos.includes("order.paymentPreference === 'especes' ? 'Espèces demandées'"), 'La caisse identifie les commandes dont le client a choisi les espèces.');
 assert(modal.includes('|| cashPreferenceSaved'), 'Le client ne peut pas lancer PayDunya après avoir confirmé son choix espèces.');
 
-console.log('Tests QR, caisse et actualisation du journal / séparation PayDunya : 22 assertions réussies.');
+console.log('Tests QR, caisse et actualisation du journal / séparation PayDunya : 24 assertions réussies.');
