@@ -22,6 +22,8 @@ assert.ok(submit.includes("outcomeUnknown: true"),
   'Une coupure réseau ou une réponse illisible après le POST doit rester ambiguë.');
 assert.ok(submit.includes("typeof data.outcomeUnknown !== 'boolean' && response.status >= 500"),
   'Le serveur peut distinguer une panne certaine d’un résultat de transaction ambigu.');
+assert.ok(submit.includes("!data || typeof data !== 'object' || Array.isArray(data)"),
+  'Une réponse vide ou mal formée ne doit jamais être traitée comme un échec certain après un POST.');
 
 const appStart = app.indexOf('const handleClientOrderConfirm = async');
 const appEnd = app.indexOf('const handleSaveTable =', appStart);
@@ -67,4 +69,4 @@ assert.ok([tokenHashOverride, sessionHashOverride].every(override =>
   ) && override?.indexes.some(index => index.queryScope === 'COLLECTION' && index.arrayConfig === 'CONTAINS')
 ), 'Les index automatiques à portée collection restent activés.');
 
-console.log('Tests transport commande QR, idempotence et index Firestore : 18/18 assertions réussies.');
+console.log('Tests transport commande QR, idempotence et index Firestore : 19/19 assertions réussies.');
