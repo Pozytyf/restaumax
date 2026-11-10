@@ -33,6 +33,7 @@ assert(app.includes('if (submitRes.definitive)'), 'Une validation refusée libè
 assert(firebase.includes('App Check token unavailable; continuing to server-side validation.'), 'Une erreur de jeton App Check navigateur ne doit pas empêcher l’appel serveur idempotent ; le serveur garde la décision de sécurité.');
 assert(app.includes('selectCustomerCashPaymentWithServerValidation'), 'App branche le choix espèces sécurisé.');
 assert(app.includes("userPermissions.includes('reports.cash.view')"), 'Le journal de paiements est accessible aux rôles explicitement autorisés à consulter la caisse.');
+assert(app.includes("userPermissions.includes('reports.cash.view')) && ("), 'Le panneau dédié est rendu aux utilisateurs autorisés à consulter les détails de caisse.');
 assert(app.includes('window.setInterval(() => void refreshPayments(), 15000)'), 'Le journal de paiements est actualisé automatiquement pour recevoir les confirmations PayDunya et espèces sans recharger la page.');
 assert(app.includes("payment.method === 'paydunya'"), 'Le panneau de caisse distingue les paiements PayDunya des espèces.');
 assert(app.includes("payment.providerChannel === 'wave-ci'"), 'Le panneau conserve le canal Mobile Money reçu du callback PayDunya.');
