@@ -302,10 +302,12 @@ service cloud.firestore {
         allow create: if false;
         allow update: if hasRestaurantPermission(restaurantSlug, 'customers.manage')
           && isValidId(customerId)
-          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'notes', 'updatedAt'])
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'notes', 'updatedAt', 'archivedAt', 'archivedByUid'])
           && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
-          && incoming().phone is string && incoming().phone.size() > 0 && incoming().phone.size() <= 40;
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'customers.manage') && isValidId(customerId);
+          && incoming().phone is string && incoming().phone.size() > 0 && incoming().phone.size() <= 40
+          && (!incoming().diff(existing()).affectedKeys().hasAny(['archivedAt', 'archivedByUid']) ||
+              (incoming().archivedAt is int && incoming().archivedByUid == request.auth.uid));
+        allow delete: if false;
       }
 
       // Inventory catalog and immutable stock movement audit trail.

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  collection, deleteDoc, doc, getDocs, limit, onSnapshot, orderBy, query, where
+  collection, doc, getDocs, limit, onSnapshot, orderBy, query, updateDoc, where
 } from 'firebase/firestore';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings, AlertTriangle } from 'lucide-react';
 import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation, adjustCustomerLoyaltyPointsWithServerValidation, createCustomerWithServerValidation } from '../../lib/firebase';
@@ -9,7 +9,7 @@ import { formatFCFA } from '../../utils/format';
 import { InventoryRecipePanel } from './InventoryRecipePanel';
 
 type ModuleId = 'customers' | 'inventory' | 'reports' | 'settings';
-type Customer = { id: string; name: string; phone: string; phoneNormalized?: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
+type Customer = { id: string; name: string; phone: string; phoneNormalized?: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number; archivedAt?: number; archivedByUid?: string };
 type InventoryItem = { id: string; name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier?: string; updatedAt: number; active?: boolean };
 type StockMovement = { id: string; itemName: string; unit: string; quantityBefore: number; delta: number; quantityAfter: number; reason: string; createdAt: number; createdBy: string };
 type FinancialReport = {
@@ -84,7 +84,7 @@ export const RestaurantAdminModuleView: React.FC<{
     setError('');
     if (module === 'customers') {
       return onSnapshot(collection(db, 'restaurants', restaurant.slug, 'customers'), snap => {
-        setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer)).sort((a,b) => a.name.localeCompare(b.name)));
+        setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer)).filter(customer => !customer.archivedAt).sort((a,b) => a.name.localeCompare(b.name)));
       }, err => setError(err.message));
     }
     if (module === 'inventory') {
@@ -172,9 +172,15 @@ export const RestaurantAdminModuleView: React.FC<{
   };
 
   const removeCustomer = async (id: string) => {
-    if (!canManage || !window.confirm('Supprimer cette fiche client ?')) return;
-    try { await deleteDoc(doc(db, 'restaurants', restaurant.slug, 'customers', id)); setNotice('Fiche client supprimée.'); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Suppression impossible.'); }
+    if (!canManage || !window.confirm('Archiver cette fiche client ? Son historique de fidélité sera conservé.')) return;
+    try {
+      const actorUid = auth.currentUser?.uid;
+      if (!actorUid) throw new Error('Connexion du personnel requise.');
+      await updateDoc(doc(db, 'restaurants', restaurant.slug, 'customers', id), {
+        archivedAt: Date.now(), archivedByUid: actorUid, updatedAt: Date.now()
+      });
+      setNotice('Fiche client archivée. Son historique de fidélité est conservé.');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Archivage impossible.'); }
   };
 
   const adjustPoints = async (customer: Customer, delta: number) => {
@@ -375,7 +381,7 @@ export const RestaurantAdminModuleView: React.FC<{
           <button disabled={loading} className="flex items-center justify-center gap-2 rounded-lg bg-slate-900 p-3 font-bold text-white md:col-span-2"><Plus size={16}/> Enregistrer le client</button>
         </form>}
         <section className="overflow-hidden rounded-2xl border bg-white"><div className="border-b p-4 font-bold">Répertoire clients · {customers.length}</div>
-          {customers.map(c=><div key={c.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{c.name}</p><p className="text-xs text-slate-500">{c.phone}{c.email ? ' · '+c.email : ''}</p>{c.notes && <p className="mt-1 text-sm text-slate-600">{c.notes}</p>}<p className="mt-1 text-xs font-semibold text-orange-700">{c.loyaltyPoints || 0} point(s) fidélité</p></div>{canManage && <div className="flex items-center gap-2"><button onClick={()=>adjustPoints(c,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">+1 point</button><button onClick={()=>removeCustomer(c.id)} aria-label="Supprimer le client" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
+          {customers.map(c=><div key={c.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{c.name}</p><p className="text-xs text-slate-500">{c.phone}{c.email ? ' · '+c.email : ''}</p>{c.notes && <p className="mt-1 text-sm text-slate-600">{c.notes}</p>}<p className="mt-1 text-xs font-semibold text-orange-700">{c.loyaltyPoints || 0} point(s) fidélité</p></div>{canManage && <div className="flex items-center gap-2"><button onClick={()=>adjustPoints(c,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">+1 point</button><button onClick={()=>removeCustomer(c.id)} aria-label="Archiver le client" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
           {customers.length===0 && <p className="p-8 text-center text-sm text-slate-500">Aucun client enregistré pour le moment.</p>}
         </section>
       </>}

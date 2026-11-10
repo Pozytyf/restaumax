@@ -87,6 +87,12 @@ assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 assert(firestoreRules.includes('allow create: if false;') && firestoreRules.includes('Customer creation is server-only'),
   'customer creation is restricted to the transactional server endpoint');
+assert(firestoreRules.includes("allow delete: if false;") && firestoreRules.includes("'archivedAt', 'archivedByUid'"),
+  'customer deletion is replaced by an authorized archive that preserves loyalty history');
+const customerModuleSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
+assert(customerModuleSource.includes('archivedAt: Date.now()') && customerModuleSource.includes('Son historique de fidélité sera conservé') &&
+  customerModuleSource.includes('.filter(customer => !customer.archivedAt)'),
+  'the customer directory archives profiles and hides them from the active list without deleting ledger history');
 const managerRule = firestoreRules.match(/role == 'manager' && permission in \[([\s\S]*?)\]\)/)?.[1] || '';
 assert(managerRule.includes("'orders.cancel'") && managerRule.includes("'payments.refund'"), 'Firestore manager ceiling includes cancellation and refund permissions');
 assert(adminSource.includes('user.email_verified === true') && adminSource.includes('configuredSuperAdmins()'), 'platform super-admin requires a verified allowlisted email');
