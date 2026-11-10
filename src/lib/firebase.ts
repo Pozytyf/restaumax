@@ -638,10 +638,31 @@ export async function submitOrderWithServerValidation(
     fallbackCatalog?: RestauMenuItem[];
     csrfToken?: string;
   }
-): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean }> {
+): Promise<
+  | { success: true; order: RestauOrder; idempotentReplay?: boolean }
+  | { success: false; error: string; conflict?: boolean; outcomeUnknown?: boolean }
+> {
+  let appCheckToken = '';
+
+  // Dine-in orders already require the server-issued HttpOnly QR session and
+  // matching CSRF token. App Check is enforced by the server only for public
+  // takeaway orders, so do not make an on-site order depend on reCAPTCHA.
+  if (params.orderMode !== 'sur_place' && appCheck) {
+    try {
+      appCheckToken = (await getToken(appCheck)).token;
+    } catch (err: any) {
+      console.warn('[RestauMax orders] App Check preflight failed before submission:', err?.message || String(err));
+      return {
+        success: false,
+        outcomeUnknown: false,
+        error: "La vérification de sécurité de l'appareil n'a pas abouti. Aucune commande n'a été envoyée ; vérifiez votre connexion puis réessayez."
+      };
+    }
+  }
+
+  let response: Response;
   try {
-    const appCheckToken = appCheck ? (await getToken(appCheck)).token : '';
-    const response = await fetch('/api/orders', {
+    response = await fetch('/api/orders', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -661,28 +682,44 @@ export async function submitOrderWithServerValidation(
         cart: params.cart,
       }),
     });
-
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-      return {
-        success: false,
-        conflict: response.status === 409 || data.conflict === true,
-        error: data.error || 'Erreur lors de la validation serveur de la commande.',
-      };
-    }
-
-    return {
-      success: true,
-      order: data.order,
-      idempotentReplay: data.idempotentReplay === true,
-    };
   } catch (err: any) {
-    console.error('Erreur appel /api/orders:', err);
+    console.error('Erreur réseau pendant /api/orders:', err);
     return {
       success: false,
-      error: err?.message || 'Erreur réseau lors de la communication avec le serveur RestauMax.',
+      outcomeUnknown: true,
+      error: "La connexion a été interrompue pendant l'envoi. Le résultat peut être enregistré côté serveur ; vérifiez avec la même clé avant toute nouvelle commande."
     };
   }
+
+  let data: any;
+  try {
+    const responseText = await response.text();
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch (err: any) {
+    console.error('[RestauMax orders] Réponse API illisible:', err?.message || String(err));
+    return {
+      success: false,
+      outcomeUnknown: true,
+      error: "La réponse du serveur est illisible. La commande a peut-être été enregistrée ; vérifiez avec la même clé."
+    };
+  }
+
+  if (!response.ok || !data.success) {
+    const outcomeUnknown = data.outcomeUnknown === true ||
+      (typeof data.outcomeUnknown !== 'boolean' && response.status >= 500);
+    return {
+      success: false,
+      conflict: response.status === 409 || data.conflict === true,
+      outcomeUnknown,
+      error: data.error || 'Erreur lors de la validation serveur de la commande.',
+    };
+  }
+
+  return {
+    success: true,
+    order: data.order,
+    idempotentReplay: data.idempotentReplay === true,
+  };
 }
 
 /**
