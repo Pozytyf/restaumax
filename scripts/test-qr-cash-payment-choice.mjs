@@ -30,6 +30,8 @@ assert(server.includes("app.post('/api/payments/customer-cash-preference'"), 'La
 assert(firebase.includes("fetch('/api/payments/customer-cash-preference'"), 'Le client appelle la route espèces dédiée.');
 assert(firebase.includes('App Check token unavailable; continuing to server-side validation.'), 'Une erreur de jeton App Check navigateur ne doit pas empêcher l’appel serveur idempotent ; le serveur garde la décision de sécurité.');
 assert(app.includes('selectCustomerCashPaymentWithServerValidation'), 'App branche le choix espèces sécurisé.');
+assert(app.includes("userPermissions.includes('reports.cash.view')"), 'Le journal de paiements est accessible aux rôles explicitement autorisés à consulter la caisse.');
+assert(app.includes('window.setInterval(() => void refreshPayments(), 15000)'), 'Le journal de paiements est actualisé automatiquement pour recevoir les confirmations PayDunya et espèces sans recharger la page.');
 assert(clientMenu.includes('onSelectCashPayment={onSelectCashPayment}'), 'Le choix espèces est transmis à la confirmation.');
 
 assert(modal.includes('Choisir le règlement en espèces'), 'Le client voit une option espèces.');
@@ -40,4 +42,4 @@ assert(types.includes("paymentPreference?: 'especes' | 'mobile_money'"), 'Le typ
 assert(pos.includes("order.paymentPreference === 'especes' ? 'Espèces demandées'"), 'La caisse identifie les commandes dont le client a choisi les espèces.');
 assert(modal.includes('|| cashPreferenceSaved'), 'Le client ne peut pas lancer PayDunya après avoir confirmé son choix espèces.');
 
-console.log('Tests choix espèces QR / séparation PayDunya : 20/20 assertions réussies.');
+console.log('Tests QR, caisse et actualisation du journal / séparation PayDunya : 22 assertions réussies.');
