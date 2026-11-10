@@ -999,9 +999,25 @@ export async function selectCustomerCashPaymentWithServerValidation(
       cache: 'no-store',
       body: JSON.stringify({ restaurantSlug, orderId, csrfToken })
     });
-    const data = await response.json();
+    const responseText = await response.text();
+    let data: any;
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      console.error('[RestauMax] Réponse non JSON pour le choix espèces:', {
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+        preview: responseText.slice(0, 160)
+      });
+      return {
+        success: false,
+        error: response.status === 404
+          ? 'Le service de règlement en espèces est momentanément inaccessible. Actualisez le menu puis réessayez.'
+          : 'Le serveur n’a pas renvoyé une réponse valide pour le règlement en espèces. Votre paiement n’a pas été confirmé.'
+      };
+    }
     if (!response.ok || !data.success || data.paymentPreference !== 'especes') {
-      return { success: false, error: data.error || 'Le choix du règlement en espèces n’a pas pu être enregistré.' };
+      return { success: false, error: data?.error || 'Le choix du règlement en espèces n’a pas pu être enregistré.' };
     }
     return { success: true, remainingAmount: Number(data.remainingAmount || 0) };
   } catch (error: any) {
