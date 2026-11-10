@@ -704,6 +704,15 @@ export async function submitOrderWithServerValidation(
     };
   }
 
+  // A malformed or empty 2xx body cannot prove that the transaction failed.
+  if (!data || typeof data !== 'object' || Array.isArray(data) || (response.ok && data.success !== true)) {
+    return {
+      success: false,
+      outcomeUnknown: true,
+      error: "La réponse de confirmation est incomplète. La commande a peut-être été enregistrée ; vérifiez avec la même clé."
+    };
+  }
+
   if (!response.ok || !data.success) {
     const outcomeUnknown = data.outcomeUnknown === true ||
       (typeof data.outcomeUnknown !== 'boolean' && response.status >= 500);
