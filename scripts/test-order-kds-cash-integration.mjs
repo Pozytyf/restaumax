@@ -7,7 +7,7 @@ import { getPosCartConfigurationKey, toClientCartItem } from '../src/utils/posCa
 import { mapRestauOrderToKitchenTicket } from '../src/utils/kitchenTicket.ts';
 import { executeOrderTransactionWithDb } from '../server.ts';
 import { updateKitchenItemCompletionWithDb } from '../src/server/kitchenService.ts';
-import { openCashSessionWithDb, recordCashPaymentWithDb } from '../src/server/paymentService.ts';
+import { openCashSessionWithDb, recordCashPaymentWithDb, listRecentCashPaymentsWithDb } from '../src/server/paymentService.ts';
 import { transitionOrderStatusWithDb } from '../src/server/orderLifecycleService.ts';
 
 let passed = 0;
@@ -28,6 +28,7 @@ async function run() {
   const productModalSource = readFileSync(new URL('../src/components/restaumax/ProductDetailModal.tsx', import.meta.url), 'utf8');
   const cartLedgerSource = readFileSync(new URL('../src/components/pos/CartLedger.tsx', import.meta.url), 'utf8');
   const paymentModalSource = readFileSync(new URL('../src/components/pos/PaymentModal.tsx', import.meta.url), 'utf8');
+  const kdsViewSource = readFileSync(new URL('../src/components/kds/KdsView.tsx', import.meta.url), 'utf8');
   check((appSource.match(/cart\.map\(toClientCartItem\)/g) || []).length === 2,
     'Envoi cuisine et encaissement direct utilisent le même sérialiseur POS');
   check(posViewSource.includes('<ProductDetailModal') &&
@@ -222,6 +223,9 @@ async function run() {
     check(created.success === true && Boolean(created.order?.id),
       'Le POS crée une commande validée depuis le catalogue officiel' + (created.error ? ' — ' + created.error : ''));
     const orderId = created.order.id;
+    const initialKitchenTicket = mapRestauOrderToKitchenTicket(created.order);
+    check(created.order.status === 'pending' && initialKitchenTicket.status === 'in_prep',
+      'Une nouvelle commande QR/POS en attente devient immédiatement un ticket actif en cuisine');
     const createdLine = created.order.items[0];
     check(createdLine.basePrice === 5000 && createdLine.unitPrice === 6800 &&
       createdLine.totalPrice === 6800,
@@ -312,6 +316,17 @@ async function run() {
       'Les écritures caisse ne détruisent pas la progression KDS déjà enregistrée');
     check(payments.size === 2 && cashSession.data()?.cashCollected === 6800,
       'Le journal de paiements et le solde de caisse concordent avec les deux encaissements');
+
+    await restaurantRef.collection('payments').doc('paydunya-journal-' + suffix).set({
+      id: 'paydunya-journal-' + suffix, restaurantSlug: slug, orderId,
+      method: 'paydunya', provider: 'paydunya', providerChannel: 'wave-ci',
+      paidAmount: 1500, totalAmount: 6800, paymentStatus: 'partial', createdAt: Date.now()
+    });
+    const unifiedJournal = await listRecentCashPaymentsWithDb(db, slug, 100);
+    check(unifiedJournal.length === 3 &&
+      unifiedJournal.some((payment) => payment.method === 'especes') &&
+      unifiedJournal.some((payment) => payment.method === 'paydunya' && payment.providerChannel === 'wave-ci'),
+      'Le journal dédié renvoie ensemble les encaissements espèces et les paiements PayDunya confirmés');
 
     const replayPayment = await recordCashPaymentWithDb(db, {
       restaurantSlug: slug, orderId, actorUid: uid, actorName: 'Manager intégration',
