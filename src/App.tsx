@@ -1503,15 +1503,36 @@ export default function App() {
     }
     const refreshed = await listRecentCashPaymentsWithServerValidation(activeRestaurantSlug);
     if (refreshed.success) {
-      const records = refreshed.payments.map(mapCashPaymentRecord);
-      setTransactions(records);
-      setDrawerState((previous) => ({
-        ...previous,
-        totalSales: records.reduce((sum, record) => sum + record.paidAmount, 0),
-        cashSales: records.filter((record) => record.paymentMethod === 'especes').reduce((sum, record) => sum + record.paidAmount, 0),
-        mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte').reduce((sum, record) => sum + record.paidAmount, 0),
-        transactionCount: records.length
-      }));
+      const records = refreshed.payments.map(mapCashPaymentRecord).sort((left, right) =>
+        right.timestamp.getTime() - left.timestamp.getTime() || left.id.localeCompare(right.id)
+      );
+      setTransactions((previous) => {
+        const unchanged = previous.length === records.length && previous.every((record, index) => {
+          const updated = records[index];
+          return record.id === updated.id &&
+            record.paidAmount === updated.paidAmount &&
+            record.paymentMethod === updated.paymentMethod &&
+            record.timestamp.getTime() === updated.timestamp.getTime() &&
+            record.paymentStatus === updated.paymentStatus &&
+            record.refundedAmount === updated.refundedAmount &&
+            record.refundPendingAmount === updated.refundPendingAmount;
+        });
+        return unchanged ? previous : records;
+      });
+      setDrawerState((previous) => {
+        const nextTotals = {
+          totalSales: records.reduce((sum, record) => sum + record.paidAmount, 0),
+          cashSales: records.filter((record) => record.paymentMethod === 'especes').reduce((sum, record) => sum + record.paidAmount, 0),
+          mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte').reduce((sum, record) => sum + record.paidAmount, 0),
+          transactionCount: records.length
+        };
+        return previous.totalSales === nextTotals.totalSales &&
+          previous.cashSales === nextTotals.cashSales &&
+          previous.mobileMoneySales === nextTotals.mobileMoneySales &&
+          previous.transactionCount === nextTotals.transactionCount
+          ? previous
+          : { ...previous, ...nextTotals };
+      });
     }
   };
 
