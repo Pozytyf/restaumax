@@ -77,10 +77,10 @@ La configuration Vercel contient notamment `CRON_SECRET`, `APP_ORIGIN`, les clé
 
 **Q4 — Numéro de table non garanti unique côté serveur**
 - Priorité : moyenne.
-- Fichiers : `src/components/restaumax/TableQrGeneratorView.tsx`, `src/lib/firebase.ts`, `server.ts`, règles Firestore.
-- Constat : le contrôle de doublon est effectué dans la liste locale, puis `persistTable` fait un `setDoc` direct. Deux gestionnaires peuvent créer simultanément le même numéro. Le POS résout ensuite la table à partir du numéro, ce qui peut rendre l'affectation ambiguë.
-- Action : ajouter une création serveur transactionnelle et un index unique déterministe avant de modifier le flux.
-- Non-régression : deux créations concurrentes du même numéro ; une seule doit réussir.
+- Fichiers : `src/server/tableService.ts`, `server.ts`, `api/index.ts`, `src/lib/firebase.ts`, `src/App.tsx`, `firestore.rules`, `vercel.json`.
+- Cause confirmée : contrôle de doublon uniquement local avant écriture directe.
+- Correction sur la branche : création via `POST /api/tables`, autorisation propriétaire/manager, transaction Firestore et réservation déterministe `table_number_index`. Les anciennes tables sont aussi vérifiées ; la création directe et la modification du numéro par SDK client sont refusées.
+- Non-régression : deux demandes concurrentes avec variantes de casse/espaces ; une seule réussit ; une table legacy empêche aussi un doublon ; les autres numéros restent créables.
 
 ### 3. Caisse et paiements
 
@@ -101,7 +101,7 @@ La configuration Vercel contient notamment `CRON_SECRET`, `APP_ORIGIN`, les clé
 - Les unités doivent correspondre exactement ; aucune conversion implicite kg/g ou L/ml n'est effectuée.
 - Les commandes dont certaines recettes sont absentes portent un statut de suivi partiel/incomplet ; les rapports signalent les coûts non couverts.
 - Tests existants : `test-inventory-service`, `test-order-lifecycle-stock`, `test-order-kds-cash-integration`, tests Emulator.
-- Action : conserver ce comportement fail-closed et compléter les tests d'options/suppléments manquants ; aucun défaut critique n'est confirmé à ce stade.
+- Vérification : `test-order-lifecycle-stock.mjs` couvre déjà les recettes de plat, plusieurs options, les suppléments, l'agrégation des ingrédients, la consommation, la restauration à l'annulation et le statut partiel si une recette de personnalisation manque. Aucun défaut critique confirmé à ce stade.
 
 ### 5. Cuisine / Bar
 
@@ -109,20 +109,19 @@ La configuration Vercel contient notamment `CRON_SECRET`, `APP_ORIGIN`, les clé
 - Priorité : haute.
 - Fichiers : `src/components/kds/KdsView.tsx`, `src/utils/kitchenTicket.ts`, `src/server/orderService.ts`, `src/types/restaumax.ts`, `src/types/pos.ts`.
 - Constat : `filterStation` change d'état mais ne filtre pas les tickets ; le mapping persistant attribue `course: 'plat'` à toutes les lignes ; aucun onglet Bar n'est rendu.
-- Correction : conserver la catégorie catalogue dans les lignes de commande, projeter Grillades/Plats/Boissons et filtrer les lignes par station, avec un onglet Bar.
+- Correction sur la branche : catégorie catalogue persistée dans la ligne de commande, mapping Grillades/Fourneaux/Bar, filtre appliqué aux lignes et onglet Bar ajouté.
 - Non-régression : commande mixte grillades + plat + boisson ; chaque station ne voit que ses lignes ; l'état « prêt » reste bloqué tant que toutes les lignes du ticket ne sont pas terminées.
 
 **K2 — Raccourcis clavier perturbant l'accessibilité**
 - Priorité : moyenne.
 - Fichier : `src/components/kds/KdsView.tsx`.
 - Constat : Tab/Maj+Tab sont interceptées comme raccourcis de navigation ; Entrée/Espace peuvent aussi détourner l'activation native d'un contrôle focalisé.
-- Correction : ne jamais intercepter Tab ; suspendre les raccourcis globaux lorsque le focus est sur un contrôle interactif.
+- Correction sur la branche : Tab/Maj+Tab restent natives et les raccourcis globaux sont ignorés lorsque le focus est dans un champ, bouton, lien ou contrôle interactif.
 - Non-régression : navigation clavier standard entre les boutons, raccourcis KDS actifs hors contrôles.
 
 **K3 — Confirmation KDS prématurée**
-- Priorité : moyenne, à vérifier.
-- Constat : le message « ticket prêt » est affiché avant confirmation de la mise à jour serveur.
-- Action : faire attendre le résultat serveur avant d'afficher un succès.
+- Priorité : moyenne.
+- Correction sur la branche : l'interface attend le résultat de la mise à jour serveur avant d'afficher « prêt » ou « servi » ; en cas de refus, aucun succès n'est annoncé.
 
 ### 6. Menu, clients et fidélité
 
@@ -130,13 +129,13 @@ La configuration Vercel contient notamment `CRON_SECRET`, `APP_ORIGIN`, les clé
 - Priorité : haute.
 - Fichiers : `src/components/restaumax/RestaurantAdminModuleView.tsx`, `firestore.rules`, `src/server/loyaltyService.ts`.
 - Constat : vérification par requête puis `addDoc` séparé ; deux créations concurrentes peuvent passer le contrôle. Le service fidélité crée déjà un document déterministe `loyalty_<hash téléphone>`.
-- Correction : création client via API/Admin SDK transactionnelle, identifiant cohérent avec le service fidélité, et refus de création directe par le SDK client.
+- Correction sur la branche : création via API/Admin SDK transactionnelle, identifiant déterministe cohérent avec le service fidélité, validation serveur des coordonnées et refus de création directe par le SDK client.
 - Non-régression : deux requêtes concurrentes avec le même numéro ; une seule fiche ; les points automatiques se rattachent à la même fiche.
 
 **C2 — Suppression de fiche et historique fidélité**
 - Priorité : moyenne, à décider dans le module clients.
 - Constat : la suppression de la fiche client ne supprime pas le ledger fidélité ; le solde peut devenir inaccessible depuis le répertoire.
-- Action : évaluer l'archivage logique plutôt que la suppression physique ; préserver l'historique.
+- Correction sur la branche : archivage logique, masquage des fiches archivées dans le répertoire actif, suppression physique refusée par les règles et conservation du ledger/solde.
 
 **M1 — Catalogue public**
 - La réponse publique filtre les articles indisponibles/épuisés et exclut les champs internes ; les tests de sécurité du menu sont présents.
@@ -148,12 +147,12 @@ La configuration Vercel contient notamment `CRON_SECRET`, `APP_ORIGIN`, les clé
 **A1 — Documentation Cron obsolète**
 - Fichiers : `vercel.json`, `docs/SUBSCRIPTION_BILLING_OPERATIONS.md`.
 - Constat : le Cron quotidien à 02:00 UTC est dans la version Production et `CRON_SECRET` est présent ; le document indique encore qu'un déploiement et la définition du secret sont à faire.
-- Correction : actualiser le statut documentaire, sans prétendre que l'exécution réelle a été observée. Les journaux disponibles ne permettent pas de confirmer un cycle réussi.
+- Correction documentaire effectuée : la présence de la tâche Cron et du secret est indiquée, sans prétendre qu'un cycle réussi a été observé. La preuve d'exécution reste à obtenir.
 - Limite : génération des factures et suspension automatisées ; encaissement d'abonnement manuel par le Super-admin.
 
 **A2 — Dépréciation Node**
 - Les journaux Vercel signalent `DEP0169 url.parse()` de façon répétée sur des routes utilisant Firebase Admin. Aucun crash applicatif correspondant n'est établi.
-- Action : tracer la dépendance exacte via les tests CI avec `NODE_OPTIONS=--trace-deprecation`, puis mettre à jour uniquement la dépendance responsable.
+- Action : identifier la dépendance exacte via une trace de dépréciation. Tentative de lecture des logs Vercel sur 7 jours refusée par la rétention Hobby ; la fenêtre 50 minutes a expiré. Le warning n'est pas bloquant et aucune mise à jour de dépendance n'est faite sans attribution fiable.
 
 **A3 — Validation navigateur**
 - Les tests existants sont nombreux (unitaires, contrats, règles Firestore, Emulator, build) mais aucun parcours Playwright/Cypress automatisé n'est déclaré dans les scripts actuels.
@@ -183,7 +182,7 @@ Aucune donnée Firebase Production ne doit servir de fixture de test. Utiliser e
 
 ## Avancement de l'audit — PR #110
 
-Dernier commit intégré au relevé : `57f606b7c82d62719647f1414e8a3173f43845c5`.  
+Dernier commit intégré au relevé : `673d1ea91deca5302f5c883d411a24e3af175e9a`.  
 PR : `https://github.com/Pozytyf/restaumax/pull/110` (brouillon, non fusionnée).
 
 ### Corrections implémentées sur la branche
@@ -195,15 +194,15 @@ PR : `https://github.com/Pozytyf/restaumax/pull/110` (brouillon, non fusionnée)
 - **C1 — Clients :** création par endpoint serveur transactionnel, identifiant déterministe partagé avec la fidélité et contrôle d'unicité par téléphone ; la création directe par SDK client est interdite.
 - **C2 — Fidélité :** la suppression physique est remplacée par l'archivage ; le ledger et les points restent conservés.
 - **A1 — Abonnements :** la documentation Cron a été mise à jour ; l'exécution réelle du cycle reste à prouver.
-- **API Vercel :** la nouvelle route `POST /api/customers` est ajoutée au routeur central et à ses réécritures Vercel.
+- **API Vercel :** les routes `POST /api/customers` et `POST /api/tables` sont ajoutées au routeur central et aux réécritures Vercel.
 
 ### Contrôles déjà observés
 
-- TypeScript : vert sur les commits de correction précédents.
-- Rôles, remboursements propriétaire, PayDunya et liaison propriétaire : verts sur les commits précédents de la branche.
-- QR : 60/60 tests ; cohérence QR/environnement : 4/4 ; diagnostic session/index : 16/16 ; choix espèces/caisse : 39 assertions réussies.
-- La suite complète a mis en évidence des tests devenus obsolètes et un défaut dans la validation d'adresse e-mail du nouveau service client. Ces points ont été corrigés sur la branche ; la suite doit être rejouée sur le dernier commit.
-- Au dernier relevé, les workflows du commit `57f606b` sont en cours. **Aucune validation globale n'est donc revendiquée.**
+- **Tous les contrôles GitHub Actions du commit `673d1ea` sont verts :** RestauMax CI (TypeScript, suite complète, build Production), validation Firestore Emulator stricte, sécurité/hardening, rôles, remboursements propriétaire, PayDunya et liaison propriétaire.
+- La suite complète inclut les tests de création client concurrente, de création de table concurrente, de routage API Vercel, de reprise QR/idempotence, de KDS et de règles Firestore.
+- QR : 60/60 tests ; cohérence QR/environnement : 4/4 ; diagnostic session/index : 16/16 ; choix espèces/caisse : 39 assertions réussies ; PayDunya : 40/40 tests unitaires et 36/36 parcours.
+- Les tests ont d'abord révélé des assertions obsolètes après durcissement des règles et ajout des routes ; elles ont été corrigées et la suite complète est maintenant verte sur le commit indiqué.
+- La PR reste en brouillon. **Aucune validation manuelle Preview n'est revendiquée.**
 
 ### Points toujours ouverts / bloquants
 
