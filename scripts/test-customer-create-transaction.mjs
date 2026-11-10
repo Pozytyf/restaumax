@@ -15,6 +15,8 @@ assert.equal(customer.phoneNormalized,'0700000001');assert.equal(customer.loyalt
 const noPermission=await createCustomerWithDb(db,{...input,actorUid:'manager-2'});assert.equal(noPermission.success,false);
 db.seed('managers/manager-2',{active:true,role:'manager',restaurantSlug:'demo',sessionVersion:4,permissions:['customers.view']});
 const managerDenied=await createCustomerWithDb(db,{...input,actorUid:'manager-2'});assert.equal(managerDenied.success,false,'manager without customers.manage is denied');
-const managerAllowed=await createCustomerWithDb(db,{...input,name:'Awa Updated',actorUid:'manager-3'}).catch(()=>({success:false}));
-assert.equal(managerAllowed.success,false);
+db.seed('managers/manager-3',{active:true,role:'manager',restaurantSlug:'demo',sessionVersion:4,permissions:['customers.manage']});
+const managerAllowed=await createCustomerWithDb(db,{...input,name:'Awa Updated',actorUid:'manager-3'});
+assert.equal(managerAllowed.success,true,'manager with customers.manage can complete an existing loyalty profile');
+assert.equal(db.data.get('restaurants/demo/customers/loyalty_'+(await import('node:crypto')).createHash('sha256').update('0700000001').digest('hex').slice(0,32)).name,'Awa Updated');
 console.log('✓ Création client transactionnelle : unicité concurrente, tenant et permissions validés.');
