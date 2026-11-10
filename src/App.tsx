@@ -385,9 +385,7 @@ export default function App() {
   const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
   const [authRestaurantRole, setAuthRestaurantRole] = useState<string>('');
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
-  const canManageCash = isRestaurantOwner ||
-    authRestaurantRole === 'manager' ||
-    (authRestaurantRole === 'cashier' && userPermissions.includes('cash.manage'));
+  const canManageCash = isRestaurantOwner || userPermissions.includes('cash.manage');
   const canCollectPayment = canManageCash;
   const mapCashPaymentRecord = (payment: any): PaymentRecord => ({
     id: String(payment.id),
@@ -555,8 +553,7 @@ export default function App() {
 
 
   useEffect(() => {
-    const canViewCash = isRestaurantOwner || authRestaurantRole === 'manager' ||
-      userPermissions.includes('cash.view') || userPermissions.includes('cash.manage');
+    const canViewCash = isRestaurantOwner || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage');
     if (!authUser || !canViewCash) {
       setTransactions([]);
       setCashSession(null);
@@ -1391,8 +1388,7 @@ export default function App() {
     }
   };
 
-  const canRefundPayments = isRestaurantOwner || authRestaurantRole === 'manager' ||
-    (authRestaurantRole === 'cashier' && userPermissions.includes('payments.refund'));
+  const canRefundPayments = isRestaurantOwner || userPermissions.includes('payments.refund');
 
   const handleRefundPayment = async (payment: PaymentRecord, amount: number, reason: string) => {
     if (!canRefundPayments) {
@@ -1860,7 +1856,7 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'manager' && (isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')) && (
+            {currentRole === 'manager' && (isRestaurantOwner || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')) && (
               <ManagerView
                 restaurantSlug={activeRestaurantSlug}
                 isOwner={isRestaurantOwner}
