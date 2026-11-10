@@ -134,6 +134,9 @@ try {
   await denies(setDoc(table(a('owner-a'),'table-new'),{id:'table-new',tableNumber:'X',capacity:2,isActive:true}), 'La création directe d’une table est refusée : réservation serveur obligatoire');
   await denies(updateDoc(table(a('owner-a'),'table-1'),{tableNumber:'X'}), 'Le numéro de table est immuable depuis le SDK client');
   await denies(setDoc(doc(a('owner-a'),'restaurants/rest-a/table_number_index/tblnum_forged'),{tableId:'table-new',tableNumberNormalized:'x'}), 'L’index d’unicité des tables est inaccessible au SDK client');
+  await denies(setDoc(table(a('owner-a'),'table-new'),{id:'table-new',tableNumber:'X',capacity:2,isActive:true}), 'La création directe d’une table est refusée : réservation serveur obligatoire');
+  await denies(updateDoc(table(a('owner-a'),'table-1'),{tableNumber:'X'}), 'Le numéro de table est immuable depuis le SDK client');
+  await denies(setDoc(doc(a('owner-a'),'restaurants/rest-a/table_number_index/tblnum_forged'),{tableId:'table-new',tableNumberNormalized:'x'}), 'L’index d’unicité des tables est inaccessible au SDK client');
   await denies(setDoc(table(a('manager-a'),'rest-b'),{id:'table-1',tableNumber:'X',capacity:2,isActive:true}), 'Restaurant A ne peut pas écrire dans B');
   await denies(deleteDoc(table(a('manager-a'),'rest-b')), 'Restaurant A ne peut pas supprimer dans B');
 
