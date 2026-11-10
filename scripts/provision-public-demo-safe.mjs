@@ -167,6 +167,6 @@ async function main() {
   process.stdout.write(JSON.stringify(result, null, 2) + '\n');
 }
 
-if (process.argv[1]?.endsWith('/provision-public-demo.mjs')) {
+if (process.argv[1]?.endsWith('/provision-public-demo-safe.mjs')) {
   main().catch(error => { process.stderr.write(`Provisionnement interrompu : ${error.message}\n`); process.exitCode = 1; });
 }
