@@ -43,6 +43,9 @@ const base = { restaurantSlug: 'demo', paymentId: 'pay-1', actorUid: 'actor-1', 
   amount: 2000, reason: 'Erreur de commande', idempotencyKey: 'refund-test-001', cashDisbursementConfirmed: true };
 const manager = { role: 'manager', active: true, restaurantSlug: 'demo', sessionVersion: 2, permissions: ['payments.refund'] };
 const db = seed(manager);
+const managerNoRefund = seed({ role: 'manager', active: true, restaurantSlug: 'demo', sessionVersion: 2, permissions: ['cash.manage'] });
+assert.equal((await refundCashPaymentWithDb(managerNoRefund, base)).success, false,
+  'manager without explicit payments.refund permission is denied');
 const first = await refundCashPaymentWithDb(db, base);
 assert.equal(first.success, true, 'manager can refund cash payment');
 assert.equal(first.payment.cashDisbursementConfirmed, true, 'cash handover confirmation is recorded in the refund audit');

@@ -16,11 +16,12 @@ async function run() {
   const headerSource = readFileSync(new URL('../src/components/Header.tsx', import.meta.url), 'utf8');
   assert(
     headerSource.includes('canAccessCash || permissions.includes') &&
-    appSource.includes("canAccessCash={isRestaurantOwner || authRestaurantRole === 'manager'}"),
+    appSource.includes("canAccessCash={isRestaurantOwner || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')}"),
     'La navigation affiche l’espace caisse aux propriétaires et gérants autorisés'
   );
   assert(
-    appSource.includes("isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view')"),
+    appSource.includes("const canViewCashForCashPanel = isRestaurantOwner ||") &&
+    appSource.includes("userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')"),
     'Le module caisse reste accessible aux propriétaires et gérants autorisés même sans permission explicite redondante'
   );
   assert(
@@ -45,6 +46,8 @@ async function run() {
   const uid = 'cashier-' + Date.now();
   const restaurantRef = db.collection('restaurants').doc(slug);
   const memberRef = db.collection('managers').doc(uid);
+  const managerNoCashUid = 'manager-no-cash-' + Date.now();
+  const managerNoCashRef = db.collection('managers').doc(managerNoCashUid);
   const orderRef = restaurantRef.collection('orders').doc('order-main');
   const concurrentOrderRef = restaurantRef.collection('orders').doc('order-concurrent');
   const cancelledOrderRef = restaurantRef.collection('orders').doc('order-cancelled');
@@ -58,6 +61,10 @@ async function run() {
     await restaurantRef.set({ slug, status: 'active', isActive: true, ownerUid: 'owner-test', loyaltyFcfaPerPoint: 1000 });
     await memberRef.set({
       uid, role: 'cashier', restaurantSlug: slug, permissions: ['cash.manage', 'cash.view'],
+      active: true, sessionVersion: 3
+    });
+    await managerNoCashRef.set({
+      uid: managerNoCashUid, role: 'manager', restaurantSlug: slug, permissions: ['payments.refund'],
       active: true, sessionVersion: 3
     });
     await orderRef.set({
@@ -82,6 +89,14 @@ async function run() {
     });
 
     console.log('\n--- Ouverture et contrôle de session de caisse ---');
+    const managerOpenDenied = await openCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: managerNoCashUid, actorName: 'Manager sans caisse',
+      sessionVersion: 3, openingBalance: 2000, idempotencyKey: 'manager-open-without-cash-manage'
+    });
+    assert(managerOpenDenied.success === false, 'Un manager sans cash.manage ne peut pas ouvrir une session');
+    const managerPaymentDenied = await recordCashPaymentWithDb(db,
+      input('order-main', 1000, 'manager-pay-without-cash-manage', 3, managerNoCashUid));
+    assert(managerPaymentDenied.success === false, 'Un manager sans cash.manage ne peut pas encaisser');
     const noSession = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-no-session-01'));
     assert(noSession.success === false, 'Un encaissement est refusé tant que le caissier ne possède pas de session ouverte');
     await memberRef.update({ permissions: [] });
@@ -334,7 +349,7 @@ async function run() {
     if (movements) for (const doc of movements.docs) { try { await doc.ref.delete(); } catch {} }
     const activeSessions = await restaurantRef.collection('cashSessionActive').get().catch(() => null);
     if (activeSessions) for (const doc of activeSessions.docs) { try { await doc.ref.delete(); } catch {} }
-    for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, splitOrderRef, memberRef, restaurantRef]) {
+    for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, splitOrderRef, memberRef, managerNoCashRef, restaurantRef]) {
       try { await ref.delete(); } catch {}
     }
     try { await app.delete(); } catch {}
