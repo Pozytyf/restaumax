@@ -677,7 +677,7 @@ export async function submitOrderWithServerValidation(
       return {
         success: false,
         conflict: response.status === 409 || data.conflict === true,
-        definitive: response.status >= 400 && response.status < 500,
+        definitive: data.definitive === true || (response.status >= 400 && response.status < 500),
         error: data.error || 'Erreur lors de la validation serveur de la commande.',
       };
     }

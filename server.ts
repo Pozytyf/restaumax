@@ -1656,7 +1656,7 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
     const result = await processOrderSubmission(input, staffProvider);
     if (result.success) return { statusCode: 200, body: result };
     if (result.conflict) return { statusCode: 409, body: result };
-    return { statusCode: 400, body: result };
+    return { statusCode: result.retryable ? 503 : 400, body: result };
   } catch (err: any) {
     const message = String(err?.message || '');
     if (/auth|token|revoked|expired/i.test(message)) {
@@ -1745,7 +1745,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
         if (appCheckResult.reason === 'invalid-token') {
           console.warn('[RestauMax orders] App Check rejected a public order:', appCheckResult.code || 'invalid-token');
         }
-        return { statusCode: appCheckResult.statusCode, body: { success: false, error: appCheckResult.message } };
+        return { statusCode: appCheckResult.statusCode, body: { success: false, error: appCheckResult.message, definitive: appCheckResult.reason === 'not-configured' } };
       }
       const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
@@ -1822,7 +1822,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       return { statusCode: 200, body: { ...result, order: safeOrder } };
     }
     if (result.conflict) return { statusCode: 409, body: result };
-    return { statusCode: 400, body: result };
+    return { statusCode: result.retryable ? 503 : 400, body: result };
   } catch (err: any) {
     console.error('Erreur inattendue API /api/orders:', err?.message || String(err));
     return { statusCode: 500, body: { success: false, error: 'Erreur interne du serveur lors du traitement de la commande.' } };

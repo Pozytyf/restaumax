@@ -45,6 +45,7 @@ export interface OrderSubmissionResult {
   error?: string;
   idempotentReplay?: boolean;
   conflict?: boolean;
+  retryable?: boolean;
 }
 
 /**
@@ -297,7 +298,7 @@ export async function processOrderSubmission(
     catalog = await dataProvider.getMenuItems(cleanSlug);
   } catch (err: any) {
     console.error('[RestauMax orders] Menu lookup failed:', err?.message || String(err));
-    return { success: false, error: "Erreur serveur lors de la lecture du catalogue Firestore. Aucun catalogue de secours n'est autorisé." };
+    return { success: false, retryable: true, error: "Erreur serveur lors de la lecture du catalogue Firestore. Aucun catalogue de secours n'est autorisé." };
   }
 
   if (!catalog || !Array.isArray(catalog) || catalog.length === 0) {
@@ -322,7 +323,7 @@ export async function processOrderSubmission(
       realTables = await dataProvider.getTables(cleanSlug);
     } catch (err: any) {
       console.error('[RestauMax orders] Table lookup failed:', err?.message || String(err));
-      return { success: false, error: 'Erreur serveur lors de la lecture des tables Firestore. Commande sur place refusée.' };
+      return { success: false, retryable: true, error: 'Erreur serveur lors de la lecture des tables Firestore. Commande sur place refusée.' };
     }
 
     if (!realTables || !Array.isArray(realTables) || realTables.length === 0) {
@@ -553,7 +554,7 @@ export async function processOrderSubmission(
       }
     } catch (err: any) {
       console.error('[RestauMax orders] Tax configuration lookup failed:', err?.message || String(err));
-      return { success: false, error: 'Impossible de vérifier la configuration fiscale du restaurant. Réessayez.' };
+      return { success: false, retryable: true, error: 'Impossible de vérifier la configuration fiscale du restaurant. Réessayez.' };
     }
   }
   const taxBreakdown = calculateOrderTax(grandTotal, taxRatePercent, taxMode);
@@ -611,7 +612,7 @@ export async function processOrderSubmission(
       return txResult;
     } catch (err: any) {
       console.error('[RestauMax orders] Order transaction failed:', err?.message || String(err));
-      return { success: false, error: 'Impossible d’enregistrer la commande pour le moment. Réessayez.' };
+      return { success: false, retryable: true, error: 'Impossible d’enregistrer la commande pour le moment. Réessayez.' };
     }
   }
 
@@ -636,7 +637,7 @@ export async function processOrderSubmission(
       reservation = await dataProvider.reserveIdempotencyKey(cleanKey, currentSignature);
     } catch (err: any) {
       console.error('[RestauMax orders] Idempotency registry failed:', err?.message || String(err));
-      return { success: false, error: "Échec du registre persistant d'idempotence. Traitement interrompu pour prévenir tout doublon." };
+      return { success: false, retryable: true, error: "Échec du registre persistant d'idempotence. Traitement interrompu pour prévenir tout doublon." };
     }
 
     if (reservation.status === 'conflict') {
@@ -654,9 +655,9 @@ export async function processOrderSubmission(
           return { success: true, order: probe.order, idempotentReplay: true };
         } else if (probe.status === 'error') {
           console.error('[RestauMax orders] Idempotency probe failed:', probe.error);
-          return { success: false, error: 'Impossible de vérifier l’état de la commande. Réessayez.' };
+          return { success: false, retryable: true, error: 'Impossible de vérifier l’état de la commande. Réessayez.' };
         } else {
-          return { success: false, error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable dans Firestore." };
+          return { success: false, retryable: true, error: "Incohérence persistante : la commande enregistrée sous cette clé est introuvable dans Firestore." };
         }
       }
       return { success: true, order: reservation.record.order, idempotentReplay: true };
@@ -665,6 +666,7 @@ export async function processOrderSubmission(
     if (reservation.status === 'in_progress') {
       return {
         success: false,
+        retryable: true,
         error: reservation.error || "Une requête identique avec cette clé d'idempotence est déjà en cours de traitement par une autre instance."
       };
     }
@@ -672,14 +674,14 @@ export async function processOrderSubmission(
     if (reservation.status === 'ambiguous') {
       const pendingId = reservation.record?.pendingOrderId;
       if (!pendingId) {
-        return { success: false, error: "La clé d'idempotence est dans un état ambigu sans identifiant traçable. Nouvelle tentative interrompue." };
+        return { success: false, retryable: true, error: "La clé d'idempotence est dans un état ambigu sans identifiant traçable. Nouvelle tentative interrompue." };
       }
       if (!dataProvider.getOrderById) {
-        return { success: false, error: "Sonde Firestore indisponible : impossible de vérifier si la commande précédente a été enregistrée." };
+        return { success: false, retryable: true, error: "Sonde Firestore indisponible : impossible de vérifier si la commande précédente a été enregistrée." };
       }
       const probe = await dataProvider.getOrderById(cleanSlug, pendingId);
       if (probe.status === 'error') {
-        return { success: false, error: `La vérification de l'état de la commande précédente a échoué (${probe.error}).` };
+        return { success: false, retryable: true, error: `La vérification de l'état de la commande précédente a échoué (${probe.error}).` };
       }
       if (probe.status === 'found') {
         if (dataProvider.commitIdempotencyKey) {
@@ -690,7 +692,7 @@ export async function processOrderSubmission(
       if (dataProvider.transitionKeyToProcessing) {
         const transitioned = await dataProvider.transitionKeyToProcessing(cleanKey, currentSignature, 'ambiguous');
         if (!transitioned) {
-          return { success: false, error: "Une autre instance a déjà repris le traitement de cette clé d'idempotence ambiguë." };
+          return { success: false, retryable: true, error: "Une autre instance a déjà repris le traitement de cette clé d'idempotence ambiguë." };
         }
       }
     }
@@ -716,12 +718,14 @@ export async function processOrderSubmission(
         } catch (markErr: any) {
           return {
             success: false,
+            retryable: true,
             error: "Traitement interrompu : échec de marquage ambigu du registre d'idempotence. L'état de la commande reste incertain ; réessayez avec la même clé."
           };
         }
       }
       return {
         success: false,
+        retryable: true,
         error: "Statut d'écriture ambigu dans Firestore : la commande n'a pas pu être confirmée. Vérifiez son statut avant toute nouvelle tentative avec la même clé."
       };
     }
@@ -740,6 +744,7 @@ export async function processOrderSubmission(
       }
       return {
         success: false,
+        retryable: true,
         error: "La commande enregistrée dans Firestore mais la confirmation d'idempotence a échoué. Vérifiez son statut avant toute nouvelle tentative avec la même clé."
       };
     }
