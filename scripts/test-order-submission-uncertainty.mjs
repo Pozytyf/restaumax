@@ -7,6 +7,7 @@ const app = read('../src/App.tsx');
 const server = read('../server.ts');
 const orderService = read('../src/server/orderService.ts');
 const cartDrawer = read('../src/components/restaumax/CartDrawer.tsx');
+const indexConfig = JSON.parse(read('../firestore.indexes.json'));
 
 const submitStart = firebase.indexOf('export async function submitOrderWithServerValidation');
 const submitEnd = firebase.indexOf('Soumet une commande POS', submitStart);
@@ -47,4 +48,23 @@ assert(server.includes('if (result.outcomeUnknown) return { statusCode: 503, bod
 assert(cartDrawer.includes('{submitError && (') && cartDrawer.includes('Vérification toujours incertaine :'),
   'Le panier doit afficher aussi le résultat de la tentative de vérification quand il reste verrouillé.');
 
-console.log('Tests transport commande QR et idempotence : 14/14 assertions réussies.');
+const tokenHashOverride = indexConfig.fieldOverrides.find(
+  item => item.collectionGroup === 'table_qr_tokens' && item.fieldPath === 'tokenHash'
+);
+const sessionHashOverride = indexConfig.fieldOverrides.find(
+  item => item.collectionGroup === 'table_sessions' && item.fieldPath === 'sessionHash'
+);
+const hasCollectionGroupAscending = override => override?.indexes.some(
+  index => index.queryScope === 'COLLECTION_GROUP' && index.order === 'ASCENDING'
+);
+assert.ok(hasCollectionGroupAscending(tokenHashOverride), 'tokenHash doit être déclaré en exemption collection-group croissante.');
+assert.ok(hasCollectionGroupAscending(sessionHashOverride), 'sessionHash doit être déclaré en exemption collection-group croissante.');
+assert.ok(!indexConfig.indexes.some(index => ['table_qr_tokens', 'table_sessions'].includes(index.collectionGroup)),
+  'Les index à champ unique QR ne doivent pas être déclarés comme index composites manuels.');
+assert.ok([tokenHashOverride, sessionHashOverride].every(override =>
+  ['ASCENDING', 'DESCENDING'].every(order =>
+    override?.indexes.some(index => index.queryScope === 'COLLECTION' && index.order === order)
+  ) && override?.indexes.some(index => index.queryScope === 'COLLECTION' && index.arrayConfig === 'CONTAINS')
+), 'Les index automatiques à portée collection restent activés.');
+
+console.log('Tests transport commande QR, idempotence et index Firestore : 18/18 assertions réussies.');
