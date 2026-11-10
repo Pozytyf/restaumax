@@ -1092,6 +1092,90 @@ export async function handleTableQrManagement(req: any) {
   }
 }
 
+export async function handleCustomerCashPreferenceRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (String(req?.method || '').toUpperCase() !== 'POST') {
+    return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  }
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Firestore indisponible.' } };
+  if (!req || !requestHasValidOrigin(req)) {
+    return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  }
+  const input = payload && typeof payload === 'object' ? payload as any : {};
+  const slug = String(input.restaurantSlug || '').trim();
+  const orderId = String(input.orderId || '').trim();
+  const sessionSecret = readCookie(req.headers?.cookie, tableSessionCookieName);
+  const csrfCookie = readCookie(req.headers?.cookie, tableCsrfCookieName);
+  const csrfHeader = req.headers?.['x-rm-csrf-token'];
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^[a-zA-Z0-9_-]{1,128}$/.test(orderId)) {
+    return { statusCode: 400, body: { success: false, error: 'Commande ou restaurant invalide.' } };
+  }
+  try {
+    const session = await getActiveTableSession(adminDb, sessionSecret);
+    if (!session || !csrfCookie || csrfHeader !== csrfCookie ||
+        String(input.csrfToken || '') !== csrfCookie || !validateCsrf(session, csrfHeader)) {
+      return { statusCode: 401, body: { success: false, error: 'Session QR invalide, expirée ou révoquée. Scannez à nouveau le QR de votre table.' } };
+    }
+    if (slug !== session.restaurantSlug) {
+      return { statusCode: 403, body: { success: false, error: 'La session QR ne correspond pas à ce restaurant.' } };
+    }
+    const restaurantRef = adminDb.collection('restaurants').doc(slug);
+    const orderRef = restaurantRef.collection('orders').doc(orderId);
+    const sessionRef = restaurantRef.collection('table_sessions').doc(session.sessionHash);
+    const qrRef = restaurantRef.collection('table_qr_tokens').doc(session.qrTokenHash);
+    const tableRef = restaurantRef.collection('tables').doc(session.tableId);
+    const result = await adminDb.runTransaction(async (tx: any) => {
+      const [restaurantSnap, orderSnap, sessionSnap, qrSnap, tableSnap] = await Promise.all([
+        tx.get(restaurantRef), tx.get(orderRef), tx.get(sessionRef), tx.get(qrRef), tx.get(tableRef)
+      ]);
+      const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+      const order = orderSnap.exists ? orderSnap.data() : null;
+      const activeSession = sessionSnap.exists ? sessionSnap.data() : null;
+      const qr = qrSnap.exists ? qrSnap.data() : null;
+      const table = tableSnap.exists ? tableSnap.data() : null;
+      const binding = order?.tableSession && typeof order.tableSession === 'object' ? order.tableSession : {};
+      const sessionValid = Boolean(
+        restaurant && restaurant.status === 'active' && !restaurant.deletedAt && restaurant.isActive !== false &&
+        activeSession && activeSession.status === 'active' && Number(activeSession.expiresAt) > Date.now() &&
+        activeSession.restaurantSlug === slug && activeSession.sessionHash === session.sessionHash &&
+        activeSession.qrTokenHash === session.qrTokenHash && activeSession.tableId === session.tableId &&
+        Number(activeSession.qrVersion) === Number(session.qrVersion) &&
+        qr && qr.status === 'active' && qr.tokenHash === session.qrTokenHash &&
+        qr.restaurantSlug === slug && qr.tableId === session.tableId &&
+        Number(qr.version) === Number(session.qrVersion) &&
+        table && table.isActive === true && Number(table.qrVersion || 0) === Number(session.qrVersion) &&
+        String(table.tableNumber || '') === String(session.tableNumber) &&
+        Number(activeSession.restaurantSessionVersion || 0) === Number(restaurant.tableSessionVersion || 0)
+      );
+      if (!sessionValid || !order || order.restaurantSlug !== slug || order.orderMode !== 'sur_place' ||
+          String(order.tableNumber || '') !== String(session.tableNumber) ||
+          binding.sessionHash !== session.sessionHash || binding.qrTokenHash !== session.qrTokenHash ||
+          Number(binding.qrVersion) !== Number(session.qrVersion) || binding.tableId !== session.tableId ||
+          order.status === 'cancelled') {
+        return { ok: false, statusCode: 403, error: 'La commande ne correspond pas à une session QR active de cette table.' };
+      }
+      const remaining = Number(order.remainingAmount ?? (Number(order.totalAmount || 0) - Number(order.paidAmount || 0)));
+      if (!Number.isSafeInteger(remaining) || remaining <= 0 || order.paymentStatus === 'paid') {
+        return { ok: false, statusCode: 409, error: 'Cette commande est déjà réglée ou son solde est invalide.' };
+      }
+      if (order.pendingPayDunyaIntentId) {
+        return { ok: false, statusCode: 409, error: 'Un paiement Mobile Money est déjà en cours. Attendez sa confirmation avant de choisir les espèces.' };
+      }
+      tx.update(orderRef, {
+        paymentPreference: 'especes',
+        paymentPreferenceSource: 'customer_qr',
+        paymentPreferenceUpdatedAt: Date.now()
+      });
+      return { ok: true, remainingAmount: remaining };
+    });
+    if (!result.ok) return { statusCode: result.statusCode, body: { success: false, error: result.error } };
+    return { statusCode: 200, body: { success: true, paymentPreference: 'especes', remainingAmount: result.remainingAmount,
+      message: 'Choix espèces enregistré. Le paiement sera confirmé par le personnel lors de la remise effective des espèces.' } };
+  } catch (error: any) {
+    console.error('[RestauMax customer cash preference] Failed:', error?.message || String(error));
+    return { statusCode: 503, body: { success: false, error: 'Impossible d’enregistrer le choix espèces pour le moment.' } };
+  }
+}
+
 export async function handleCustomerPayDunyaInvoiceRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (String(req?.method || '').toUpperCase() !== 'POST') {
     return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
@@ -1975,6 +2059,12 @@ app.post('/api/kitchen-item', async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handleKitchenItemRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/payments/customer-cash-preference', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const result = await handleCustomerCashPreferenceRequest(req.body, req);
   return res.status(result.statusCode).json(result.body);
 });
 
