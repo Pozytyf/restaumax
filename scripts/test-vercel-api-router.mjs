@@ -21,7 +21,7 @@ function collectApiFiles(directory, prefix = '') {
 collectApiFiles(apiRoot);
 assert.deepEqual(apiFiles.sort(), ['index.ts'], 'Hobby doit compiler un seul point d’entrée de fonction Vercel.');
 
-assert.equal(RESTAUMAX_API_ROUTES.length, 24, 'Les 23 points d’entrée actifs doivent être conservés.');
+assert.equal(RESTAUMAX_API_ROUTES.length, 24, 'Les 24 points d’entrée actifs doivent être conservés.');
 assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.path)).size, 24, 'Chaque chemin doit être unique.');
 assert.equal(new Set(RESTAUMAX_API_ROUTES.map((route) => route.id)).size, 24, 'Chaque identifiant doit être unique.');
 
