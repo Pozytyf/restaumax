@@ -608,9 +608,21 @@ export default function App() {
         const totalSales = records.reduce((sum, record) => sum + record.paidAmount, 0);
         const cashSales = records.filter((record) => record.paymentMethod === 'especes')
           .reduce((sum, record) => sum + record.paidAmount, 0);
-        setTransactions(records);
-        setDrawerState((previous) => ({
-          ...previous,
+        // Polling remains silent: preserve the existing UI state when the server
+        // returns the same journal, instead of forcing a visible cashier refresh.
+        setTransactions((previous) => {
+          const unchanged = previous.length === records.length && previous.every((record, index) => {
+            const next = records[index];
+            return record.id === next.id &&
+              record.paidAmount === next.paidAmount &&
+              record.paymentMethod === next.paymentMethod &&
+              record.timestamp.getTime() === next.timestamp.getTime() &&
+              record.paymentStatus === next.paymentStatus &&
+              record.remainingAmount === next.remainingAmount;
+          });
+          return unchanged ? previous : records;
+        });
+        const nextCashTotals = {
           totalSales,
           cashSales,
           mobileMoneySales: records.filter((record) => record.paymentMethod !== 'especes' && record.paymentMethod !== 'carte')
@@ -618,7 +630,16 @@ export default function App() {
           cardSales: 0,
           discountsTotal: 0,
           transactionCount: records.length
-        }));
+        };
+        setDrawerState((previous) => {
+          const unchanged = previous.totalSales === nextCashTotals.totalSales &&
+            previous.cashSales === nextCashTotals.cashSales &&
+            previous.mobileMoneySales === nextCashTotals.mobileMoneySales &&
+            previous.cardSales === nextCashTotals.cardSales &&
+            previous.discountsTotal === nextCashTotals.discountsTotal &&
+            previous.transactionCount === nextCashTotals.transactionCount;
+          return unchanged ? previous : { ...previous, ...nextCashTotals };
+        });
       } finally {
         paymentRefreshInFlight = false;
       }
