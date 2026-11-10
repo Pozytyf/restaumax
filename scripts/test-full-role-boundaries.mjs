@@ -14,8 +14,18 @@ assert(resolveRolePermissions('cashier', ['payments.refund'])?.includes('payment
 assert(resolveRolePermissions('cashier', ['orders.cancel'])?.includes('orders.cancel'), 'owner may separately grant cashier cancellation');
 assert.equal(resolveRolePermissions('server', ['payments.refund']), null);
 assert.equal(resolveRolePermissions('kitchen', ['payments.refund']), null);
+const kitchenPermissions = resolveRolePermissions('kitchen', []);
+for (const permission of ['cash.view', 'cash.manage', 'reports.view', 'reports.cash.view', 'payments.refund']) {
+  assert(!kitchenPermissions?.includes(permission), `Cuisine/Bar is denied ${permission}`);
+}
 
 const adminSource = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
+const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const reportModuleSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
+assert(appSource.includes("const canManageCash = isRestaurantOwner || userPermissions.includes('cash.manage')"), 'cash management is permission-gated, not granted by the manager role label');
+assert(appSource.includes("const canRefundPayments = isRestaurantOwner || userPermissions.includes('payments.refund')"), 'refunds require explicit permission even for managers');
+assert(appSource.includes("const canViewCash = isRestaurantOwner || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')"), 'cash data loading requires cash permission');
+assert(reportModuleSource.includes("module === 'reports' ? 'reports.view'" ) && reportModuleSource.includes('if (!canAccessModule) return;'), 'financial reports are not loaded without reports.view');
 const staffUiSource = fs.readFileSync(new URL('../src/components/restaumax/StaffManagementView.tsx', import.meta.url), 'utf8');
 assert(staffUiSource.includes("'orders.cancel','payments.refund','reports.view'"), 'staff UI exposes manager cancellation and refund permissions consistently');
 const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');

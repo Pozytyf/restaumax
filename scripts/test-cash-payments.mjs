@@ -20,8 +20,9 @@ async function run() {
     'La navigation affiche l’espace caisse aux propriétaires et gérants autorisés'
   );
   assert(
-    appSource.includes("isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view')"),
-    'Le module caisse reste accessible aux propriétaires et gérants autorisés même sans permission explicite redondante'
+    appSource.includes("const canManageCash = isRestaurantOwner || userPermissions.includes('cash.manage')") &&
+    appSource.includes("const canViewCash = isRestaurantOwner || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')"),
+    'Le module caisse exige une permission financière explicite et ne se base pas sur le seul rôle manager'
   );
   assert(
     managerViewSource.includes('Fond de caisse disponible') &&

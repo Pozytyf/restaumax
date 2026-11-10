@@ -46,6 +46,8 @@ export const RestaurantAdminModuleView: React.FC<{
   permissions: string[];
   onBack: () => void;
 }> = ({ module, restaurant, permissions, onBack }) => {
+  const requiredPermission = module === 'customers' ? 'customers.view' : module === 'inventory' ? 'inventory.view' : module === 'reports' ? 'reports.view' : 'settings.view';
+  const canAccessModule = permissions.includes(requiredPermission);
   const canManage = permissions.includes(module === 'customers' ? 'customers.manage' : module === 'inventory' ? 'inventory.manage' : 'settings.manage');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -76,6 +78,7 @@ export const RestaurantAdminModuleView: React.FC<{
   });
 
   useEffect(() => {
+    if (!canAccessModule) return;
     setError('');
     if (module === 'customers') {
       return onSnapshot(collection(db, 'restaurants', restaurant.slug, 'customers'), snap => {
@@ -124,7 +127,7 @@ export const RestaurantAdminModuleView: React.FC<{
       return () => { active = false; stopOrders(); };
     }
     return undefined;
-  }, [module, restaurant.slug, reportRefreshKey]);
+  }, [module, restaurant.slug, reportRefreshKey, canAccessModule]);
 
   useEffect(() => {
     setSettings({
@@ -353,6 +356,8 @@ export const RestaurantAdminModuleView: React.FC<{
 
   const lowStockInventory = inventory.filter(item => item.active !== false && Number(item.quantity) <= Number(item.minQuantity));
   const outOfStockInventory = lowStockInventory.filter(item => Number(item.quantity) <= 0);
+
+  if (!canAccessModule) return <div className="min-h-screen bg-slate-50 p-6 text-slate-900"><div className="mx-auto max-w-xl rounded-2xl border border-rose-200 bg-white p-6"><h1 className="text-lg font-black">Accès refusé</h1><p className="mt-2 text-sm text-slate-600">Votre rôle ne dispose pas de l’autorisation nécessaire pour consulter ce module.</p><button onClick={onBack} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white">Retour</button></div></div>;
 
   return <div className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
     <div className="mx-auto max-w-6xl space-y-6">
