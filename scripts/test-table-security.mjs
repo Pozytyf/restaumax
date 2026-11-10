@@ -339,7 +339,7 @@ async function run() {
   assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'empty' } }), 'Navigation QR cross-site non-document rejetée');
   assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site' } }), 'Navigation QR cross-site sans preuve de document rejetée');
   assert(!isTrustedQrNavigation({ method: 'POST', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' } }), 'POST cross-site rejeté');
-  assert(!isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document', referer: 'https://attacker.example/' } }), 'Referer tiers rejeté');
+  assert(isTrustedQrNavigation({ method: 'GET', headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document', referer: 'https://camera-app.example/scan' } }), 'Ouverture QR depuis une caméra externe acceptée même avec son Referer');
   assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-site', 'sec-fetch-dest': 'document' } }), 'Navigation depuis un sous-domaine tiers rejetée');
   assert(!isTrustedQrNavigation({ headers: { 'sec-fetch-site': 'same-origin', 'sec-fetch-dest': 'iframe', host: 'restaumax.example', 'x-forwarded-proto': 'https' } }), 'Résolution QR intégrée dans une iframe rejetée');
   assert(!isTrustedQrNavigation({ headers: { host: 'restaumax.example', 'x-forwarded-proto': 'https', referer: 'https://attacker.example/redirect' } }), 'Referer externe rejeté pour le bootstrap QR');
