@@ -136,6 +136,9 @@ export async function startPayDunyaOrderPaymentWithDb(
     if (!order || order.restaurantSlug !== slug || order.status === 'cancelled') {
       return { ok: false, error: 'Commande introuvable, annulée ou rattachée à un autre restaurant.' };
     }
+    if (order.paymentPreference === 'especes') {
+      return { ok: false, error: 'Cette commande a été affectée au règlement en espèces. Aucun paiement PayDunya ne peut être créé.' };
+    }
     let actorRole: string;
     if (input.customerTableSession) {
       const session = input.customerTableSession;
