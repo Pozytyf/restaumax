@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import {
   issueTableQr, getActiveTableQr, resolveTableQr, getActiveTableSession, revokeTableQr,
   buildSessionCookie, buildCsrfCookie, readCookie, validateCsrf, requestHasValidOrigin, isTrustedQrNavigation,
-  authorizeTableManager, updateRestaurantServiceStatus
+  authorizeTableManager, updateRestaurantServiceStatus, classifyTableSessionLookupError
 } from '../src/server/tableSecurityService.ts';
 import { resolveTableQrOrigin } from '../src/server/tableQrOrigin.ts';
 
@@ -70,6 +70,33 @@ function createDb() {
 }
 async function run() {
   console.log('RESTAUMAX — TESTS SÉCURITÉ QR / SESSION');
+  const indexFailureDb = createDb();
+  indexFailureDb.collectionGroup = () => ({
+    where() {
+      return {
+        limit() {
+          return {
+            async get() {
+              const error = new Error('The query requires an index. You can create it here.');
+              error.code = 9;
+              throw error;
+            }
+          };
+        }
+      };
+    }
+  });
+  let indexFailurePropagated = false;
+  try { await getActiveTableSession(indexFailureDb, 'valid-session-secret'); }
+  catch (error) {
+    indexFailurePropagated = error?.code === 9;
+    const failure = classifyTableSessionLookupError(error);
+    assert(failure.statusCode === 503, 'Une erreur Firestore FAILED_PRECONDITION est diagnostiquée comme indisponibilité, pas comme session invalide');
+    assert(failure.diagnosticCode === '9' && failure.diagnosticMessage.includes('requires an index'),
+      'Le diagnostic conserve le code Firestore et le motif technique pour les journaux serveur');
+  }
+  assert(indexFailurePropagated, 'Une erreur d’index Firestore pendant la recherche de session remonte au gestionnaire API');
+
   const db = createDb();
   db.store.set('restaurants/chez-awa', { slug: 'chez-awa', status: 'active', isActive: true, isOpen: true });
   db.store.set('restaurants/chez-awa/private/ownership', { ownerUid: 'owner-1' });
