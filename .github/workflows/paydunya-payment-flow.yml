@@ -3,7 +3,7 @@ on:
   push:
     branches: [fix/authorization-refunds-platform-audit]
   pull_request:
-    branches: [main]
+    branches: [main, fix/qr-table-session-diagnostics]
     paths:
       - 'src/server/paydunyaService.ts'
       - 'src/server/paydunyaPaymentService.ts'
