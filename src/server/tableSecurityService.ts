@@ -372,6 +372,19 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
   };
 }
 
+export function classifyTableSessionLookupError(error: any) {
+  const code = String(error?.code ?? '');
+  const message = String(error?.message || 'Unknown table-session lookup failure').slice(0, 180);
+  return {
+    statusCode: code ? 503 : 500,
+    publicMessage: code
+      ? 'Service de vérification de session momentanément indisponible.'
+      : 'Impossible de vérifier la session de table.',
+    diagnosticCode: code || null,
+    diagnosticMessage: message
+  };
+}
+
 export function validateCsrf(session: any, suppliedToken: unknown): boolean {
   if (!session || typeof session.csrfHash !== 'string' || !/^[a-f0-9]{64}$/.test(session.csrfHash) || typeof suppliedToken !== 'string' || suppliedToken.length < 30 || suppliedToken.length > 100) return false;
   return safeEqual(session.csrfHash, sha256(suppliedToken));
