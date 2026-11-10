@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CashDrawerState, PaymentRecord } from '../../types/pos';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
@@ -87,36 +87,45 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
   const [closedSessions, setClosedSessions] = useState<CashSessionApiRecord[]>([]);
   const [closedSessionsLoading, setClosedSessionsLoading] = useState(false);
+  const hasLoadedClosedSessionsRef = useRef(false);
 
   const loadClosedSessions = useCallback(async () => {
     if (!restaurantSlug) return;
-    setClosedSessionsLoading(true);
+    // Keep the existing history visible during background refreshes.
+    if (!hasLoadedClosedSessionsRef.current) setClosedSessionsLoading(true);
     try {
       const res = await listClosedCashSessionsWithServerValidation(restaurantSlug, 20);
       if (res.success && Array.isArray(res.closedSessions)) {
-        setClosedSessions(res.closedSessions);
+        setClosedSessions((previous) => {
+          const next = res.closedSessions as CashSessionApiRecord[];
+          return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+        });
       }
     } catch (e) {
       console.warn('Erreur chargement sessions clôturées:', e);
     } finally {
+      hasLoadedClosedSessionsRef.current = true;
       setClosedSessionsLoading(false);
     }
   }, [restaurantSlug]);
 
+  // The history is independent from the active session snapshot: do not reload it
+  // every time a cash-session object is refreshed by the background poller.
   useEffect(() => {
+    hasLoadedClosedSessionsRef.current = false;
     void loadClosedSessions();
-  }, [loadClosedSessions, cashSession]);
+  }, [loadClosedSessions]);
 
-  const averageTicket = drawerState.transactionCount > 0 
-    ? Math.round(drawerState.totalSales / drawerState.transactionCount) 
-    : 0;
-  const channelSales = {
+  const averageTicket = useMemo(() => drawerState.transactionCount > 0
+    ? Math.round(drawerState.totalSales / drawerState.transactionCount)
+    : 0, [drawerState.transactionCount, drawerState.totalSales]);
+  const channelSales = useMemo(() => ({
     cash: transactions.filter((tx) => tx.paymentMethod === 'especes').reduce((sum, tx) => sum + tx.paidAmount, 0),
     wave: transactions.filter((tx) => tx.paymentMethod === 'wave').reduce((sum, tx) => sum + tx.paidAmount, 0),
     orangeMoney: transactions.filter((tx) => tx.paymentMethod === 'orange_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
     mtnMoney: transactions.filter((tx) => tx.paymentMethod === 'mtn_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
     moovMoney: transactions.filter((tx) => tx.paymentMethod === 'moov_money').reduce((sum, tx) => sum + tx.paidAmount, 0)
-  };
+  }), [transactions]);
   const channelPercent = (amount: number) => drawerState.totalSales > 0
     ? Math.round((amount / drawerState.totalSales) * 100)
     : 0;
