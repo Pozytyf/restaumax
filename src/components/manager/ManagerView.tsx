@@ -276,7 +276,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     event.preventDefault();
                     const amount = Number(closingCountInput);
                     if (!Number.isSafeInteger(amount) || amount < 0) return;
-                    void onCloseCashSession(amount);
+                    void onCloseCashSession(amount).then(() => loadClosedSessions());
                     setClosingCountInput('');
                   }} className="flex flex-col justify-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
                     <label className="text-sm font-bold text-slate-800">Comptage physique en caisse (FCFA)
