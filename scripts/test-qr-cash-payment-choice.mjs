@@ -9,6 +9,7 @@ const clientMenu = read('../src/components/restaumax/ClientMenuView.tsx');
 const modal = read('../src/components/restaumax/OrderConfirmationModal.tsx');
 const paydunya = read('../src/server/paydunyaPaymentService.ts');
 const types = read('../src/types/restaumax.ts');
+const pos = read('../src/components/pos/PosView.tsx');
 
 const handlerStart = server.indexOf('export async function handleCustomerCashPreferenceRequest');
 const handlerEnd = server.indexOf('export async function handleCustomerPayDunyaInvoiceRequest', handlerStart);
@@ -33,5 +34,7 @@ assert(modal.includes('ne passe jamais par PayDunya'), 'Le client est informé q
 assert(modal.includes('Le paiement sera confirmé par le personnel'), 'Le choix espèces ne marque pas à tort la commande comme payée.');
 assert(paydunya.includes("if (order.paymentPreference === 'especes')"), 'PayDunya refuse les commandes affectées aux espèces.');
 assert(types.includes("paymentPreference?: 'especes' | 'mobile_money'"), 'Le type de commande expose la préférence de règlement.');
+assert(pos.includes("order.paymentPreference === 'especes' ? 'Espèces demandées'"), 'La caisse identifie les commandes dont le client a choisi les espèces.');
+assert(modal.includes('|| cashPreferenceSaved'), 'Le client ne peut pas lancer PayDunya après avoir confirmé son choix espèces.');
 
-console.log('Tests choix espèces QR / séparation PayDunya : 14/14 assertions réussies.');
+console.log('Tests choix espèces QR / séparation PayDunya : 16/16 assertions réussies.');
