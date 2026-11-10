@@ -14,7 +14,7 @@
     "test:lot2": "tsx scripts/test-lot2.mjs",
     "test:qr": "tsx scripts/test-table-security.mjs && tsx scripts/test-table-qr-origin.mjs && node scripts/test-table-session-diagnostics.mjs && npm run test:qr-cash",
     "test:emulator": "tsx scripts/test-firestore-emulator-ambiguous.mjs && tsx scripts/test-qr-order-transaction.mjs && npm run test:order-lifecycle-emulator && npm run test:subscription-billing-emulator && npm run test:loyalty-refund-emulator && npm run test:loyalty-tax-base-emulator && npm run test:financial-report-emulator && npm run test:customer-loyalty && npm run test:order-kds-cash",
-    "test:intent": "tsx scripts/test-client-intent.mjs",
+    "test:intent": "tsx scripts/test-client-intent.mjs && tsx scripts/test-order-retryable-failure.mjs && node scripts/test-order-recovery-ui.mjs",
     "test:subscriptions": "tsx scripts/test-subscription-validation.mjs",
     "test:github-token": "node scripts/test-github-installation-token.mjs",
     "test:paydunya": "node scripts/test-paydunya-service.mjs && tsx scripts/test-paydunya-payment-flow.mjs && tsx scripts/test-paydunya-merchant-config.mjs",
