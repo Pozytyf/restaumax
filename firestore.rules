@@ -275,15 +275,20 @@ service cloud.firestore {
       match /tables/{tableId} {
         allow get, list: if (hasRestaurantPermission(restaurantSlug, 'tables.view') || hasRestaurantPermission(restaurantSlug, 'tables.manage')) &&
           (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('role', '') != 'server' || resource.data.get('assignedWaiter', '') == request.auth.uid);
-        allow create: if hasRestaurantPermission(restaurantSlug, 'tables.manage') &&
-          isValidId(tableId) && isValidTable(incoming()) && incoming().id == tableId;
+        // Table creation and number reservation are atomic in the trusted API.
+        allow create: if false;
         allow update: if hasRestaurantPermission(restaurantSlug, 'tables.manage') &&
           isValidId(tableId) && isValidTable(incoming()) && incoming().id == tableId &&
           incoming().diff(existing()).affectedKeys().hasOnly([
-            'tableNumber', 'section', 'capacity', 'isActive', 'status', 'covers',
+            'section', 'capacity', 'isActive', 'status', 'covers',
             'seatedAt', 'assignedWaiter', 'currentOrderId', 'currentTotal'
           ]);
         allow delete: if hasRestaurantPermission(restaurantSlug, 'tables.manage') && isValidId(tableId);
+      }
+
+      // Unique table-number reservations are server-only and transactionally managed.
+      match /table_number_index/{indexId} {
+        allow read, write: if false;
       }
 
       // QR token fingerprints and table sessions are server-only collections.
