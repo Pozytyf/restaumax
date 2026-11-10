@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { resolveRolePermissions } from '../src/server/platformAdmin.ts';
 
+const adminSource = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
+const serverSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const paymentServiceSource = fs.readFileSync(new URL('../src/server/paymentService.ts', import.meta.url), 'utf8');
+const paydunyaServiceSource = fs.readFileSync(new URL('../src/server/paydunyaPaymentService.ts', import.meta.url), 'utf8');
+const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const adminModuleSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
+const staffUiSource = fs.readFileSync(new URL('../src/components/restaumax/StaffManagementView.tsx', import.meta.url), 'utf8');
+
 const owner = resolveRolePermissions('owner', []);
 assert(owner?.includes('payments.refund'), 'owner has operational refund authority');
 const manager = resolveRolePermissions('manager', []);
@@ -32,13 +40,6 @@ assert(adminModuleSource.includes('if (!canAccessModule) return;') &&
   adminModuleSource.includes('if (!canAccessModule) return <div'),
   'Admin module blocks unauthorized reads and rendering');
 
-const adminSource = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
-const serverSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
-const paymentServiceSource = fs.readFileSync(new URL('../src/server/paymentService.ts', import.meta.url), 'utf8');
-const paydunyaServiceSource = fs.readFileSync(new URL('../src/server/paydunyaPaymentService.ts', import.meta.url), 'utf8');
-const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
-const adminModuleSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
-const staffUiSource = fs.readFileSync(new URL('../src/components/restaumax/StaffManagementView.tsx', import.meta.url), 'utf8');
 assert(staffUiSource.includes("'orders.cancel','payments.refund','reports.view'"), 'staff UI exposes manager cancellation and refund permissions consistently');
 const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
 const hubView = fs.readFileSync(new URL('../src/components/restaumax/RestaurantHubView.tsx', import.meta.url), 'utf8');
