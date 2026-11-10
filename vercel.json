@@ -19,6 +19,10 @@
       "destination": "/api/index?__restaumax_route=inventory"
     },
     {
+      "source": "/api/customers",
+      "destination": "/api/index?__restaumax_route=customers"
+    },
+    {
       "source": "/api/customer-loyalty",
       "destination": "/api/index?__restaumax_route=customer-loyalty"
     },
