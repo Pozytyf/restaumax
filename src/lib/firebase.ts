@@ -1176,7 +1176,9 @@ export async function listRecentCashPaymentsWithServerValidation(
   try {
     const user = auth.currentUser;
     if (!user) return { success: false, error: 'Connexion du personnel requise.' };
-    const idToken = await user.getIdToken(true);
+    // Reuse the current token; Firebase refreshes it automatically when it is near expiry.
+    // Forcing a refresh on every 15-second journal poll creates needless auth churn.
+    const idToken = await user.getIdToken();
     const response = await fetch(`/api/payments?restaurantSlug=${encodeURIComponent(restaurantSlug)}`, {
       method: 'GET',
       headers: { Authorization: `Bearer ${idToken}` },
