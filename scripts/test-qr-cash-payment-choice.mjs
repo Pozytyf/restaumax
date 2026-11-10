@@ -28,6 +28,7 @@ assert(!handler.includes("paymentStatus: 'paid'") && !handler.includes('paidAmou
 
 assert(server.includes("app.post('/api/payments/customer-cash-preference'"), 'La route client espèces doit être exposée.');
 assert(firebase.includes("fetch('/api/payments/customer-cash-preference'"), 'Le client appelle la route espèces dédiée.');
+assert(firebase.includes('App Check token unavailable; continuing to server-side validation.'), 'Une erreur de jeton App Check navigateur ne doit pas empêcher l’appel serveur idempotent ; le serveur garde la décision de sécurité.');
 assert(app.includes('selectCustomerCashPaymentWithServerValidation'), 'App branche le choix espèces sécurisé.');
 assert(clientMenu.includes('onSelectCashPayment={onSelectCashPayment}'), 'Le choix espèces est transmis à la confirmation.');
 
