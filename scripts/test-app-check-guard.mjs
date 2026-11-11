@@ -56,4 +56,4 @@ assert.equal(rejected.statusCode, 401);
 assert.equal(rejected.reason, 'invalid-token');
 assert.equal(rejected.code, 'app-check/invalid-token');
 
-console.log('App Check enforcement guard tests passed (15 assertions).');
+console.log('App Check enforcement guard tests passed (20 assertions).');
