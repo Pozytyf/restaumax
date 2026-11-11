@@ -1977,6 +1977,14 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
       if (hasUnresolvedPayDunya) {
         return { statusCode: 409, body: { success: false, error: 'Clôture impossible : un paiement PayDunya de cette journée reste à rapprocher. Vérifiez son statut avant de clôturer.' } };
       }
+      const dayRefunds = await restaurantRef.collection('refunds')
+        .where('createdAt', '>=', startAt).where('createdAt', '<=', endAt).get();
+      const hasUnresolvedRefund = dayRefunds.docs.some((refundDoc: any) =>
+        ['initiating', 'manual_review', 'created', 'pending'].includes(String(refundDoc.data()?.status || '').toLowerCase())
+      );
+      if (hasUnresolvedRefund) {
+        return { statusCode: 409, body: { success: false, error: 'Clôture impossible : un remboursement fournisseur de cette journée reste à confirmer.' } };
+      }
       // Store a complete immutable snapshot; GET responses redact cash details
       // unless the requesting manager has reports.cash.view.
       const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
