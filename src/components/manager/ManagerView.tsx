@@ -439,6 +439,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     </button>
                   </form>
                 </div>
+              ) : <p className="self-center text-sm text-slate-500">Session active. La clôture et les sorties de caisse sont réservées au personnel autorisé.</p>}
               <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <h3 className="text-sm font-black text-slate-800">Journal des sorties</h3>
@@ -465,7 +466,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   </div>
                 )}
               </div>
-              ) : <p className="self-center text-sm text-slate-500">Session active. La clôture et les sorties de caisse sont réservées au personnel autorisé.</p>}
+
             </div>
           ) : canManageCash ? (
             <form onSubmit={(event) => {
