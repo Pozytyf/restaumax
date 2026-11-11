@@ -189,6 +189,8 @@ export interface RestauOrder {
   idempotencyKey?: string;
   idempotencyDocId?: string;
   contentSignature?: string;
+  /** Hashed one-order capability; never returned to public clients. */
+  customerAccessTokenHash?: string;
 }
 
 export interface RestaurantTable {
