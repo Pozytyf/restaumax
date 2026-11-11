@@ -433,7 +433,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               {payDunyaLoading ? 'Actualisation…' : 'Actualiser'}
             </button>
           </div>
-          {payDunyaIntents.filter(intent => !['paid', 'completed', 'succeeded', 'refunded'].includes(intent.status.toLowerCase())).length === 0 ? (
+          {payDunyaIntents.filter(intent => !['paid', 'completed', 'succeeded', 'refunded', 'cancelled', 'expired'].includes(intent.status.toLowerCase())).length === 0 ? (
             <p className="mt-3 text-xs text-slate-500">{payDunyaLoading ? 'Chargement…' : 'Aucune intention PayDunya non soldée dans les 50 dernières opérations.'}</p>
           ) : (
             <div className="mt-3 divide-y divide-slate-100">
