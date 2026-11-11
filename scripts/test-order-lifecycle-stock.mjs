@@ -154,6 +154,27 @@ const cashierCancel = await transitionOrderStatusWithDb(cashierDb, {
   ...params, actorUid: 'cashier-1', targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie'
 });
 assert.equal(cashierCancel.success, true);
+const waiterDb = base();
+waiterDb.documents.get('restaurants/chez-awa/orders/order-1').assignedWaiterUid = 'server-1';
+waiterDb.documents.set('managers/server-1', {
+  active: true, restaurantSlug: 'chez-awa', role: 'server',
+  permissions: ['orders.cancel'], sessionVersion: 4
+});
+const waiterCancel = await transitionOrderStatusWithDb(waiterDb, {
+  ...params, actorUid: 'server-1', targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie'
+});
+assert.equal(waiterCancel.success, true, 'A waiter with the owner-granted permission can cancel their own erroneous ticket');
+const otherWaiterDb = base();
+otherWaiterDb.documents.get('restaurants/chez-awa/orders/order-1').assignedWaiterUid = 'server-1';
+otherWaiterDb.documents.set('managers/server-2', {
+  active: true, restaurantSlug: 'chez-awa', role: 'server',
+  permissions: ['orders.cancel'], sessionVersion: 4
+});
+const otherWaiterCancel = await transitionOrderStatusWithDb(otherWaiterDb, {
+  ...params, actorUid: 'server-2', targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie'
+});
+assert.equal(otherWaiterCancel.success, false, 'A waiter cannot cancel another waiter’s ticket');
+
 const missingReasonDb = base();
 const missingReason = await transitionOrderStatusWithDb(missingReasonDb, {
   ...params, targetStatus: 'cancelled'
