@@ -73,4 +73,22 @@ const paid = await mutateCustomerOrderWithDb(paidDb, { ...base, action: 'edit', 
 assert.equal(paid.success, false);
 assert.match(paid.error, /déjà réglée/);
 
-console.log('Customer order mutation regression: 5 scenarios passed.');
+
+const wrongRestaurant = await mutateCustomerOrderWithDb(new FakeDb({
+  ...seed(), 'restaurants/chez-awa': { status: 'suspended' }
+}), { ...base, action: 'cancel', reason: 'Erreur client' });
+assert.equal(wrongRestaurant.success, false, 'Suspended restaurants reject customer mutations');
+assert.equal((await mutateCustomerOrderWithDb(new FakeDb(seed()), {
+  ...base, action: 'edit', items: [{ id: 'line-1', quantity: 0 }]
+})).success, false, 'Zero quantity is rejected server-side');
+const cancelPaidDb = new FakeDb(seed());
+cancelPaidDb.docs.get('restaurants/chez-awa/orders/order-1').paidAmount = 100;
+assert.equal((await mutateCustomerOrderWithDb(cancelPaidDb, {
+  ...base, action: 'cancel', reason: 'Erreur client'
+})).success, false, 'A paid order cannot be cancelled through the public capability');
+assert.equal([...editDb.docs.keys()].filter(path => path.includes('/orderAudit/')).length, 1,
+  'Customer edits are preserved in append-only audit history');
+assert.equal([...cancelDb.docs.keys()].filter(path => path.includes('/orderAudit/')).length, 1,
+  'Customer cancellation is preserved in append-only audit history');
+console.log('Customer order mutation regression: 8 scenarios passed.');
+
