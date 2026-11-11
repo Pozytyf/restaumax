@@ -701,7 +701,7 @@ export async function submitOrderWithServerValidation(
 export async function mutateCustomerOrderWithServerValidation(input: {
   restaurantSlug: string; orderId: string; accessToken: string; action: 'get' | 'cancel' | 'edit';
   reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }>; customerNote?: string;
-}): Promise<{ success: true; status: string; totalAmount?: number; itemsCount?: number; order?: RestauOrder } | { success: false; error: string }> {
+}): Promise<{ success: true; status: string; subtotalAmount?: number; taxAmount?: number; totalAmount?: number; itemsCount?: number; order?: RestauOrder } | { success: false; error: string }> {
   try {
     const response = await fetch('/api/customer-orders', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
