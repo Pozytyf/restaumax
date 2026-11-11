@@ -859,24 +859,21 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+            <table className="w-full min-w-[760px] text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-extrabold uppercase text-[10px] tracking-wider">
-                  <th className="py-3 px-4">Ticket</th>
-                  <th className="py-3 px-4">Date et heure</th>
-                  <th className="py-3 px-4">Table</th>
-                  <th className="py-3 px-4">Serveur</th>
-                  <th className="py-3 px-4">Articles</th>
-                  <th className="py-3 px-4">Règlement</th>
-                  <th className="py-3 px-4 text-right">Montant encaissé</th>
+                  <th className="py-3 px-4">Commande</th>
+                  <th className="py-3 px-4">Heure</th>
+                  <th className="py-3 px-4">Canal</th>
+                  <th className="py-3 px-4 text-right">Montant</th>
                   <th className="py-3 px-4">Statut</th>
-                  <th className="py-3 px-4 text-center">Reçu</th>
+                  <th className="py-3 px-4 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                    <td colSpan={6} className="py-8 text-center text-slate-400">
                       Aucun encaissement enregistré dans les 100 dernières opérations.
                     </td>
                   </tr>
@@ -886,11 +883,6 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                       <td className="py-3 px-4 font-black text-slate-900">{tx.orderId}</td>
                       <td className="py-3 px-4 text-slate-500 tnum">
                         {new Date(tx.timestamp).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'medium' })}
-                      </td>
-                      <td className="py-3 px-4 font-bold text-slate-800">{tx.tableNumber}</td>
-                      <td className="py-3 px-4 text-slate-600">{tx.waiter}</td>
-                      <td className="py-3 px-4 text-slate-600">
-                        {tx.items.length} article(s)
                       </td>
                       <td className="py-3 px-4">
                         <span className="capitalize font-semibold text-slate-700">
