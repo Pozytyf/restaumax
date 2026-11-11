@@ -51,7 +51,7 @@ export interface Table {
   covers?: number;
 }
 
-export type TicketStatus = 'in_prep' | 'ready' | 'served' | 'cancelled';
+export type TicketStatus = 'pending' | 'in_prep' | 'ready' | 'served' | 'cancelled';
 
 export interface KitchenItem {
   id: string;
