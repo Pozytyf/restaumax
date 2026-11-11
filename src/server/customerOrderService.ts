@@ -148,7 +148,7 @@ export async function mutateCustomerOrderWithDb(db: any, input: CustomerOrderMut
         previousItems: currentItems.map((item: any) => ({ id: item.id, quantity: item.quantity })),
         updatedItems: updatedItems.map((item: any) => ({ id: item.id, quantity: item.quantity }))
       });
-      return { success: true, status: 'pending', totalAmount: tax.totalAmount, itemsCount: updatedItems.reduce((sum, item) => sum + Number(item.quantity), 0) };
+      return { success: true, status: 'pending', subtotalAmount: tax.subtotalAmount, taxAmount: tax.taxAmount, totalAmount: tax.totalAmount, itemsCount: updatedItems.reduce((sum, item) => sum + Number(item.quantity), 0) };
     });
   } catch (error: any) {
     console.error('[RestauMax customer order mutation] Failed:', error?.message || String(error));
