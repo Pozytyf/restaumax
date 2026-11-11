@@ -1,5 +1,5 @@
 import type { MenuOptionGroup, MenuExtra, SelectedOption, SelectedExtra } from './restaumax';
-export type Role = 'pos' | 'floor' | 'kds' | 'manager';
+export type Role = 'pos' | 'floor' | 'kds' | 'bar' | 'manager';
 
 export type Category = 
   | 'tous'
