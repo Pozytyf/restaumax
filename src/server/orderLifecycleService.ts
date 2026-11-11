@@ -8,6 +8,8 @@ export interface OrderLifecycleParams {
   actorUid: string;
   sessionVersion: number;
   cancellationReason?: string;
+  pendingOnly?: boolean;
+  removalAction?: boolean;
 }
 
 const validSlug = (value: string) => /^[a-zA-Z0-9_-]{1,100}$/.test(value);
@@ -75,6 +77,9 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         (targetStatus === 'completed' && canServe) ||
         (targetStatus === 'cancelled' && canCancel);
       if (!allowed) return { success: false, error: 'Votre rôle ne permet pas cette transition de commande.' };
+      if (targetStatus === 'cancelled' && params.pendingOnly === true && order.status !== 'pending') {
+        return { success: false, error: 'Seuls les tickets encore en attente de validation peuvent être annulés ou retirés du POS.' };
+      }
       if (targetStatus === 'cancelled' && (
         Number(order.paidAmount || 0) > 0 || ['partial', 'paid'].includes(String(order.paymentStatus || '')) || Boolean(order.pendingPayDunyaIntentId)
       )) {
@@ -402,6 +407,11 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         orderUpdate.cancellationReason = cancellationReason;
         orderUpdate.cancelledAt = now;
         orderUpdate.cancelledBy = actorUid;
+        if (params.pendingOnly === true && params.removalAction === true) {
+          orderUpdate.removedFromPosAt = now;
+          orderUpdate.removedFromPosBy = actorUid;
+          orderUpdate.removedFromPosReason = cancellationReason;
+        }
       }
       if (menuConsumeUpdates.length) orderUpdate.menuStockConsumedAt = now;
       if (menuRestockUpdates.length) orderUpdate.menuStockRestoredAt = now;
@@ -416,7 +426,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       if (targetStatus === 'cancelled') {
         const auditRef = restaurantRef.collection('orderAudit').doc(`${orderId}_cancel_${hash(`${actorUid}:${now}:${cancellationReason}`)}`);
         tx.create(auditRef, {
-          event: 'order.cancelled', orderId, orderNumber: String(order.orderNumber || orderId),
+          event: params.pendingOnly === true && params.removalAction === true ? 'order.removed_from_pos' : 'order.cancelled', orderId, orderNumber: String(order.orderNumber || orderId),
           restaurantSlug, previousStatus: order.status, status: 'cancelled',
           reason: cancellationReason, actorUid, actorRole: member.role,
           createdAt: now, stockRestored: Boolean(order.stockTrackingStatus === 'restored' || menuRestockUpdates.length || (consumption && !consumption.restoredAt))
