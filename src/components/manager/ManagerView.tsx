@@ -157,11 +157,15 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     }, error => console.warn('Erreur chargement des commandes actives de caisse:', error));
   }, [restaurantSlug]);
 
-  const cancelActiveOrder = async (order: RestauOrder) => {
-    const reason = window.prompt('Motif obligatoire de l’annulation (3 à 300 caractères) :');
+  const cancelActiveOrder = async (order: RestauOrder, removalAction = false) => {
+    const reason = window.prompt(removalAction
+      ? 'Motif obligatoire du retrait de la caisse (3 à 300 caractères) :'
+      : 'Motif obligatoire de l’annulation (3 à 300 caractères) :');
     if (reason === null) return;
     if (reason.trim().length < 3) { window.alert('Veuillez saisir un motif de trois caractères minimum.'); return; }
-    if (!window.confirm('Confirmer l’annulation logique de cette commande ? Le journal et les stocks seront mis à jour.')) return;
+    if (!window.confirm(removalAction
+      ? 'Retirer cette commande impayée de la caisse ? Elle restera conservée dans l’historique et le suivi PayDunya.'
+      : 'Confirmer l’annulation logique de cette commande ? Le journal et les stocks seront mis à jour.')) return;
     const user = auth.currentUser;
     if (!user) { window.alert('Connexion requise.'); return; }
     setCancellingOrderId(order.id);
@@ -171,12 +175,18 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         method: 'POST',
         headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
         credentials: 'same-origin', cache: 'no-store',
-        body: JSON.stringify({ restaurantSlug, orderId: order.id, status: 'cancelled', cancellationReason: reason.trim() })
+        body: JSON.stringify({
+          restaurantSlug, orderId: order.id, status: 'cancelled',
+          cancellationReason: reason.trim(),
+          ...(removalAction ? { pendingOnly: true, removalAction: true } : {})
+        })
       });
       const data = await response.json();
       if (!response.ok || !data.success) window.alert(data.error || 'Annulation refusée.');
       else {
-        window.alert('Commande annulée logiquement. L’intention PayDunya est conservée pour rapprochement manuel ; ne recréez pas la facture.');
+        window.alert(removalAction
+          ? 'Commande retirée de la caisse. Son historique et son intention PayDunya restent conservés pour rapprochement manuel ; ne recréez pas la facture.'
+          : 'Commande annulée logiquement. L’intention PayDunya est conservée pour rapprochement manuel ; ne recréez pas la facture.');
         await loadPayDunyaIntents();
       }
     } catch (error) {
@@ -584,11 +594,11 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   </div>
                   {canCancelOrders && intent.status.toLowerCase() === 'creation_unknown' && (() => {
                     const order = activeOrders.find(candidate => candidate.id === intent.orderId);
-                    const unpaid = order && Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || ''));
+                    const unpaid = order && order.status === 'pending' && Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || ''));
                     return unpaid ? (
-                      <button type="button" onClick={() => void cancelActiveOrder(order)} disabled={cancellingOrderId === order.id}
+                      <button type="button" onClick={() => void cancelActiveOrder(order, true)} disabled={cancellingOrderId === order.id}
                         className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold text-rose-800 disabled:opacity-50">
-                        {cancellingOrderId === order.id ? 'Annulation…' : 'Annuler la commande impayée'}
+                        {cancellingOrderId === order.id ? 'Retrait…' : 'Retirer de la caisse'}
                       </button>
                     ) : null;
                   })()}
