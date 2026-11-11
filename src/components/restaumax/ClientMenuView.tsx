@@ -134,6 +134,21 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [confirmedOrder, setConfirmedOrder] = useState<RestauOrder | null>(null);
   const [confirmedOrderAccessToken, setConfirmedOrderAccessToken] = useState<string | null>(null);
+  const [isConfirmedOrderOpen, setIsConfirmedOrderOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = window.sessionStorage.getItem(`restaumax-last-order:${restaurant.slug}`);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      if (parsed?.order?.id && typeof parsed.accessToken === 'string' && parsed.accessToken.length >= 32) {
+        setConfirmedOrder(parsed.order as RestauOrder);
+        setConfirmedOrderAccessToken(parsed.accessToken);
+        setIsConfirmedOrderOpen(true);
+      }
+    } catch { /* ignore invalid or unavailable session storage */ }
+  }, [restaurant.slug]);
 
   // Filtered menu items (only available dishes are displayed and searchable)
   const filteredItems = useMemo(() => {
@@ -486,8 +501,12 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
             setIsCartOpen(false);
             setConfirmedOrder(res.order);
             setConfirmedOrderAccessToken(res.customerAccessToken || null);
+            setIsConfirmedOrderOpen(true);
             if (res.customerAccessToken && typeof window !== 'undefined') {
-              try { window.sessionStorage.setItem(`restaumax-order-access:${res.order.id}`, res.customerAccessToken); } catch { /* storage may be unavailable */ }
+              try {
+                window.sessionStorage.setItem(`restaumax-order-access:${res.order.id}`, res.customerAccessToken);
+                window.sessionStorage.setItem(`restaumax-last-order:${restaurant.slug}`, JSON.stringify({ order: res.order, accessToken: res.customerAccessToken }));
+              } catch { /* storage may be unavailable */ }
             }
             sounds.playSuccess();
           }
@@ -496,28 +515,44 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       />
 
       {/* Confirmed Order Modal */}
+      {confirmedOrder && !isConfirmedOrderOpen && (
+        <button type="button" onClick={() => setIsConfirmedOrderOpen(true)}
+          className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full bg-[#101d2d] px-5 py-3 text-xs font-black text-white shadow-2xl border border-white/20">
+          Suivre ma commande · {confirmedOrder.orderNumber}
+        </button>
+      )}
       <OrderConfirmationModal
-        order={confirmedOrder}
+        order={isConfirmedOrderOpen ? confirmedOrder : null}
         restaurantName={restaurant.name}
         customerAccessToken={confirmedOrderAccessToken}
         onCustomerOrderMutation={async (mutation) => {
           if (!confirmedOrder || !confirmedOrderAccessToken) return { success: false, error: 'Lien sécurisé de suivi indisponible.' };
           const result = await mutateCustomerOrderWithServerValidation({ restaurantSlug: restaurant.slug, orderId: confirmedOrder.id, accessToken: confirmedOrderAccessToken, ...mutation });
-          if (result.success && mutation.action === 'cancel') setConfirmedOrder({ ...confirmedOrder, status: 'cancelled' });
+          if (result.success && mutation.action === 'get' && result.order) {
+            setConfirmedOrder(result.order);
+            try { window.sessionStorage.setItem(`restaumax-last-order:${restaurant.slug}`, JSON.stringify({ order: result.order, accessToken: confirmedOrderAccessToken })); } catch { /* storage may be unavailable */ }
+            return result;
+          }
+          if (result.success && mutation.action === 'cancel') setConfirmedOrder({ ...confirmedOrder, status: 'cancelled', statusUpdatedAt: Date.now() });
           if (result.success && mutation.action === 'edit' && mutation.items) {
             const nextItems = mutation.items.map(change => {
               const original = confirmedOrder.items.find(item => item.id === change.id)!;
               return { ...original, quantity: change.quantity, totalPrice: original.unitPrice * change.quantity, prepNotes: change.prepNotes };
             });
-            setConfirmedOrder({ ...confirmedOrder, items: nextItems, itemsCount: result.itemsCount ?? nextItems.reduce((sum, item) => sum + item.quantity, 0), subtotalAmount: result.totalAmount ?? confirmedOrder.subtotalAmount, totalAmount: result.totalAmount ?? confirmedOrder.totalAmount, remainingAmount: result.totalAmount ?? confirmedOrder.remainingAmount });
+            const updated = { ...confirmedOrder, items: nextItems, itemsCount: result.itemsCount ?? nextItems.reduce((sum, item) => sum + item.quantity, 0), subtotalAmount: result.totalAmount ?? confirmedOrder.subtotalAmount, totalAmount: result.totalAmount ?? confirmedOrder.totalAmount, remainingAmount: result.totalAmount ?? confirmedOrder.remainingAmount };
+            setConfirmedOrder(updated);
+            try { window.sessionStorage.setItem(`restaumax-last-order:${restaurant.slug}`, JSON.stringify({ order: updated, accessToken: confirmedOrderAccessToken })); } catch { /* storage may be unavailable */ }
           }
           return result;
         }}
         onStartPayDunyaPayment={onStartPayDunyaPayment}
         onSelectCashPayment={onSelectCashPayment}
-        onClose={() => setConfirmedOrder(null)}
+        onClose={() => setIsConfirmedOrderOpen(false)}
         onNewOrder={() => {
           setConfirmedOrder(null);
+          setConfirmedOrderAccessToken(null);
+          setIsConfirmedOrderOpen(false);
+          try { window.sessionStorage.removeItem(`restaumax-last-order:${restaurant.slug}`); } catch { /* storage may be unavailable */ }
           onClearCart();
         }}
       />
