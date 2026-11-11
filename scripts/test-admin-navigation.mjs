@@ -82,6 +82,6 @@ assert(managerView.includes('Écarts de comptage, clôtures journalières et rap
 assert(posView.includes('Tickets en attente de validation') && posView.includes("onCancelPendingOrder?.(order, 'cancel')") &&
   posView.includes("onCancelPendingOrder?.(order, 'remove')"), 'POS exposes cancel and logical removal actions for pending tickets');
 assert(app.includes('canManagePendingPosOrders') && app.includes('pendingOnly: true') &&
-  app.includes("authRestaurantRole === 'manager' && userPermissions.includes('orders.manage')"),
-  'pending ticket actions are exposed only to the bound owner or authorized manager');
+  app.includes("['manager', 'cashier'].includes(authRestaurantRole) && userPermissions.includes('orders.cancel')"),
+  'pending ticket actions are exposed only to the bound owner or a cashier/manager with orders.cancel');
 console.log('Restaurant management navigation checks passed.');
