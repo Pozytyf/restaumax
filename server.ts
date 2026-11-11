@@ -1969,6 +1969,14 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
       if (hasOpenSessionForDay) {
         return { statusCode: 409, body: { success: false, error: 'Clôture impossible : une session de caisse de cette journée est encore ouverte.' } };
       }
+      const dayPaymentIntents = await restaurantRef.collection('paymentIntents')
+        .where('createdAt', '>=', startAt).where('createdAt', '<=', endAt).get();
+      const hasUnresolvedPayDunya = dayPaymentIntents.docs.some((intentDoc: any) =>
+        ['pending', 'creating', 'creation_unknown'].includes(String(intentDoc.data()?.status || '').toLowerCase())
+      );
+      if (hasUnresolvedPayDunya) {
+        return { statusCode: 409, body: { success: false, error: 'Clôture impossible : un paiement PayDunya de cette journée reste à rapprocher. Vérifiez son statut avant de clôturer.' } };
+      }
       // Store a complete immutable snapshot; GET responses redact cash details
       // unless the requesting manager has reports.cash.view.
       const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
