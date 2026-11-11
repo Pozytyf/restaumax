@@ -68,11 +68,16 @@ assert(menuView.includes("id: 'boissons'") && menuView.includes('Menu du restaur
 assert(!dishForm.includes("restaurant.slug || 'chez-awa'"), 'dish creation never falls back to a hardcoded demo tenant');
 assert(dishForm.includes('newDishIdRef.current') && dishForm.includes('await onSave(savedDish)'), 'dish creation reuses one document ID after an ambiguous network failure');
 
-assert(managerView.includes('id="cash-session"') && managerView.includes('id="revenue-calendar"') &&
-  managerView.includes('id="cash-payments"') && managerView.includes('id="pending-orders"') &&
-  managerView.includes('id="paydunya-settings"'), 'cash supervision has ordered sections and direct navigation anchors');
-assert(!managerView.startsWith("import React") || managerView.includes('Navigation de la supervision'),
-  'cash supervision exposes a clear navigation bar');
+assert(managerView.includes("useState<'session' | 'collections' | 'control'>('session')") &&
+  managerView.includes('1 · Session de caisse') && managerView.includes('2 · Encaissements') &&
+  managerView.includes('3 · Contrôle'), 'cash supervision is split into the three requested sections');
+assert(managerView.includes("hidden={activeCashSection !== 'session'}") &&
+  managerView.includes("hidden={activeCashSection !== 'collections'}") &&
+  managerView.includes("hidden={activeCashSection !== 'control'}"),
+  'the three cash supervision sections switch without removing their underlying data or permission checks');
+assert(managerView.includes('Écarts de comptage, clôtures journalières et rapports') &&
+  managerView.includes('Journal des Transactions Récentes') && managerView.includes('Clôture de la session'),
+  'cash supervision groups session, collections and control content by purpose');
 assert(posView.includes('Tickets en attente de validation') && posView.includes("onCancelPendingOrder?.(order, 'cancel')") &&
   posView.includes("onCancelPendingOrder?.(order, 'remove')"), 'POS exposes cancel and logical removal actions for pending tickets');
 assert(app.includes('canManagePendingPosOrders') && app.includes('pendingOnly: true') &&
