@@ -284,6 +284,10 @@ assert.equal((await transitionOrderStatusWithDb(customizationRecipesDb, { ...par
 assert.equal((await transitionOrderStatusWithDb(customizationRecipesDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' })).success, true);
 assert.equal(customizationRecipesDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 assert.equal(customizationRecipesDb.documents.get('restaurants/chez-awa/inventoryItems/oil').quantity, 5);
+const lifecycleHistory = customizationRecipesDb.documents.get('restaurants/chez-awa/orders/order-1').statusHistory;
+assert.deepEqual(lifecycleHistory.map(event => event.status), ['in_prep', 'ready', 'cancelled'], 'Chaque transition métier est horodatée dans l’historique de commande.');
+assert.equal(typeof lifecycleHistory[2].changedAt, 'number', 'La date de chaque transition est persistée côté serveur.');
+assert.equal(lifecycleHistory[2].reason, 'Erreur de saisie', 'Le motif d’annulation est conservé dans la chronologie.');
 
 const missingCustomizationDb = base();
 missingCustomizationDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].selectedOption = {
