@@ -102,9 +102,10 @@ export function calculateRestaurantFinancialReport(
     if (netPaid > 0) completedPaidOrderCount++;
     grossCollected += netPaid;
     const orderTax = safeAmount(order.taxAmount);
-    const taxShare = total > 0 ? Math.min(netPaid, Math.round(orderTax * netPaid / total)) : 0;
+    const proportionalTax = total > 0 ? Math.round(orderTax * netPaid / total) : 0;
+    const taxShare = options.eventWindow ? proportionalTax : Math.min(netPaid, proportionalTax);
     taxCollected += taxShare;
-    netSales += Math.max(0, netPaid - taxShare);
+    netSales += options.eventWindow ? netPaid - taxShare : Math.max(0, netPaid - taxShare);
     // Les remboursements partiels ne précisent pas quels articles ont été
     // retournés : ne pas inventer des quantités fractionnaires. Une commande
     // totalement remboursée est exclue du classement des ventes nettes.
