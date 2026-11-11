@@ -2028,6 +2028,31 @@ export async function handleCustomerLoyaltyAdjustmentRequest(payload: unknown, r
   }
 }
 
+export async function handleCustomerOrderMutationRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible.' } };
+  if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  const input = payload && typeof payload === 'object' ? payload as any : {};
+  const restaurantSlug = String(input.restaurantSlug || '').trim();
+  const orderId = String(input.orderId || '').trim();
+  const accessToken = String(input.accessToken || '');
+  const action = input.action;
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(orderId) ||
+      accessToken.length < 32 || !['cancel', 'edit'].includes(action)) {
+    return { statusCode: 400, body: { success: false, error: 'Données de suivi de commande invalides.' } };
+  }
+  const result = await mutateCustomerOrderWithDb(adminDb, {
+    restaurantSlug, orderId, accessToken, action,
+    reason: input.reason,
+    items: input.items,
+    customerNote: input.customerNote
+  });
+  if (result.success) return { statusCode: 200, body: result };
+  const error = String(result.error || '');
+  return { statusCode: error.includes('plus modifiable') || error.includes('déjà réglée') ? 409
+    : error.includes('Accès') ? 403 : 400, body: result };
+}
+
 export async function handleOrderStatusRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service RestauMax temporairement indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
@@ -2120,6 +2145,11 @@ app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
 });
 
+app.post('/api/customer-orders', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  const result = await handleCustomerOrderMutationRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
 app.post('/api/order-status', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Referrer-Policy', 'no-referrer');
