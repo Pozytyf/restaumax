@@ -37,7 +37,7 @@ const seed = (member, method = 'especes') => new FakeDb({
   'restaurants/demo/payments/pay-1': { id: 'pay-1', restaurantSlug: 'demo', orderId: 'order-1', paidAmount: 5000, method, currency: 'FCFA' },
   'restaurants/demo/orders/order-1': { restaurantSlug: 'demo', paidAmount: 5000, refundedAmount: 0 },
   'restaurants/demo/cashSessionActive/actor-1': { status: 'active', sessionId: 'session-1' },
-  'restaurants/demo/cashSessions/session-1': { status: 'active', openedByUid: 'actor-1', sessionVersion: 2, cashOut: 0 }
+  'restaurants/demo/cashSessions/session-1': { status: 'active', openedByUid: 'actor-1', sessionVersion: 2, openingBalance: 0, cashCollected: 5000, cashOut: 0 }
 });
 const base = { restaurantSlug: 'demo', paymentId: 'pay-1', actorUid: 'actor-1', sessionVersion: 2,
   amount: 2000, reason: 'Erreur de commande', idempotencyKey: 'refund-test-001', cashDisbursementConfirmed: true };
@@ -72,6 +72,13 @@ const crossTenant = seed({ role: 'manager', active: true, restaurantSlug: 'other
 assert.equal((await refundCashPaymentWithDb(crossTenant, base)).success, false, 'cross-restaurant access is denied');
 const tooMuch = seed(manager);
 assert.equal((await refundCashPaymentWithDb(tooMuch, { ...base, amount: 6000 })).success, false, 'over-refund is denied');
+const insufficientDrawer = seed(manager);
+insufficientDrawer.data.set('restaurants/demo/cashSessions/session-1', {
+  status: 'active', openedByUid: 'actor-1', sessionVersion: 2,
+  openingBalance: 0, cashCollected: 1000, cashOut: 0
+});
+assert.equal((await refundCashPaymentWithDb(insufficientDrawer, base)).success, false,
+  'cash refund is denied when the theoretical drawer balance is insufficient');
 const mobileMoney = seed(manager, 'paydunya');
 assert.equal((await refundCashPaymentWithDb(mobileMoney, base)).success, false, 'mobile money is not falsely marked as refunded');
 console.log('Refund service regression tests passed.');
