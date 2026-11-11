@@ -214,7 +214,10 @@ export async function getRestaurantFinancialReportWithDb(
   // (split settlement). Load those referenced orders too, without expanding
   // the payment window beyond the selected report period.
   const periodOrderIds = new Set(periodOrders.map((doc: any) => doc.id));
-  const linkedOrderIds = [...new Set(payments.map((doc: any) => String(doc.data()?.orderId || '')).filter(Boolean))]
+  const linkedOrderIds = [...new Set([
+    ...payments.map((doc: any) => String(doc.data()?.orderId || '')),
+    ...refunds.map((doc: any) => String(doc.data()?.orderId || ''))
+  ].filter(Boolean))]
     .filter((id: string) => !periodOrderIds.has(id));
   const linkedOrders = await Promise.all(linkedOrderIds.map((id: string) => restaurantRef.collection('orders').doc(id).get()));
   const ordersById = new Map<string, any>();
