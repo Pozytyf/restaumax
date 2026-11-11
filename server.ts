@@ -1950,6 +1950,10 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return { statusCode: 400, body: { success: false, error: 'Date de clôture invalide.' } };
       }
+      const parsedDate = Date.parse(date + 'T00:00:00.000Z');
+      if (!Number.isFinite(parsedDate) || new Date(parsedDate).toISOString().slice(0, 10) !== date) {
+        return { statusCode: 400, body: { success: false, error: 'Date de clôture invalide.' } };
+      }
       const now = Date.now();
       const today = new Date(now).toISOString().slice(0, 10);
       if (date >= today) {
