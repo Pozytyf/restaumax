@@ -55,6 +55,8 @@ interface PayDunyaIntentSummary {
   status: string;
   createdAt: number;
   updatedAt: number;
+  archivedAt?: number;
+  archiveReason?: string;
   canReconcile: boolean;
   lastProviderError?: string;
 }
