@@ -95,7 +95,7 @@ assert.equal(Number.isInteger(refundedRanking.bestSellers[0].quantity), true,
   'Le classement ne fabrique pas de quantités fractionnaires faute de détail des articles retournés.');
 assert.equal(refundedRanking.grossCollected, 500, 'Le classement et le chiffre d’affaires net reposent sur la même base après remboursement.');
 const refundOnlyDay = calculateRestaurantFinancialReport({
-  orders: [{ id: 'prior-order', status: 'completed', createdAt: Date.UTC(2026, 10, 10, 18), totalAmount: 1000, paidAmount: 1000, items: [{ name: 'Repas antérieur', quantity: 1 }] }],
+  orders: [{ id: 'prior-order', status: 'completed', createdAt: Date.UTC(2026, 10, 10, 18), totalAmount: 1000, subtotalAmount: 820, taxAmount: 180, paidAmount: 1000, items: [{ name: 'Repas antérieur', quantity: 1 }] }],
   payments: [],
   refunds: [{ id: 'refund-today', orderId: 'prior-order', paymentId: 'prior-payment', method: 'especes', amount: 250 }],
   stockMovements: [], cashMovements: [], cashSessions: []
@@ -123,4 +123,4 @@ assert(reportApiSource.includes("hasOpenSessionForDay") && reportApiSource.inclu
   'A daily closure is rejected while a cash session from that day remains open or the day is still current.');
 assert(reportUiSource.includes('Clôturer la recette du jour') && reportUiSource.includes('Journée clôturée'),
   'The revenue calendar exposes a close action and an immutable closure confirmation.');
-console.log('Financial report calculation tests passed: 41 assertions.');
+console.log('Financial report calculation tests passed: 42 assertions.');
