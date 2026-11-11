@@ -68,7 +68,10 @@ export async function mutateCustomerOrderWithDb(db: any, input: CustomerOrderMut
           currency: order.currency || 'FCFA', status: order.status,
           customerNote: order.customerNote, createdAt: order.createdAt,
           createdAtIso: order.createdAtIso, statusUpdatedAt: order.statusUpdatedAt,
-          cancellationReason: order.cancellationReason
+          cancellationReason: order.cancellationReason,
+          statusHistory: (Array.isArray(order.statusHistory) && order.statusHistory.length
+            ? order.statusHistory : [{ status: 'pending', changedAt: Number(order.createdAt || 0) }])
+            .slice(-50).map((event: any) => ({ status: String(event.status || ''), changedAt: Number(event.changedAt || 0), reason: event.status === 'cancelled' ? String(event.reason || order.cancellationReason || '') : undefined }))
         };
         return { success: true, status: order.status, order: safeOrder };
       }
@@ -85,7 +88,8 @@ export async function mutateCustomerOrderWithDb(db: any, input: CustomerOrderMut
         tx.update(orderRef, {
           status: 'cancelled', statusUpdatedAt: now, cancelledAt: now,
           cancellationReason: reason, cancelledBy: 'customer',
-          customerCancellation: true
+          customerCancellation: true,
+          statusHistory: [...(Array.isArray(order.statusHistory) ? order.statusHistory : [{ status: 'pending', changedAt: Number(order.createdAt || 0) }]), { status: 'cancelled', changedAt: now, actorRole: 'customer', reason }].slice(-50)
         });
         tx.create(auditRef, {
           event: 'order.cancelled', orderId, orderNumber: String(order.orderNumber || orderId),
