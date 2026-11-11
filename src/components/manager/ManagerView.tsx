@@ -643,7 +643,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                       {payDunyaActionId === intent.id ? 'Archivage…' : 'Archiver du suivi'}
                     </button>
                   )}
-                  {showArchivedPayDunyaIntents && intent.archivedAt > 0 && (
+                  {showArchivedPayDunyaIntents && Number(intent.archivedAt || 0) > 0 && (
                     <span className="rounded-lg bg-slate-100 px-3 py-2 text-[10px] font-bold text-slate-600">Archivée · {intent.archiveReason}</span>
                   )}
                   {canManageCash && intent.canReconcile && (
