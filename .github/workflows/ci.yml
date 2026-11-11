@@ -42,6 +42,7 @@ jobs:
       - name: Start Firestore Emulator and run the complete test suite
         env:
           FIRESTORE_EMULATOR_STRICT: "true"
+          NODE_OPTIONS: --trace-deprecation
         run: npx --yes firebase-tools@14.22.0 emulators:exec --project demo-restaumax --only firestore --config firebase.json "npm test"
 
       - name: Build production frontend
