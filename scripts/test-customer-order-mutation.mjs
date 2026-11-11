@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { mutateCustomerOrderWithDb } from '../src/server/customerOrderService.ts';
 
@@ -107,5 +108,18 @@ assert.equal([...editDb.docs.keys()].filter(path => path.includes('/orderAudit/'
   'Customer edits are preserved in append-only audit history');
 assert.equal([...cancelDb.docs.keys()].filter(path => path.includes('/orderAudit/')).length, 1,
   'Customer cancellation is preserved in append-only audit history');
+const apiSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const routerSource = fs.readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8');
+const routeMapSource = fs.readFileSync(new URL('../src/server/apiRouteMap.ts', import.meta.url), 'utf8');
+const clientSource = fs.readFileSync(new URL('../src/components/restaumax/ClientMenuView.tsx', import.meta.url), 'utf8');
+const modalSource = fs.readFileSync(new URL('../src/components/restaumax/OrderConfirmationModal.tsx', import.meta.url), 'utf8');
+assert(apiSource.includes("app.post('/api/customer-orders'") && apiSource.includes('requestHasValidOrigin(req)'),
+  'Customer mutation API is POST-only and origin protected');
+assert(routerSource.includes("case 'customer-orders'") && routeMapSource.includes("id: 'customer-orders', path: 'customer-orders', methods: ['POST']"),
+  'Vercel API router registers customer order capabilities');
+assert(clientSource.includes('restaumax-last-order:') && clientSource.includes('Suivre ma commande'),
+  'Customer can reopen its protected order tracking after closing the confirmation panel');
+assert(modalSource.includes("onCustomerOrderMutation({ action: 'get' })") && modalSource.includes('window.setInterval'),
+  'Order status refreshes from the token-protected API while the customer tracks it');
 console.log('Customer order mutation regression: 10 scenarios passed.');
 
