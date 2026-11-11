@@ -391,7 +391,9 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
 
       const orderUpdate: Record<string, any> = {
         status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid,
-        statusHistory: [...(Array.isArray(order.statusHistory) ? order.statusHistory : []), {
+        statusHistory: [...(Array.isArray(order.statusHistory) && order.statusHistory.length ? order.statusHistory : [{
+          status: order.status, changedAt: Number(order.statusUpdatedAt || order.createdAt || now)
+        }]), {
           status: targetStatus, changedAt: now, actorRole: member.role,
           ...(targetStatus === 'cancelled' ? { reason: cancellationReason } : {})
         }].slice(-50)
