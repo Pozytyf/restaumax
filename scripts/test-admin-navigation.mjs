@@ -76,9 +76,10 @@ assert(managerView.includes("hidden={activeCashSection !== 'session'}") &&
   managerView.includes("hidden={activeCashSection !== 'control'}"),
   'the three cash supervision sections switch without removing their underlying data or permission checks');
 assert(managerView.includes('flex w-full items-stretch gap-2 overflow-x-auto') &&
-  managerView.includes('Annuler la commande impayée') &&
+  managerView.includes('Retirer de la caisse') &&
+  managerView.includes('pendingOnly: true, removalAction: true') &&
   managerView.includes('order_cancelled_pending_manual_reconciliation'),
-  'cash sections use horizontal tabs and unknown PayDunya invoice orders expose audited cancellation');
+  'cash sections use horizontal tabs and unpaid PayDunya orders expose guarded removal with manual reconciliation');
 assert(managerView.includes('Écarts de comptage, clôtures journalières et rapports') &&
   managerView.includes('Journal des Transactions Récentes') && managerView.includes('Fermer la session de caisse') &&
   managerView.includes('Ouvrir la session de caisse'),
