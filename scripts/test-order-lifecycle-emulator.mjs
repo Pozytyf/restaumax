@@ -51,7 +51,7 @@ try {
 
   const ready = await transitionOrderStatusWithDb(db, { ...params, targetStatus: 'ready' });
   assert.equal(ready.success, true);
-  const cancelled = await transitionOrderStatusWithDb(db, { ...params, targetStatus: 'cancelled' });
+  const cancelled = await transitionOrderStatusWithDb(db, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' });
   assert.equal(cancelled.success, true);
   assert.equal((await inventoryRef.get()).data().quantity, 5, 'Cancellation restores exactly the consumed quantity');
   assert.equal((await consumptionRef.get()).data().status, 'restored');
@@ -59,7 +59,7 @@ try {
 
   const movementSnapshot = await restaurantRef.collection('stockMovements').where('orderId', '==', orderId).get();
   assert.equal(movementSnapshot.size, 2, 'One append-only consumption and one restoration movement are recorded');
-  const replay = await transitionOrderStatusWithDb(db, { ...params, targetStatus: 'cancelled' });
+  const replay = await transitionOrderStatusWithDb(db, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' });
   assert.equal(replay.success && replay.idempotentReplay, true);
   assert.equal((await inventoryRef.get()).data().quantity, 5, 'Repeated cancellation does not restore twice');
 
@@ -118,7 +118,7 @@ try {
     'Each stock movement snapshots its unit cost for future margin reports');
   const customReady = await transitionOrderStatusWithDb(db, { ...params, orderId: customOrderId, targetStatus: 'ready' });
   assert.equal(customReady.success, true);
-  const customCancel = await transitionOrderStatusWithDb(db, { ...params, orderId: customOrderId, targetStatus: 'cancelled' });
+  const customCancel = await transitionOrderStatusWithDb(db, { ...params, orderId: customOrderId, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' });
   assert.equal(customCancel.success, true);
   assert.equal((await inventoryRef.get()).data().quantity, 5, 'Cancellation restores base and option ingredients');
   assert.equal((await oilRef.get()).data().quantity, 2, 'Cancellation restores supplement ingredients');
