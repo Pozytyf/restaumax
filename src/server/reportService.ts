@@ -48,9 +48,13 @@ export function calculateRestaurantFinancialReport(
 ) {
   const completedOrders = input.orders.filter(order => order.status === 'completed');
   const completedIds = new Set(completedOrders.map(order => String(order.id || '')));
+  const finalizedRefunds = input.refunds.filter((refund) => {
+    const status = String(refund.status || '').toLowerCase();
+    return !status || ['recorded', 'completed', 'success', 'succeeded'].includes(status);
+  });
   const refundsByPayment = new Map<string, number>();
   const refundsByOrder = new Map<string, number>();
-  for (const refund of input.refunds) {
+  for (const refund of finalizedRefunds) {
     const paymentId = String(refund.paymentId || '');
     const orderId = String(refund.orderId || '');
     const amount = safeAmount(refund.amount);
@@ -73,7 +77,7 @@ export function calculateRestaurantFinancialReport(
   }
 
   if (options.eventWindow) {
-    for (const refund of input.refunds) {
+    for (const refund of finalizedRefunds) {
       const method = String(refund.method || 'inconnu');
       paymentMethodTotals[method] = (paymentMethodTotals[method] || 0) - safeAmount(refund.amount);
     }
