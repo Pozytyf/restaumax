@@ -309,34 +309,28 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
       <div className="max-w-7xl mx-auto w-full space-y-6">
         
 
-        {/* Top Header Summary */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-extrabold text-[#101d2d] tracking-tight">
-              Supervision du journal de caisse
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
-              Consultez les chiffres essentiels, les recettes par date, les paiements et les commandes dans cet ordre.
-            </p>
-          </div>
-
-
-        </div>
+        {/* Supervision header */}
+        <header className="flex flex-col gap-2">
+          <h1 className="text-xl sm:text-2xl font-extrabold text-[#101d2d] tracking-tight">Supervision du journal de caisse</h1>
+          <p className="text-xs sm:text-sm text-slate-500 font-medium">Gérez la session, consultez les encaissements et contrôlez les clôtures depuis trois rubriques dédiées.</p>
+        </header>
 
         <div className="grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)] lg:items-start">
-          <aside aria-label="Rubriques du journal de caisse" className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:sticky lg:top-4">
+          <nav aria-label="Rubriques du journal de caisse" className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:sticky lg:top-4">
             <p className="px-3 pb-2 pt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">Journal de caisse</p>
-            <button type="button" aria-current={activeCashSection === 'session' ? 'page' : undefined} onClick={() => setActiveCashSection('session')} className={`mb-1 w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'session' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}><span className="block text-sm font-extrabold">1 · Session de caisse</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'session' ? 'text-slate-300' : 'text-slate-500'}`}>Ouverture, fond, sorties et clôture</span></button>
-            <button type="button" aria-current={activeCashSection === 'collections' ? 'page' : undefined} onClick={() => setActiveCashSection('collections')} className={`mb-1 w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'collections' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}><span className="block text-sm font-extrabold">2 · Encaissements</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'collections' ? 'text-slate-300' : 'text-slate-500'}`}>Canaux, transactions et remboursements</span></button>
-            <button type="button" aria-current={activeCashSection === 'control' ? 'page' : undefined} onClick={() => setActiveCashSection('control')} className={`w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'control' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}><span className="block text-sm font-extrabold">3 · Contrôle</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'control' ? 'text-slate-300' : 'text-slate-500'}`}>Écarts, clôtures et rapports</span></button>
-          </aside>
-          <div className="min-w-0 space-y-5">
+            <button type="button" aria-current={activeCashSection === 'session' ? 'page' : undefined} onClick={() => setActiveCashSection('session')} className={`mb-1 w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'session' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
+              <span className="block text-sm font-extrabold">1 · Session de caisse</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'session' ? 'text-slate-300' : 'text-slate-500'}`}>Ouverture, fond, sorties et clôture</span>
+            </button>
+            <button type="button" aria-current={activeCashSection === 'collections' ? 'page' : undefined} onClick={() => setActiveCashSection('collections')} className={`mb-1 w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'collections' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
+              <span className="block text-sm font-extrabold">2 · Encaissements</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'collections' ? 'text-slate-300' : 'text-slate-500'}`}>Canaux, transactions et remboursements</span>
+            </button>
+            <button type="button" aria-current={activeCashSection === 'control' ? 'page' : undefined} onClick={() => setActiveCashSection('control')} className={`w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'control' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
+              <span className="block text-sm font-extrabold">3 · Contrôle</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'control' ? 'text-slate-300' : 'text-slate-500'}`}>Écarts, clôtures et rapports</span>
+            </button>
+          </nav>
 
-        <section id="cash-session" aria-labelledby="cash-session-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 id="cash-session-title" className="text-base font-black text-[#101d2d]">1. Session de caisse</h2>
-              <p className="mt-1 text-xs text-slate-500">Fond initial, encaissements de la session et r        <div hidden={activeCashSection !== 'session'} aria-label="Session de caisse">
+          <main className="min-w-0 space-y-5">
+            <div hidden={activeCashSection !== 'session'} aria-label="Session de caisse" className="space-y-5">
         <section id="cash-session" aria-labelledby="cash-session-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -492,9 +486,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </form>
           ) : <p className="mt-4 text-sm text-slate-500">Aucune session active. Demandez à un responsable d’ouvrir la caisse.</p>}
         </section>
-        </div>
-        <div hidden={activeCashSection !== 'collections'} aria-label="Encaissements">
-          <div className="mb-1"><h2 className="text-base font-black text-[#101d2d]">2 · Encaissements</h2><p className="mt-1 text-xs text-slate-500">Canaux de paiement, journal des règlements, remboursements et rapprochements Mobile Money.</p></div>
+            </div>
+
+            <div hidden={activeCashSection !== 'collections'} aria-label="Encaissements" className="space-y-5">
         <section id="paydunya-reconcile" className="rounded-2xl border border-blue-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -850,14 +844,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         <h2 className="mb-3 text-sm font-black text-slate-900">5. ⚙️ Paramètres PayDunya</h2>
         <PayDunyaAccountSettings restaurantSlug={restaurantSlug} isOwner={isOwner} />
       </section>
-          </div>
-        </div>
-      </div>
+            </div>
 
-
-        </div>
-        <div hidden={activeCashSection !== 'control'} aria-label="Contrôle de caisse">
-          <div className="mb-1 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-base font-black text-[#101d2d]">3 · Contrôle</h2><p className="mt-1 text-xs text-slate-500">Écarts de comptage, clôtures journalières et rapports.</p></div><button type="button" onClick={() => { sounds.playTap(); setShowZReportModal(true); }} className="rounded-xl bg-[#101d2d] px-4 py-2.5 text-xs font-bold text-white"><FileText size={15} className="mr-2 inline"/>Consulter le rapport</button></div>
+            <div hidden={activeCashSection !== 'control'} aria-label="Contrôle de caisse" className="space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><h2 className="text-base font-black text-[#101d2d]">3 · Contrôle</h2><p className="mt-1 text-xs text-slate-500">Écarts de comptage, clôtures journalières et rapports.</p></div>
+                <button type="button" onClick={() => { sounds.playTap(); setShowZReportModal(true); }} className="rounded-xl bg-[#101d2d] px-4 py-2.5 text-xs font-bold text-white"><FileText size={15} className="mr-2 inline"/>Consulter le rapport</button>
+              </div>
         <section id="revenue-calendar" aria-labelledby="revenue-calendar-title" className="rounded-2xl border border-orange-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -892,9 +885,16 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           loading={closedSessionsLoading}
           onRefresh={loadClosedSessions}
         />
+            </div>
+          </main>
+        </div>
+      </div>
 
-
-        </div>tween">
+      {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
+      {showZReportModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="bg-[#101d2d] text-white p-5 flex items-start justify-between">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
                   Aperçu non officiel
