@@ -258,3 +258,49 @@ Le journal Playwright indique explicitement **3 passed**. La suite principale co
 ### Conditions pour clôturer les tâches Preview
 
 La configuration Vercel du projet désactive actuellement les déploiements Git automatiques (`git.deploymentEnabled=false`). Tant que cette règle et l'interdiction de déployer pendant l'audit restent en vigueur, les vérifications Preview ne peuvent pas être exécutées. Une fois une Preview autorisée et disponible, il restera à vérifier en conditions réelles : commande à emporter avec App Check valide/absent/invalide ; connexion Super-admin avec TOTP ou SMS et scénario de récupération ; exécution Cron sur les seules données Demo ; puis les parcours métier complets dans le navigateur.
+
+
+## Correctifs de la phase finale — annulation, suivi client et postes KDS
+
+**Branche :** `fix/functional-hardening-modules-2026-11-10`  
+**PR :** #110 — toujours en brouillon, non fusionnée.
+
+### 1. Annulation logique serveur
+- L’annulation passe par `transitionOrderStatusWithDb`, transaction Firestore Admin.
+- Motif obligatoire (3 à 300 caractères), identité/role de l’opérateur, horodatage et statut précédent enregistrés dans `orderAudit`.
+- Les documents de commande ne sont jamais supprimés.
+- Les consommations de recettes et de stock menu sont restituées une seule fois ; une commande encore `pending` n’a pas de consommation à restituer.
+- Le droit général `orders.cancel` est séparé du droit limité `orders.clear_pending`.
+
+### 2. Suivi, modification et annulation client
+- Le serveur émet un jeton de capacité par commande à partir d’un secret serveur et d’un HMAC lié au restaurant/à la commande ; seul son SHA-256 est stocké dans la commande.
+- Le jeton brut n’est pas renvoyé dans l’objet commande Firestore/API ; il est transmis séparément à la confirmation client.
+- La route POST `/api/customer-orders` exige une origine valide et vérifie le jeton en temps constant.
+- Le client peut relire l’état via cette route, conserver son suivi dans la session du navigateur et rouvrir la commande après fermeture du panneau.
+- Le statut est actualisé périodiquement pendant le suivi.
+- Modification et annulation sont limitées aux commandes `pending`, non réglées. Les quantités, prix et taxes sont recalculés côté serveur ; le stock suivi est revalidé. Toute modification ou annulation est auditée.
+- Une commande en préparation, prête, servie, annulée ou déjà réglée est refusée pour modification/annulation client.
+
+### 3. Nettoyage des tickets en attente
+- L’écran KDS affiche désormais les tickets `pending`.
+- L’action « Vider le ticket » demande un motif et effectue une annulation logique ; elle ne supprime aucun document.
+- Le rôle Cuisine/Bar reçoit le droit limité `orders.clear_pending`, qui ne peut annuler qu’un ticket encore en attente.
+- Un serveur peut annuler un ticket qui lui est affecté si le droit `orders.cancel` lui est accordé.
+
+### 4. Séparation Cuisine / Bar
+- Deux entrées et vues distinctes : Cuisine et Bar.
+- Le routage des lignes repose sur la catégorie catalogue vérifiée : les boissons vont au Bar ; les autres lignes restent en Cuisine.
+- Les écritures serveur vérifient le droit de station pour chaque ligne ; un compte Bar ne peut pas modifier une ligne Cuisine et inversement.
+- Les lignes sont validées indépendamment par poste. Le statut global « prête » n’est atteint que lorsque toutes les lignes de la commande sont terminées.
+- Le droit `bar.access` est distinct et accordable par le propriétaire ; il n’est pas accordé par défaut au profil Cuisine.
+
+### 5. Non-régression ajoutée
+- `scripts/test-order-lifecycle-stock.mjs` : motif obligatoire, annulation caisse/serveur, annulation serveur limitée à ses tickets, nettoyage Cuisine limité à `pending`, audit, restauration stock et absence de double restauration.
+- `scripts/test-customer-order-mutation.mjs` : jeton valide/invalide, lecture sécurisée, modification, annulation, refus après préparation, refus après paiement, restaurant suspendu, stock suivi, conservation audit et vérifications du suivi navigateur/API.
+- `scripts/test-kitchen-item-service.mjs` : isolation Bar/Cuisine côté serveur.
+- `scripts/test-kds-station-accessibility.mjs` : files pending, actions d’annulation, filtres et vues indépendantes.
+- `scripts/test-role-authorization.mjs` : plafonds et droits supplémentaires contrôlés.
+- La suite complète est déclenchée par GitHub Actions sur le commit courant. Au moment de cet appendendum, les runs sont encore en file d’attente : aucun résultat vert n’est revendiqué.
+
+### Garde-fous
+Aucune donnée Firebase Production n’a été modifiée. Aucun déploiement Preview/Production n’a été lancé. La PR #110 reste non fusionnée et PayDunya reste en TEST.
