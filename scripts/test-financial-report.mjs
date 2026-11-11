@@ -124,6 +124,10 @@ assert(reportApiSource.includes("['period', 'daily']") && reportApiSource.includ
 assert(reportUiSource.includes('Calendrier des recettes journalières') && reportUiSource.includes('type=\"date\"') && reportUiSource.includes('reportType=daily') && reportUiSource.includes('periodDays=30&reportType=period'),
   'The reports screen loads the daily point separately from the rolling 30-day report.');
 assert(reportServiceSource.includes('linkedOrderIds') && reportServiceSource.includes('previous day'), 'Daily settlement reports include prior-day orders when their payment is made in the selected period.');
+assert(reportServiceSource.includes('completedAt') && reportServiceSource.includes('effectiveAt'),
+  'Provider refunds are attributed to the day the provider confirms completion, not the day the refund was requested.');
+assert(reportServiceSource.includes("['recorded', 'completed', 'success', 'succeeded']"),
+  'Only finalized refunds are included in realized daily revenue.');
 assert(reportServiceSource.includes("refunds.map((doc: any) => String(doc.data()?.orderId || ''))"),
   'A refund made on the selected date loads its original order even when the payment was received earlier.');
 assert(reportApiSource.includes('closureData?.report'), 'A closed day always displays its immutable archived report snapshot.');
@@ -136,4 +140,4 @@ assert(reportApiSource.includes("hasOpenSessionForDay") && reportApiSource.inclu
   'A daily closure is rejected while a cash session from that day remains open or the day is still current.');
 assert(reportUiSource.includes('Clôturer la recette du jour') && reportUiSource.includes('Journée clôturée'),
   'The revenue calendar exposes a close action and an immutable closure confirmation.');
-console.log('Financial report calculation tests passed: 46 assertions.');
+console.log('Financial report calculation tests passed: 48 assertions.');
