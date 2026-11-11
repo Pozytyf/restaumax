@@ -193,13 +193,22 @@ export async function getRestaurantFinancialReportWithDb(
   const cashSessionsQuery = restaurantRef.collection('cashSessions')
     .where('openedAt', '>=', startAt).where('openedAt', '<=', endAt)
     .orderBy('openedAt', 'desc');
-  const [orders, payments, refunds, stockMovements, cashMovements, cashSessions] = await Promise.all([
+  const [periodOrders, payments, refunds, stockMovements, cashMovements, cashSessions] = await Promise.all([
     readAll(ranged('orders')), readAll(ranged('payments')), readAll(ranged('refunds')),
     readAll(ranged('stockMovements')), readAll(ranged('cashMovements')),
     readAll(cashSessionsQuery)
   ]);
+  // A payment made today can belong to an order created on a previous day
+  // (split settlement). Load those referenced orders too, without expanding
+  // the payment window beyond the selected report period.
+  const periodOrderIds = new Set(periodOrders.map((doc: any) => doc.id));
+  const linkedOrderIds = [...new Set(payments.map((doc: any) => String(doc.data()?.orderId || '')).filter(Boolean))]
+    .filter((id: string) => !periodOrderIds.has(id));
+  const linkedOrders = await Promise.all(linkedOrderIds.map((id: string) => restaurantRef.collection('orders').doc(id).get()));
+  const ordersById = new Map<string, any>();
+  for (const doc of [...periodOrders, ...linkedOrders]) if (doc.exists) ordersById.set(doc.id, doc);
   const report = calculateRestaurantFinancialReport({
-    orders: orders.map((doc: any) => ({ ...doc.data(), id: doc.id })),
+    orders: [...ordersById.values()].map((doc: any) => ({ ...doc.data(), id: doc.id })),
     payments: payments.map((doc: any) => ({ ...doc.data(), id: doc.id })),
     refunds: refunds.map((doc: any) => ({ ...doc.data(), id: doc.id })),
     stockMovements: stockMovements.map((doc: any) => ({ ...doc.data(), id: doc.id })),
