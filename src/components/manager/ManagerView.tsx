@@ -373,32 +373,6 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <p className="text-[10px] text-rose-700">{Number(cashSession.refundCount || 0)} remboursement(s) tracé(s)</p>
                 </div>
               </div>
-              <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-black text-slate-800">Journal des sorties</h3>
-                  <span className="text-[10px] font-semibold text-slate-500">Session en cours</span>
-                </div>
-                {!cashSession.cashMovements?.length ? (
-                  <p className="text-xs text-slate-500">Aucune dépense ou aucun retrait enregistré pour cette session.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {cashSession.cashMovements.slice(0, 8).map((movement) => (
-                      <div key={movement.id} className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-bold text-slate-800">
-                            {movement.movementType === 'expense' ? 'Dépense' : 'Retrait'} · {movement.category}
-                          </p>
-                          {movement.note && <p className="truncate text-[11px] text-slate-500">{movement.note}</p>}
-                          <p className="text-[10px] text-slate-400">
-                            {movement.actorName} · {new Date(movement.createdAt).toLocaleString('fr-FR')}
-                          </p>
-                        </div>
-                        <span className="shrink-0 text-xs font-black text-rose-700">-{formatFCFA(movement.amount)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
               {canManageCash ? (
                 <div className="space-y-3">
                   <form onSubmit={(event) => {
@@ -461,10 +435,36 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     </label>
                     <button type="submit" disabled={cashSessionActionLoading || closingCountInput === ''}
                       className="rounded-lg bg-[#101d2d] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
-                      {cashSessionActionLoading ? 'Clôture en cours…' : 'Clôturer la session et rapprocher'}
+                      {cashSessionActionLoading ? 'Clôture en cours…' : 'Fermer la session de caisse'}
                     </button>
                   </form>
                 </div>
+              <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-black text-slate-800">Journal des sorties</h3>
+                  <span className="text-[10px] font-semibold text-slate-500">Session en cours</span>
+                </div>
+                {!cashSession.cashMovements?.length ? (
+                  <p className="text-xs text-slate-500">Aucune dépense ou aucun retrait enregistré pour cette session.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {cashSession.cashMovements.slice(0, 8).map((movement) => (
+                      <div key={movement.id} className="flex items-start justify-between gap-3 border-b border-slate-100 pb-2 last:border-0 last:pb-0">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-bold text-slate-800">
+                            {movement.movementType === 'expense' ? 'Dépense' : 'Retrait'} · {movement.category}
+                          </p>
+                          {movement.note && <p className="truncate text-[11px] text-slate-500">{movement.note}</p>}
+                          <p className="text-[10px] text-slate-400">
+                            {movement.actorName} · {new Date(movement.createdAt).toLocaleString('fr-FR')}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-xs font-black text-rose-700">-{formatFCFA(movement.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               ) : <p className="self-center text-sm text-slate-500">Session active. La clôture et les sorties de caisse sont réservées au personnel autorisé.</p>}
             </div>
           ) : canManageCash ? (
