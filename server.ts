@@ -1433,18 +1433,20 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         return { statusCode: 200, body: { success: true, closedSessions } };
       }
       if (String(req.query?.action || '') === 'paydunya_intents') {
-        const intentSnap = await restaurantRef.collection('paymentIntents').orderBy('createdAt', 'desc').limit(50).get();
+        const includeArchived = String(req.query?.includeArchived || '') === 'true';
+        const intentSnap = await restaurantRef.collection('paymentIntents').orderBy('createdAt', 'desc').limit(100).get();
         const paymentIntents = intentSnap.docs.map((doc: any) => {
           const intent = doc.data() || {};
           return {
             id: doc.id, orderId: String(intent.orderId || ''), amount: Number(intent.amount || 0),
             currency: String(intent.currency || 'XOF'), channel: String(intent.channel || ''),
             status: String(intent.status || 'unknown'), createdAt: Number(intent.createdAt || 0),
-            updatedAt: Number(intent.updatedAt || 0),
+            updatedAt: Number(intent.updatedAt || 0), archivedAt: Number(intent.archivedAt || 0),
+            archiveReason: String(intent.archiveReason || ''),
             canReconcile: Boolean(intent.invoiceToken) && ['pending', 'creating', 'creation_unknown'].includes(String(intent.status || '')),
             lastProviderError: String(intent.lastProviderError || '').slice(0, 180)
           };
-        });
+        }).filter((intent: any) => includeArchived || !intent.archivedAt);
         return { statusCode: 200, body: { success: true, paymentIntents } };
       }
       const payments = await listRecentCashPaymentsWithDb(adminDb, slug, 100);
@@ -1477,6 +1479,42 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       } catch (error: any) {
         return { statusCode: 400, body: { success: false, error: String(error?.message || 'Identifiants PayDunya invalides.') } };
       }
+    }
+
+    if (input.action === 'archive_paydunya_intent') {
+      const canArchive = isOwner || (member.role === 'manager' && memberPermissions.includes('cash.manage'));
+      if (!canArchive) return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire ou un manager autorisé peut archiver le suivi PayDunya.' } };
+      const intentId = String(input.paymentIntentId || '').trim();
+      const reason = String(input.reason || '').trim().slice(0, 300);
+      if (!/^[A-Za-z0-9_-]{1,160}$/.test(intentId) || reason.length < 3) {
+        return { statusCode: 400, body: { success: false, error: 'Référence PayDunya ou motif d’archivage invalide.' } };
+      }
+      const intentRef = restaurantRef.collection('paymentIntents').doc(intentId);
+      const auditRef = restaurantRef.collection('paymentIntentAudit').doc('archive_' + intentId);
+      const archiveResult = await adminDb.runTransaction(async (tx: any) => {
+        const intentSnap = await tx.get(intentRef);
+        if (!intentSnap.exists) return { success: false, statusCode: 404, error: 'Intention PayDunya introuvable dans ce restaurant.' };
+        const intent = intentSnap.data() || {};
+        if (intent.restaurantSlug !== slug) return { success: false, statusCode: 403, error: 'Intention PayDunya rattachée à un autre restaurant.' };
+        if (intent.archivedAt) return { success: true, idempotentReplay: true };
+        if (intent.status !== 'order_cancelled_pending_manual_reconciliation') {
+          return { success: false, statusCode: 409, error: 'Retirez d’abord la commande impayée de la caisse ou vérifiez son statut marchand avant archivage.' };
+        }
+        const now = Date.now();
+        tx.update(intentRef, {
+          archivedAt: now, archivedBy: decoded.uid, archivedByName: String(decoded.name || decoded.email || decoded.uid),
+          archiveReason: reason, updatedAt: now
+        });
+        tx.create(auditRef, {
+          eventType: 'paydunya_intent_archived', restaurantSlug: slug, paymentIntentId: intentId,
+          orderId: String(intent.orderId || ''), amount: Number(intent.amount || 0),
+          actorUid: decoded.uid, actorName: String(decoded.name || decoded.email || decoded.uid),
+          reason, createdAt: now, providerPaymentStatusVerified: false
+        });
+        return { success: true };
+      });
+      if (!archiveResult.success) return { statusCode: archiveResult.statusCode || 409, body: archiveResult };
+      return { statusCode: 200, body: archiveResult };
     }
 
     if (input.action === 'reconcile_paydunya_payment') {
