@@ -54,6 +54,12 @@ assert(!menuView.includes('Répertoire complet Chez Awa'),
   'catalogue UI contains no hardcoded demo restaurant label');
 
 assert(hub.includes('Catalogue actif · {restaurant.name}'), 'catalogue metrics use the current restaurant name in multi-tenant mode');
+assert(hub.includes("id: 'bar'") && hub.includes("onNavigateToStaffRole('bar')") && hub.includes("bar: ['bar.access']"),
+  'the management hub exposes a permission-gated, dedicated Bar tile');
+assert(hub.includes("'🍹'") && hub.includes('Organisation des 13 modules métier'),
+  'the management modules use service-specific emoji tiles and include the Bar module');
+assert(menuView.includes("id: 'boissons'") && menuView.includes('Menu du restaurant · plats & boissons') && dishForm.includes("id: 'boissons'"),
+  'drinks remain a first-class category in the restaurant menu and dish editor');
 assert(!dishForm.includes("restaurant.slug || 'chez-awa'"), 'dish creation never falls back to a hardcoded demo tenant');
 assert(dishForm.includes('newDishIdRef.current') && dishForm.includes('await onSave(savedDish)'), 'dish creation reuses one document ID after an ambiguous network failure');
 console.log('Restaurant management navigation checks passed.');
