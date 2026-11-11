@@ -638,7 +638,7 @@ export async function submitOrderWithServerValidation(
     fallbackCatalog?: RestauMenuItem[];
     csrfToken?: string;
   }
-): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean; definitive?: boolean }> {
+): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean; customerAccessToken?: string } | { success: false; error: string; conflict?: boolean; definitive?: boolean }> {
   try {
     let appCheckToken = '';
     if (appCheck) {
@@ -686,6 +686,7 @@ export async function submitOrderWithServerValidation(
       success: true,
       order: data.order,
       idempotentReplay: data.idempotentReplay === true,
+      customerAccessToken: typeof data.customerAccessToken === 'string' ? data.customerAccessToken : undefined,
     };
   } catch (err: any) {
     console.error('Erreur appel /api/orders:', err);
@@ -693,6 +694,25 @@ export async function submitOrderWithServerValidation(
       success: false,
       error: err?.message || 'Erreur réseau lors de la communication avec le serveur RestauMax.',
     };
+  }
+}
+
+
+export async function mutateCustomerOrderWithServerValidation(input: {
+  restaurantSlug: string; orderId: string; accessToken: string; action: 'cancel' | 'edit';
+  reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }>; customerNote?: string;
+}): Promise<{ success: true; status: string; totalAmount?: number; itemsCount?: number } | { success: false; error: string }> {
+  try {
+    const response = await fetch('/api/customer-orders', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin', cache: 'no-store', body: JSON.stringify(input)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Action client refusée.' };
+    return data;
+  } catch (error: any) {
+    console.error('Erreur appel /api/customer-orders:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant la mise à jour de la commande.' };
   }
 }
 
