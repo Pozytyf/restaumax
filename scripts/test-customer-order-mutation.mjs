@@ -39,6 +39,12 @@ const seed = (status = 'pending') => ({
 });
 const base = { restaurantSlug: 'chez-awa', orderId: 'order-1', accessToken: token };
 
+const readDb = new FakeDb(seed());
+const readResult = await mutateCustomerOrderWithDb(readDb, { ...base, action: 'get' });
+assert.equal(readResult.success, true, 'Customer capability can retrieve its own order');
+assert.equal(readResult.order.status, 'pending');
+assert.equal('customerAccessTokenHash' in readResult.order, false, 'Public tracking never exposes the token digest');
+
 const editDb = new FakeDb(seed());
 const edited = await mutateCustomerOrderWithDb(editDb, {
   ...base, action: 'edit', items: [{ id: 'line-1', quantity: 3, prepNotes: 'Sans piment' }]
@@ -90,5 +96,5 @@ assert.equal([...editDb.docs.keys()].filter(path => path.includes('/orderAudit/'
   'Customer edits are preserved in append-only audit history');
 assert.equal([...cancelDb.docs.keys()].filter(path => path.includes('/orderAudit/')).length, 1,
   'Customer cancellation is preserved in append-only audit history');
-console.log('Customer order mutation regression: 8 scenarios passed.');
+console.log('Customer order mutation regression: 9 scenarios passed.');
 
