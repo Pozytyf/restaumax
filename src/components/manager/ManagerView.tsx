@@ -573,23 +573,27 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </div>
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-600">Encaissements Espèces:</span>
-                <span className="font-bold text-emerald-600 tnum">+{formatFCFA(drawerState.cashSales)}</span>
+                <span className="font-bold text-emerald-600 tnum">+{formatFCFA(Number(cashSession?.cashCollected ?? drawerState.cashSales))}</span>
               </div>
               <div className="flex justify-between py-2 border-b border-slate-100">
-                <span className="text-slate-600">Remises accordées:</span>
-                <span className="font-bold text-rose-600 tnum">-{formatFCFA(drawerState.discountsTotal)}</span>
+                <span className="text-slate-600">Sorties enregistrées:</span>
+                <span className="font-bold text-rose-600 tnum">-{formatFCFA(otherCashOut)}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-slate-100">
+                <span className="text-slate-600">Remboursements espèces:</span>
+                <span className="font-bold text-rose-700 tnum">-{formatFCFA(cashRefunds)}</span>
               </div>
               <div className="flex justify-between py-2.5 bg-slate-50 px-3 rounded-xl border border-slate-200 mt-2">
                 <span className="font-extrabold text-slate-900">Solde théorique du tiroir:</span>
                 <span className="text-base font-black text-[#ff6500] tnum">
-                  {formatFCFA(drawerState.currentCash)}
+                  {formatFCFA(expectedCash)}
                 </span>
               </div>
             </div>
 
             <div className="mt-5 p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 flex items-center gap-2">
               <ShieldCheck size={16} className="text-amber-600 shrink-0" />
-              <span>Solde théorique = fond d’ouverture + encaissements - sorties enregistrées. Les remboursements restent à intégrer.</span>
+              <span>Solde théorique = fond d’ouverture + encaissements espèces − sorties enregistrées − remboursements espèces. Les remboursements sont désormais suivis séparément dans le journal de caisse.</span>
             </div>
           </div>
 
