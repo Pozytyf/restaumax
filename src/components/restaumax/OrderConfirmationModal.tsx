@@ -21,6 +21,8 @@ interface OrderConfirmationModalProps {
   onNewOrder: () => void;
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
   onSelectCashPayment?: (order: RestauOrder) => Promise<{ success: boolean; error?: string }>;
+  customerAccessToken?: string | null;
+  onCustomerOrderMutation?: (mutation: { action: 'cancel' | 'edit'; reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }> }) => Promise<{ success: boolean; error?: string }>;
 }
 
 export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
@@ -29,7 +31,9 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   onClose,
   onNewOrder,
   onStartPayDunyaPayment,
-  onSelectCashPayment
+  onSelectCashPayment,
+  customerAccessToken,
+  onCustomerOrderMutation
 }) => {
   const [selectedChannel, setSelectedChannel] = useState<'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci'>('wave-ci');
   const [isStartingPayment, setIsStartingPayment] = useState(false);
@@ -37,6 +41,9 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   const [isSelectingCash, setIsSelectingCash] = useState(false);
   const [cashPreferenceSaved, setCashPreferenceSaved] = useState(false);
   const [cashPreferenceError, setCashPreferenceError] = useState<string | null>(null);
+  const [isEditingOrder, setIsEditingOrder] = useState(false);
+  const [editQuantities, setEditQuantities] = useState<Record<string, number>>({});
+  const [isSavingOrderChange, setIsSavingOrderChange] = useState(false);
   useEffect(() => {
     if (order) {
       setPaymentAmount(String(Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))))));
@@ -44,6 +51,10 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
       setCashPreferenceError(null);
     }
   }, [order?.id, order?.remainingAmount, order?.paidAmount, order?.totalAmount, order?.paymentPreference]);
+  useEffect(() => {
+    if (order) setEditQuantities(Object.fromEntries(order.items.map(item => [item.id, item.quantity])));
+    setIsEditingOrder(false);
+  }, [order?.id]);
   if (!order) return null;
   const remainingDue = Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))));
   const requestedPaymentAmount = Number(paymentAmount);
@@ -117,7 +128,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
               </span>
               <div className="font-extrabold text-xs sm:text-sm text-amber-700 flex items-center gap-1.5">
                 <ChefHat size={15} className="text-amber-600" />
-                <span>En préparation</span>
+                <span>{order.status === 'pending' ? 'En attente' : order.status === 'in_prep' ? 'En préparation' : order.status === 'ready' ? 'Prête' : order.status === 'completed' ? 'Servie' : 'Annulée'}</span>
               </div>
             </div>
           </div>
@@ -193,6 +204,67 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
               </span>
             </div>
           </div>
+
+          {order.status === 'pending' && customerAccessToken && onCustomerOrderMutation && (
+            <section className="rounded-2xl border border-orange-200 bg-orange-50/60 p-4 space-y-3" aria-label="Gestion de votre commande">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wide text-slate-900">Gérer ma commande</h3>
+                <p className="mt-1 text-[11px] text-slate-600">Vous pouvez encore modifier les quantités ou annuler tant que la préparation n’a pas commencé.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setIsEditingOrder(value => !value)}
+                  className="rounded-xl border border-orange-300 bg-white px-3 py-2 text-xs font-bold text-orange-900">
+                  {isEditingOrder ? 'Fermer la modification' : 'Modifier la commande'}
+                </button>
+                <button type="button" disabled={isSavingOrderChange}
+                  onClick={async () => {
+                    const reason = window.prompt('Pourquoi souhaitez-vous annuler cette commande ?');
+                    if (reason === null) return;
+                    if (reason.trim().length < 3) { window.alert('Veuillez indiquer un motif de 3 caractères minimum.'); return; }
+                    if (!window.confirm('Confirmer l’annulation de cette commande ?')) return;
+                    setIsSavingOrderChange(true);
+                    try {
+                      const result = await onCustomerOrderMutation({ action: 'cancel', reason: reason.trim() });
+                      if (!result.success) window.alert(result.error || 'Annulation refusée.');
+                    } finally { setIsSavingOrderChange(false); }
+                  }}
+                  className="rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700 disabled:opacity-50">
+                  Annuler la commande
+                </button>
+              </div>
+              {isEditingOrder && (
+                <div className="space-y-2">
+                  {order.items.map(item => (
+                    <div key={item.id} className="flex items-center justify-between gap-2 rounded-xl border border-orange-100 bg-white p-2">
+                      <span className="min-w-0 flex-1 text-xs font-bold text-slate-800">{item.name}</span>
+                      <div className="flex items-center gap-2">
+                        <button type="button" aria-label={`Diminuer ${item.name}`}
+                          onClick={() => setEditQuantities(current => ({ ...current, [item.id]: Math.max(0, Number(current[item.id] ?? item.quantity) - 1) }))}
+                          className="h-8 w-8 rounded-lg border border-slate-200 font-bold">−</button>
+                        <span className="w-5 text-center text-xs font-black tabular-nums">{editQuantities[item.id] ?? item.quantity}</span>
+                        <button type="button" aria-label={`Augmenter ${item.name}`}
+                          onClick={() => setEditQuantities(current => ({ ...current, [item.id]: Math.min(50, Number(current[item.id] ?? item.quantity) + 1) }))}
+                          className="h-8 w-8 rounded-lg border border-slate-200 font-bold">+</button>
+                      </div>
+                    </div>
+                  ))}
+                  <button type="button" disabled={isSavingOrderChange || !order.items.some(item => Number(editQuantities[item.id] ?? item.quantity) > 0)}
+                    onClick={async () => {
+                      const items = order.items.map(item => ({ id: item.id, quantity: Number(editQuantities[item.id] ?? item.quantity), prepNotes: item.prepNotes })).filter(item => item.quantity > 0);
+                      setIsSavingOrderChange(true);
+                      try {
+                        const result = await onCustomerOrderMutation({ action: 'edit', items });
+                        if (!result.success) window.alert(result.error || 'Modification refusée.');
+                        else setIsEditingOrder(false);
+                      } finally { setIsSavingOrderChange(false); }
+                    }}
+                    className="w-full rounded-xl bg-[#101d2d] px-4 py-3 text-xs font-black text-white disabled:opacity-50">
+                    {isSavingOrderChange ? 'Enregistrement…' : 'Enregistrer les modifications'}
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
 
           {order.orderMode === 'sur_place' && onStartPayDunyaPayment && (
             <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 space-y-3">
