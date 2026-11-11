@@ -1943,8 +1943,10 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     if (!['period', 'daily'].includes(reportType)) {
       return { statusCode: 400, body: { success: false, error: 'Type de rapport invalide.' } };
     }
+    const selectedDate = typeof req.query?.date === 'string' ? req.query.date : undefined;
     const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
-      periodDays, includeCashDetails, reportType: reportType as 'period' | 'daily'
+      periodDays, includeCashDetails, reportType: reportType as 'period' | 'daily',
+      ...(selectedDate ? { date: selectedDate } : {})
     });
     return { statusCode: 200, body: { success: true, report } };
   } catch (error: any) {
