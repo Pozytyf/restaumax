@@ -101,6 +101,8 @@ const refundOnlyDay = calculateRestaurantFinancialReport({
   stockMovements: [], cashMovements: [], cashSessions: []
 }, { startAt: Date.UTC(2026, 10, 11, 0), endAt: Date.UTC(2026, 10, 12, 0) - 1, includeCashDetails: true, eventWindow: true });
 assert.equal(refundOnlyDay.grossCollected, -250, 'Un remboursement reçu aujourd’hui est imputé à la recette de la date de remboursement, sans recompter le paiement de la veille.');
+assert.equal(refundOnlyDay.taxCollected, -45, 'La taxe est déduite au prorata du remboursement journalier.');
+assert.equal(refundOnlyDay.netSales, -205, 'La recette HT reflète un remboursement sans réintégrer la vente de la veille.');
 assert.equal(refundOnlyDay.cash.paymentMethodTotals.especes, -250, 'Le remboursement est imputé au canal espèces même si le paiement initial date de la veille.');
 assert.equal(refundOnlyDay.bestSellers.length, 0, 'Un remboursement seul ne réaffiche pas les articles vendus la veille.');
 
@@ -120,4 +122,4 @@ assert(reportApiSource.includes("hasOpenSessionForDay") && reportApiSource.inclu
   'A daily closure is rejected while a cash session from that day remains open or the day is still current.');
 assert(reportUiSource.includes('Clôturer la recette du jour') && reportUiSource.includes('Journée clôturée'),
   'The revenue calendar exposes a close action and an immutable closure confirmation.');
-console.log('Financial report calculation tests passed: 39 assertions.');
+console.log('Financial report calculation tests passed: 41 assertions.');
