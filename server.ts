@@ -42,7 +42,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
-import { getRestaurantFinancialReportWithDb } from './src/server/reportService.js';
+import { getRestaurantFinancialReportWithDb, resolveFinancialReportRange } from './src/server/reportService.js';
 import { sanitizePublicMenuItem } from './src/server/publicMenu.js';
 import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
