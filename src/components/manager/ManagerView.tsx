@@ -306,7 +306,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   return (
     <div className="flex-1 flex flex-col h-[calc(100vh-60px)] overflow-y-auto bg-[#f4f7fb] p-4 lg:p-8">
       <div className="max-w-7xl mx-auto w-full space-y-6">
-        <PayDunyaAccountSettings restaurantSlug={restaurantSlug} isOwner={isOwner} />
+        
 
         {/* Top Header Summary */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -315,7 +315,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               Supervision du journal de caisse
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
-              Journal des encaissements persistés et sessions de caisse avec rapprochement du comptage physique.
+              Consultez les chiffres essentiels, les recettes par date, les paiements et les commandes dans cet ordre.
             </p>
           </div>
 
@@ -331,10 +331,18 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           </button>
         </div>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
+        <nav aria-label="Navigation de la supervision" className="sticky top-0 z-20 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+          <a href="#cash-session" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">💵 Session de caisse</a>
+          <a href="#revenue-calendar" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">📅 Recettes par date</a>
+          <a href="#cash-payments" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">💳 Paiements</a>
+          <a href="#pending-orders" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">🧾 Commandes</a>
+          <a href="#paydunya-settings" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">⚙️ PayDunya</a>
+        </nav>
+
+        <section id="cash-session" aria-labelledby="cash-session-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-black text-[#101d2d]">Session de caisse</h2>
+              <h2 id="cash-session-title" className="text-base font-black text-[#101d2d]">1. Session de caisse</h2>
               <p className="mt-1 text-xs text-slate-500">Fond initial, encaissements de la session et rapprochement physique</p>
             </div>
             {cashSession && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Session ouverte</span>}
@@ -488,10 +496,10 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         </section>
 
 
-        <section className="rounded-2xl border border-orange-200 bg-white p-5 shadow-2xs">
+        <section id="revenue-calendar" aria-labelledby="revenue-calendar-title" className="rounded-2xl border border-orange-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-black text-slate-900">📅 Calendrier des recettes journalières</h2>
+              <h2 id="revenue-calendar-title" className="text-base font-black text-slate-900">2. 📅 Calendrier des recettes journalières</h2>
               <p className="mt-1 text-xs text-slate-500">Consultez la recette nette à une date précise et clôturez chaque journée terminée.</p>
             </div>
             <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
@@ -523,7 +531,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           onRefresh={loadClosedSessions}
         />
 
-        <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-2xs">
+        <section id="paydunya-reconcile" className="rounded-2xl border border-blue-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-black text-slate-900">Paiements PayDunya à suivre</h2>
@@ -559,9 +567,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         </section>
 
         {canCancelOrders && (
-          <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-2xs">
+          <section id="pending-orders" className="rounded-2xl border border-amber-200 bg-white p-5 shadow-2xs">
             <div className="mb-3">
-              <h2 className="text-sm font-black text-slate-900">Commandes actives · Annulation contrôlée</h2>
+              <h2 className="text-sm font-black text-slate-900">3. Commandes actives · Annulation contrôlée</h2>
               <p className="mt-1 text-xs text-slate-500">Annulation logique avec motif, journal d’audit et restitution transactionnelle des stocks si nécessaire. Les commandes réglées ou avec un paiement PayDunya en cours sont protégées.</p>
             </div>
             {activeOrders.filter(order => Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || '')) && !order.pendingPayDunyaIntentId).length === 0 ? (
@@ -875,6 +883,11 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           </div>
         </div>
       </div>
+
+      <section id="paydunya-settings" aria-label="Paramètres du compte PayDunya" className="rounded-2xl border border-slate-200 bg-white p-4">
+        <h2 className="mb-3 text-sm font-black text-slate-900">4. ⚙️ Paramètres PayDunya</h2>
+        <PayDunyaAccountSettings restaurantSlug={restaurantSlug} isOwner={isOwner} />
+      </section>
 
       {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
       {showZReportModal && (
