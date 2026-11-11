@@ -421,6 +421,10 @@ export default function App() {
     refundStatus: String(payment.refundStatus || ''),
     refundEligible: payment.refundEligible === true,
     providerChannel: String(payment.providerChannel || ''),
+    mobileMoneyProvider: payment.mobileMoneyProvider,
+    mobileMoneyReference: payment.mobileMoneyReference ? String(payment.mobileMoneyReference) : undefined,
+    reclassifiedAt: payment.reclassifiedAt ? Number(payment.reclassifiedAt) : undefined,
+    reclassificationReason: payment.reclassificationReason ? String(payment.reclassificationReason) : undefined,
     paymentMethod: payment.method === 'mobile_money'
       ? (payment.mobileMoneyProvider === 'wave' ? 'wave'
         : payment.mobileMoneyProvider === 'orange_money' ? 'orange_money'
