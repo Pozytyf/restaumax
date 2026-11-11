@@ -37,6 +37,7 @@ export interface OrderSubmissionPayload {
   customerPhone?: string;
   declaredTotal?: number;
   idempotencyKey?: string;
+  customerAccessTokenHash?: string;
 }
 
 export interface OrderSubmissionResult {
@@ -594,7 +595,8 @@ export async function processOrderSubmission(
     createdAtIso: new Date(now).toISOString(),
     idempotencyKey: cleanKey,
     idempotencyDocId: keyDocId,
-    contentSignature: currentSignature
+    contentSignature: currentSignature,
+    ...(typeof payload.customerAccessTokenHash === 'string' ? { customerAccessTokenHash: payload.customerAccessTokenHash } : {})
   };
 
   // 12. Transaction Firestore atomique unifiée (L'exigence centrale 4.4)
