@@ -60,6 +60,8 @@ const cancelled = await mutateCustomerOrderWithDb(cancelDb, { ...base, action: '
 assert.equal(cancelled.success, true);
 assert.equal(cancelDb.docs.get('restaurants/chez-awa/orders/order-1').status, 'cancelled');
 assert.equal(cancelDb.docs.get('restaurants/chez-awa/orders/order-1').cancellationReason, 'Erreur de commande');
+assert.deepEqual(cancelDb.docs.get('restaurants/chez-awa/orders/order-1').statusHistory.map(event => event.status), ['pending', 'cancelled'], 'L’annulation client est ajoutée à la chronologie horodatée.');
+assert.equal(cancelDb.docs.get('restaurants/chez-awa/orders/order-1').statusHistory[1].reason, 'Erreur de commande');
 assert.ok([...cancelDb.docs.entries()].some(([path, value]) => path.includes('/orderAudit/') && value.event === 'order.cancelled'));
 
 const preparedDb = new FakeDb(seed('in_prep'));
@@ -119,6 +121,7 @@ assert(routerSource.includes("case 'customer-orders'") && routeMapSource.include
   'Vercel API router registers customer order capabilities');
 assert(clientSource.includes('restaumax-last-order:') && clientSource.includes('Suivre ma commande'),
   'Customer can reopen its protected order tracking after closing the confirmation panel');
+assert(modalSource.includes('Historique horodaté') && modalSource.includes('event.changedAt'), 'The customer ticket renders the persisted status timeline');
 assert(modalSource.includes("onCustomerOrderMutation({ action: 'get' })") && modalSource.includes('window.setInterval'),
   'Order status refreshes from the token-protected API while the customer tracks it');
 console.log('Customer order mutation regression: 10 scenarios passed.');
