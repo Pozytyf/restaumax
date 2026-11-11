@@ -26,7 +26,7 @@ assert(resolveRolePermissions('manager', ['settings.manage'], true) === null, 'L
 assert(resolveRolePermissions('cashier', ['orders.cancel'], false) === null, 'Un manager ne peut pas accorder un droit supplémentaire au caissier');
 assert(resolveRolePermissions('cashier', ['orders.cancel'], true)?.includes('orders.cancel') === true, 'Le propriétaire peut accorder un droit supplémentaire dans le plafond du caissier');
 
-const cashierOwnerGrant = ['orders.view','tables.view','pos.access','cash.view','cash.manage','reports.cash.view','orders.cancel'];
+const cashierOwnerGrant = ['orders.view','tables.view','pos.access','cash.view','cash.manage','reports.cash.view','orders.cancel','payments.refund'];
 assert(resolveManagerPermissionUpdate('cashier', 'cashier', cashierOwnerGrant)?.includes('orders.cancel') === true,
   'Un manager conserve une autorisation supplémentaire accordée par le propriétaire lors d’une modification du même rôle');
 assert(resolveManagerPermissionUpdate('cashier', 'server', cashierOwnerGrant) === null,
@@ -34,7 +34,7 @@ assert(resolveManagerPermissionUpdate('cashier', 'server', cashierOwnerGrant) ==
 assert(resolveManagerPermissionUpdate('server', 'cashier', ['orders.view','tables.view','pos.access','orders.serve'])?.includes('cash.manage') === true,
   'Un manager peut changer un rôle lorsque cela ne retire aucun droit supplémentaire du propriétaire');
 
-assert(resolveManagerPermissionUpdate('staff', 'server', ['orders.view','tables.view','pos.access','orders.cancel']) === null,
+assert(resolveManagerPermissionUpdate('staff', 'server', ['orders.view','tables.view','pos.access','orders.cancel','cash.manage']) === null,
   'Un manager ne peut pas supprimer un droit supplémentaire d’un ancien compte staff en le reclassant');
 
 
