@@ -120,8 +120,9 @@ assert(reportApiSource.includes('closureData?.report'), 'A closed day always dis
 assert(reportApiSource.includes('delete archivedReport.cash') && !reportApiSource.includes('...closureSnap.data()'), 'Archived closures never bypass reports.cash.view when exposing cash details.');
 assert(reportApiSource.includes("dailyRevenueClosures") && reportApiSource.includes("Seul le propriétaire ou le gérant"),
   'Daily revenue closure is stored server-side and restricted to owners and managers.');
+assert(reportApiSource.includes('hasUnresolvedPayDunya') && reportApiSource.includes('reste à rapprocher'), 'A daily close is blocked while PayDunya intents remain unresolved.');
 assert(reportApiSource.includes("hasOpenSessionForDay") && reportApiSource.includes("journée terminée"),
   'A daily closure is rejected while a cash session from that day remains open or the day is still current.');
 assert(reportUiSource.includes('Clôturer la recette du jour') && reportUiSource.includes('Journée clôturée'),
   'The revenue calendar exposes a close action and an immutable closure confirmation.');
-console.log('Financial report calculation tests passed: 43 assertions.');
+console.log('Financial report calculation tests passed: 44 assertions.');
