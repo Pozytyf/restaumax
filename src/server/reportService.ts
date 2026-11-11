@@ -13,6 +13,17 @@ export interface FinancialReportOptions {
   includeCashDetails: boolean;
 }
 
+export function resolveFinancialReportRange(now: number, periodDays: number, reportType: 'period' | 'daily' = 'period') {
+  if (!Number.isFinite(now) || !Number.isSafeInteger(periodDays) || periodDays < 1 || periodDays > 366) {
+    throw new Error('Période de rapport invalide.');
+  }
+  const endAt = now;
+  const startAt = reportType === 'daily'
+    ? new Date(now).setUTCHours(0, 0, 0, 0)
+    : now - periodDays * 24 * 60 * 60 * 1000;
+  return { startAt, endAt };
+}
+
 const safeAmount = (value: unknown) => {
   const amount = Number(value || 0);
   return Number.isFinite(amount) && amount >= 0 ? amount : 0;
@@ -158,12 +169,8 @@ export async function getRestaurantFinancialReportWithDb(
   const now = Number(options.now || Date.now());
   const reportType = options.reportType === 'daily' ? 'daily' : 'period';
   const periodDays = Number(options.periodDays || 30);
-  if (!Number.isSafeInteger(periodDays) || periodDays < 1 || periodDays > 366) throw new Error('Période de rapport invalide.');
-  // Côte d’Ivoire uses UTC+0: the daily point starts at local midnight,
-  // not at a rolling 24-hour offset from the request time.
-  const startAt = reportType === 'daily'
-    ? new Date(now).setUTCHours(0, 0, 0, 0)
-    : now - periodDays * 24 * 60 * 60 * 1000;
+  // Côte d’Ivoire uses UTC+0; daily reporting is bounded by calendar midnight.
+  const { startAt, endAt } = resolveFinancialReportRange(now, periodDays, reportType);
   const restaurantRef = db.collection('restaurants').doc(slug);
   // Paginer jusqu'à épuisement : une limite fixe silencieuse faussait les
   // rapports des restaurants ayant plus de 1 000 mouvements sur la période.
@@ -181,10 +188,10 @@ export async function getRestaurantFinancialReportWithDb(
     return documents;
   };
   const ranged = (name: string) => restaurantRef.collection(name)
-    .where('createdAt', '>=', startAt).where('createdAt', '<=', now)
+    .where('createdAt', '>=', startAt).where('createdAt', '<=', endAt)
     .orderBy('createdAt', 'desc');
   const cashSessionsQuery = restaurantRef.collection('cashSessions')
-    .where('openedAt', '>=', startAt).where('openedAt', '<=', now)
+    .where('openedAt', '>=', startAt).where('openedAt', '<=', endAt)
     .orderBy('openedAt', 'desc');
   const [orders, payments, refunds, stockMovements, cashMovements, cashSessions] = await Promise.all([
     readAll(ranged('orders')), readAll(ranged('payments')), readAll(ranged('refunds')),
@@ -198,6 +205,6 @@ export async function getRestaurantFinancialReportWithDb(
     stockMovements: stockMovements.map((doc: any) => ({ ...doc.data(), id: doc.id })),
     cashMovements: cashMovements.map((doc: any) => ({ ...doc.data(), id: doc.id })),
     cashSessions: cashSessions.map((doc: any) => ({ ...doc.data(), id: doc.id }))
-  }, { startAt, endAt: now, includeCashDetails: options.includeCashDetails === true });
+  }, { startAt, endAt, includeCashDetails: options.includeCashDetails === true });
   return report;
 }
