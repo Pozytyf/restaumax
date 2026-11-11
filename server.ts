@@ -1426,6 +1426,20 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         const closedSessions = await listClosedCashSessionsWithDb(adminDb, slug, limitCount);
         return { statusCode: 200, body: { success: true, closedSessions } };
       }
+      if (String(req.query?.action || '') === 'paydunya_intents') {
+        const intentSnap = await restaurantRef.collection('paymentIntents').orderBy('createdAt', 'desc').limit(50).get();
+        const paymentIntents = intentSnap.docs.map((doc: any) => {
+          const intent = doc.data() || {};
+          return {
+            id: doc.id, orderId: String(intent.orderId || ''), amount: Number(intent.amount || 0),
+            currency: String(intent.currency || 'XOF'), channel: String(intent.channel || ''),
+            status: String(intent.status || 'unknown'), createdAt: Number(intent.createdAt || 0),
+            updatedAt: Number(intent.updatedAt || 0),
+            lastProviderError: String(intent.lastProviderError || '').slice(0, 180)
+          };
+        });
+        return { statusCode: 200, body: { success: true, paymentIntents } };
+      }
       const payments = await listRecentCashPaymentsWithDb(adminDb, slug, 100);
       return { statusCode: 200, body: { success: true, payments } };
     }
