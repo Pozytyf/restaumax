@@ -63,7 +63,7 @@ import {
   OrderProbeResult,
   IdempotencyReservationResult
 } from './src/server/orderService.js';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, listClosedCashSessionsWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, listClosedCashSessionsWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb, reclassifyCashPaymentWithDb } from './src/server/paymentService.js';
 import { type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
 import { resolveTableQrOrigin } from './src/server/tableQrOrigin.ts';
 import { loadRestaurantPayDunyaConfig, saveRestaurantPayDunyaCredentials } from './src/server/paydunyaMerchantConfig.js';
@@ -1547,6 +1547,29 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         reason: String(input.reason || ''),
         idempotencyKey: String(input.idempotencyKey || ''),
         callbackUrl: `${parsedOrigin.origin}/api/payments/paydunya-disbursement-callback?restaurantSlug=${encodeURIComponent(slug)}`
+      });
+      if (result.success) return { statusCode: 200, body: result };
+      return { statusCode: result.conflict ? 409 : 400, body: result };
+    }
+
+    if (input.action === 'reclassify_cash_payment') {
+      const canReclassify = isOwner ||
+        (member.role === 'manager' && memberPermissions.includes('payments.reclassify')) ||
+        (member.role === 'cashier' && memberPermissions.includes('cash.manage'));
+      if (!canReclassify) {
+        return { statusCode: 403, body: { success: false, error: 'Permission de correction de paiement refusée.' } };
+      }
+      const result = await reclassifyCashPaymentWithDb(adminDb, {
+        restaurantSlug: slug,
+        paymentId: String(input.paymentId || ''),
+        actorUid: decoded.uid,
+        actorName: String(decoded.name || decoded.email || decoded.uid),
+        sessionVersion: Number(decoded.sessionVersion || 0),
+        provider: input.provider,
+        transactionReference: String(input.transactionReference || ''),
+        reason: String(input.reason || ''),
+        verificationNote: String(input.verificationNote || ''),
+        idempotencyKey: String(input.idempotencyKey || '')
       });
       if (result.success) return { statusCode: 200, body: result };
       return { statusCode: result.conflict ? 409 : 400, body: result };
