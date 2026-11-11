@@ -1047,6 +1047,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         />
             </div>
           </main>
+        </div>
       </div>
 
       {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
