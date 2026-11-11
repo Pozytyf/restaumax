@@ -215,3 +215,46 @@ PR : `https://github.com/Pozytyf/restaumax/pull/110` (brouillon, non fusionnée)
 - **Validation manuelle Preview :** à effectuer après le passage complet des contrôles CI, sans publier ni modifier Production.
 
 Les prochaines étapes restent dans l'ordre du plan initial. Aucun correctif de cette PR n'est fusionné ou déployé.
+
+
+## Suivi opérationnel — 2026-11-11
+
+### État exact des six tâches demandées
+
+| # | Travail | Résultat actuel | État |
+|---|---|---|---|
+| 1 | Tests navigateur automatisés | Playwright ajouté dans `tests/e2e/restaumax-smoke.spec.ts`, exécution CI isolée Firebase Demo. Les 3 tests (accueil, deep link QR, route gestion) passent sur Chromium. | **Smoke tests terminés ; couverture des parcours métier encore à étendre.** |
+| 2 | App Check et commandes à emporter sur Preview | Variables Preview de la branche créées : `FIREBASE_APPCHECK_ENFORCE_PUBLIC_ORDERS=true`. La clé de site App Check existe. Les identifiants Firebase client/serveur Preview ont été vérifiés : `restaumax-demo`. Le garde App Check passe 20 assertions. | **Configuration préparée ; validation HTTP/browser sur Preview bloquée par l'absence de déploiement.** |
+| 3 | MFA Super-admin sur Preview | L'écran de connexion traite maintenant les défis Firebase MFA TOTP et SMS. Le drapeau `RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA=true` est limité à la Preview de cette branche. Le test de garde MFA passe 6 assertions. | **Code et configuration préparés ; enrôlement, connexion réelle et récupération non testés sur Preview.** |
+| 4 | Exécution réelle du Cron abonnements | `vercel.json` déclare `/api/subscriptions/billing-cycle` à 02:00 UTC chaque jour. Un `CRON_SECRET` sensible, limité à la Preview de la branche, est présent. La suite Firestore Emulator du cycle passe 27 assertions. | **Exécution réelle non prouvée.** Les logs Production sur les 50 dernières minutes ne contiennent pas d'appel au endpoint ; la fenêtre de 7 jours est inaccessible avec la rétention Hobby. Aucun appel manuel au Cron Production n'a été fait, pour ne pas modifier les données financières. |
+| 5 | Origine de `DEP0169` | Les actions GitHub `checkout` et `setup-node` ont été mises à jour vers des révisions exécutées sous Node 24. Le warning `DEP0169 url.parse()` n'apparaît plus dans les logs du workflow CI principal contrôlé après cette mise à jour. | **Résolu dans le workflow CI contrôlé ; attribution historique exacte non démontrée.** Le warning distinct `DEP0040 punycode` subsiste. |
+| 6 | Tests manuels complets sur Preview | Aucun déploiement Preview de cette branche n'existe. Le projet Vercel renvoie `git.deploymentEnabled=false` et l'historique de déploiement filtré sur la branche est vide. | **Bloqué : pas de cible Preview déployée. Aucun test manuel n'est revendiqué.** |
+
+### Preuves CI sur le commit `67187d26fc5b411cc0d5e6e246fe054d34d6522d`
+
+Les 12 exécutions associées à la PR #110 sur ce commit sont terminées avec succès :
+- RestauMax CI ;
+- Playwright Browser Smoke Tests ;
+- Firestore Emulator strict ;
+- Security hardening ;
+- Security role regression ;
+- Firestore owner binding ;
+- Owner refund authorization ;
+- PayDunya payment/refund lifecycle ;
+- Platform overview privacy ;
+- GitHub App installation token compatibility ;
+- plus les déclenchements push correspondants de RestauMax CI et Playwright.
+
+Le journal Playwright indique explicitement **3 passed**. La suite principale confirme notamment App Check (20 assertions), MFA (6 assertions) et cycle de facturation abonnements Firestore Emulator (27 assertions). Ces tests CI/émulateur ne remplacent pas une validation réelle sur Preview.
+
+### Garde-fous conservés
+
+- Aucun déploiement créé ; aucune fusion ; aucune modification de `main`.
+- Aucune donnée Firebase Production modifiée.
+- PayDunya reste en TEST.
+- Les variables App Check, MFA et Cron ajoutées sont ciblées sur Preview et limitées à la branche d'audit ; aucune variable Production n'a été modifiée.
+- La PR #110 reste en brouillon.
+
+### Conditions pour clôturer les tâches Preview
+
+La configuration Vercel du projet désactive actuellement les déploiements Git automatiques (`git.deploymentEnabled=false`). Tant que cette règle et l'interdiction de déployer pendant l'audit restent en vigueur, les vérifications Preview ne peuvent pas être exécutées. Une fois une Preview autorisée et disponible, il restera à vérifier en conditions réelles : commande à emporter avec App Check valide/absent/invalide ; connexion Super-admin avec TOTP ou SMS et scénario de récupération ; exécution Cron sur les seules données Demo ; puis les parcours métier complets dans le navigateur.
