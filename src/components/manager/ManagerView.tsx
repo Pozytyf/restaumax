@@ -110,6 +110,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   const [payDunyaIntents, setPayDunyaIntents] = useState<PayDunyaIntentSummary[]>([]);
   const [payDunyaLoading, setPayDunyaLoading] = useState(false);
   const [payDunyaActionId, setPayDunyaActionId] = useState<string | null>(null);
+  const [paymentCorrectionId, setPaymentCorrectionId] = useState<string | null>(null);
   const [closedSessions, setClosedSessions] = useState<CashSessionApiRecord[]>([]);
   const [closedSessionsLoading, setClosedSessionsLoading] = useState(false);
   const hasLoadedClosedSessionsRef = useRef(false);
@@ -199,6 +200,71 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   }, [restaurantSlug]);
 
   useEffect(() => { void loadPayDunyaIntents(); }, [loadPayDunyaIntents]);
+
+  const reclassifyCashPayment = async (payment: PaymentRecord) => {
+    if (payment.paymentMethod !== 'especes') return;
+    const providerInput = window.prompt(
+      'Opérateur Mobile Money (orange_money, wave, mtn, moov ou djamo) :',
+      'wave'
+    );
+    if (providerInput === null) return;
+    const provider = providerInput.trim().toLowerCase();
+    if (!['orange_money', 'wave', 'mtn', 'moov', 'djamo'].includes(provider)) {
+      window.alert('Opérateur invalide.');
+      return;
+    }
+    const transactionReference = window.prompt('Référence exacte de la transaction Mobile Money :');
+    if (!transactionReference || !/^[A-Za-z0-9_-]{6,100}$/.test(transactionReference.trim())) {
+      window.alert('Référence de transaction invalide.');
+      return;
+    }
+    const reason = window.prompt('Motif de la correction (8 caractères minimum) :');
+    if (!reason || reason.trim().length < 8) {
+      window.alert('Le motif doit contenir au moins 8 caractères.');
+      return;
+    }
+    const verificationNote = window.prompt(
+      'Indiquez le contrôle effectué dans le compte marchand ou l’application officielle (référence retrouvée, montant et statut confirmé) :'
+    );
+    if (!verificationNote || verificationNote.trim().length < 8) {
+      window.alert('Le rapprochement de la transaction doit être documenté.');
+      return;
+    }
+    if (!window.confirm(
+      'Confirmer la reclassification de ' + formatFCFA(payment.paidAmount) +
+      ' de Espèces vers ' + provider.toUpperCase() +
+      ' ? Aucun nouvel encaissement ne sera créé ; le solde payé de la commande restera inchangé.'
+    )) return;
+    const user = auth.currentUser;
+    if (!user) { window.alert('Connexion requise.'); return; }
+    setPaymentCorrectionId(payment.id);
+    try {
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/payments', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        cache: 'no-store',
+        body: JSON.stringify({
+          restaurantSlug,
+          action: 'reclassify_cash_payment',
+          paymentId: payment.id,
+          provider,
+          transactionReference: transactionReference.trim(),
+          reason: reason.trim(),
+          verificationNote: verificationNote.trim(),
+          idempotencyKey: 'reclass_' + window.crypto.randomUUID().replace(/-/g, '')
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Correction refusée.');
+      window.alert('Paiement reclassé avec succès. Le journal et les totaux de caisse seront actualisés automatiquement.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Impossible de corriger ce paiement.');
+    } finally {
+      setPaymentCorrectionId(null);
+    }
+  };
 
   const reconcilePayDunyaIntent = async (intentId: string) => {
     const user = auth.currentUser;
@@ -799,6 +865,16 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                           >
                             <Eye size={14} />
                           </button>
+                          {canManageCash && tx.paymentMethod === 'especes' && (
+                            <button
+                              onClick={() => void reclassifyCashPayment(tx)}
+                              disabled={paymentCorrectionId === tx.id}
+                              className="rounded-lg bg-sky-50 px-2 py-1.5 text-[10px] font-bold text-sky-800 hover:bg-sky-100 disabled:opacity-50"
+                              title="Corriger le mode de règlement après rapprochement Mobile Money"
+                            >
+                              {paymentCorrectionId === tx.id ? 'Correction…' : 'Corriger paiement'}
+                            </button>
+                          )}
                           {canRefundPayments && Number(tx.refundPendingAmount || 0) > 0 && (
                             <span className="rounded-lg bg-blue-50 px-2 py-1.5 text-[10px] font-bold text-blue-800" title="Un décaissement PayDunya est en attente">
                               Remboursement en cours
