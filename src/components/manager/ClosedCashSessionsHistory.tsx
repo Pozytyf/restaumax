@@ -172,7 +172,7 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
 
           <div className="rounded-xl bg-slate-50 p-3.5 border border-slate-100">
             <div className="flex items-center justify-between text-slate-500">
-              <span className="text-[11px] font-semibold">Session record</span>
+              <span className="text-[11px] font-semibold">Meilleure session</span>
               <Award size={14} className="text-amber-500" />
             </div>
             <p className="mt-1 text-base font-black text-slate-900">{formatFCFA(metrics.maxRevenue)}</p>
