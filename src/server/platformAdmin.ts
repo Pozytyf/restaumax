@@ -27,7 +27,7 @@ const ROLE_PERMISSION_CEILINGS: Record<RestaurantRole, readonly Permission[]> = 
     'orders.view', 'tables.view', 'pos.access', 'cash.view', 'cash.manage',
     'orders.cancel', 'payments.refund', 'reports.cash.view'
   ],
-  server: ['orders.view', 'tables.view', 'pos.access', 'orders.serve'],
+  server: ['orders.view', 'tables.view', 'pos.access', 'orders.serve', 'orders.cancel'],
   kitchen: ['orders.view', 'kitchen.access', 'bar.access', 'orders.clear_pending']
 };
 
