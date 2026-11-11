@@ -398,9 +398,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <span className="block text-sm font-extrabold">3 · Contrôle</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'control' ? 'text-slate-300' : 'text-slate-500'}`}>Écarts, clôtures et rapports</span>
           </button>
         </nav>
-        <div className="min-w-0 space-y-5">
-
-          <main className="min-w-0 space-y-5">
+        <main className="min-w-0 space-y-5">
             <div hidden={activeCashSection !== 'session'} aria-label="Session de caisse" className="space-y-5">
         <section id="cash-session" aria-labelledby="cash-session-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -984,7 +982,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           onRefresh={loadClosedSessions}
         />
             </div>
-          </div>
+          </main>
+      </div>
 
       {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
       {showZReportModal && (
