@@ -847,6 +847,12 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                             : tx.paymentMethod === 'djamo' ? 'Djamo'
                             : 'Carte Bancaire'}
                         </span>
+                        {tx.mobileMoneyReference && (
+                          <span className="mt-1 block text-[10px] font-medium text-slate-500">
+                            Réf. {tx.mobileMoneyReference}
+                            {tx.reclassifiedAt ? ' · corrigé ' + new Date(tx.reclassifiedAt).toLocaleString('fr-FR') : ''}
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-right font-black text-[#ff6500] tnum">
                         <div>{formatFCFA(tx.paidAmount)}</div>
