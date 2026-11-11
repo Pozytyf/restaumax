@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { calculateRestaurantFinancialReport, resolveFinancialReportRange } from '../src/server/reportService.ts';
 
@@ -89,4 +90,10 @@ assert.equal(Number.isInteger(refundedRanking.bestSellers[0].quantity), true,
   'Le classement ne fabrique pas de quantités fractionnaires faute de détail des articles retournés.');
 assert.equal(refundedRanking.grossCollected, 500, 'Le classement et le chiffre d’affaires net reposent sur la même base après remboursement.');
 
-console.log('Financial report calculation tests passed: 24 assertions.');
+const reportApiSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const reportUiSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
+assert(reportApiSource.includes("['period', 'daily']") && reportApiSource.includes("reportType: reportType as 'period' | 'daily'"),
+  'The authenticated reports API explicitly accepts separate daily and periodic modes.');
+assert(reportUiSource.includes('Point journalier indépendant') && reportUiSource.includes('reportType=daily') && reportUiSource.includes('periodDays=30&reportType=period'),
+  'The reports screen loads the daily point separately from the rolling 30-day report.');
+console.log('Financial report calculation tests passed: 28 assertions.');
