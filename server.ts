@@ -1847,7 +1847,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
     const customerAccessEnabled = accessSecret.length >= 32 && typeof input.idempotencyKey === 'string' && input.idempotencyKey.length > 0;
     if (customerAccessEnabled) {
       const identifiers = deriveIdempotencyIdentifiers(customerSlug, input.idempotencyKey);
-      const token = createHmac('sha256', accessSecret).update(`${customerSlug}:${identifiers.orderId}`).digest('hex');
+      const token = createHmac('sha256', accessSecret).update(`restaumax:customer-order-access:v1:${customerSlug}:${identifiers.orderId}`).digest('hex');
       input.customerAccessTokenHash = createHash('sha256').update(token).digest('hex');
     }
     const result = await processOrderSubmission(input, serverFirestoreProvider);
@@ -1858,7 +1858,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
         delete safeOrder.customerAccessTokenHash;
       }
       const customerAccessToken = customerAccessEnabled && result.order?.id
-        ? createHmac('sha256', accessSecret).update(`${customerSlug}:${result.order.id}`).digest('hex')
+        ? createHmac('sha256', accessSecret).update(`restaumax:customer-order-access:v1:${customerSlug}:${result.order.id}`).digest('hex')
         : undefined;
       return { statusCode: 200, body: { ...result, order: safeOrder, ...(customerAccessToken ? { customerAccessToken } : {}) } };
     }
