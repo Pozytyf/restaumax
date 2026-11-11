@@ -92,8 +92,10 @@ assert.equal(refundedRanking.grossCollected, 500, 'Le classement et le chiffre d
 
 const reportApiSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
 const reportUiSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
+const reportServiceSource = fs.readFileSync(new URL('../src/server/reportService.ts', import.meta.url), 'utf8');
 assert(reportApiSource.includes("['period', 'daily']") && reportApiSource.includes("reportType: reportType as 'period' | 'daily'"),
   'The authenticated reports API explicitly accepts separate daily and periodic modes.');
 assert(reportUiSource.includes('Point journalier indépendant') && reportUiSource.includes('reportType=daily') && reportUiSource.includes('periodDays=30&reportType=period'),
   'The reports screen loads the daily point separately from the rolling 30-day report.');
+assert(reportServiceSource.includes('linkedOrderIds') && reportServiceSource.includes('prior-day'), 'Daily settlement reports include prior-day orders when their payment is made in the selected period.');
 console.log('Financial report calculation tests passed: 28 assertions.');
