@@ -24,7 +24,7 @@ export function resolveFinancialReportRange(
   }
   if (reportType === 'daily') {
     const date = selectedDate || new Date(now).toISOString().slice(0, 10);
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) throw new Error('Date de recette invalide.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Date de recette invalide.');
     const startAt = Date.parse(date + 'T00:00:00.000Z');
     if (!Number.isFinite(startAt) || new Date(startAt).toISOString().slice(0, 10) !== date) {
       throw new Error('Date de recette invalide.');
