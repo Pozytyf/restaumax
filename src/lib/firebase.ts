@@ -825,6 +825,8 @@ export interface CashSessionApiRecord {
   cashCollected: number;
   paymentCount: number;
   cashOut: number;
+  cashRefunds?: number;
+  refundCount?: number;
   cashMovementCount: number;
   cashMovements?: CashMovementApiRecord[];
   status: 'active' | 'closed';
