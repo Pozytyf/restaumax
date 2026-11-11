@@ -122,13 +122,15 @@ export const RestaurantAdminModuleView: React.FC<{
             if (!response.ok || !data.success) throw new Error(data.error || 'Chargement des rapports impossible.');
             return data.report as FinancialReport;
           };
-          const [periodReport, todayReport] = await Promise.all([
+          const [periodResult, todayResult] = await Promise.allSettled([
             requestReport('periodDays=30&reportType=period'),
             requestReport('reportType=daily')
           ]);
           if (active) {
-            setFinancialReport(periodReport);
-            setDailyReport(todayReport);
+            if (periodResult.status === 'fulfilled') setFinancialReport(periodResult.value);
+            else setError(periodResult.reason instanceof Error ? periodResult.reason.message : 'Rapport périodique indisponible.');
+            if (todayResult.status === 'fulfilled') setDailyReport(todayResult.value);
+            else setError(todayResult.reason instanceof Error ? todayResult.reason.message : 'Point journalier indisponible.');
           }
         } catch (e) {
           if (active) setError(e instanceof Error ? e.message : 'Chargement des rapports impossible.');
