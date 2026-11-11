@@ -1375,7 +1375,8 @@ export async function updateKitchenItemCompletionWithServerValidation(
 export async function updateOrderStatus(
   restaurantSlug: string,
   orderId: string,
-  status: RestauOrder['status']
+  status: RestauOrder['status'],
+  cancellationReason?: string
 ): Promise<void> {
   try {
     const user = auth.currentUser;
@@ -1386,7 +1387,7 @@ export async function updateOrderStatus(
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
       credentials: 'same-origin',
       cache: 'no-store',
-      body: JSON.stringify({ restaurantSlug, orderId, status })
+      body: JSON.stringify({ restaurantSlug, orderId, status, ...(status === 'cancelled' ? { cancellationReason } : {}) })
     });
     const data = await response.json();
     if (!response.ok || !data.success) throw new Error(data.error || 'Transition de commande refusée.');
