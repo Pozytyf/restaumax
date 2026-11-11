@@ -91,7 +91,7 @@ assert(managerView.includes('Commandes') && managerView.includes('Cuisine') && m
 assert(closedCashSessions.includes('Sessions clôturées (Z)') && closedCashSessions.includes('Écart à examiner') && closedCashSessions.includes('<table'),
   'cash control exposes Z session history in a horizontally scrollable variance table');
 assert(managerView.includes('Écarts de comptage, clôtures journalières et rapports') &&
-  managerView.includes('Journal des Transactions Récentes') && managerView.includes('Fermer la session de caisse') &&
+  managerView.includes('Journal des Transactions Récentes') && managerView.includes('Clôturer la session') &&
   managerView.includes('Ouvrir la session de caisse'),
   'cash supervision groups session, collections and control content by purpose and exposes the current open/close actions');
 assert(posView.includes('Tickets en attente de validation') && posView.includes("onCancelPendingOrder?.(order, 'cancel')") &&
