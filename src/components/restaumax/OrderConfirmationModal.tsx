@@ -183,6 +183,22 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
                 })}
               </ol>
             )}
+            {order.statusHistory && order.statusHistory.length > 0 && (
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <h4 className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-600">Historique horodaté</h4>
+                <ol className="space-y-2">
+                  {order.statusHistory.map((event, index) => (
+                    <li key={index} className="flex items-start justify-between gap-3 text-[10px]">
+                      <span className="font-semibold text-slate-700">
+                        {event.status === 'pending' ? 'Commande reçue' : event.status === 'in_prep' ? 'Préparation commencée' : event.status === 'ready' ? 'Commande prête' : event.status === 'completed' ? 'Commande servie' : 'Commande annulée'}
+                        {event.status === 'cancelled' && event.reason ? <span className="block font-normal text-red-700">Motif : {event.reason}</span> : null}
+                      </span>
+                      <time className="shrink-0 text-slate-500">{new Date(event.changedAt).toLocaleString('fr-FR')}</time>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
             <p className="mt-3 text-[10px] text-slate-500">
               Commande créée le {new Date(order.createdAt).toLocaleString('fr-FR')}
               {order.statusUpdatedAt ? ` · Dernière évolution le ${new Date(order.statusUpdatedAt).toLocaleString('fr-FR')}` : ''}
