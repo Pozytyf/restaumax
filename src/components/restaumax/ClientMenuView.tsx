@@ -509,7 +509,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
               const original = confirmedOrder.items.find(item => item.id === change.id)!;
               return { ...original, quantity: change.quantity, totalPrice: original.unitPrice * change.quantity, prepNotes: change.prepNotes };
             });
-            setConfirmedOrder({ ...confirmedOrder, items: nextItems, itemsCount: nextItems.reduce((sum, item) => sum + item.quantity, 0), totalAmount: result.totalAmount ?? confirmedOrder.totalAmount });
+            setConfirmedOrder({ ...confirmedOrder, items: nextItems, itemsCount: result.itemsCount ?? nextItems.reduce((sum, item) => sum + item.quantity, 0), subtotalAmount: result.totalAmount ?? confirmedOrder.subtotalAmount, totalAmount: result.totalAmount ?? confirmedOrder.totalAmount, remainingAmount: result.totalAmount ?? confirmedOrder.remainingAmount });
           }
           return result;
         }}
