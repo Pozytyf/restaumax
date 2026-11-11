@@ -12,14 +12,15 @@ import {
   Filter,
   Check,
   Keyboard,
-  Info
+  Info,
+  Trash2
 } from 'lucide-react';
 
 interface KdsViewProps {
   tickets: KitchenTicket[];
   canMarkServed?: boolean;
   onToggleItemComplete: (ticketId: string, itemId: string, completed: boolean) => void;
-  onUpdateTicketStatus: (ticketId: string, status: TicketStatus) => Promise<boolean>;
+  onUpdateTicketStatus: (ticketId: string, status: TicketStatus, cancellationReason?: string) => Promise<boolean>;
 }
 
 export const KdsView: React.FC<KdsViewProps> = ({
@@ -43,7 +44,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  const allActiveTickets = tickets.filter(t => t.status === 'in_prep' || t.status === 'ready');
+  const allActiveTickets = tickets.filter(t => t.status === 'pending' || t.status === 'in_prep' || t.status === 'ready');
   const visibleTickets = allActiveTickets
     .map(ticket => ({ ...ticket, stationItems: filterKitchenTicketItems(ticket.items, filterStation) }))
     .filter(ticket => ticket.stationItems.length > 0);
@@ -65,7 +66,22 @@ export const KdsView: React.FC<KdsViewProps> = ({
     }
   };
 
+  const handleCancelTicket = async (ticket: KitchenTicket) => {
+    const reason = window.prompt(`Motif obligatoire pour annuler le ticket ${ticket.ticketNumber} :`);
+    if (reason === null) return;
+    if (reason.trim().length < 3) {
+      setLastBumpedMsg('Indiquez un motif d’au moins 3 caractères.');
+      return;
+    }
+    const saved = await onUpdateTicketStatus(ticket.id, 'cancelled', reason.trim());
+    if (saved) setLastBumpedMsg(`Ticket ${ticket.ticketNumber} annulé et archivé.`);
+  };
+
   const handleBumpTicket = async (ticket: KitchenTicket, slotNumber?: number) => {
+    if (ticket.status === 'pending') {
+      setLastBumpedMsg(`Ticket ${ticket.ticketNumber} en attente : démarrez sa préparation depuis une ligne.`);
+      return;
+    }
     if (ticket.status === 'ready') {
       if (!canMarkServed) {
         setLastBumpedMsg('Remise au client réservée au serveur ou au responsable autorisé.');
@@ -483,7 +499,15 @@ export const KdsView: React.FC<KdsViewProps> = ({
 
                   {/* Ticket Footer Action Buttons with Key Bump Indicators */}
                   <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center gap-2">
-                    {ticket.status === 'ready' ? (
+                    {ticket.status === 'pending' ? (
+                      <div className="flex-1 flex gap-2">
+                        <span className="flex-1 text-center text-xs font-bold text-amber-800 bg-amber-100 rounded-xl px-2 py-3">En attente de prise en charge</span>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); void handleCancelTicket(ticket); }}
+                          className="h-12 px-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
+                          <Trash2 size={14} /> Vider le ticket
+                        </button>
+                      </div>
+                    ) : ticket.status === 'ready' ? (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
