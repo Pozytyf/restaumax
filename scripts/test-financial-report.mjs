@@ -105,6 +105,16 @@ assert.equal(refundOnlyDay.taxCollected, -45, 'La taxe est déduite au prorata d
 assert.equal(refundOnlyDay.netSales, -205, 'La recette HT reflète un remboursement sans réintégrer la vente de la veille.');
 assert.equal(refundOnlyDay.cash.paymentMethodTotals.especes, -250, 'Le remboursement est imputé au canal espèces même si le paiement initial date de la veille.');
 assert.equal(refundOnlyDay.bestSellers.length, 0, 'Un remboursement seul ne réaffiche pas les articles vendus la veille.');
+const pendingRefundReport = calculateRestaurantFinancialReport({
+  orders: [{ id: 'pending-refund-order', status: 'completed', createdAt: Date.UTC(2026, 10, 11, 10), totalAmount: 1000, paidAmount: 1000, items: [{ name: 'Commande', quantity: 1 }] }],
+  payments: [{ id: 'pending-refund-payment', orderId: 'pending-refund-order', method: 'paydunya', paidAmount: 1000 }],
+  refunds: [
+    { id: 'pending-refund', orderId: 'pending-refund-order', paymentId: 'pending-refund-payment', method: 'paydunya', amount: 500, status: 'pending' },
+    { id: 'failed-refund', orderId: 'pending-refund-order', paymentId: 'pending-refund-payment', method: 'paydunya', amount: 200, status: 'failed' }
+  ],
+  stockMovements: [], cashMovements: [], cashSessions: []
+}, { startAt: Date.UTC(2026, 10, 11, 0), endAt: Date.UTC(2026, 10, 12, 0) - 1, includeCashDetails: true, eventWindow: true });
+assert.equal(pendingRefundReport.grossCollected, 1000, 'Les remboursements fournisseur en attente ou échoués ne diminuent pas les recettes réalisées.');
 
 const reportApiSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
 const reportUiSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
@@ -121,8 +131,9 @@ assert(reportApiSource.includes('delete archivedReport.cash') && !reportApiSourc
 assert(reportApiSource.includes("dailyRevenueClosures") && reportApiSource.includes("Seul le propriétaire ou le gérant"),
   'Daily revenue closure is stored server-side and restricted to owners and managers.');
 assert(reportApiSource.includes('hasUnresolvedPayDunya') && reportApiSource.includes('reste à rapprocher'), 'A daily close is blocked while PayDunya intents remain unresolved.');
+assert(reportApiSource.includes('hasUnresolvedRefund') && reportApiSource.includes('reste à confirmer'), 'A daily close is blocked while a provider refund is unresolved.');
 assert(reportApiSource.includes("hasOpenSessionForDay") && reportApiSource.includes("journée terminée"),
   'A daily closure is rejected while a cash session from that day remains open or the day is still current.');
 assert(reportUiSource.includes('Clôturer la recette du jour') && reportUiSource.includes('Journée clôturée'),
   'The revenue calendar exposes a close action and an immutable closure confirmation.');
-console.log('Financial report calculation tests passed: 44 assertions.');
+console.log('Financial report calculation tests passed: 46 assertions.');
