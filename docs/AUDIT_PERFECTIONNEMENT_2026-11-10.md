@@ -313,3 +313,33 @@ Aucune donnée Firebase Production n’a été modifiée. Aucun déploiement Pre
 - Le profil du personnel est désormais libellé « Cuisine » ; « Accéder au Bar » est une autorisation distincte et non attribuée par défaut. L’écran Bar n’affiche que les lignes boissons.
 - Le HMAC du suivi client utilise un domaine dédié `restaumax:customer-order-access:v1`, distinct du calcul du rate-limit. La route renvoie les en-têtes `no-store`, `no-referrer` et `nosniff`.
 - Dernier commit de code : `ddcee033aa2311c2ae646b0c59abe150d7d26be8`. Les workflows GitHub déclenchés pour ce commit sont encore `queued` ; aucune validation CI n’est déclarée avant leur achèvement.
+
+
+## Revue complémentaire caisse et terminal POS — 2026-11-11
+
+### Correctifs ajoutés sur la branche
+
+- **Supervision caisse :** navigation directe par sections (session, calendrier journalier, journal des paiements, commandes actives, paramètres PayDunya) ; ordre visuel numéroté et réglages PayDunya déplacés après les opérations de caisse.
+- **Tickets POS en attente :** le terminal expose au propriétaire lié et au gérant disposant de `orders.manage` les commandes encore `pending`, non réglées et sans intention PayDunya active.
+- **Annuler :** transition transactionnelle vers `cancelled`, motif obligatoire, historique et audit conservés.
+- **Retirer du POS :** même transition logique, avec métadonnées dédiées `removedFromPosAt/By/Reason` et événement `order.removed_from_pos`. Aucun document n'est physiquement supprimé.
+- **Protection serveur :** les actions POS portant `pendingOnly=true` sont refusées si le statut n'est plus `pending`, si un paiement existe ou si un paiement PayDunya reste en cours. Les vérifications propriétaire/gérant sont faites côté serveur, pas seulement dans l'interface.
+- **Tests ajoutés :** retrait logique propriétaire, annulation gérant, refus d'un ticket déjà en préparation, conservation du document et événement d'audit ; tests statiques de navigation et de présence des actions POS.
+
+### Défauts et limites encore identifiés
+
+| Priorité | Domaine | Défaut / limite | Statut et conséquence |
+|---|---|---|---|
+| Critique avant ouverture publique | App Check | L'audit précédent a relevé l'absence de preuve de configuration/enforcement App Check Production pour les commandes publiques à emporter. | À revalider dans la configuration Production et en Preview ; ne pas activer sans parcours de test. |
+| Haute | MFA Super-admin | Le code MFA TOTP/SMS existe, mais l'enrôlement, la connexion et la récupération réels n'ont pas encore été validés en Preview ; l'activation Production n'est pas prouvée. | Validation opérationnelle restante. |
+| Haute | Abonnements | Le Cron quotidien de facturation est déclaré, mais aucun cycle réel réussi n'a été observé ; les tests Emulator ne prouvent pas le déclenchement Vercel. | Exécution Demo à prouver ; aucune exécution manuelle Production. |
+| Moyenne | Dépendances / runtime | Le warning distinct `DEP0040 (punycode)` a été observé ; l'origine exacte doit être attribuée à une dépendance avant toute mise à jour. | Non bloquant connu, à diagnostiquer. |
+| Moyenne | Tests navigateur | Playwright ne couvre pour l'instant que trois smoke tests (accueil, deep link QR, route gestion) ; il ne teste pas encore les scénarios authentifiés de caisse, remboursements, clôture journalière, POS, KDS, rôles ou multi-tenant. | Couverture métier insuffisante pour une certification complète. |
+| Moyenne | POS | La création d'un article libre reste explicitement désactivée dans l'interface. | Fonctionnalité non disponible ; utiliser le catalogue. |
+| Moyenne | Paiements partagés | Le partage Mobile Money par convive reste désactivé tant que le rapprochement par convive n'est pas validé. | Limite produit documentée, pas une régression. |
+
+### Portée de la revue
+
+Cette revue confirme les constats présents dans le code et le registre d'audit ; elle ne constitue pas une preuve exhaustive de chaque interaction de chaque écran. Les modules sans scénario navigateur authentifié restent à vérifier avec des comptes Demo de chaque rôle. Les tests automatisés, les tests Emulator et les contrôles manuels Preview doivent être rapportés séparément.
+
+**Garde-fous :** PR #110 reste non fusionnée ; aucune donnée Firebase Production n'est modifiée ; PayDunya reste en TEST ; aucun déploiement Production n'est autorisé par cette revue.
