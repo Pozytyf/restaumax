@@ -91,7 +91,7 @@ service cloud.firestore {
           'orders.cancel', 'payments.refund', 'reports.cash.view'
         ]) ||
         (role == 'server' && permission in [
-          'orders.view', 'tables.view', 'pos.access', 'orders.serve'
+          'orders.view', 'tables.view', 'pos.access', 'orders.serve', 'orders.cancel'
         ]) ||
         (role == 'kitchen' && permission in [
           'orders.view', 'kitchen.access', 'bar.access'
