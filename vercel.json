@@ -43,6 +43,10 @@
       "destination": "/api/index?__restaumax_route=restaurant-images"
     },
     {
+      "source": "/api/customer-orders",
+      "destination": "/api/index?__restaumax_route=customer-orders"
+    },
+    {
       "source": "/api/public-menu",
       "destination": "/api/index?__restaumax_route=public-menu"
     },
