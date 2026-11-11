@@ -75,11 +75,16 @@ assert(managerView.includes("hidden={activeCashSection !== 'session'}") &&
   managerView.includes("hidden={activeCashSection !== 'collections'}") &&
   managerView.includes("hidden={activeCashSection !== 'control'}"),
   'the three cash supervision sections switch without removing their underlying data or permission checks');
-assert(managerView.includes('flex w-full items-stretch gap-2 overflow-x-auto') &&
+assert(managerView.includes('lg:grid-cols-[280px_minmax(0,1fr)]') && managerView.includes('flex flex-col gap-2') &&
   managerView.includes('Retirer de la caisse') &&
   managerView.includes('pendingOnly: true, removalAction: true') &&
   managerView.includes('order_cancelled_pending_manual_reconciliation'),
-  'cash sections use horizontal tabs and unpaid PayDunya orders expose guarded removal with manual reconciliation');
+  'cash sections use a responsive vertical sidebar and unpaid PayDunya orders expose guarded removal with manual reconciliation');
+assert(managerView.includes('paymentFilter') && managerView.includes('Mobile Money') && managerView.includes('Exporter en CSV') &&
+  managerView.includes('reportFrom') && managerView.includes('channelTotal') && managerView.includes('Écart avec le solde théorique'),
+  'cash supervision exposes payment filters, channel totals, live closing variance and date-range CSV export');
+assert(managerView.includes('min-h-11') && managerView.includes('aria-current') && managerView.includes('aria-live'),
+  'cash supervision controls expose accessible focus targets, active navigation and live variance feedback');
 assert(managerView.includes('Écarts de comptage, clôtures journalières et rapports') &&
   managerView.includes('Journal des Transactions Récentes') && managerView.includes('Fermer la session de caisse') &&
   managerView.includes('Ouvrir la session de caisse'),
