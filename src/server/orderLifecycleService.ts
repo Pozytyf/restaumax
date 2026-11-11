@@ -75,6 +75,11 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         (targetStatus === 'completed' && canServe) ||
         (targetStatus === 'cancelled' && canCancel);
       if (!allowed) return { success: false, error: 'Votre rôle ne permet pas cette transition de commande.' };
+      if (targetStatus === 'cancelled' && (
+        Number(order.paidAmount || 0) > 0 || ['partial', 'paid'].includes(String(order.paymentStatus || '')) || Boolean(order.pendingPayDunyaIntentId)
+      )) {
+        return { success: false, error: 'Cette commande comporte un règlement effectué ou un paiement Mobile Money en cours. Effectuez le rapprochement ou le remboursement avant toute annulation.' };
+      }
 
       if (order.status === targetStatus) return { success: true, idempotentReplay: true, status: targetStatus };
       const transitions: Record<string, string[]> = {
