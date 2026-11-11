@@ -4,7 +4,7 @@ import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
 import { PayDunyaAccountSettings } from './PayDunyaAccountSettings';
 import { ClosedCashSessionsHistory } from './ClosedCashSessionsHistory';
-import { listClosedCashSessionsWithServerValidation, type CashSessionApiRecord } from '../../lib/firebase';
+import { auth, listClosedCashSessionsWithServerValidation, type CashSessionApiRecord } from '../../lib/firebase';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -40,6 +40,18 @@ interface CashSessionSummary {
   openedAt: number;
   expectedCash?: number;
   variance?: number;
+}
+
+interface PayDunyaIntentSummary {
+  id: string;
+  orderId: string;
+  amount: number;
+  currency: string;
+  channel: string;
+  status: string;
+  createdAt: number;
+  updatedAt: number;
+  lastProviderError?: string;
 }
 
 interface ManagerViewProps {
@@ -85,6 +97,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   const [movementCategoryInput, setMovementCategoryInput] = useState('achats');
   const [movementNoteInput, setMovementNoteInput] = useState('');
 
+  const [payDunyaIntents, setPayDunyaIntents] = useState<PayDunyaIntentSummary[]>([]);
+  const [payDunyaLoading, setPayDunyaLoading] = useState(false);
+  const [payDunyaActionId, setPayDunyaActionId] = useState<string | null>(null);
   const [closedSessions, setClosedSessions] = useState<CashSessionApiRecord[]>([]);
   const [closedSessionsLoading, setClosedSessionsLoading] = useState(false);
   const hasLoadedClosedSessionsRef = useRef(false);
@@ -108,6 +123,48 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
       setClosedSessionsLoading(false);
     }
   }, [restaurantSlug]);
+
+  const loadPayDunyaIntents = useCallback(async () => {
+    const user = auth.currentUser;
+    if (!user || !restaurantSlug) return;
+    setPayDunyaLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/payments?restaurantSlug=' + encodeURIComponent(restaurantSlug) + '&action=paydunya_intents', {
+        headers: { Authorization: 'Bearer ' + token }, credentials: 'same-origin', cache: 'no-store'
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Impossible de charger les paiements PayDunya.');
+      setPayDunyaIntents(Array.isArray(data.paymentIntents) ? data.paymentIntents : []);
+    } catch (error) {
+      console.warn('Erreur chargement des intentions PayDunya:', error);
+    } finally {
+      setPayDunyaLoading(false);
+    }
+  }, [restaurantSlug]);
+
+  useEffect(() => { void loadPayDunyaIntents(); }, [loadPayDunyaIntents]);
+
+  const reconcilePayDunyaIntent = async (intentId: string) => {
+    const user = auth.currentUser;
+    if (!user) { window.alert('Connexion requise.'); return; }
+    setPayDunyaActionId(intentId);
+    try {
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/payments', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        credentials: 'same-origin', cache: 'no-store',
+        body: JSON.stringify({ restaurantSlug, action: 'reconcile_paydunya_payment', paymentIntentId: intentId })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) window.alert(data.error || 'Le rapprochement PayDunya a échoué.');
+      await loadPayDunyaIntents();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Impossible de rapprocher ce paiement.');
+    } finally {
+      setPayDunyaActionId(null);
+    }
+  };
 
   // The history is independent from the active session snapshot: do not reload it
   // every time a cash-session object is refreshed by the background poller.
@@ -319,6 +376,40 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           loading={closedSessionsLoading}
           onRefresh={loadClosedSessions}
         />
+
+        <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-2xs">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-black text-slate-900">Paiements PayDunya à suivre</h2>
+              <p className="mt-1 text-xs text-slate-500">Intentions en attente ou nécessitant un rapprochement. Aucun paiement confirmé n’est supprimé.</p>
+            </div>
+            <button type="button" onClick={() => void loadPayDunyaIntents()} disabled={payDunyaLoading}
+              className="rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-50">
+              {payDunyaLoading ? 'Actualisation…' : 'Actualiser'}
+            </button>
+          </div>
+          {payDunyaIntents.filter(intent => !['paid', 'completed', 'succeeded', 'refunded'].includes(intent.status.toLowerCase())).length === 0 ? (
+            <p className="mt-3 text-xs text-slate-500">{payDunyaLoading ? 'Chargement…' : 'Aucune intention PayDunya non soldée dans les 50 dernières opérations.'}</p>
+          ) : (
+            <div className="mt-3 divide-y divide-slate-100">
+              {payDunyaIntents.filter(intent => !['paid', 'completed', 'succeeded', 'refunded'].includes(intent.status.toLowerCase())).map(intent => (
+                <div key={intent.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-black text-slate-800">Commande {intent.orderId} · {formatFCFA(intent.amount)}</p>
+                    <p className="mt-1 text-[10px] text-slate-500">{intent.channel || 'Canal non précisé'} · {intent.status} · Créée le {intent.createdAt ? new Date(intent.createdAt).toLocaleString('fr-FR') : 'Date inconnue'}</p>
+                    {intent.lastProviderError && <p className="mt-1 text-[10px] text-amber-700">{intent.lastProviderError}</p>}
+                  </div>
+                  {canManageCash && ['pending', 'creation_unknown', 'creating'].includes(intent.status.toLowerCase()) && (
+                    <button type="button" onClick={() => void reconcilePayDunyaIntent(intent.id)} disabled={payDunyaActionId === intent.id}
+                      className="rounded-lg bg-blue-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">
+                      {payDunyaActionId === intent.id ? 'Vérification…' : 'Vérifier le statut'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* 4 Primary Operational KPIs */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
