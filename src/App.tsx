@@ -686,7 +686,7 @@ export default function App() {
       setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
       setIsRestaurantOwner(token.claims.role === 'owner');
       setUserPermissions(token.claims.role === 'owner'
-        ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','orders.cancel','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
+        ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','orders.cancel','tables.view','tables.manage','pos.access','kitchen.access','bar.access','cash.view','cash.manage','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
         : token.claims.role === 'super_admin' || token.claims.role === 'admin'
           ? []
           : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
