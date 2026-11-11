@@ -507,7 +507,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-extrabold uppercase text-[10px] tracking-wider">
                   <th className="py-3 px-4">Ticket</th>
-                  <th className="py-3 px-4">Heure</th>
+                  <th className="py-3 px-4">Date et heure</th>
                   <th className="py-3 px-4">Table</th>
                   <th className="py-3 px-4">Serveur</th>
                   <th className="py-3 px-4">Articles</th>
@@ -528,7 +528,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-4 font-black text-slate-900">{tx.orderId}</td>
                       <td className="py-3 px-4 text-slate-500 tnum">
-                        {new Date(tx.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(tx.timestamp).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'medium' })}
                       </td>
                       <td className="py-3 px-4 font-bold text-slate-800">{tx.tableNumber}</td>
                       <td className="py-3 px-4 text-slate-600">{tx.waiter}</td>
