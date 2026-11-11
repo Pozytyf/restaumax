@@ -51,6 +51,16 @@ const base = (status = 'pending', quantity = 10, recipe = true) => {
 };
 const params = { restaurantSlug: 'chez-awa', orderId: 'order-1', actorUid: 'owner-1', sessionVersion: 4 };
 
+const paidCancellationDb = base('pending', 10, false);
+paidCancellationDb.documents.get('restaurants/chez-awa/orders/order-1').paidAmount = 500;
+const paidCancellation = await transitionOrderStatusWithDb(paidCancellationDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' });
+assert.equal(paidCancellation.success, false, 'A paid order cannot be cancelled as if its payment did not exist.');
+assert.equal(paidCancellationDb.documents.get('restaurants/chez-awa/orders/order-1').status, 'pending');
+const pendingMobileDb = base('pending', 10, false);
+pendingMobileDb.documents.get('restaurants/chez-awa/orders/order-1').pendingPayDunyaIntentId = 'pdi_' + 'a'.repeat(32);
+const pendingMobileCancellation = await transitionOrderStatusWithDb(pendingMobileDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' });
+assert.equal(pendingMobileCancellation.success, false, 'An order with a pending PayDunya invoice cannot be cancelled before reconciliation.');
+
 const db = base();
 const start = await transitionOrderStatusWithDb(db, { ...params, targetStatus: 'in_prep' });
 assert.equal(start.success, true);
