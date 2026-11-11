@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, openCashSessionWithDb, closeCashSessionWithDb, getCashSessionWithDb, recordCashMovementWithDb } from '../src/server/paymentService.ts';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, openCashSessionWithDb, closeCashSessionWithDb, getCashSessionWithDb, recordCashMovementWithDb, reclassifyCashPaymentWithDb } from '../src/server/paymentService.ts';
 
 let passed = 0;
 let failed = 0;
@@ -170,6 +170,44 @@ async function run() {
       finalPayment.payment?.changeAmount === 500 && finalPayment.order?.remainingAmount === 0 &&
       finalPayment.order?.paymentStatus === 'paid',
       'Le paiement final règle le solde exact et calcule la monnaie à rendre');
+    const beforeCorrectionOrder = await orderRef.get();
+    const beforeCorrectionSession = await getCashSessionWithDb(db, slug, uid);
+    const correction = await reclassifyCashPaymentWithDb(db, {
+      restaurantSlug: slug,
+      paymentId: finalPayment.payment.id,
+      actorUid: uid,
+      actorName: 'Caissier Test',
+      sessionVersion: 3,
+      provider: 'wave',
+      transactionReference: 'WAVE-TEST-20261111-001',
+      reason: 'Erreur de mode de règlement saisie',
+      verificationNote: 'Rapproché dans le tableau marchand Wave',
+      idempotencyKey: 'reclassify-cash-to-wave-01'
+    });
+    const afterCorrectionOrder = await orderRef.get();
+    const afterCorrectionSession = await getCashSessionWithDb(db, slug, uid);
+    assert(correction.success === true && correction.payment?.method === 'mobile_money' &&
+      correction.payment?.mobileMoneyProvider === 'wave',
+      'Un paiement espèces peut être reclassé vers Wave avec opérateur et référence');
+    assert(Number(afterCorrectionOrder.data()?.paidAmount) === Number(beforeCorrectionOrder.data()?.paidAmount),
+      'La reclassification ne crée aucun nouvel encaissement et ne modifie pas le montant payé de la commande');
+    assert(Number(afterCorrectionSession?.cashCollected) === Number(beforeCorrectionSession?.cashCollected) - Number(finalPayment.payment.paidAmount) &&
+      Number(afterCorrectionSession?.mobileMoneyCollected) === Number(finalPayment.payment.paidAmount),
+      'Le cumul espèces diminue et le cumul Mobile Money augmente du même montant');
+    const correctionReplay = await reclassifyCashPaymentWithDb(db, {
+      restaurantSlug: slug, paymentId: finalPayment.payment.id, actorUid: uid,
+      actorName: 'Caissier Test', sessionVersion: 3, provider: 'wave',
+      transactionReference: 'WAVE-TEST-20261111-001',
+      reason: 'Erreur de mode de règlement saisie',
+      verificationNote: 'Rapproché dans le tableau marchand Wave',
+      idempotencyKey: 'reclassify-cash-to-wave-01'
+    });
+    assert(correctionReplay.success === true && correctionReplay.idempotentReplay === true,
+      'Le rejeu de la correction retourne le même résultat sans double mouvement de caisse');
+    const correctionAudit = await restaurantRef.collection('paymentReclassifications').where('paymentId', '==', finalPayment.payment.id).get();
+    assert(correctionAudit.size === 1 && correctionAudit.docs[0].data().actorUid === uid,
+      'La correction conserve un seul événement d’audit avec auteur et référence');
+
     const loyaltyCustomers = await restaurantRef.collection('customers').where('phoneNormalized', '==', '0700000001').get();
     assert(loyaltyCustomers.size === 1 && loyaltyCustomers.docs[0].data().loyaltyPoints === 9,
       'Les points sont attribués automatiquement une seule fois au paiement intégral');
