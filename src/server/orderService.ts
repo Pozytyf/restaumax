@@ -31,7 +31,7 @@ export interface OrderSubmissionPayload {
   }>;
   orderMode: OrderMode;
   tableNumber: string | null;
-  tableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string };
+  tableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string; tableServiceSessionId?: string };
   customerNote?: string;
   customerName?: string;
   customerPhone?: string;
@@ -92,7 +92,7 @@ export interface ExecuteOrderTransactionParams {
   orderId: string;
   signature: string;
   orderToCreate: RestauOrder;
-  tableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string };
+  tableSession?: { sessionHash: string; qrTokenHash: string; qrVersion: number; tableId: string; tableServiceSessionId?: string };
   staffTableId?: string;
 }
 
