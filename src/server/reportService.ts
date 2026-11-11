@@ -226,11 +226,20 @@ export async function getRestaurantFinancialReportWithDb(
   const cashSessionsQuery = restaurantRef.collection('cashSessions')
     .where('openedAt', '>=', startAt).where('openedAt', '<=', endAt)
     .orderBy('openedAt', 'desc');
-  const [periodOrders, payments, refunds, stockMovements, cashMovements, cashSessions] = await Promise.all([
+  const [periodOrders, payments, refundsByCreatedAt, refundsByCompletedAt, stockMovements, cashMovements, cashSessions] = await Promise.all([
     readAll(ranged('orders')), readAll(ranged('payments')), readAll(ranged('refunds')),
+    readAll(restaurantRef.collection('refunds').where('completedAt', '>=', startAt)
+      .where('completedAt', '<=', endAt).orderBy('completedAt', 'desc')),
     readAll(ranged('stockMovements')), readAll(ranged('cashMovements')),
     readAll(cashSessionsQuery)
   ]);
+  const refundsById = new Map<string, any>();
+  for (const refundDoc of [...refundsByCreatedAt, ...refundsByCompletedAt]) {
+    const refundData = refundDoc.data() || {};
+    const effectiveAt = Number(refundData.completedAt || refundData.createdAt || 0);
+    if (effectiveAt >= startAt && effectiveAt <= endAt) refundsById.set(refundDoc.id, refundDoc);
+  }
+  const refunds = [...refundsById.values()];
   // A payment made today can belong to an order created on a previous day
   // (split settlement). Load those referenced orders too, without expanding
   // the payment window beyond the selected report period.
