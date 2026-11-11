@@ -35,4 +35,6 @@ assert(kds.includes("target?.closest('input, textarea, select, button, a, [role=
 assert(kds.includes('ticket.items.every(item => item.completed)'));
 assert(kds.includes('ticket.stationItems.every(item => item.completed)'));
 assert(kds.includes("stationMode === 'bar' ? (item.station || 'plats') === 'bar' : (item.station || 'plats') !== 'bar'"));
+assert(kds.includes('ticket.stationItems.every(item => item.completed)'));
+assert(kds.includes("stationMode === 'bar' ? (item.station || 'plats') === 'bar' : (item.station || 'plats') !== 'bar'"));
 console.log('✓ KDS : routage par station, ticket mixte et navigation clavier validés.');
