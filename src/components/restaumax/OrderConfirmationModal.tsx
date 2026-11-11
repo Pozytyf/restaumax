@@ -22,7 +22,7 @@ interface OrderConfirmationModalProps {
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
   onSelectCashPayment?: (order: RestauOrder) => Promise<{ success: boolean; error?: string }>;
   customerAccessToken?: string | null;
-  onCustomerOrderMutation?: (mutation: { action: 'cancel' | 'edit'; reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }> }) => Promise<{ success: boolean; error?: string }>;
+  onCustomerOrderMutation?: (mutation: { action: 'cancel' | 'edit'; reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }> }) => Promise<{ success: boolean; error?: string; totalAmount?: number; itemsCount?: number }>;
 }
 
 export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
