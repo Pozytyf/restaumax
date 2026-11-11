@@ -30,7 +30,8 @@ import {
   Receipt,
   LogOut,
   User as UserIcon,
-  QrCode
+  QrCode,
+  Wine
 } from 'lucide-react';
 
 export type ModuleStatus = 'active' | 'to_activate' | 'unavailable';
