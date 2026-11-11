@@ -93,6 +93,15 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>}
 
+          {permissions.includes('bar.access') && <button
+            onClick={() => onSelectRole('bar')}
+            className={`px-3 py-1.5 text-xs lg:text-sm font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+              currentRole === 'bar' ? 'bg-cyan-700 text-white shadow-sm' : 'text-slate-300 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            Écran Bar
+          </button>}
+
           {(canAccessCash || permissions.includes('cash.view') || permissions.includes('cash.manage')) && <button
             onClick={() => onSelectRole('manager')}
             className={`px-3 py-1.5 text-xs lg:text-sm font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
