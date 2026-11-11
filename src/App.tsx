@@ -1994,9 +1994,19 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'kds' && userPermissions.includes('kitchen.access') && (
+            {currentRole === 'kds' && (isRestaurantOwner || userPermissions.includes('kitchen.access')) && (
               <KdsView
                 tickets={kitchenTickets}
+                stationMode="kitchen"
+                canMarkServed={isRestaurantOwner || userPermissions.includes('orders.manage') || userPermissions.includes('orders.serve')}
+                onToggleItemComplete={handleToggleKdsItem}
+                onUpdateTicketStatus={handleUpdateTicketStatus}
+              />
+            )}
+            {currentRole === 'bar' && (isRestaurantOwner || userPermissions.includes('bar.access')) && (
+              <KdsView
+                tickets={kitchenTickets}
+                stationMode="bar"
                 canMarkServed={isRestaurantOwner || userPermissions.includes('orders.manage') || userPermissions.includes('orders.serve')}
                 onToggleItemComplete={handleToggleKdsItem}
                 onUpdateTicketStatus={handleUpdateTicketStatus}
