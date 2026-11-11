@@ -94,8 +94,12 @@ export const KdsView: React.FC<KdsViewProps> = ({
       if (!saved) return;
       setLastBumpedMsg(`Ticket ${ticket.ticketNumber} archivé / servi ${slotNumber ? `[Touche ${slotNumber}]` : ''}`);
     } else {
+      if (!ticket.stationItems.every(item => item.completed)) {
+        setLastBumpedMsg(`Terminez toutes les lignes de votre poste pour le ticket ${ticket.ticketNumber}.`);
+        return;
+      }
       if (!ticket.items.every(item => item.completed)) {
-        setLastBumpedMsg(`Terminez toutes les lignes du ticket ${ticket.ticketNumber} avant de le déclarer prêt.`);
+        setLastBumpedMsg(`${stationMode === 'bar' ? 'Bar' : 'Cuisine'} terminé(e) pour ${ticket.ticketNumber} · En attente de l’autre poste.`);
         return;
       }
       sounds.playKitchenBell();
@@ -357,7 +361,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
               // >= 20 min: Red urgent flashing (#EF4444)
               const isUrgent = elapsedMinutes >= 20;
               const isWarning = elapsedMinutes >= 10 && elapsedMinutes < 20;
-              const allItemsDone = ticket.items.every(i => i.completed);
+              const allItemsDone = ticket.stationItems.every(i => i.completed);
 
               return (
                 <div
