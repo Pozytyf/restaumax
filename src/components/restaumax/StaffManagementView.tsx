@@ -18,7 +18,7 @@ type EditableStaffRole = Exclude<StaffRole, 'owner'>;
 type StaffMember = { uid: string; email: string; displayName: string; role: StaffRole; permissions: string[]; active: boolean };
 type StaffTable = { id: string; tableNumber?: string; section?: string; isActive?: boolean; assignedWaiter?: string | null };
 const ROLE_LABELS: Record<StaffRole, string> = {
-  owner: 'Propriétaire', manager: 'Manager', cashier: 'Caissier', server: 'Serveur', kitchen: 'Cuisine / Bar'
+  owner: 'Propriétaire', manager: 'Manager', cashier: 'Caissier', server: 'Serveur', kitchen: 'Cuisine'
 };
 const ROLE_CEILINGS: Record<EditableStaffRole, string[]> = {
   manager: ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','bar.access','cash.view','cash.manage','orders.cancel','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view'],
