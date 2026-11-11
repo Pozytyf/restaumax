@@ -295,7 +295,7 @@ assert.equal((await transitionOrderStatusWithDb(customizationRecipesDb, { ...par
 assert.equal(customizationRecipesDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 assert.equal(customizationRecipesDb.documents.get('restaurants/chez-awa/inventoryItems/oil').quantity, 5);
 const lifecycleHistory = customizationRecipesDb.documents.get('restaurants/chez-awa/orders/order-1').statusHistory;
-assert.deepEqual(lifecycleHistory.map(event => event.status), ['in_prep', 'ready', 'cancelled'], 'Chaque transition métier est horodatée dans l’historique de commande.');
+assert.deepEqual(lifecycleHistory.map(event => event.status), ['pending', 'in_prep', 'ready', 'cancelled'], 'La chronologie commence par l’état initial connu puis conserve chaque transition métier.');
 assert.equal(typeof lifecycleHistory[2].changedAt, 'number', 'La date de chaque transition est persistée côté serveur.');
 assert.equal(lifecycleHistory[2].reason, 'Erreur de saisie', 'Le motif d’annulation est conservé dans la chronologie.');
 
