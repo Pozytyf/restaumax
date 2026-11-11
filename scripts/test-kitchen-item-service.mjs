@@ -148,7 +148,7 @@ assert(ticketProjectionSource.includes('stockTrackingStatus: order.stockTracking
 assert(kdsView.includes('STOCK PARTIEL') && kdsView.includes('STOCK NON SUIVI'), 'KDS visibly flags incomplete or missing recipe tracking');
 assert(ticketProjectionSource.includes("completed: order.kitchenItemCompletion?.[String(index)] === true"), 'KDS state is restored from Firestore snapshots');
 assert(ticketProjectionSource.includes('Options :') && ticketProjectionSource.includes('Suppléments :'), 'KDS projection preserves configured options and extras');
-assert(kdsView.includes("if (ticket.status !== 'in_prep') return;"), 'KDS line progress is locked after the ticket is ready');
+assert(kdsView.includes("if (!['pending', 'in_prep'].includes(ticket.status)) return;"), 'KDS line progress is locked after the ticket leaves pending/preparation');
 assert(kdsView.includes('if (!ticket.items.every(item => item.completed))'), 'KDS cannot dispatch a ticket with unfinished lines');
 assert(rulesSource.includes('allow update: if false;'), 'Firestore prevents client-side status and KDS writes; the server validates completed lines');
 console.log('KDS item progress service, API and transition checks passed.');
