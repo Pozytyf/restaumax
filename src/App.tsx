@@ -2098,6 +2098,7 @@ export default function App() {
                 cashSessionActionLoading={cashSessionActionLoading}
                 cashMovementActionLoading={cashMovementActionLoading}
                 canManageCash={canManageCash}
+                canReclassifyPayments={isRestaurantOwner || userPermissions.includes('payments.reclassify')}
                 canRefundPayments={canRefundPayments}
                 canCancelOrders={isRestaurantOwner || userPermissions.includes('orders.cancel')}
                 onRefundPayment={handleRefundPayment}
