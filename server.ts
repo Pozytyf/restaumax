@@ -1435,6 +1435,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
             currency: String(intent.currency || 'XOF'), channel: String(intent.channel || ''),
             status: String(intent.status || 'unknown'), createdAt: Number(intent.createdAt || 0),
             updatedAt: Number(intent.updatedAt || 0),
+            canReconcile: Boolean(intent.invoiceToken) && ['pending', 'creating', 'creation_unknown'].includes(String(intent.status || '')),
             lastProviderError: String(intent.lastProviderError || '').slice(0, 180)
           };
         });
