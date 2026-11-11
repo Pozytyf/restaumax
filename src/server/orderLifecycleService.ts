@@ -61,10 +61,10 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       const isOwner = member.role === 'owner' && ownerUid === actorUid;
       const permissions = Array.isArray(member.permissions) ? member.permissions : [];
       const canManage = member.role === 'manager' && permissions.includes('orders.manage');
-      const canKitchen = (member.role === 'kitchen' && permissions.includes('kitchen.access')) ||
-        (member.role === 'manager' && (permissions.includes('kitchen.access') || canManage));
+      const canKitchen = (member.role === 'kitchen' && (permissions.includes('kitchen.access') || permissions.includes('bar.access'))) ||
+        (member.role === 'manager' && (permissions.includes('kitchen.access') || permissions.includes('bar.access') || canManage));
       const canCancel = permissions.includes('orders.cancel') && (
-        member.role === 'cashier' || member.role === 'manager' ||
+        member.role === 'cashier' || member.role === 'manager' || member.role === 'kitchen' ||
         (member.role === 'server' && order.assignedWaiterUid === actorUid)
       );
       const canServe = member.role === 'server' && permissions.includes('orders.serve') && order.assignedWaiterUid === actorUid;
