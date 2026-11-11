@@ -304,3 +304,12 @@ La configuration Vercel du projet désactive actuellement les déploiements Git 
 
 ### Garde-fous
 Aucune donnée Firebase Production n’a été modifiée. Aucun déploiement Preview/Production n’a été lancé. La PR #110 reste non fusionnée et PayDunya reste en TEST.
+
+
+### Précisions finales — droits et tickets actifs
+- Un serveur autorisé peut annuler uniquement une commande qui lui est affectée ; le droit `orders.cancel` est prévu dans son plafond de rôle.
+- Cuisine/Bar conserve seulement `orders.clear_pending` par défaut : ce droit ne permet pas d’annuler une commande déjà en préparation.
+- Propriétaire/manager et personnel auquel `orders.cancel` a été explicitement accordé peuvent annuler un ticket actif depuis le KDS ; motif obligatoire et audit serveur restent appliqués.
+- Le profil du personnel est désormais libellé « Cuisine » ; « Accéder au Bar » est une autorisation distincte et non attribuée par défaut. L’écran Bar n’affiche que les lignes boissons.
+- Le HMAC du suivi client utilise un domaine dédié `restaumax:customer-order-access:v1`, distinct du calcul du rate-limit. La route renvoie les en-têtes `no-store`, `no-referrer` et `nosniff`.
+- Dernier commit de code : `ddcee033aa2311c2ae646b0c59abe150d7d26be8`. Les workflows GitHub déclenchés pour ce commit sont encore `queued` ; aucune validation CI n’est déclarée avant leur achèvement.
