@@ -1924,8 +1924,12 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     if (!canViewReports) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les rapports.' } };
     const includeCashDetails = isOwner || permissions.includes('reports.cash.view');
     const periodDays = Number(req.query?.periodDays || 30);
+    const reportType = String(req.query?.reportType || 'period');
+    if (!['period', 'daily'].includes(reportType)) {
+      return { statusCode: 400, body: { success: false, error: 'Type de rapport invalide.' } };
+    }
     const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
-      periodDays, includeCashDetails
+      periodDays, includeCashDetails, reportType: reportType as 'period' | 'daily'
     });
     return { statusCode: 200, body: { success: true, report } };
   } catch (error: any) {
