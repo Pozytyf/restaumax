@@ -23,8 +23,10 @@ const tsconfig = JSON.parse(fs.readFileSync(new URL('../tsconfig.json', import.m
 const reportStart = server.indexOf('export async function handleRestaurantReportsRequest');
 const reportEnd = server.indexOf('\nexport async function ', reportStart + 10);
 const reportHandler = server.slice(reportStart, reportEnd > reportStart ? reportEnd : undefined);
-assert(reportHandler.includes('verifyIdToken') && !reportHandler.includes('requestHasValidOrigin'),
-  'same-origin authenticated GET reports do not depend on a browser Origin header');
+assert(reportHandler.includes('verifyIdToken') &&
+  reportHandler.includes("method === 'POST' && !requestHasValidOrigin(req)") &&
+  !reportHandler.includes("if (!requestHasValidOrigin(req))"),
+  'GET reports remain bearer-authenticated without an Origin dependency while POST daily closure requests validate Origin');
 
 const healthHandler = api.slice(api.indexOf("if (route.id === 'health')"), api.indexOf("if (route.id === 'platform-admin')"));
 assert(healthHandler.includes("if (!adminDb)") && !healthHandler.includes('listCollections') &&
