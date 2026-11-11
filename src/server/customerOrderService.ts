@@ -75,7 +75,7 @@ export async function mutateCustomerOrderWithDb(db: any, input: CustomerOrderMut
       if (order.status !== 'pending') {
         return { success: false, error: 'Cette commande n’est plus modifiable : sa préparation a commencé ou elle est déjà clôturée.' };
       }
-      if (Number(order.paidAmount || 0) > 0 || Number(order.refundedAmount || 0) > 0) {
+      if (Number(order.paidAmount || 0) > 0 || Number(order.refundedAmount || 0) > 0 || ['partial', 'paid'].includes(String(order.paymentStatus || ''))) {
         return { success: false, error: 'Une commande déjà réglée ne peut pas être modifiée ou annulée depuis le suivi client. Contactez le personnel.' };
       }
       if (action === 'cancel') {
@@ -114,6 +114,20 @@ export async function mutateCustomerOrderWithDb(db: any, input: CustomerOrderMut
         const prepNotes = sanitizeNote(change.prepNotes, 150);
         updatedItems.push({ ...original, quantity, totalPrice: Number(original.unitPrice) * quantity,
           ...(prepNotes ? { prepNotes } : { prepNotes: null }) });
+      }
+      const trackedItems = updatedItems.filter(item => item.trackStock === true);
+      const trackedSnapshots = await Promise.all(trackedItems.map(item =>
+        tx.get(restaurantRef.collection('menuItems').doc(String(item.menuItemId)))
+      ));
+      for (let index = 0; index < trackedItems.length; index += 1) {
+        const item: any = trackedItems[index];
+        const snapshot = trackedSnapshots[index];
+        const catalogueItem = snapshot.exists ? snapshot.data() : null;
+        if (!catalogueItem || catalogueItem.restaurantSlug !== restaurantSlug ||
+            catalogueItem.trackStock !== true || catalogueItem.available === false ||
+            !Number.isInteger(catalogueItem.stockQuantity) || item.quantity > Number(catalogueItem.stockQuantity)) {
+          return { success: false, error: `Stock insuffisant ou article indisponible pour « ${item.name} ». Réduisez la quantité ou contactez le restaurant.` };
+        }
       }
       const subtotalAmount = updatedItems.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
       const tax = calculateOrderTax(subtotalAmount, Number(order.taxRatePercent || 0), order.taxMode === 'inclusive' ? 'inclusive' : 'exclusive');
