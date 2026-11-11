@@ -533,7 +533,10 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
             try { window.sessionStorage.setItem(`restaumax-last-order:${restaurant.slug}`, JSON.stringify({ order: result.order, accessToken: confirmedOrderAccessToken })); } catch { /* storage may be unavailable */ }
             return result;
           }
-          if (result.success && mutation.action === 'cancel') setConfirmedOrder({ ...confirmedOrder, status: 'cancelled', statusUpdatedAt: Date.now() });
+          if (result.success && mutation.action === 'cancel') {
+            const cancelledAt = Date.now();
+            setConfirmedOrder({ ...confirmedOrder, status: 'cancelled', statusUpdatedAt: cancelledAt, cancelledAt, cancellationReason: mutation.reason || '', statusHistory: [...(confirmedOrder.statusHistory || [{ status: 'pending', changedAt: confirmedOrder.createdAt }]), { status: 'cancelled', changedAt: cancelledAt, reason: mutation.reason || '' }] });
+          }
           if (result.success && mutation.action === 'edit' && mutation.items) {
             const nextItems = mutation.items.map(change => {
               const original = confirmedOrder.items.find(item => item.id === change.id)!;
