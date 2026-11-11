@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
+import { getMultiFactorResolver, onAuthStateChanged, PhoneAuthProvider, PhoneMultiFactorGenerator, RecaptchaVerifier, signInWithEmailAndPassword, signOut, TotpMultiFactorGenerator, type MultiFactorResolver, type User } from 'firebase/auth';
 import { auth, requestManagerPasswordReset } from '../../lib/firebase';
 import { calculateSubscriptionMetrics } from '../../lib/subscriptionMetrics';
 import { Building2, ShieldCheck, LogOut, Plus, RefreshCw, Ban, CheckCircle2, Eye, EyeOff } from 'lucide-react';
@@ -39,6 +39,11 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     new URLSearchParams(window.location.search).get('demo') === 'super_admin';
   const [email, setEmail] = useState(isPublicDemoAccess ? 'superadmin@restaumax.test' : '');
   const [password, setPassword] = useState(isPublicDemoAccess ? 'Demo-RestauMax-2026!' : '');
+  const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
+  const [mfaFactor, setMfaFactor] = useState<{ kind: 'totp'; uid: string } | { kind: 'phone'; uid: string; phoneNumber: string } | null>(null);
+  const [mfaVerificationId, setMfaVerificationId] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
+  const mfaRecaptchaVerifier = useRef<RecaptchaVerifier | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [subscriptionRestaurant, setSubscriptionRestaurant] = useState<RestaurantRow | null>(null);
@@ -152,6 +157,26 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       console.error('[RestauMax SuperAdmin Auth] Échec de connexion:', code || 'unknown');
       if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
         setError('Adresse e-mail ou mot de passe incorrect.');
+      } else if (code === 'auth/multi-factor-auth-required') {
+        const resolver = getMultiFactorResolver(auth, authError);
+        const totpHint = resolver.hints.find((hint) => hint.factorId === TotpMultiFactorGenerator.FACTOR_ID);
+        if (totpHint) {
+          setMfaResolver(resolver);
+          setMfaFactor({ kind: 'totp', uid: totpHint.uid });
+          setMfaCode('');
+          setError('Authentification à deux facteurs requise. Saisissez le code de votre application d’authentification.');
+        } else {
+          const phoneHint = resolver.hints.find((hint) => hint.factorId === PhoneMultiFactorGenerator.FACTOR_ID);
+          if (phoneHint) {
+            setMfaResolver(resolver);
+            setMfaFactor({ kind: 'phone', uid: phoneHint.uid, phoneNumber: String((phoneHint as any).phoneNumber || '') });
+            setMfaVerificationId('');
+            setMfaCode('');
+            setError('Authentification à deux facteurs requise. Préparation de l’envoi du code SMS…');
+          } else {
+            setError('Ce compte exige un second facteur non pris en charge par cette version. Contactez le support avant toute activation MFA.');
+          }
+        }
       } else if (code === 'auth/user-disabled') {
         setError('Ce compte super-administrateur est désactivé dans Firebase Authentication.');
       } else if (code === 'auth/too-many-requests') {
@@ -171,6 +196,71 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       adminLoginInProgress.current = false;
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    if (!mfaResolver || mfaFactor?.kind !== 'phone' || mfaVerificationId) return;
+    let active = true;
+    const verifier = new RecaptchaVerifier(auth, 'platform-admin-mfa-recaptcha', { size: 'invisible' });
+    mfaRecaptchaVerifier.current = verifier;
+    const hint = mfaResolver.hints.find((candidate) => candidate.uid === mfaFactor.uid);
+    if (!hint) {
+      setError('Le facteur SMS associé à ce compte est introuvable.');
+      return () => { active = false; verifier.clear(); mfaRecaptchaVerifier.current = null; };
+    }
+    void new PhoneAuthProvider(auth).verifyPhoneNumber({
+      multiFactorHint: hint as any,
+      session: mfaResolver.session
+    }, verifier).then((verificationId) => {
+      if (active) setMfaVerificationId(verificationId);
+    }).catch((verificationError: any) => {
+      if (active) setError(verificationError?.message || 'Impossible d’envoyer le code MFA par SMS.');
+    });
+    return () => {
+      active = false;
+      verifier.clear();
+      if (mfaRecaptchaVerifier.current === verifier) mfaRecaptchaVerifier.current = null;
+    };
+  }, [mfaResolver, mfaFactor, mfaVerificationId]);
+
+  const completeMfaLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!mfaResolver || !mfaFactor) return;
+    setError('');
+    setLoading(true);
+    adminLoginInProgress.current = true;
+    try {
+      const assertion = mfaFactor.kind === 'totp'
+        ? TotpMultiFactorGenerator.assertionForSignIn(mfaFactor.uid, mfaCode.trim())
+        : PhoneMultiFactorGenerator.assertion(
+            PhoneAuthProvider.credential(mfaVerificationId, mfaCode.trim())
+          );
+      await mfaResolver.resolveSignIn(assertion);
+      setMfaResolver(null);
+      setMfaFactor(null);
+      setMfaVerificationId('');
+      setMfaCode('');
+      setPassword('');
+      const data = await request();
+      setRestaurants(data.restaurants || []);
+      setSummary(data.summary || null);
+      setNeedsPlatformAdminLogin(false);
+    } catch (mfaError: any) {
+      setError(mfaError?.message || 'Le code de vérification MFA est invalide ou expiré.');
+    } finally {
+      adminLoginInProgress.current = false;
+      setLoading(false);
+    }
+  };
+
+  const cancelMfaLogin = () => {
+    mfaRecaptchaVerifier.current?.clear();
+    mfaRecaptchaVerifier.current = null;
+    setMfaResolver(null);
+    setMfaFactor(null);
+    setMfaVerificationId('');
+    setMfaCode('');
+    setError('');
   };
 
   const createRestaurant = async (event: React.FormEvent) => {
@@ -349,12 +439,19 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     <main className="mx-auto max-w-7xl space-y-6 p-5 md:p-8">
       {error && <div role="alert" className="rounded-xl border border-rose-800 bg-rose-950/50 p-3 text-sm text-rose-200">{error}</div>}
       {notice && <div className="rounded-xl border border-emerald-800 bg-emerald-950/50 p-3 text-sm text-emerald-200">{notice}</div>}
-      {(!user || needsPlatformAdminLogin) ? <form onSubmit={login} className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
+      {(!user || needsPlatformAdminLogin) ? (mfaResolver ? <form onSubmit={completeMfaLogin} className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
+        <h2 className="text-xl font-bold">Vérification en deux étapes</h2>
+        <p className="text-sm text-slate-400">{mfaFactor?.kind === 'totp' ? 'Ouvrez votre application d’authentification et saisissez le code à 6 chiffres.' : 'Un code de vérification sera envoyé au numéro associé à votre compte.'}</p>
+        {mfaFactor?.kind === 'phone' && <><div id="platform-admin-mfa-recaptcha" /><p className="text-xs text-slate-400">{mfaVerificationId ? 'Code SMS envoyé. Vérifiez votre téléphone.' : 'Préparation de la vérification SMS…'}</p></>}
+        <label className="block text-sm">Code de vérification<input required inputMode="numeric" autoComplete="one-time-code" value={mfaCode} onChange={e=>setMfaCode(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 tracking-widest"/></label>
+        <button disabled={loading || (mfaFactor?.kind === 'phone' && !mfaVerificationId)} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white disabled:opacity-50">{loading ? 'Vérification…' : 'Vérifier et continuer'}</button>
+        <button type="button" onClick={cancelMfaLogin} className="w-full rounded-lg border border-slate-700 p-3 text-sm">Annuler</button>
+      </form> : <form onSubmit={login} className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
         <h2 className="text-xl font-bold">Connexion super-administrateur</h2><p className="text-sm text-slate-400">Accès réservé aux comptes explicitement autorisés par la configuration sécurisée RestauMax.</p>
         <label className="block text-sm">Adresse e-mail<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-3"/></label>
         <label className="block text-sm">Mot de passe<div className="relative mt-1"><input required type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
         <button disabled={loading} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white disabled:opacity-50">{loading ? 'Connexion…' : 'Se connecter'}</button>
-      </form> : !isPlatformAdminAuthorized ? <section className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
+      </form>) : !isPlatformAdminAuthorized ? <section className="mx-auto mt-16 max-w-md space-y-4 rounded-2xl border border-slate-800 bg-slate-900 p-7">
         <h2 className="text-xl font-bold">Vérification des droits super-administrateur</h2>
         <p className="text-sm text-slate-400">{loading ? 'Vérification de votre identité et de vos autorisations côté serveur…' : 'Aucune donnée de plateforme ne sera affichée tant que le serveur n’aura pas confirmé vos droits.'}</p>
         {!loading && <button type="button" onClick={() => void refresh()} className="w-full rounded-lg bg-orange-500 p-3 font-bold text-white">Vérifier à nouveau</button>}
