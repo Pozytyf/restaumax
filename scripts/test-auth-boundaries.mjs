@@ -42,8 +42,16 @@ assert.match(adminView, /token\.claims\.role !== 'super_admin'/,
   'an existing owner/staff session must not be silently promoted by the admin allowlist');
 assert.match(adminView, /adminLoginInProgress\.current = true[\s\S]*?const data = await request\(\)/,
   'the dedicated admin login explicitly authenticates before requesting platform access');
-assert.match(adminView, /\(!user \|\| needsPlatformAdminLogin\) \? <form/,
-  'a pre-existing non-platform Firebase session is shown the dedicated admin login form');
+assert.match(adminView, /\(!user \|\| needsPlatformAdminLogin\) \? \(mfaResolver \?/,
+  'a pre-existing non-platform Firebase session remains behind the dedicated admin login boundary');
+assert.match(adminView, /: <form onSubmit=\{login\}/,
+  'the dedicated admin login form remains available when no MFA challenge is pending');
+assert.match(adminView, /getMultiFactorResolver\(auth, authError\)/,
+  'Firebase multi-factor sign-in challenges are resolved explicitly');
+assert.match(adminView, /TotpMultiFactorGenerator\.assertionForSignIn/,
+  'the super-admin login supports authenticator-app TOTP challenges');
+assert.match(adminView, /PhoneMultiFactorGenerator\.assertion/,
+  'the super-admin login supports enrolled SMS second factors');
 assert.match(adminView, /response\.status === 401 \|\| response\.status === 403/,
   'platform API rejection is explicitly handled');
 assert.match(adminView, /await signOut\(auth\)/,
