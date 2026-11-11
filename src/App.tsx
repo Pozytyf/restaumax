@@ -2092,6 +2092,8 @@ export default function App() {
             {currentRole === 'manager' && (isRestaurantOwner || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') || userPermissions.includes('reports.cash.view')) && (
               <ManagerView
                 restaurantSlug={activeRestaurantSlug}
+                restaurantName={restaurant.name || 'Chez Awa'}
+                onNavigateToRole={(role) => setCurrentRole(role)}
                 isOwner={isRestaurantOwner}
                 drawerState={drawerState}
                 transactions={transactions}
