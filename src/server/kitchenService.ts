@@ -62,10 +62,8 @@ export async function updateKitchenItemCompletionWithDb(
 
       const isOwner = member.role === 'owner' && ownerUid === actorUid;
       const permissions = Array.isArray(member.permissions) ? member.permissions : [];
-      const canOperateKitchen =
-        (member.role === 'manager' && (permissions.includes('kitchen.access') || permissions.includes('orders.manage'))) ||
-        (member.role === 'kitchen' && permissions.includes('kitchen.access'));
-      if (!isOwner && !canOperateKitchen) {
+      const canManageKitchen = member.role === 'manager' && permissions.includes('orders.manage');
+      if (!isOwner && !canManageKitchen && member.role !== 'kitchen') {
         return { success: false, error: 'Votre rôle ne permet pas de modifier la préparation.' };
       }
 
@@ -78,6 +76,13 @@ export async function updateKitchenItemCompletionWithDb(
       if (!Array.isArray(order.items) || itemIndex >= order.items.length ||
           itemId !== `ki-${orderId}-${itemIndex}`) {
         return { success: false, error: 'Ligne de commande invalide.' };
+      }
+      const category = String(order.items[itemIndex]?.category || '').trim().toLowerCase();
+      const requiredStationPermission = category === 'boissons' ? 'bar.access' : 'kitchen.access';
+      if (!isOwner && !canManageKitchen && !permissions.includes(requiredStationPermission)) {
+        return { success: false, error: category === 'boissons'
+          ? 'Accès au poste Bar non autorisé.'
+          : 'Accès au poste Cuisine non autorisé.' };
       }
 
       const currentStates = order.kitchenItemCompletion && typeof order.kitchenItemCompletion === 'object'
