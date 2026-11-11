@@ -21,7 +21,7 @@ export function filterKitchenTicketItems(items: KitchenItem[], station: 'all' | 
 
 /** Projection déterministe d'une commande persistée vers le ticket cuisine. */
 export function mapRestauOrderToKitchenTicket(order: RestauOrder): KitchenTicket {
-  let ticketStatus: TicketStatus = 'in_prep';
+  let ticketStatus: TicketStatus = order.status === 'pending' ? 'pending' : 'in_prep';
   if (order.status === 'ready') ticketStatus = 'ready';
   else if (order.status === 'completed') ticketStatus = 'served';
   else if (order.status === 'cancelled') ticketStatus = 'cancelled';
