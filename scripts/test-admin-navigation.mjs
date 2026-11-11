@@ -55,7 +55,7 @@ assert(!menuView.includes('Répertoire complet Chez Awa'),
   'catalogue UI contains no hardcoded demo restaurant label');
 
 assert(hub.includes('Catalogue actif · {restaurant.name}'), 'catalogue metrics use the current restaurant name in multi-tenant mode');
-assert((app.match(/bar\\.access/g) || []).length >= 2, 'owner sessions receive Bar access during both auth restoration and manager login flows');
+assert(app.split('bar.access').length - 1 >= 2, 'owner sessions receive Bar access during both auth restoration and manager login flows');
 assert(managerView.includes('cashRefunds') && managerView.includes('Solde théorique = fond d’ouverture + encaissements espèces') && !managerView.includes('Les remboursements restent à intégrer'),
   'the theoretical cash balance explicitly subtracts and separately displays cash refunds');
 assert(hub.includes("id: 'bar'") && hub.includes("onNavigateToStaffRole('bar')") && hub.includes("bar: ['bar.access']"),
