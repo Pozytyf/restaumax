@@ -223,7 +223,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
             </div>
           </div>
 
-          {order.status === 'pending' && customerAccessToken && onCustomerOrderMutation && (
+          {order.status === 'pending' && Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || '')) && customerAccessToken && onCustomerOrderMutation && (
             <section className="rounded-2xl border border-orange-200 bg-orange-50/60 p-4 space-y-3" aria-label="Gestion de votre commande">
               <div>
                 <h3 className="text-xs font-black uppercase tracking-wide text-slate-900">Gérer ma commande</h3>
