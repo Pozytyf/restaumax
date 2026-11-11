@@ -80,6 +80,17 @@ assert.equal(paid.success, false);
 assert.match(paid.error, /déjà réglée/);
 
 
+const stockDb = new FakeDb(seed());
+const stockOrder = stockDb.docs.get('restaurants/chez-awa/orders/order-1');
+stockOrder.items[0].trackStock = true;
+stockDb.docs.set('restaurants/chez-awa/menuItems/dish-1', {
+  id: 'dish-1', restaurantSlug: 'chez-awa', trackStock: true, available: true, stockQuantity: 2
+});
+const stockRejected = await mutateCustomerOrderWithDb(stockDb, {
+  ...base, action: 'edit', items: [{ id: 'line-1', quantity: 3 }]
+});
+assert.equal(stockRejected.success, false, 'Customer edits cannot exceed currently available tracked stock');
+
 const wrongRestaurant = await mutateCustomerOrderWithDb(new FakeDb({
   ...seed(), 'restaurants/chez-awa': { status: 'suspended' }
 }), { ...base, action: 'cancel', reason: 'Erreur client' });
@@ -96,5 +107,5 @@ assert.equal([...editDb.docs.keys()].filter(path => path.includes('/orderAudit/'
   'Customer edits are preserved in append-only audit history');
 assert.equal([...cancelDb.docs.keys()].filter(path => path.includes('/orderAudit/')).length, 1,
   'Customer cancellation is preserved in append-only audit history');
-console.log('Customer order mutation regression: 9 scenarios passed.');
+console.log('Customer order mutation regression: 10 scenarios passed.');
 
