@@ -587,7 +587,6 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
               const needed = required[mod.id];
               return !needed || needed.some(permission => permissions.includes(permission));
             }).map((mod) => {
-              const Icon = mod.icon;
               const isActive = mod.status === 'active';
 
               return (
