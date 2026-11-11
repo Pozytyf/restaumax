@@ -492,7 +492,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             {cashSession && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Session ouverte</span>}
           </div>
 
-          {cashSession && <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900">Session ouverte</span><span className="text-xs font-medium text-emerald-950">Ouverte à {new Date(cashSession.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span></div>}
+          {cashSession && <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900">Session ouverte</span><span className="text-xs font-medium text-emerald-950">Ouverte à {new Date(cashSession.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · {cashSession.openedByName || 'Responsable'}</span></div>}
           {cashSessionLoading && !cashSession ? (
             <p className="mt-4 text-sm text-slate-500">Chargement de la session de caisse…</p>
           ) : cashSession ? (
