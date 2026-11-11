@@ -14,6 +14,8 @@ jobs:
   quality:
     name: Typecheck, Firestore Emulator tests and production build
     runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --trace-deprecation
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -42,7 +44,6 @@ jobs:
       - name: Start Firestore Emulator and run the complete test suite
         env:
           FIRESTORE_EMULATOR_STRICT: "true"
-          NODE_OPTIONS: --trace-deprecation
         run: npx --yes firebase-tools@14.22.0 emulators:exec --project demo-restaumax --only firestore --config firebase.json "npm test"
 
       - name: Build production frontend
