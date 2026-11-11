@@ -11,7 +11,8 @@ function assert(condition, label) {
 const cashierBase = resolveRolePermissions('cashier', undefined, false) || [];
 const kitchenBase = resolveRolePermissions('kitchen', undefined, false) || [];
 assert(cashierBase.includes('orders.view') && cashierBase.includes('cash.view'), 'Le caissier reçoit les commandes et consulte le journal des paiements par défaut.');
-assert(kitchenBase.includes('orders.view') && kitchenBase.includes('kitchen.access'), 'Cuisine/Bar reçoit les commandes dans son espace KDS par défaut.');
+assert(kitchenBase.includes('orders.view') && kitchenBase.includes('kitchen.access') && kitchenBase.includes('orders.clear_pending'), 'Cuisine/Bar reçoit son espace KDS et peut vider les tickets en attente.');
+assert(resolveRolePermissions('kitchen', ['bar.access'], true)?.includes('bar.access') === true, 'Le propriétaire peut accorder séparément l’accès au Bar.');
 const cashierWithExtra = resolveRolePermissions('cashier', ['orders.cancel', 'payments.refund'], true);
 assert(!cashierBase.includes('orders.cancel') && !cashierBase.includes('payments.refund'), 'Les droits annulation/remboursement ne sont pas attribués par défaut au caissier');
 assert(cashierWithExtra?.includes('orders.cancel') && cashierWithExtra?.includes('payments.refund'), 'Le propriétaire peut accorder explicitement annulation et remboursement au caissier');
