@@ -129,11 +129,11 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
               <Calendar size={16} />
             </span>
             <h2 className="text-base font-black text-[#101d2d]">
-              Historique & Comparatif des sessions de caisse
+              Sessions clôturées (Z)
             </h2>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            Comparez le chiffre d'affaires en espèces, les volumes et la conformité des clôtures entre les jours.
+            Historique des clôtures, montants théoriques, comptages physiques et écarts à examiner.
           </p>
         </div>
 
@@ -273,6 +273,30 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
         </span>
       </div>
 
+      <div className="mt-5 overflow-hidden rounded-xl border border-[#dbe3ee] bg-white">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-left text-xs">
+            <thead className="bg-slate-50 text-[11px] font-bold text-slate-600"><tr>
+              <th className="px-4 py-3">Date</th><th className="px-4 py-3">Ouverture – clôture</th><th className="px-4 py-3 text-right">Théorique (FCFA)</th><th className="px-4 py-3 text-right">Compté (FCFA)</th><th className="px-4 py-3 text-right">Écart (FCFA)</th><th className="px-4 py-3">Statut</th>
+            </tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredSessions.map((session) => {
+                const variance = Number(session.variance || 0);
+                return <tr key={"z-" + session.id} className="hover:bg-slate-50">
+                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-800">{new Date(session.openedAt).toLocaleDateString("fr-FR")}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{new Date(session.openedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} – {session.closedAt ? new Date(session.closedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatFCFA(Number(session.expectedCash || 0))}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatFCFA(Number(session.closingCount || 0))}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-bold tabular-nums">{formatFCFA(variance)}</td>
+                  <td className="px-4 py-3">{variance === 0 ? <span className="inline-flex min-h-7 items-center rounded-full bg-[#dcfce7] px-3 py-1 text-[11px] font-bold text-[#14532d]">Conforme</span> : <span className="inline-flex min-h-7 items-center rounded-full bg-[#fef3c7] px-3 py-1 text-[11px] font-bold text-[#78350f]">Écart à examiner</span>}</td>
+                </tr>;
+              })}
+              {filteredSessions.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">Aucune session clôturée sur cette sélection.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <h3 className="mt-5 text-sm font-extrabold text-[#101d2d]">Détails et comparaison des sessions</h3>
       {/* Sessions List */}
       <div className="mt-4 space-y-3">
         {loading && sessions.length === 0 ? (
