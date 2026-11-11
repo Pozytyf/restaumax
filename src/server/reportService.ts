@@ -11,6 +11,7 @@ export interface FinancialReportOptions {
   startAt: number;
   endAt: number;
   includeCashDetails: boolean;
+  eventWindow?: boolean;
 }
 
 export function resolveFinancialReportRange(
@@ -64,9 +65,18 @@ export function calculateRestaurantFinancialReport(
     if (!completedIds.has(orderId)) continue;
     const paid = safeAmount(payment.paidAmount);
     paidByOrder.set(orderId, (paidByOrder.get(orderId) || 0) + paid);
-    const netPayment = Math.max(0, paid - (refundsByPayment.get(String(payment.id || '')) || 0));
+    const netPayment = options.eventWindow
+      ? paid
+      : Math.max(0, paid - (refundsByPayment.get(String(payment.id || '')) || 0));
     const method = String(payment.method || 'inconnu');
     paymentMethodTotals[method] = (paymentMethodTotals[method] || 0) + netPayment;
+  }
+
+  if (options.eventWindow) {
+    for (const refund of input.refunds) {
+      const method = String(refund.method || 'inconnu');
+      paymentMethodTotals[method] = (paymentMethodTotals[method] || 0) - safeAmount(refund.amount);
+    }
   }
 
   let grossCollected = 0;
@@ -79,9 +89,15 @@ export function calculateRestaurantFinancialReport(
     const orderId = String(order.id || '');
     const total = safeAmount(order.totalAmount);
     const recordedPaid = paidByOrder.get(orderId);
-    const paidBeforeRefund = recordedPaid === undefined ? safeAmount(order.paidAmount) : recordedPaid;
-    const refunded = Math.min(paidBeforeRefund, Math.max(refundsByOrder.get(orderId) || 0, safeAmount(order.refundedAmount)));
-    const netPaid = Math.max(0, Math.min(total || paidBeforeRefund, paidBeforeRefund) - refunded);
+    const paidBeforeRefund = recordedPaid === undefined
+      ? (options.eventWindow && Number(order.createdAt || 0) < options.startAt ? 0 : safeAmount(order.paidAmount))
+      : recordedPaid;
+    const refunded = options.eventWindow
+      ? (refundsByOrder.get(orderId) || 0)
+      : Math.min(paidBeforeRefund, Math.max(refundsByOrder.get(orderId) || 0, safeAmount(order.refundedAmount)));
+    const netPaid = options.eventWindow
+      ? Math.min(total || paidBeforeRefund, paidBeforeRefund) - refunded
+      : Math.max(0, Math.min(total || paidBeforeRefund, paidBeforeRefund) - refunded);
     orderPaidNet.set(orderId, netPaid);
     if (netPaid > 0) completedPaidOrderCount++;
     grossCollected += netPaid;
@@ -229,6 +245,6 @@ export async function getRestaurantFinancialReportWithDb(
     stockMovements: stockMovements.map((doc: any) => ({ ...doc.data(), id: doc.id })),
     cashMovements: cashMovements.map((doc: any) => ({ ...doc.data(), id: doc.id })),
     cashSessions: cashSessions.map((doc: any) => ({ ...doc.data(), id: doc.id }))
-  }, { startAt, endAt, includeCashDetails: options.includeCashDetails === true });
+  }, { startAt, endAt, includeCashDetails: options.includeCashDetails === true, eventWindow: reportType === 'daily' });
   return report;
 }
