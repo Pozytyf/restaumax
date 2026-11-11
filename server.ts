@@ -1995,13 +1995,15 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
       return { statusCode: 400, body: { success: false, error: 'Type de rapport invalide.' } };
     }
     const selectedDate = typeof req.query?.date === 'string' ? req.query.date : undefined;
-    const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
-      periodDays, includeCashDetails, reportType: reportType as 'period' | 'daily',
-      ...(selectedDate ? { date: selectedDate } : {})
-    });
     const closureSnap = reportType === 'daily' && selectedDate
       ? await restaurantRef.collection('dailyRevenueClosures').doc(selectedDate).get()
       : null;
+    const report = closureSnap?.exists
+      ? closureSnap.data()?.report
+      : await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
+          periodDays, includeCashDetails, reportType: reportType as 'period' | 'daily',
+          ...(selectedDate ? { date: selectedDate } : {})
+        });
     return { statusCode: 200, body: {
       success: true, report,
       closure: closureSnap?.exists ? { id: closureSnap.id, ...closureSnap.data() } : null
