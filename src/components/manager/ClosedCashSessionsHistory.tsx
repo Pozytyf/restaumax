@@ -141,7 +141,7 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
           <button
             onClick={() => void onRefresh()}
             disabled={loading}
-            className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50"
+            className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50"
           >
             <RefreshCw size={13} className={loading ? 'animate-spin text-[#ff6500]' : ''} />
             <span>Actualiser</span>
@@ -218,10 +218,10 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
                     <div
                       className={`h-full rounded-md transition-all duration-500 ${
                         isBest 
-                          ? 'bg-gradient-to-r from-amber-400 to-[#ff6500]' 
+                          ? 'bg-[#c2410c]' 
                           : variance !== 0 
-                            ? 'bg-gradient-to-r from-slate-400 to-indigo-500' 
-                            : 'bg-gradient-to-r from-emerald-400 to-teal-500'
+                            ? 'bg-slate-600' 
+                            : 'bg-emerald-700'
                       }`}
                       style={{ width: `${percentage}%` }}
                     />
@@ -244,7 +244,7 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
         <div className="flex items-center gap-1.5 rounded-xl bg-slate-100 p-1 text-xs font-semibold text-slate-600">
           <button
             onClick={() => setFilterMode('all')}
-            className={`rounded-lg px-3 py-1.5 transition-all ${
+            className={`min-h-11 rounded-lg px-3 py-2 transition-all ${
               filterMode === 'all' ? 'bg-white font-bold text-slate-900 shadow-sm' : 'hover:text-slate-900'
             }`}
           >
@@ -387,7 +387,7 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
                     </div>
 
                     <button
-                      className="p-1 text-slate-400 hover:text-slate-600"
+                      className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
                       aria-label={isExpanded ? 'Réduire' : 'Développer'}
                     >
                       {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
