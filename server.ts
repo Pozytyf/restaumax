@@ -1451,7 +1451,7 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       return { statusCode: 200, body: { success: true, payments } };
     }
 
-    if (!canManageCash) {
+    if (!canManageCash && input.action !== 'reclassify_cash_payment') {
       return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de gérer la caisse.' } };
     }
 
