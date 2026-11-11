@@ -25,9 +25,10 @@ async function run() {
     'Le module caisse reste accessible aux propriétaires et gérants autorisés même sans permission explicite redondante'
   );
   assert(
-    managerViewSource.includes('Fond de caisse disponible') &&
-    managerViewSource.includes('cashSession.openingBalance + cashSession.cashCollected - cashSession.cashOut'),
-    'Le tiroir affiche le fond de caisse disponible calculé depuis la session persistée'
+    managerViewSource.includes('Solde théorique de caisse') &&
+    managerViewSource.includes('formatFCFA(expectedCash)') &&
+    managerViewSource.includes('cashSession.cashRefunds'),
+    'Le tiroir affiche le solde théorique recalculé depuis la session persistée, remboursements espèces déduits'
   );
   assert(
     managerViewSource.includes('Clôturer la session et rapprocher') &&
