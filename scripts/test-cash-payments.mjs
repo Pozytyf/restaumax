@@ -283,20 +283,20 @@ async function run() {
     console.log('\n--- Clôture et rapprochement de caisse ---');
     const closed = await closeCashSessionWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
-      sessionVersion: 3, closingCount: 14000, idempotencyKey: 'close-cash-session-001'
+      sessionVersion: 3, closingCount: 7500, idempotencyKey: 'close-cash-session-001'
     });
     assert(closed.success === true && closed.session?.status === 'closed' &&
-      closed.session?.expectedCash === 14000 && closed.session?.variance === 0,
+      closed.session?.expectedCash === 7500 && closed.session?.variance === 0,
       'La clôture calcule le solde théorique après sorties et l’écart avec le comptage physique');
     const closeReplay = await closeCashSessionWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
-      sessionVersion: 3, closingCount: 14000, idempotencyKey: 'close-cash-session-001'
+      sessionVersion: 3, closingCount: 7500, idempotencyKey: 'close-cash-session-001'
     });
     assert(closeReplay.success === true && closeReplay.idempotentReplay === true,
       'Le rejeu de la même clôture retourne le même rapport sans nouvelle écriture');
     const closeConflict = await closeCashSessionWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
-      sessionVersion: 3, closingCount: 13900, idempotencyKey: 'close-cash-session-001'
+      sessionVersion: 3, closingCount: 7400, idempotencyKey: 'close-cash-session-001'
     });
     assert(closeConflict.success === false && closeConflict.conflict === true,
       'Une même clé de clôture ne peut pas être rejouée avec un comptage différent');
