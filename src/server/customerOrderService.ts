@@ -99,7 +99,7 @@ export async function mutateCustomerOrderWithDb(db: any, input: CustomerOrderMut
       tx.update(orderRef, {
         items: updatedItems, itemsCount: updatedItems.reduce((sum, item) => sum + Number(item.quantity), 0),
         subtotalAmount: tax.subtotalAmount, taxAmount: tax.taxAmount, totalAmount: tax.totalAmount,
-        remainingAmount: tax.totalAmount, paymentStatus: 'unpaid',
+        remainingAmount: tax.totalAmount, paidAmount: 0, refundedAmount: 0, netPaidAmount: 0, paymentStatus: 'unpaid',
         ...(customerNote ? { customerNote } : {}),
         customerEditedAt: now, customerEditCount: Number(order.customerEditCount || 0) + 1,
         statusUpdatedAt: now
