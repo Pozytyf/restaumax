@@ -66,6 +66,8 @@ interface ManagerViewProps {
   restaurantSlug: string;
   restaurantName: string;
   onNavigateToRole: (role: 'pos' | 'kds' | 'manager') => void;
+  canAccessPos: boolean;
+  canAccessKitchen: boolean;
   isOwner: boolean;
   drawerState: CashDrawerState;
   transactions: PaymentRecord[];
@@ -88,6 +90,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   restaurantSlug,
   restaurantName,
   onNavigateToRole,
+  canAccessPos,
+  canAccessKitchen,
   isOwner,
   drawerState,
   transactions,
@@ -463,8 +467,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
       <div className="sticky top-0 z-30 flex min-h-16 flex-wrap items-center justify-between gap-3 bg-[#101d2d] px-4 py-3 text-white shadow-sm lg:px-8">
         <div className="flex min-w-0 items-center gap-3"><span className="text-lg font-extrabold tracking-tight">RestauMax</span><span className="truncate text-sm font-medium text-slate-300">{restaurantName}</span></div>
         <nav aria-label="Navigation principale" className="flex flex-wrap items-center justify-center gap-1">
-          <button type="button" onClick={() => onNavigateToRole("pos")} className="min-h-11 rounded-lg px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/10">Commandes</button>
-          <button type="button" onClick={() => onNavigateToRole("kds")} className="min-h-11 rounded-lg px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/10">Cuisine</button>
+          <button type="button" disabled={!canAccessPos} onClick={() => onNavigateToRole("pos")} className="min-h-11 rounded-lg px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Commandes</button>
+          <button type="button" disabled={!canAccessKitchen} onClick={() => onNavigateToRole("kds")} className="min-h-11 rounded-lg px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Cuisine</button>
           <button type="button" aria-current="page" onClick={() => onNavigateToRole("manager")} className="min-h-11 rounded-lg bg-[#c2410c] px-4 text-sm font-bold text-white">Supervision &amp; Caisse</button>
         </nav>
         <span className="rounded-lg px-3 py-2 text-sm font-semibold text-white">{isOwner ? "Propriétaire" : "Personnel autorisé"}</span>
