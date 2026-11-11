@@ -63,6 +63,57 @@ try {
   assert.equal(replay.success && replay.idempotentReplay, true);
   assert.equal((await inventoryRef.get()).data().quantity, 5, 'Repeated cancellation does not restore twice');
 
+  const unknownPayOrderId = 'order-paydunya-unknown';
+  const unknownPayIntentId = 'pdi_' + createHash('sha256').update('unknown-intent').digest('hex').slice(0, 32);
+  const unknownPayOrderRef = restaurantRef.collection('orders').doc(unknownPayOrderId);
+  const unknownPayIntentRef = restaurantRef.collection('paymentIntents').doc(unknownPayIntentId);
+  await Promise.all([
+    unknownPayOrderRef.set({
+      id: unknownPayOrderId, restaurantSlug: slug, status: 'pending', paidAmount: 0,
+      paymentStatus: 'unpaid', pendingPayDunyaIntentId: unknownPayIntentId,
+      pendingPayDunyaAmount: 3600, items: [{ menuItemId: 'dish-1', quantity: 1 }]
+    }),
+    unknownPayIntentRef.set({
+      id: unknownPayIntentId, orderId: unknownPayOrderId, amount: 3600,
+      status: 'creation_unknown', currency: 'XOF'
+    })
+  ]);
+  const unknownPayCancelled = await transitionOrderStatusWithDb(db, {
+    ...params, orderId: unknownPayOrderId, targetStatus: 'cancelled',
+    cancellationReason: 'Client abandonne sa commande'
+  });
+  const cancelledUnknownOrder = (await unknownPayOrderRef.get()).data();
+  const cancelledUnknownIntent = (await unknownPayIntentRef.get()).data();
+  assert.equal(unknownPayCancelled.success, true, 'An unpaid order with an unknown PayDunya invoice creation can be logically cancelled');
+  assert.equal(cancelledUnknownOrder.status, 'cancelled');
+  assert.equal(cancelledUnknownOrder.pendingPayDunyaIntentId, null);
+  assert.equal(cancelledUnknownOrder.payDunyaReconciliationRequired, true);
+  assert.equal(cancelledUnknownOrder.payDunyaIntentIdForReconciliation, unknownPayIntentId);
+  assert.equal(cancelledUnknownIntent.status, 'order_cancelled_pending_manual_reconciliation');
+  assert.equal(cancelledUnknownIntent.orderCancellationReason, 'Client abandonne sa commande');
+  const unknownPayAudit = await restaurantRef.collection('orderAudit').where('orderId', '==', unknownPayOrderId).get();
+  assert.equal(unknownPayAudit.size, 1, 'PayDunya-linked cancellation keeps one append-only audit event');
+
+  const knownPayOrderId = 'order-paydunya-known';
+  const knownPayIntentId = 'pdi_' + createHash('sha256').update('known-intent').digest('hex').slice(0, 32);
+  await Promise.all([
+    restaurantRef.collection('orders').doc(knownPayOrderId).set({
+      id: knownPayOrderId, restaurantSlug: slug, status: 'pending', paidAmount: 0,
+      paymentStatus: 'unpaid', pendingPayDunyaIntentId: knownPayIntentId,
+      pendingPayDunyaAmount: 3000, items: [{ menuItemId: 'dish-1', quantity: 1 }]
+    }),
+    restaurantRef.collection('paymentIntents').doc(knownPayIntentId).set({
+      id: knownPayIntentId, orderId: knownPayOrderId, amount: 3000,
+      status: 'pending', invoiceToken: 'known-invoice-token', currency: 'XOF'
+    })
+  ]);
+  const knownPayCancelled = await transitionOrderStatusWithDb(db, {
+    ...params, orderId: knownPayOrderId, targetStatus: 'cancelled',
+    cancellationReason: 'Test annulation facture connue'
+  });
+  assert.equal(knownPayCancelled.success, false, 'A PayDunya invoice with a known token cannot use the unknown-creation cancellation path');
+  assert.equal((await restaurantRef.collection('orders').doc(knownPayOrderId).get()).data().status, 'pending');
+
   const shortageId = 'order-stock-shortage';
   const shortageRef = restaurantRef.collection('orders').doc(shortageId);
   await Promise.all([
