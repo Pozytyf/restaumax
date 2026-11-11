@@ -22,7 +22,7 @@ interface OrderConfirmationModalProps {
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
   onSelectCashPayment?: (order: RestauOrder) => Promise<{ success: boolean; error?: string }>;
   customerAccessToken?: string | null;
-  onCustomerOrderMutation?: (mutation: { action: 'cancel' | 'edit'; reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }> }) => Promise<{ success: boolean; error?: string; totalAmount?: number; itemsCount?: number }>;
+  onCustomerOrderMutation?: (mutation: { action: 'get' | 'cancel' | 'edit'; reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }> }) => Promise<{ success: boolean; error?: string; totalAmount?: number; itemsCount?: number; order?: RestauOrder }>;
 }
 
 export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
@@ -51,6 +51,23 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
       setCashPreferenceError(null);
     }
   }, [order?.id, order?.remainingAmount, order?.paidAmount, order?.totalAmount, order?.paymentPreference]);
+  useEffect(() => {
+    if (!order || !customerAccessToken || !onCustomerOrderMutation || ['completed', 'cancelled'].includes(order.status)) return;
+    let active = true;
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight || !active) return;
+      inFlight = true;
+      try {
+        const result = await onCustomerOrderMutation({ action: 'get' });
+        if (active && result.success && result.order) {
+          // Parent owns the canonical order snapshot; the next render updates this panel.
+        }
+      } finally { inFlight = false; }
+    };
+    const timer = window.setInterval(() => { void refresh(); }, 5000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [order?.id, order?.status, customerAccessToken, onCustomerOrderMutation]);
   useEffect(() => {
     if (order) setEditQuantities(Object.fromEntries(order.items.map(item => [item.id, item.quantity])));
     setIsEditingOrder(false);
