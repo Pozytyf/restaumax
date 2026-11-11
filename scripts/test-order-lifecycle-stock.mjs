@@ -84,6 +84,12 @@ assert.equal((await transitionOrderStatusWithDb(restoreDb, { ...params, targetSt
 assert.equal((await transitionOrderStatusWithDb(restoreDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' })).success, true);
 assert.equal(restoreDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 assert.equal(restoreDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'restored');
+const cancellationAudit = [...restoreDb.documents.entries()].find(([path, value]) =>
+  path.startsWith('restaurants/chez-awa/orderAudit/') && value.orderId === 'order-1');
+assert.ok(cancellationAudit, 'L’annulation doit créer une entrée d’audit');
+assert.equal(cancellationAudit[1].reason, 'Erreur de saisie');
+assert.equal(cancellationAudit[1].status, 'cancelled');
+assert.equal(cancellationAudit[1].actorUid, 'owner-1');
 const restoreMovement = [...restoreDb.documents.entries()].find(([path, value]) => path.includes('/stockMovements/order_') && value.orderId === 'order-1' && value.delta > 0);
 assert.equal(restoreMovement?.[1].delta, 0.5);
 const cancelReplay = await transitionOrderStatusWithDb(restoreDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' });
