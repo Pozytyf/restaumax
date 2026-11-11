@@ -20,6 +20,8 @@ import {
   getDocFromServer,
   getDocs,
   setDoc, 
+  updateDoc,
+  deleteField,
   deleteDoc,
   runTransaction,
   collection, 
@@ -427,7 +429,22 @@ export async function persistMenuItem(restaurantSlug: string, item: RestauMenuIt
   const path = `restaurants/${restaurantSlug}/menuItems/${item.id}`;
   try {
     const itemRef = doc(db, 'restaurants', restaurantSlug, 'menuItems', item.id);
-    await setDoc(itemRef, item, { merge: true });
+    // Firestore rejects undefined values by default. The edit form deliberately
+    // omits optional fields when a manager clears them, so strip undefined
+    // before writing and use deleteField() to remove stale values on updates.
+    const payload = Object.fromEntries(
+      Object.entries(item).filter(([, value]) => value !== undefined)
+    );
+    const existing = await getDoc(itemRef);
+    if (existing.exists()) {
+      const updatePayload: Record<string, any> = { ...payload };
+      for (const field of ['tags', 'optionGroups', 'availableExtras', 'translations', 'stockQuantity']) {
+        if ((item as any)[field] === undefined) updatePayload[field] = deleteField();
+      }
+      await updateDoc(itemRef, updatePayload);
+    } else {
+      await setDoc(itemRef, payload);
+    }
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
