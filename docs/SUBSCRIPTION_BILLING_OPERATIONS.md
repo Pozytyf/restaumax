@@ -12,14 +12,17 @@
 - Le Super-admin peut rapprocher une facture après réception réelle du paiement. Le montant doit correspondre exactement à la facture ; le rapprochement est idempotent et audité.
 - Le règlement réactive uniquement un restaurant suspendu pour impayé d'abonnement. Une suspension administrative n'est jamais levée par ce mécanisme.
 
-## Activation opérationnelle requise
+## Statut opérationnel vérifié — 10 novembre 2026
 
-La déclaration Cron et l'endpoint sont dans le dépôt, mais la tâche ne s'exécute pas dans un environnement hébergé tant qu'une version contenant ces changements n'a pas été déployée.
+- La déclaration Cron `0 2 * * *` et l'endpoint `/api/subscriptions/billing-cycle` sont inclus dans la version Production déployée.
+- Le domaine Production `restaumax.vercel.app` est rattaché au déploiement actif.
+- La variable `CRON_SECRET` est présente dans la configuration Vercel Production ; sa valeur n'a pas été consultée.
+- **Limite de preuve :** les vérifications effectuées pendant l'audit n'établissent pas encore qu'un cycle Cron complet a effectivement réussi. Il ne faut donc pas présenter la facturation automatique comme validée en exploitation.
 
-Avant activation :
-1. Définir un secret aléatoire robuste dans l'environnement Vercel sous le nom `CRON_SECRET`.
-2. Déployer une version contenant `vercel.json` et `api/subscriptions/billing-cycle.ts`.
-3. Vérifier le premier appel Cron dans les journaux Vercel et contrôler les factures créées.
+Contrôle opérationnel à effectuer sans toucher aux données de Production :
+1. Vérifier l'historique des exécutions Cron Vercel et le résultat HTTP de chaque appel.
+2. Contrôler les journaux de l'endpoint et confirmer qu'aucune erreur de configuration ou d'autorisation ne survient.
+3. Utiliser Firebase Emulator pour vérifier la création idempotente d'une facture, le délai de grâce et la suspension à échéance.
 4. Garder le compte plateforme et les moyens de règlement sous contrôle du Super-admin.
 
 ## Limite de paiement

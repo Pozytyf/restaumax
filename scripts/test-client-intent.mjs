@@ -88,6 +88,8 @@ async function runClientIntentTests() {
     cart: testCart,
     idempotencyKey: 'intent-key-client-alpha-001',
     customerNote: 'Bien cuit et sauce à part',
+    customerName: 'Awa Test',
+    customerPhone: '0700000000',
     timestamp: Date.now(),
     isUncertain: false
   };
@@ -109,11 +111,13 @@ async function runClientIntentTests() {
   assert(restored?.restaurantSlug === 'chez-awa', '2.3 : Restaurant préservé (chez-awa)');
   assert(restored?.tableNumber === '4', '2.4 : Numéro de table préservé (Table 4)');
   assert(restored?.customerNote === 'Bien cuit et sauce à part', '2.5 : Note client préservée');
+  assert(restored?.customerName === 'Awa Test', '2.6 : Nom client préservé');
+  assert(restored?.customerPhone === '0700000000', '2.7 : Téléphone client préservé');
   assert(restored?.cart.length === 1, '2.6 : Nombre d\'articles préservé (1 article)');
-  assert(restored?.cart[0].quantity === 2, '2.7 : Quantité de ligne préservée (2)');
-  assert(loadPendingOrderIntent('chez-awa')?.restaurantSlug === 'chez-awa', '2.8 : Intention restaurée uniquement pour son restaurant');
-  assert(loadPendingOrderIntent('restaumax-demo') === null, '2.9 : Intention Chez Awa refusée sur RestauMax Démo');
-  assert(window.sessionStorage.getItem(ORDER_INTENT_STORAGE_KEY) === null, '2.10 : Panier inter-restaurant purgé du stockage');
+  assert(restored?.cart[0].quantity === 2, '2.8 : Quantité de ligne préservée (2)');
+  assert(loadPendingOrderIntent('chez-awa')?.restaurantSlug === 'chez-awa', '2.9 : Intention restaurée uniquement pour son restaurant');
+  assert(loadPendingOrderIntent('restaumax-demo') === null, '2.10 : Intention Chez Awa refusée sur RestauMax Démo');
+  assert(window.sessionStorage.getItem(ORDER_INTENT_STORAGE_KEY) === null, '2.11 : Panier inter-restaurant purgé du stockage');
   savePendingOrderIntent(intent1);
 
   // -------------------------------------------------------------------------
@@ -138,9 +142,9 @@ async function runClientIntentTests() {
   assert(window.sessionStorage.getItem(ORDER_INTENT_STORAGE_KEY) === null, '4.2 : Clé sessionStorage supprimée');
 
   // -------------------------------------------------------------------------
-  // 5. Conflit d'intégrité (409) : purge et régénération
+  // 5. Conflit d'intégrité (409) : conservation de la clé pour éviter un doublon
   // -------------------------------------------------------------------------
-  console.log('\n--- 5. Conflit d\'intégrité (409) : purge pour nouvelle intention ---');
+  console.log('\n--- 5. Conflit d\'intégrité (409) : conservation de l\'intention ---');
   savePendingOrderIntent({
     ...intent1,
     idempotencyKey: 'conflict-key-002',
@@ -148,9 +152,13 @@ async function runClientIntentTests() {
   });
   assert(loadPendingOrderIntent() !== null, '5.1 : Intention avant conflit présente');
 
-  // En cas de conflit (Cas D), App.tsx appelle clearPendingOrderIntent()
-  clearPendingOrderIntent();
-  assert(loadPendingOrderIntent() === null, '5.2 : Intention nettoyée après conflit 409');
+  // En cas de conflit, l'interface garde la même clé et verrouille le panier.
+  updatePendingOrderIntentUncertainty(true);
+  const conflictIntent = loadPendingOrderIntent();
+  assert(conflictIntent?.isUncertain === true, '5.2 : Intention marquée incertaine après conflit');
+  assert(conflictIntent?.idempotencyKey === 'conflict-key-002', '5.3 : Clé conflictuelle conservée sans rotation');
+  assert(conflictIntent?.customerName === 'Awa Test' && conflictIntent?.customerPhone === '0700000000',
+    '5.4 : Coordonnées client conservées après conflit');
 
   // -------------------------------------------------------------------------
   // 6. Résilience aux données corrompues (Fail-Safe)

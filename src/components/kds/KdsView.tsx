@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { KitchenTicket, TicketStatus } from '../../types/pos';
+import { filterKitchenTicketItems } from '../../utils/kitchenTicket';
 import { sounds } from '../../utils/audio';
 import { 
   Clock, 
@@ -11,23 +12,30 @@ import {
   Filter,
   Check,
   Keyboard,
-  Info
+  Info,
+  Trash2
 } from 'lucide-react';
+
+type VisibleKitchenTicket = KitchenTicket & { stationItems: KitchenTicket['items'] };
 
 interface KdsViewProps {
   tickets: KitchenTicket[];
+  stationMode?: 'kitchen' | 'bar';
   canMarkServed?: boolean;
+  canCancelActiveTicket?: boolean;
   onToggleItemComplete: (ticketId: string, itemId: string, completed: boolean) => void;
-  onUpdateTicketStatus: (ticketId: string, status: TicketStatus) => void;
+  onUpdateTicketStatus: (ticketId: string, status: TicketStatus, cancellationReason?: string) => Promise<boolean>;
 }
 
 export const KdsView: React.FC<KdsViewProps> = ({
   tickets,
+  stationMode = 'kitchen',
   canMarkServed = true,
+  canCancelActiveTicket = false,
   onToggleItemComplete,
   onUpdateTicketStatus
 }) => {
-  const [filterStation, setFilterStation] = useState<'all' | 'grillades' | 'plats' | 'bar'>('all');
+  const [filterStation, setFilterStation] = useState<'all' | 'grillades' | 'plats' | 'bar'>(stationMode === 'bar' ? 'bar' : 'all');
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [selectedTicketIndex, setSelectedTicketIndex] = useState<number>(0);
   const [lastBumpedMsg, setLastBumpedMsg] = useState<string | null>(null);
@@ -42,14 +50,17 @@ export const KdsView: React.FC<KdsViewProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  const activeTickets = tickets.filter(t => t.status === 'in_prep' || t.status === 'ready');
+  const allActiveTickets = tickets.filter(t => t.status === 'pending' || t.status === 'in_prep' || t.status === 'ready');
+  const visibleTickets: VisibleKitchenTicket[] = allActiveTickets
+    .map(ticket => ({ ...ticket, stationItems: filterKitchenTicketItems(ticket.items, stationMode === 'bar' ? 'bar' : filterStation).filter(item => stationMode === 'bar' ? (item.station || 'plats') === 'bar' : (item.station || 'plats') !== 'bar') }))
+    .filter(ticket => ticket.stationItems.length > 0);
 
   // Keep selectedTicketIndex within valid bounds
   useEffect(() => {
-    if (activeTickets.length > 0 && selectedTicketIndex >= activeTickets.length) {
-      setSelectedTicketIndex(activeTickets.length - 1);
+    if (visibleTickets.length > 0 && selectedTicketIndex >= visibleTickets.length) {
+      setSelectedTicketIndex(visibleTickets.length - 1);
     }
-  }, [activeTickets.length, selectedTicketIndex]);
+  }, [visibleTickets.length, selectedTicketIndex]);
 
   // Scroll focused ticket into view
   const scrollToTicket = (index: number) => {
@@ -61,22 +72,43 @@ export const KdsView: React.FC<KdsViewProps> = ({
     }
   };
 
-  const handleBumpTicket = (ticket: KitchenTicket, slotNumber?: number) => {
+  const handleCancelTicket = async (ticket: KitchenTicket) => {
+    const reason = window.prompt(`Motif obligatoire pour annuler le ticket ${ticket.ticketNumber} :`);
+    if (reason === null) return;
+    if (reason.trim().length < 3) {
+      setLastBumpedMsg('Indiquez un motif d’au moins 3 caractères.');
+      return;
+    }
+    const saved = await onUpdateTicketStatus(ticket.id, 'cancelled', reason.trim());
+    if (saved) setLastBumpedMsg(`Ticket ${ticket.ticketNumber} annulé et archivé.`);
+  };
+
+  const handleBumpTicket = async (ticket: VisibleKitchenTicket, slotNumber?: number) => {
+    if (ticket.status === 'pending') {
+      setLastBumpedMsg(`Ticket ${ticket.ticketNumber} en attente : démarrez sa préparation depuis une ligne.`);
+      return;
+    }
     if (ticket.status === 'ready') {
       if (!canMarkServed) {
         setLastBumpedMsg('Remise au client réservée au serveur ou au responsable autorisé.');
         return;
       }
       sounds.playTap();
-      onUpdateTicketStatus(ticket.id, 'served');
+      const saved = await onUpdateTicketStatus(ticket.id, 'served');
+      if (!saved) return;
       setLastBumpedMsg(`Ticket ${ticket.ticketNumber} archivé / servi ${slotNumber ? `[Touche ${slotNumber}]` : ''}`);
     } else {
+      if (!ticket.stationItems.every(item => item.completed)) {
+        setLastBumpedMsg(`Terminez toutes les lignes de votre poste pour le ticket ${ticket.ticketNumber}.`);
+        return;
+      }
       if (!ticket.items.every(item => item.completed)) {
-        setLastBumpedMsg(`Terminez toutes les lignes du ticket ${ticket.ticketNumber} avant de le déclarer prêt.`);
+        setLastBumpedMsg(`${stationMode === 'bar' ? 'Bar' : 'Cuisine'} terminé(e) pour ${ticket.ticketNumber} · En attente de l’autre poste.`);
         return;
       }
       sounds.playKitchenBell();
-      onUpdateTicketStatus(ticket.id, 'ready');
+      const saved = await onUpdateTicketStatus(ticket.id, 'ready');
+      if (!saved) return;
       setLastBumpedMsg(`Ticket ${ticket.ticketNumber} prêt pour expédition ${slotNumber ? `[Touche ${slotNumber}]` : ''}`);
     }
 
@@ -89,11 +121,9 @@ export const KdsView: React.FC<KdsViewProps> = ({
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept if user is typing in an input or textarea
-      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (targetTag === 'input' || targetTag === 'textarea' || targetTag === 'select') {
-        return;
-      }
+      // Preserve native keyboard navigation and activation for interactive controls.
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, button, a, [role="button"], [contenteditable="true"]')) return;
 
       // Number keys 1-9 (both regular top row and numpad)
       const numMatch = e.code.match(/^(?:Digit|Numpad)([1-9])$/);
@@ -101,8 +131,8 @@ export const KdsView: React.FC<KdsViewProps> = ({
         e.preventDefault();
         const slot = parseInt(numMatch[1], 10);
         const targetIndex = slot - 1;
-        if (targetIndex >= 0 && targetIndex < activeTickets.length) {
-          const targetTicket = activeTickets[targetIndex];
+        if (targetIndex >= 0 && targetIndex < visibleTickets.length) {
+          const targetTicket = visibleTickets[targetIndex];
           setSelectedTicketIndex(targetIndex);
           scrollToTicket(targetIndex);
           handleBumpTicket(targetTicket, slot);
@@ -111,10 +141,10 @@ export const KdsView: React.FC<KdsViewProps> = ({
       }
 
       // Arrow navigation
-      if (e.key === 'ArrowRight' || e.key === 'l' || e.key === 'Tab' && !e.shiftKey) {
-        if (activeTickets.length > 0) {
+      if (e.key === 'ArrowRight' || e.key === 'l') {
+        if (visibleTickets.length > 0) {
           e.preventDefault();
-          const nextIndex = (selectedTicketIndex + 1) % activeTickets.length;
+          const nextIndex = (selectedTicketIndex + 1) % visibleTickets.length;
           setSelectedTicketIndex(nextIndex);
           scrollToTicket(nextIndex);
           sounds.playTap();
@@ -122,10 +152,10 @@ export const KdsView: React.FC<KdsViewProps> = ({
         return;
       }
 
-      if (e.key === 'ArrowLeft' || e.key === 'h' || e.key === 'Tab' && e.shiftKey) {
-        if (activeTickets.length > 0) {
+      if (e.key === 'ArrowLeft' || e.key === 'h') {
+        if (visibleTickets.length > 0) {
           e.preventDefault();
-          const prevIndex = (selectedTicketIndex - 1 + activeTickets.length) % activeTickets.length;
+          const prevIndex = (selectedTicketIndex - 1 + visibleTickets.length) % visibleTickets.length;
           setSelectedTicketIndex(prevIndex);
           scrollToTicket(prevIndex);
           sounds.playTap();
@@ -135,10 +165,10 @@ export const KdsView: React.FC<KdsViewProps> = ({
 
       // Space or Enter to bump currently selected ticket
       if (e.key === 'Enter' || e.key === ' ') {
-        if (activeTickets.length > 0 && selectedTicketIndex < activeTickets.length) {
+        if (visibleTickets.length > 0 && selectedTicketIndex < visibleTickets.length) {
           e.preventDefault();
-          const currentTicket = activeTickets[selectedTicketIndex];
-          handleBumpTicket(currentTicket, selectedTicketIndex + 1);
+          const currentTicket = visibleTickets[selectedTicketIndex];
+          void handleBumpTicket(currentTicket, selectedTicketIndex + 1);
         }
         return;
       }
@@ -161,7 +191,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTickets, selectedTicketIndex]);
+  }, [visibleTickets, selectedTicketIndex]);
 
   const getElapsedSeconds = (createdAt: Date) => {
     return Math.max(0, Math.floor((currentTime - new Date(createdAt).getTime()) / 1000));
@@ -185,7 +215,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm sm:text-base font-extrabold tracking-tight">
-                  Écran KDS Cuisine en Direct
+                  {stationMode === 'bar' ? 'Écran Bar en Direct' : 'Écran KDS Cuisine en Direct'}
                 </h2>
                 <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
                   <Keyboard size={11} />
@@ -193,7 +223,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
                 </span>
               </div>
               <div className="text-[11px] text-slate-400 flex items-center gap-2">
-                <span>{activeTickets.length} tickets en cours</span>
+                <span>{visibleTickets.length} tickets dans cette station</span>
                 <span>·</span>
                 <span className="text-emerald-400 font-semibold">Touches 1–9 pour bumper</span>
               </div>
@@ -232,11 +262,11 @@ export const KdsView: React.FC<KdsViewProps> = ({
             </button>
 
             <div className="flex items-center gap-1 bg-slate-900/80 p-1 rounded-lg border border-slate-800">
-              {[
-                { id: 'all', label: 'Toutes Stations' },
+              {(stationMode === 'bar' ? [{ id: 'bar', label: 'Bar' }] : [
+                { id: 'all', label: 'Toute la Cuisine' },
                 { id: 'grillades', label: 'Grillades' },
                 { id: 'plats', label: 'Fourneaux' }
-              ].map((tab) => (
+              ]).map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => {
@@ -288,11 +318,11 @@ export const KdsView: React.FC<KdsViewProps> = ({
               </div>
             </div>
 
-            {activeTickets.length > 0 && selectedTicketIndex < activeTickets.length && (
+            {visibleTickets.length > 0 && selectedTicketIndex < visibleTickets.length && (
               <div className="text-[11px] font-sans flex items-center gap-1.5 text-slate-400">
                 <span>Focus actif:</span>
                 <span className="font-bold text-amber-300 font-mono">
-                  Ticket {activeTickets[selectedTicketIndex]?.ticketNumber} (Slot #{selectedTicketIndex + 1})
+                  Ticket {visibleTickets[selectedTicketIndex]?.ticketNumber} (Slot #{selectedTicketIndex + 1})
                 </span>
               </div>
             )}
@@ -314,16 +344,16 @@ export const KdsView: React.FC<KdsViewProps> = ({
         className="flex-1 overflow-x-auto overflow-y-hidden p-4 lg:p-6"
       >
         <div className="flex items-start gap-4 h-full min-w-max pb-2">
-          {activeTickets.length === 0 ? (
+          {visibleTickets.length === 0 ? (
             <div className="h-full w-full flex flex-col items-center justify-center text-center text-slate-500 py-16">
               <CheckCircle2 size={48} className="text-emerald-500 mb-3" />
-              <h3 className="text-lg font-bold text-white">Tous les plats sont expédiés !</h3>
+              <h3 className="text-lg font-bold text-white">{allActiveTickets.length > 0 ? 'Aucun ticket pour cette station' : 'Tous les plats sont expédiés !'}</h3>
               <p className="text-xs text-slate-400 mt-1">
-                La cuisine est à jour. Les nouvelles commandes apparaîtront ici automatiquement.
+                {allActiveTickets.length > 0 ? 'Les autres stations continuent leur préparation.' : 'La cuisine est à jour. Les nouvelles commandes apparaîtront ici automatiquement.'}
               </p>
             </div>
           ) : (
-            activeTickets.map((ticket, index) => {
+            visibleTickets.map((ticket, index) => {
               const elapsedSec = getElapsedSeconds(ticket.createdAt);
               const elapsedMinutes = Math.floor(elapsedSec / 60);
               const slotNumber = index + 1;
@@ -335,7 +365,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
               // >= 20 min: Red urgent flashing (#EF4444)
               const isUrgent = elapsedMinutes >= 20;
               const isWarning = elapsedMinutes >= 10 && elapsedMinutes < 20;
-              const allItemsDone = ticket.items.every(i => i.completed);
+              const allItemsDone = ticket.stationItems.every(i => i.completed);
 
               return (
                 <div
@@ -428,18 +458,18 @@ export const KdsView: React.FC<KdsViewProps> = ({
 
                   {/* Ticket Items List */}
                   <div className="flex-1 overflow-y-auto p-3 divide-y divide-slate-100 max-h-[380px]">
-                    {ticket.items.map((item) => (
+                    {ticket.stationItems.map((item) => (
                       <div
                         key={item.id}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (ticket.status !== 'in_prep') return;
+                          if (!['pending', 'in_prep'].includes(ticket.status)) return;
                           sounds.playTap();
                           onToggleItemComplete(ticket.id, item.id, !item.completed);
                         }}
                         aria-disabled={ticket.status !== 'in_prep'}
-                        title={ticket.status !== 'in_prep' ? 'La commande est prête : progression verrouillée.' : 'Marquer la ligne comme préparée'}
-                        className={`py-2.5 px-2 rounded-lg ${ticket.status === 'in_prep' ? 'cursor-pointer' : 'cursor-not-allowed'} transition-colors flex items-start gap-2.5 ${
+                        title={!['pending', 'in_prep'].includes(ticket.status) ? 'La commande est prête : progression verrouillée.' : 'Marquer la ligne comme préparée'}
+                        className={`py-2.5 px-2 rounded-lg ${['pending', 'in_prep'].includes(ticket.status) ? 'cursor-pointer' : 'cursor-not-allowed'} transition-colors flex items-start gap-2.5 ${
                           item.completed
                             ? 'bg-slate-100 opacity-60'
                             : 'hover:bg-slate-50'
@@ -478,7 +508,16 @@ export const KdsView: React.FC<KdsViewProps> = ({
 
                   {/* Ticket Footer Action Buttons with Key Bump Indicators */}
                   <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center gap-2">
-                    {ticket.status === 'ready' ? (
+                    {ticket.status === 'pending' ? (
+                      <div className="flex-1 flex gap-2">
+                        <span className="flex-1 text-center text-xs font-bold text-amber-800 bg-amber-100 rounded-xl px-2 py-3">En attente de prise en charge</span>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); void handleCancelTicket(ticket); }}
+                          className="h-12 px-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
+                          <Trash2 size={14} /> Vider le ticket
+                        </button>
+                      </div>
+                    ) : ticket.status === 'ready' ? (
+                      <div className="flex-1 flex gap-2">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -492,7 +531,10 @@ export const KdsView: React.FC<KdsViewProps> = ({
                         <CheckCircle2 size={16} />
                         <span>Marquer Servi & Retirer</span>
                       </button>
+                      {canCancelActiveTicket && <button type="button" onClick={(e) => { e.stopPropagation(); void handleCancelTicket(ticket); }} className="h-12 px-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl">Annuler</button>}
+                      </div>
                     ) : (
+                      <div className="flex-1 flex gap-2">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -510,6 +552,8 @@ export const KdsView: React.FC<KdsViewProps> = ({
                         <ChefHat size={16} />
                         <span>Prêt pour le Service</span>
                       </button>
+                      {canCancelActiveTicket && <button type="button" onClick={(e) => { e.stopPropagation(); void handleCancelTicket(ticket); }} className="h-12 px-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl">Annuler</button>}
+                      </div>
                     )}
                   </div>
                 </div>

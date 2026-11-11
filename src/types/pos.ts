@@ -1,5 +1,5 @@
 import type { MenuOptionGroup, MenuExtra, SelectedOption, SelectedExtra } from './restaumax';
-export type Role = 'pos' | 'floor' | 'kds' | 'manager';
+export type Role = 'pos' | 'floor' | 'kds' | 'bar' | 'manager';
 
 export type Category = 
   | 'tous'
@@ -51,13 +51,15 @@ export interface Table {
   covers?: number;
 }
 
-export type TicketStatus = 'in_prep' | 'ready' | 'served' | 'cancelled';
+export type TicketStatus = 'pending' | 'in_prep' | 'ready' | 'served' | 'cancelled';
 
 export interface KitchenItem {
   id: string;
   name: string;
   quantity: number;
   course: 'entree' | 'plat' | 'dessert' | 'boisson';
+  /** Preparation station derived from the trusted menu category. */
+  station?: 'grillades' | 'plats' | 'bar';
   notes?: string;
   completed: boolean;
 }
@@ -108,6 +110,10 @@ export interface PaymentRecord {
   refundStatus?: string;
   refundEligible?: boolean;
   providerChannel?: string;
+  mobileMoneyProvider?: 'orange_money' | 'wave' | 'mtn' | 'moov' | 'djamo';
+  mobileMoneyReference?: string;
+  reclassifiedAt?: number;
+  reclassificationReason?: string;
   items: { name: string; quantity: number; price: number }[];
 }
 

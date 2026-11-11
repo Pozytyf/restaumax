@@ -513,7 +513,7 @@ async function runTests() {
   assert(ticket1.id === 'ord-ord-test-kds-1', `ID du ticket KDS stable : ${ticket1.id}`);
   assert(ticket1.ticketNumber === '#CMD-742', 'Numéro de commande KDS exact');
   assert(ticket1.tableNumber === 'Table 4', 'Emplacement table correctement formatté');
-  assert(ticket1.status === 'in_prep', 'Statut "pending" mappé vers "in_prep" pour la cuisine');
+  assert(ticket1.status === 'pending', 'Statut "pending" conservé dans la file des tickets en attente KDS');
   assert(ticket1.items[0].name === 'Capitaine Braisé au Feu de Bois', 'Ligne plat préservée');
   assert(ticket1.items[0].notes.includes('Alloco'), 'Notes d\'options incluses dans le ticket KDS');
 

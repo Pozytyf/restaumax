@@ -224,8 +224,8 @@ async function run() {
       'Le POS crée une commande validée depuis le catalogue officiel' + (created.error ? ' — ' + created.error : ''));
     const orderId = created.order.id;
     const initialKitchenTicket = mapRestauOrderToKitchenTicket(created.order);
-    check(created.order.status === 'pending' && initialKitchenTicket.status === 'in_prep',
-      'Une nouvelle commande QR/POS en attente devient immédiatement un ticket actif en cuisine');
+    check(created.order.status === 'pending' && initialKitchenTicket.status === 'pending',
+      'Une nouvelle commande QR/POS reste dans la file des tickets en attente en cuisine');
     const createdLine = created.order.items[0];
     check(createdLine.basePrice === 5000 && createdLine.unitPrice === 6800 &&
       createdLine.totalPrice === 6800,

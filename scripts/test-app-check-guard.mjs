@@ -13,6 +13,19 @@ const previewWithoutEnforcement = await verifyPublicOrderAppCheck({
 });
 assert.equal(previewWithoutEnforcement.allowed, true, 'controlled Preview stays usable before enforcement');
 
+const previewEnforcedMissingToken = await verifyPublicOrderAppCheck({
+  isProduction: false, enforcementEnabled: true, token: '', verifier: { async verifyToken() {} }
+});
+assert.equal(previewEnforcedMissingToken.allowed, false);
+assert.equal(previewEnforcedMissingToken.statusCode, 401);
+assert.equal(previewEnforcedMissingToken.reason, 'missing-token');
+
+const previewEnforcedValidToken = await verifyPublicOrderAppCheck({
+  isProduction: false, enforcementEnabled: true, token: 'preview-valid-token',
+  verifier: { async verifyToken(value) { assert.equal(value, 'preview-valid-token'); } }
+});
+assert.equal(previewEnforcedValidToken.allowed, true);
+
 const missingToken = await verifyPublicOrderAppCheck({
   isProduction: true, enforcementEnabled: true, token: '', verifier: { async verifyToken() {} }
 });
@@ -43,4 +56,4 @@ assert.equal(rejected.statusCode, 401);
 assert.equal(rejected.reason, 'invalid-token');
 assert.equal(rejected.code, 'app-check/invalid-token');
 
-console.log('App Check enforcement guard tests passed (15 assertions).');
+console.log('App Check enforcement guard tests passed (20 assertions).');

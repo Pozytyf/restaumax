@@ -200,3 +200,73 @@ export async function adjustCustomerLoyaltyPointsWithDb(
   });
 }
 
+
+
+export interface CreateCustomerInput {
+  restaurantSlug: string;
+  name: string;
+  phone: string;
+  email?: string;
+  notes?: string;
+  actorUid: string;
+  sessionVersion: number;
+  now?: number;
+}
+
+/**
+ * Create or complete one customer profile using a tenant-scoped deterministic
+ * ID derived from the normalized phone. Concurrent requests for the same
+ * phone therefore converge on the same Firestore document.
+ */
+export async function createCustomerWithDb(db: any, input: CreateCustomerInput) {
+  const slug = String(input.restaurantSlug || '').trim();
+  const name = String(input.name || '').trim().slice(0, 160);
+  const phone = String(input.phone || '').trim().slice(0, 40);
+  const phoneNormalized = normalizeCustomerPhone(phone);
+  const email = String(input.email || '').trim().slice(0, 160);
+  const notes = String(input.notes || '').trim().slice(0, 500);
+  const actorUid = String(input.actorUid || '').trim();
+  const now = Number(input.now || Date.now());
+  if (!db || !/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || name.length < 2 || !phoneNormalized ||
+      (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) || !actorUid || !Number.isSafeInteger(now)) {
+    return { success: false, error: 'Les informations du client sont invalides.' };
+  }
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const memberRef = db.collection('managers').doc(actorUid);
+  const ownershipRef = restaurantRef.collection('private').doc('ownership');
+  const customerId = 'loyalty_' + hash(phoneNormalized);
+  const customerRef = restaurantRef.collection('customers').doc(customerId);
+  const matchingCustomers = restaurantRef.collection('customers').where('phoneNormalized', '==', phoneNormalized).limit(2);
+  return db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, memberSnap, ownershipSnap, customerSnap, matchesSnap] = await Promise.all([
+      tx.get(restaurantRef), tx.get(memberRef), tx.get(ownershipRef), tx.get(customerRef), tx.get(matchingCustomers)
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() || {} : null;
+    const member = memberSnap.exists ? memberSnap.data() || {} : null;
+    if (!restaurant || String(restaurant.status || 'active') !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(member.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
+      return { success: false, error: 'Compte inactif ou accès à ce restaurant refusé.' };
+    }
+    const ownerUid = String((ownershipSnap.exists ? ownershipSnap.data()?.ownerUid : '') || restaurant.ownerUid || '');
+    const authorized = member.role === 'owner'
+      ? ownerUid === actorUid
+      : member.role === 'manager' && Array.isArray(member.permissions) && member.permissions.includes('customers.manage');
+    if (!authorized) return { success: false, error: 'Votre rôle ne permet pas de gérer les fiches clients.' };
+    const matches = Array.isArray(matchesSnap.docs) ? matchesSnap.docs : [];
+    if (matches.some((doc: any) => doc.id !== customerId)) {
+      return { success: false, conflict: true, error: 'Un client utilise déjà ce numéro de téléphone dans ce restaurant.' };
+    }
+    const existing = customerSnap.exists ? customerSnap.data() || {} : null;
+    const loyaltyPoints = Number(existing?.loyaltyPoints || 0);
+    if (!Number.isSafeInteger(loyaltyPoints) || loyaltyPoints < 0) {
+      return { success: false, error: 'Le solde de fidélité de cette fiche est invalide.' };
+    }
+    const data = { id: customerId, name, phone, phoneNormalized, email, notes, loyaltyPoints,
+      createdAt: Number(existing?.createdAt || now), updatedAt: now,
+      ...(existing?.createdFrom ? { createdFrom: existing.createdFrom } : {}) };
+    if (existing) tx.update(customerRef, data);
+    else tx.create(customerRef, data);
+    return { success: true, customerId, loyaltyPoints, alreadyExisted: Boolean(existing) };
+  });
+}

@@ -39,7 +39,7 @@ function makeDb(uid, ownerUid) {
     'restaurants/r/payments/p': { id: 'p', restaurantSlug: 'r', orderId: 'o', paidAmount: 1000, method: 'especes' },
     'restaurants/r/orders/o': { restaurantSlug: 'r', paidAmount: 1000, refundedAmount: 0 },
     ['restaurants/r/cashSessionActive/' + uid]: { status: 'active', sessionId: 's' },
-    'restaurants/r/cashSessions/s': { status: 'active', openedByUid: uid, sessionVersion: 1, cashOut: 0 }
+    'restaurants/r/cashSessions/s': { status: 'active', openedByUid: uid, sessionVersion: 1, openingBalance: 0, cashCollected: 1000, cashOut: 0 }
   });
 }
 const input = { restaurantSlug: 'r', paymentId: 'p', actorUid: 'owner-1', sessionVersion: 1,

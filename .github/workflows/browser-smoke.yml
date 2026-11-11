@@ -1,0 +1,52 @@
+name: RestauMax Browser Smoke Tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-smoke:
+    name: Playwright browser smoke tests (Firebase Demo isolated)
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    timeout-minutes: 30
+    env:
+      VITE_APP_ENV: preview
+      VITE_FIREBASE_API_KEY: browser-smoke-demo-key
+      VITE_FIREBASE_AUTH_DOMAIN: restaumax-demo.firebaseapp.com
+      VITE_FIREBASE_PROJECT_ID: restaumax-demo
+      VITE_FIREBASE_MESSAGING_SENDER_ID: "305138716873"
+      VITE_FIREBASE_STORAGE_BUCKET: restaumax-demo.firebasestorage.app
+      VITE_FIREBASE_APP_ID: "1:305138716873:web:browser-smoke"
+      VITE_FIRESTORE_DATABASE_ID: "(default)"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Install pinned Playwright test runner
+        run: npm install --no-save --package-lock=false @playwright/test@1.56.1
+
+      - name: Verify preinstalled Chromium
+        run: |
+          npx playwright install --list
+          test -d /ms-playwright
+
+      - name: Build isolated Demo Preview frontend
+        run: npm run build
+
+      - name: Run browser smoke tests
+        run: npx playwright test

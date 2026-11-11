@@ -6,8 +6,8 @@ import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwner
 
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
-  'orders.cancel', 'payments.refund', 'tables.view', 'tables.manage', 'pos.access',
-  'kitchen.access', 'cash.view', 'cash.manage', 'reports.view', 'reports.cash.view',
+  'orders.cancel', 'orders.clear_pending', 'payments.refund', 'tables.view', 'tables.manage', 'pos.access',
+  'kitchen.access', 'bar.access', 'cash.view', 'cash.manage', 'reports.view', 'reports.cash.view',
   'customers.view', 'customers.manage', 'inventory.view', 'inventory.manage',
   'staff.view', 'staff.manage', 'settings.view', 'settings.manage'
 ] as const;
@@ -19,7 +19,7 @@ const ROLE_PERMISSION_CEILINGS: Record<RestaurantRole, readonly Permission[]> = 
   owner: PERMISSIONS,
   manager: [
     'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
-    'tables.view', 'tables.manage', 'pos.access', 'kitchen.access', 'cash.view',
+    'tables.view', 'tables.manage', 'pos.access', 'kitchen.access', 'bar.access', 'cash.view',
     'cash.manage', 'orders.cancel', 'payments.refund', 'reports.view', 'customers.view', 'customers.manage',
     'inventory.view', 'inventory.manage', 'staff.view', 'staff.manage', 'settings.view'
   ],
@@ -27,8 +27,8 @@ const ROLE_PERMISSION_CEILINGS: Record<RestaurantRole, readonly Permission[]> = 
     'orders.view', 'tables.view', 'pos.access', 'cash.view', 'cash.manage',
     'orders.cancel', 'payments.refund', 'reports.cash.view'
   ],
-  server: ['orders.view', 'tables.view', 'pos.access', 'orders.serve'],
-  kitchen: ['orders.view', 'kitchen.access']
+  server: ['orders.view', 'tables.view', 'pos.access', 'orders.serve', 'orders.cancel'],
+  kitchen: ['orders.view', 'kitchen.access', 'bar.access', 'orders.clear_pending']
 };
 
 const ROLE_BASE_PERMISSIONS: Record<RestaurantRole, readonly Permission[]> = {
@@ -36,7 +36,7 @@ const ROLE_BASE_PERMISSIONS: Record<RestaurantRole, readonly Permission[]> = {
   manager: ROLE_PERMISSION_CEILINGS.manager,
   cashier: ['orders.view', 'tables.view', 'pos.access', 'cash.view', 'cash.manage', 'reports.cash.view'],
   server: ROLE_PERMISSION_CEILINGS.server,
-  kitchen: ROLE_PERMISSION_CEILINGS.kitchen
+  kitchen: ['orders.view', 'kitchen.access', 'orders.clear_pending']
 };
 
 function parseRestaurantRole(value: unknown): Exclude<RestaurantRole, 'owner'> | null {
@@ -106,7 +106,7 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
   }
 }
 
-function isSuperAdmin(user: DecodedIdToken) {
+export function isSuperAdmin(user: DecodedIdToken) {
   // Trust only the server-issued Firebase custom claim or the verified bootstrap allowlist.
   const hasTrustedSuperAdminClaim = user.role === 'super_admin';
   const verifiedAllowlistedEmail = user.email_verified === true &&

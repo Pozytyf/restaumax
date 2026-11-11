@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import {
   getPayDunyaConfig,
@@ -87,7 +88,7 @@ db.seed('restaurants/maquis-awa', {
   status: 'active', isActive: true, ownerUid: 'owner-1', name: 'Maquis Awa', loyaltyFcfaPerPoint: 1000
 });
 db.seed('managers/manager-1', {
-  active: true, restaurantSlug: 'maquis-awa', role: 'manager', sessionVersion: 3, permissions: ['payments.refund']
+  active: true, restaurantSlug: 'maquis-awa', role: 'manager', sessionVersion: 3, permissions: ['cash.manage', 'payments.refund']
 });
 db.seed('restaurants/maquis-awa/orders/order-100', {
   id: 'order-100', restaurantSlug: 'maquis-awa', orderNumber: 'CMD-100',
@@ -95,12 +96,26 @@ db.seed('restaurants/maquis-awa/orders/order-100', {
   customerName: 'Client PayDunya', customerPhone: '+225 07 00 00 00 00', customerPhoneNormalized: '0700000000',
   items: [{ name: 'Attiéké poisson', quantity: 1, unitPrice: 7500, totalPrice: 7500 }]
 });
+db.seed('managers/manager-no-cash', {
+  active: true, restaurantSlug: 'maquis-awa', role: 'manager', sessionVersion: 3, permissions: ['payments.refund']
+});
 let passed = 0;
 const assert = (ok, label) => {
   if (!ok) throw new Error('Échec : ' + label);
   passed++;
   console.log('✓ ' + label);
 };
+
+const deniedManagerCheckout = await startPayDunyaOrderPaymentWithDb(db, config, {
+  restaurantSlug: 'maquis-awa', orderId: 'order-100', actorUid: 'manager-no-cash',
+  actorName: 'Manager sans caisse', sessionVersion: 3, idempotencyKey: 'manager_without_cash_manage',
+  callbackUrl: 'https://restaumax.vercel.app/api/payments/paydunya-callback',
+  returnUrl: 'https://restaumax.vercel.app/payments/return',
+  cancelUrl: 'https://restaumax.vercel.app/payments/cancel',
+  channel: 'orange-money-ci'
+}, async () => { throw new Error('must not create invoice without cash.manage'); });
+assert(!deniedManagerCheckout.success && deniedManagerCheckout.error?.includes('cash.manage'),
+  'Un manager sans permission explicite cash.manage ne peut pas créer une facture Mobile Money');
 
 const checkout = await startPayDunyaOrderPaymentWithDb(db, config, {
   restaurantSlug: 'maquis-awa', orderId: 'order-100', actorUid: 'manager-1',
@@ -438,4 +453,22 @@ assert(db.read('restaurants/maquis-awa/orders/order-qr').paidAmount === 2500 &&
   db.read('restaurants/maquis-awa/orders/order-qr').remainingAmount === 2000,
   'Le paiement QR partiel conserve le solde restant de la commande');
 
+const paymentsApiSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const cashUiSource = fs.readFileSync(new URL('../src/components/manager/ManagerView.tsx', import.meta.url), 'utf8');
+assert(paymentsApiSource.includes("action || '') === 'paydunya_intents'") &&
+  paymentsApiSource.includes("collection('paymentIntents').orderBy('createdAt', 'desc').limit(100)") && paymentsApiSource.includes('canReconcile: Boolean(intent.invoiceToken)'),
+  'The cash API lists recent PayDunya intents with a bounded query.');
+assert(cashUiSource.includes('Paiements PayDunya à suivre') && cashUiSource.includes('Vérifier le statut') &&
+  cashUiSource.includes('reconcile_paydunya_payment'),
+  'The cash journal exposes pending intent status and a controlled reconciliation action.');
+assert(paymentsApiSource.includes("action === 'archive_paydunya_intent'") &&
+  paymentsApiSource.includes("paymentIntentAudit") &&
+  paymentsApiSource.includes("order_cancelled_pending_manual_reconciliation") &&
+  paymentsApiSource.includes("providerPaymentStatusVerified: false"),
+  'PayDunya archive is owner/manager authorized, limited to manually reconciled cancellations, and auditable without claiming provider verification.');
+assert(paymentsApiSource.includes("includeArchived") && paymentsApiSource.includes("!intent.archivedAt"),
+  'Archived PayDunya intents are hidden from the operational list by default and can be requested for review.');
+assert(cashUiSource.includes('Archiver du suivi') && cashUiSource.includes('Afficher les archives') &&
+  cashUiSource.includes("action: 'archive_paydunya_intent'"),
+  'The cash UI supports reversible PayDunya archiving and archive review.');
 console.log(`Résultats PayDunya end-to-end : ${passed}/${passed} réussis.`);

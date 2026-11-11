@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ClientCartItem } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { calculateOrderTax, type RestaurantTaxMode } from '../../utils/pricing';
@@ -30,6 +30,9 @@ interface CartDrawerProps {
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
   onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; isReplay?: boolean }>;
+  initialCustomerNote?: string;
+  initialCustomerName?: string;
+  initialCustomerPhone?: string;
   isUncertain?: boolean;
   onResetUncertainty?: () => void;
 }
@@ -46,14 +49,23 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onRemoveItem,
   onClearCart,
   onConfirmOrder,
+  initialCustomerNote = '',
+  initialCustomerName = '',
+  initialCustomerPhone = '',
   isUncertain = false,
   onResetUncertainty
 }) => {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [customerNote, setCustomerNote] = useState<string>('');
-  const [customerName, setCustomerName] = useState<string>('');
-  const [customerPhone, setCustomerPhone] = useState<string>('');
+  const [customerNote, setCustomerNote] = useState<string>(initialCustomerNote);
+  const [customerName, setCustomerName] = useState<string>(initialCustomerName);
+  const [customerPhone, setCustomerPhone] = useState<string>(initialCustomerPhone);
+
+  useEffect(() => {
+    setCustomerNote(initialCustomerNote);
+    setCustomerName(initialCustomerName);
+    setCustomerPhone(initialCustomerPhone);
+  }, [initialCustomerNote, initialCustomerName, initialCustomerPhone]);
 
   if (!isOpen) return null;
 
@@ -179,6 +191,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 La commande a peut-être été enregistrée par le serveur. Pour empêcher tout doublon, votre panier est verrouillé. Cliquez ci-dessous pour vérifier et finaliser en toute sécurité avec la même clé.
               </div>
             </div>
+            {submitError && <p role="alert" className="pl-6 text-[11px] font-semibold text-amber-900">{submitError}</p>}
             {onResetUncertainty && (
               <div className="flex items-center justify-end pt-1 border-t border-amber-200/80">
                 <button

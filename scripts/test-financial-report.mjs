@@ -1,5 +1,19 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import { calculateRestaurantFinancialReport } from '../src/server/reportService.ts';
+import { calculateRestaurantFinancialReport, resolveFinancialReportRange } from '../src/server/reportService.ts';
+
+const localNow = Date.UTC(2026, 10, 11, 9, 30, 0);
+const dailyRange = resolveFinancialReportRange(localNow, 30, 'daily');
+assert.equal(dailyRange.startAt, Date.UTC(2026, 10, 11, 0, 0, 0), 'Le point journalier commence à minuit UTC+0, heure de Côte d’Ivoire.');
+assert.equal(dailyRange.endAt, localNow, 'Le point journalier s’arrête à l’instant de calcul.');
+const selectedPastDay = resolveFinancialReportRange(localNow, 30, 'daily', '2026-11-10');
+assert.equal(selectedPastDay.startAt, Date.UTC(2026, 10, 10, 0, 0, 0), 'Le calendrier commence la journée choisie à minuit UTC+0.');
+assert.equal(selectedPastDay.endAt, Date.UTC(2026, 10, 11, 0, 0, 0) - 1, 'Une journée passée couvre les 24 heures calendaires complètes.');
+assert.throws(() => resolveFinancialReportRange(localNow, 30, 'daily', '2026-11-12'), /date future/i, 'Une date future est refusée.');
+assert.throws(() => resolveFinancialReportRange(localNow, 30, 'daily', '2026-02-30'), /Date de recette invalide/, 'Une date impossible est refusée.');
+const periodRange = resolveFinancialReportRange(localNow, 30, 'period');
+assert.equal(periodRange.startAt, localNow - 30 * 24 * 60 * 60 * 1000, 'Le rapport périodique conserve sa fenêtre glissante.');
+assert.throws(() => resolveFinancialReportRange(localNow, 0, 'daily'), /Période de rapport invalide/, 'Une période invalide est rejetée.');
 
 const report = calculateRestaurantFinancialReport({
   orders: [{
@@ -80,5 +94,62 @@ assert.deepEqual(refundedRanking.bestSellers, [{ name: 'Plat partiellement rembo
 assert.equal(Number.isInteger(refundedRanking.bestSellers[0].quantity), true,
   'Le classement ne fabrique pas de quantités fractionnaires faute de détail des articles retournés.');
 assert.equal(refundedRanking.grossCollected, 500, 'Le classement et le chiffre d’affaires net reposent sur la même base après remboursement.');
+const refundOnlyDay = calculateRestaurantFinancialReport({
+  orders: [{ id: 'prior-order', status: 'completed', createdAt: Date.UTC(2026, 10, 10, 18), totalAmount: 1000, subtotalAmount: 820, taxAmount: 180, paidAmount: 1000, items: [{ name: 'Repas antérieur', quantity: 1 }] }],
+  payments: [],
+  refunds: [{ id: 'refund-today', orderId: 'prior-order', paymentId: 'prior-payment', method: 'especes', amount: 250 }],
+  stockMovements: [], cashMovements: [], cashSessions: []
+}, { startAt: Date.UTC(2026, 10, 11, 0), endAt: Date.UTC(2026, 10, 12, 0) - 1, includeCashDetails: true, eventWindow: true });
+assert.equal(refundOnlyDay.grossCollected, -250, 'Un remboursement reçu aujourd’hui est imputé à la recette de la date de remboursement, sans recompter le paiement de la veille.');
+assert.equal(refundOnlyDay.taxCollected, -45, 'La taxe est déduite au prorata du remboursement journalier.');
+assert.equal(refundOnlyDay.netSales, -205, 'La recette HT reflète un remboursement sans réintégrer la vente de la veille.');
+assert.equal(refundOnlyDay.cash.paymentMethodTotals.especes, -250, 'Le remboursement est imputé au canal espèces même si le paiement initial date de la veille.');
+assert.equal(refundOnlyDay.bestSellers.length, 0, 'Un remboursement seul ne réaffiche pas les articles vendus la veille.');
+const pendingRefundReport = calculateRestaurantFinancialReport({
+  orders: [{ id: 'pending-refund-order', status: 'completed', createdAt: Date.UTC(2026, 10, 11, 10), totalAmount: 1000, paidAmount: 1000, items: [{ name: 'Commande', quantity: 1 }] }],
+  payments: [{ id: 'pending-refund-payment', orderId: 'pending-refund-order', method: 'paydunya', paidAmount: 1000 }],
+  refunds: [
+    { id: 'pending-refund', orderId: 'pending-refund-order', paymentId: 'pending-refund-payment', method: 'paydunya', amount: 500, status: 'pending' },
+    { id: 'failed-refund', orderId: 'pending-refund-order', paymentId: 'pending-refund-payment', method: 'paydunya', amount: 200, status: 'failed' }
+  ],
+  stockMovements: [], cashMovements: [], cashSessions: []
+}, { startAt: Date.UTC(2026, 10, 11, 0), endAt: Date.UTC(2026, 10, 12, 0) - 1, includeCashDetails: true, eventWindow: true });
+assert.equal(pendingRefundReport.grossCollected, 1000, 'Les remboursements fournisseur en attente ou échoués ne diminuent pas les recettes réalisées.');
 
-console.log('Financial report calculation tests passed: 20 assertions.');
+const reportApiSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const reportUiSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
+const reportServiceSource = fs.readFileSync(new URL('../src/server/reportService.ts', import.meta.url), 'utf8');
+const cashSupervisionSource = fs.readFileSync(new URL('../src/components/manager/ManagerView.tsx', import.meta.url), 'utf8');
+const cashSessionTypesSource = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
+assert(cashSupervisionSource.includes('Calendrier des recettes journalières') &&
+  cashSupervisionSource.includes('Date de consultation de la recette') &&
+  cashSupervisionSource.includes('/api/reports?restaurantSlug=') &&
+  cashSupervisionSource.includes('closeSelectedRevenueDay'),
+  'La supervision du journal de caisse expose le calendrier daté et la clôture journalière.');
+assert(!cashSupervisionSource.includes('cashSession.openingBalance + cashSession.cashCollected - cashSession.cashOut'),
+  'La supervision ne présente plus une seconde formule de solde théorique contradictoire.');
+assert(cashSessionTypesSource.includes('cashRefunds?: number') && cashSessionTypesSource.includes('refundCount?: number'),
+  'Le contrat de session de caisse expose les totaux de remboursements.');
+
+assert(reportApiSource.includes("['period', 'daily']") && reportApiSource.includes("reportType: reportType as 'period' | 'daily'"),
+  'The authenticated reports API explicitly accepts separate daily and periodic modes.');
+assert(reportUiSource.includes('Calendrier des recettes journalières') && reportUiSource.includes('type=\"date\"') && reportUiSource.includes('reportType=daily') && reportUiSource.includes('periodDays=30&reportType=period'),
+  'The reports screen loads the daily point separately from the rolling 30-day report.');
+assert(reportServiceSource.includes('linkedOrderIds') && reportServiceSource.includes('previous day'), 'Daily settlement reports include prior-day orders when their payment is made in the selected period.');
+assert(reportServiceSource.includes('completedAt') && reportServiceSource.includes('effectiveAt'),
+  'Provider refunds are attributed to the day the provider confirms completion, not the day the refund was requested.');
+assert(reportServiceSource.includes("['recorded', 'completed', 'success', 'succeeded']"),
+  'Only finalized refunds are included in realized daily revenue.');
+assert(reportServiceSource.includes("refunds.map((doc: any) => String(doc.data()?.orderId || ''))"),
+  'A refund made on the selected date loads its original order even when the payment was received earlier.');
+assert(reportApiSource.includes('closureData?.report'), 'A closed day always displays its immutable archived report snapshot.');
+assert(reportApiSource.includes('delete archivedReport.cash') && !reportApiSource.includes('...closureSnap.data()'), 'Archived closures never bypass reports.cash.view when exposing cash details.');
+assert(reportApiSource.includes("dailyRevenueClosures") && reportApiSource.includes("Seul le propriétaire ou le gérant"),
+  'Daily revenue closure is stored server-side and restricted to owners and managers.');
+assert(reportApiSource.includes('hasUnresolvedPayDunya') && reportApiSource.includes('reste à rapprocher'), 'A daily close is blocked while PayDunya intents remain unresolved.');
+assert(reportApiSource.includes('hasUnresolvedRefund') && reportApiSource.includes('reste à confirmer'), 'A daily close is blocked while a provider refund is unresolved.');
+assert(reportApiSource.includes("hasOpenSessionForDay") && reportApiSource.includes("journée terminée"),
+  'A daily closure is rejected while a cash session from that day remains open or the day is still current.');
+assert(reportUiSource.includes('Clôturer la recette du jour') && reportUiSource.includes('Journée clôturée'),
+  'The revenue calendar exposes a close action and an immutable closure confirmation.');
+console.log('Financial report calculation tests passed: 48 assertions.');

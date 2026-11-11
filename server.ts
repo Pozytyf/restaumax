@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 /**
  * RESTAUMAX — SERVEUR BACKEND SÉCURISÉ & PASSERELLE API RESTAUMAX
  *
@@ -42,25 +42,28 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { handlePlatformAdmin as runPlatformAdmin } from './src/server/platformAdmin.js';
-import { getRestaurantFinancialReportWithDb } from './src/server/reportService.js';
+import { getRestaurantFinancialReportWithDb, resolveFinancialReportRange } from './src/server/reportService.js';
 import { sanitizePublicMenuItem } from './src/server/publicMenu.js';
 import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
+import { mutateCustomerOrderWithDb } from './src/server/customerOrderService.ts';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
 import { consumePublicOrderRateLimit } from './src/server/orderRateLimit.ts';
 import { verifyPublicOrderAppCheck } from './src/server/appCheckGuard.js';
 import { getRestaurantOwnerUid } from './src/server/restaurantOwnership.ts';
 import { createRestaurantImageHandler } from './src/server/restaurantImageService.js';
 import { manageInventoryWithDb } from './src/server/inventoryService.js';
-import { adjustCustomerLoyaltyPointsWithDb } from './src/server/loyaltyService.js';
+import { adjustCustomerLoyaltyPointsWithDb, createCustomerWithDb } from './src/server/loyaltyService.js';
+import { createTableWithDb } from './src/server/tableService.js';
 import { 
-  processOrderSubmission, 
+  processOrderSubmission,
+  deriveIdempotencyIdentifiers,
   ServerFirestoreProvider,
   ServerIdempotencyRecord,
   OrderProbeResult,
   IdempotencyReservationResult
 } from './src/server/orderService.js';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, listClosedCashSessionsWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb } from './src/server/paymentService.js';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, getCashSessionWithDb, listClosedCashSessionsWithDb, openCashSessionWithDb, closeCashSessionWithDb, recordCashMovementWithDb, refundCashPaymentWithDb, reclassifyCashPaymentWithDb } from './src/server/paymentService.js';
 import { type PayDunyaCiWithdrawMode } from './src/server/paydunyaService.js';
 import { resolveTableQrOrigin } from './src/server/tableQrOrigin.ts';
 import { loadRestaurantPayDunyaConfig, saveRestaurantPayDunyaCredentials } from './src/server/paydunyaMerchantConfig.js';
@@ -520,6 +523,9 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         sessionData.tableId === tableSession.tableId &&
         sessionData.qrTokenHash === tableSession.qrTokenHash &&
         Number(sessionData.qrVersion) === Number(tableSession.qrVersion) &&
+        typeof sessionData.tableServiceSessionId === 'string' &&
+        sessionData.tableServiceSessionId.length >= 16 &&
+        sessionData.tableServiceSessionId === tableSession.tableServiceSessionId &&
         qrData &&
         qrData.status === 'active' &&
         qrData.tokenHash === tableSession.qrTokenHash &&
@@ -529,6 +535,8 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         tableData &&
         tableData.isActive === true &&
         Number(tableData.qrVersion || 0) === Number(sessionData.qrVersion || 0) &&
+        tableData.activeServiceSessionId === sessionData.tableServiceSessionId &&
+        Number(tableData.activeServiceSessionQrVersion || 0) === Number(sessionData.qrVersion || 0) &&
         String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
         Number(sessionData.restaurantSessionVersion || 0) === Number(restaurantData.tableSessionVersion || 0) &&
         restaurantData.isOpen !== false
@@ -653,7 +661,8 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
           sessionHash: tableSession.sessionHash,
           qrTokenHash: tableSession.qrTokenHash,
           qrVersion: Number(tableSession.qrVersion),
-          tableId: tableSession.tableId
+          tableId: tableSession.tableId,
+          tableServiceSessionId: tableSession.tableServiceSessionId
         }
       } : orderToCreate),
       orderNumber,
@@ -1032,6 +1041,30 @@ export async function handleGetTableSession(req: any) {
   }
 }
 
+
+
+export async function handleTableCreateRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de gestion des tables indisponible.' } };
+  if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  const input = payload && typeof payload === 'object' ? payload as any : {};
+  const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+  try {
+    await authorizeTableManager(adminDb, adminAuth, req, restaurantSlug);
+    const result = await createTableWithDb(adminDb, restaurantSlug, input.table);
+    if (result.success) return { statusCode: 201, body: result };
+    return { statusCode: result.conflict ? 409 : 400, body: result };
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (/auth|token|revoked|expired/i.test(message)) return { statusCode: 401, body: { success: false, error: 'Session gestionnaire invalide. Reconnectez-vous.' } };
+    console.error('[RestauMax table create] Request failed:', message);
+    return { statusCode: 403, body: { success: false, error: message || 'Création de table refusée.' } };
+  }
+}
+
+
+
 export async function handleTableQrManagement(req: any) {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de gestion QR indisponible.' } };
   const restaurantSlug = String(req?.body?.restaurantSlug || req?.query?.restaurantSlug || '').trim();
@@ -1370,11 +1403,12 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     }
 
     const isOwner = member.role === 'owner' && ownerUid === decoded.uid;
-    const canManageCash = isOwner || member.role === 'manager' ||
-      (member.role === 'cashier' && Array.isArray(member.permissions) && member.permissions.includes('cash.manage'));
-    const canViewCash = isOwner || member.role === 'manager' ||
-      (member.role === 'cashier' && Array.isArray(member.permissions) &&
-        (member.permissions.includes('cash.view') || member.permissions.includes('cash.manage') || member.permissions.includes('reports.cash.view')));
+    const memberPermissions = Array.isArray(member.permissions) ? member.permissions : [];
+    const canManageCash = isOwner ||
+      (['manager', 'cashier'].includes(member.role) && memberPermissions.includes('cash.manage'));
+    const canViewCash = isOwner ||
+      (['manager', 'cashier'].includes(member.role) &&
+        (memberPermissions.includes('cash.view') || memberPermissions.includes('cash.manage') || memberPermissions.includes('reports.cash.view')));
 
     if (method === 'GET' && String(req.query?.action || '') === 'paydunya_account_status') {
       if (!isOwner) return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire vérifié peut consulter la configuration du compte marchand.' } };
@@ -1398,11 +1432,28 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
         const closedSessions = await listClosedCashSessionsWithDb(adminDb, slug, limitCount);
         return { statusCode: 200, body: { success: true, closedSessions } };
       }
+      if (String(req.query?.action || '') === 'paydunya_intents') {
+        const includeArchived = String(req.query?.includeArchived || '') === 'true';
+        const intentSnap = await restaurantRef.collection('paymentIntents').orderBy('createdAt', 'desc').limit(100).get();
+        const paymentIntents = intentSnap.docs.map((doc: any) => {
+          const intent = doc.data() || {};
+          return {
+            id: doc.id, orderId: String(intent.orderId || ''), amount: Number(intent.amount || 0),
+            currency: String(intent.currency || 'XOF'), channel: String(intent.channel || ''),
+            status: String(intent.status || 'unknown'), createdAt: Number(intent.createdAt || 0),
+            updatedAt: Number(intent.updatedAt || 0), archivedAt: Number(intent.archivedAt || 0),
+            archiveReason: String(intent.archiveReason || ''),
+            canReconcile: Boolean(intent.invoiceToken) && ['pending', 'creating', 'creation_unknown'].includes(String(intent.status || '')),
+            lastProviderError: String(intent.lastProviderError || '').slice(0, 180)
+          };
+        }).filter((intent: any) => includeArchived || !intent.archivedAt);
+        return { statusCode: 200, body: { success: true, paymentIntents } };
+      }
       const payments = await listRecentCashPaymentsWithDb(adminDb, slug, 100);
       return { statusCode: 200, body: { success: true, payments } };
     }
 
-    if (!canManageCash) {
+    if (!canManageCash && input.action !== 'reclassify_cash_payment') {
       return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de gérer la caisse.' } };
     }
 
@@ -1428,6 +1479,42 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       } catch (error: any) {
         return { statusCode: 400, body: { success: false, error: String(error?.message || 'Identifiants PayDunya invalides.') } };
       }
+    }
+
+    if (input.action === 'archive_paydunya_intent') {
+      const canArchive = isOwner || (member.role === 'manager' && memberPermissions.includes('cash.manage'));
+      if (!canArchive) return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire ou un manager autorisé peut archiver le suivi PayDunya.' } };
+      const intentId = String(input.paymentIntentId || '').trim();
+      const reason = String(input.reason || '').trim().slice(0, 300);
+      if (!/^[A-Za-z0-9_-]{1,160}$/.test(intentId) || reason.length < 3) {
+        return { statusCode: 400, body: { success: false, error: 'Référence PayDunya ou motif d’archivage invalide.' } };
+      }
+      const intentRef = restaurantRef.collection('paymentIntents').doc(intentId);
+      const auditRef = restaurantRef.collection('paymentIntentAudit').doc('archive_' + intentId);
+      const archiveResult = await adminDb.runTransaction(async (tx: any) => {
+        const intentSnap = await tx.get(intentRef);
+        if (!intentSnap.exists) return { success: false, statusCode: 404, error: 'Intention PayDunya introuvable dans ce restaurant.' };
+        const intent = intentSnap.data() || {};
+        if (intent.restaurantSlug !== slug) return { success: false, statusCode: 403, error: 'Intention PayDunya rattachée à un autre restaurant.' };
+        if (intent.archivedAt) return { success: true, idempotentReplay: true };
+        if (intent.status !== 'order_cancelled_pending_manual_reconciliation') {
+          return { success: false, statusCode: 409, error: 'Retirez d’abord la commande impayée de la caisse ou vérifiez son statut marchand avant archivage.' };
+        }
+        const now = Date.now();
+        tx.update(intentRef, {
+          archivedAt: now, archivedBy: decoded.uid, archivedByName: String(decoded.name || decoded.email || decoded.uid),
+          archiveReason: reason, updatedAt: now
+        });
+        tx.create(auditRef, {
+          eventType: 'paydunya_intent_archived', restaurantSlug: slug, paymentIntentId: intentId,
+          orderId: String(intent.orderId || ''), amount: Number(intent.amount || 0),
+          actorUid: decoded.uid, actorName: String(decoded.name || decoded.email || decoded.uid),
+          reason, createdAt: now, providerPaymentStatusVerified: false
+        });
+        return { success: true };
+      });
+      if (!archiveResult.success) return { statusCode: archiveResult.statusCode || 409, body: archiveResult };
+      return { statusCode: 200, body: archiveResult };
     }
 
     if (input.action === 'reconcile_paydunya_payment') {
@@ -1472,8 +1559,8 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
     }
 
     if (input.action === 'refund_paydunya_payment') {
-      const canRefund = isOwner || member.role === 'manager' ||
-        (member.role === 'cashier' && Array.isArray(member.permissions) &&
+      const canRefund = isOwner ||
+        (['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions) &&
           member.permissions.includes('payments.refund'));
       if (!canRefund) return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };
       const merchantConfig = await loadRestaurantPayDunyaConfig(adminDb, slug, process.env);
@@ -1503,9 +1590,32 @@ export async function handlePaymentsRequest(payload: unknown, req?: any): Promis
       return { statusCode: result.conflict ? 409 : 400, body: result };
     }
 
+    if (input.action === 'reclassify_cash_payment') {
+      const canReclassify = isOwner ||
+        (member.role === 'manager' && memberPermissions.includes('payments.reclassify')) ||
+        (member.role === 'cashier' && memberPermissions.includes('cash.manage'));
+      if (!canReclassify) {
+        return { statusCode: 403, body: { success: false, error: 'Permission de correction de paiement refusée.' } };
+      }
+      const result = await reclassifyCashPaymentWithDb(adminDb, {
+        restaurantSlug: slug,
+        paymentId: String(input.paymentId || ''),
+        actorUid: decoded.uid,
+        actorName: String(decoded.name || decoded.email || decoded.uid),
+        sessionVersion: Number(decoded.sessionVersion || 0),
+        provider: input.provider,
+        transactionReference: String(input.transactionReference || ''),
+        reason: String(input.reason || ''),
+        verificationNote: String(input.verificationNote || ''),
+        idempotencyKey: String(input.idempotencyKey || '')
+      });
+      if (result.success) return { statusCode: 200, body: result };
+      return { statusCode: result.conflict ? 409 : 400, body: result };
+    }
+
     if (input.action === 'refund_cash_payment') {
-      const canRefund = isOwner || member.role === 'manager' ||
-        (member.role === 'cashier' && Array.isArray(member.permissions) &&
+      const canRefund = isOwner ||
+        (['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions) &&
           member.permissions.includes('payments.refund'));
       if (!canRefund) {
         return { statusCode: 403, body: { success: false, error: 'La permission distincte payments.refund est requise.' } };
@@ -1655,7 +1765,7 @@ export async function handlePosOrderSubmission(payload: unknown, req?: any): Pro
     const result = await processOrderSubmission(input, staffProvider);
     if (result.success) return { statusCode: 200, body: result };
     if (result.conflict) return { statusCode: 409, body: result };
-    return { statusCode: 400, body: result };
+    return { statusCode: result.retryable ? 503 : 400, body: result };
   } catch (err: any) {
     const message = String(err?.message || '');
     if (/auth|token|revoked|expired/i.test(message)) {
@@ -1744,7 +1854,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
         if (appCheckResult.reason === 'invalid-token') {
           console.warn('[RestauMax orders] App Check rejected a public order:', appCheckResult.code || 'invalid-token');
         }
-        return { statusCode: appCheckResult.statusCode, body: { success: false, error: appCheckResult.message } };
+        return { statusCode: appCheckResult.statusCode, body: { success: false, error: appCheckResult.message, definitive: appCheckResult.reason === 'not-configured' } };
       }
       const restaurantSnap = await adminDb.collection('restaurants').doc(restaurantSlug).get();
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
@@ -1808,20 +1918,35 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
         sessionHash: session.sessionHash,
         qrTokenHash: session.qrTokenHash,
         qrVersion: session.qrVersion,
-        tableId: session.tableId
+        tableId: session.tableId,
+        tableServiceSessionId: session.tableServiceSessionId
       };
     } else if (input.orderMode === 'a_emporter') {
       input.tableNumber = null;
       delete input.tableSession;
     }
+    const accessSecret = String(process.env.ORDER_CUSTOMER_ACCESS_SECRET || process.env.ORDER_RATE_LIMIT_SECRET || '');
+    const customerSlug = String(input.restaurantSlug || '').trim();
+    const customerAccessEnabled = accessSecret.length >= 32 && typeof input.idempotencyKey === 'string' && input.idempotencyKey.length > 0;
+    if (customerAccessEnabled) {
+      const identifiers = deriveIdempotencyIdentifiers(customerSlug, input.idempotencyKey);
+      const token = createHmac('sha256', accessSecret).update(`restaumax:customer-order-access:v1:${customerSlug}:${identifiers.orderId}`).digest('hex');
+      input.customerAccessTokenHash = createHash('sha256').update(token).digest('hex');
+    }
     const result = await processOrderSubmission(input, serverFirestoreProvider);
     if (result.success) {
       const safeOrder = result.order ? { ...result.order } as any : undefined;
-      if (safeOrder) delete safeOrder.tableSession;
-      return { statusCode: 200, body: { ...result, order: safeOrder } };
+      if (safeOrder) {
+        delete safeOrder.tableSession;
+        delete safeOrder.customerAccessTokenHash;
+      }
+      const customerAccessToken = customerAccessEnabled && result.order?.id
+        ? createHmac('sha256', accessSecret).update(`restaumax:customer-order-access:v1:${customerSlug}:${result.order.id}`).digest('hex')
+        : undefined;
+      return { statusCode: 200, body: { ...result, order: safeOrder, ...(customerAccessToken ? { customerAccessToken } : {}) } };
     }
     if (result.conflict) return { statusCode: 409, body: result };
-    return { statusCode: 400, body: result };
+    return { statusCode: result.retryable ? 503 : 400, body: result };
   } catch (err: any) {
     console.error('Erreur inattendue API /api/orders:', err?.message || String(err));
     return { statusCode: 500, body: { success: false, error: 'Erreur interne du serveur lors du traitement de la commande.' } };
@@ -1851,8 +1976,10 @@ export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<
 
 export async function handleRestaurantReportsRequest(req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de rapports indisponible.' } };
-  if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  const method = String(req?.method || '').toUpperCase();
+  if (!['GET', 'POST'].includes(method)) return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
   if (!req) return { statusCode: 400, body: { success: false, error: 'Requête invalide.' } };
+  if (method === 'POST' && !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
   try {
     const authorization = String(req.headers?.authorization || '');
     const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
@@ -1862,7 +1989,7 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     if (decoded.role === 'super_admin' || decoded.role === 'admin') {
       return { statusCode: 403, body: { success: false, error: 'Le super-administrateur n’a pas accès aux opérations d’un restaurant.' } };
     }
-    const restaurantSlug = String(req.query?.restaurantSlug || '').trim();
+    const restaurantSlug = String(method === 'POST' ? req.body?.restaurantSlug : req.query?.restaurantSlug || '').trim();
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
     const [restaurantSnap, memberSnap] = await Promise.all([
       adminDb.collection('restaurants').doc(restaurantSlug).get(),
@@ -1881,11 +2008,105 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     const canViewReports = isOwner || permissions.includes('reports.view');
     if (!canViewReports) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les rapports.' } };
     const includeCashDetails = isOwner || permissions.includes('reports.cash.view');
+    const restaurantRef = adminDb.collection('restaurants').doc(restaurantSlug);
+    if (method === 'POST') {
+      const input = req.body && typeof req.body === 'object' ? req.body : {};
+      const date = String(input.date || '');
+      if (!(isOwner || member.role === 'manager')) {
+        return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire ou le gérant peut clôturer la recette journalière.' } };
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return { statusCode: 400, body: { success: false, error: 'Date de clôture invalide.' } };
+      }
+      const parsedDate = Date.parse(date + 'T00:00:00.000Z');
+      if (!Number.isFinite(parsedDate) || new Date(parsedDate).toISOString().slice(0, 10) !== date) {
+        return { statusCode: 400, body: { success: false, error: 'Date de clôture invalide.' } };
+      }
+      const now = Date.now();
+      const today = new Date(now).toISOString().slice(0, 10);
+      if (date >= today) {
+        return { statusCode: 409, body: { success: false, error: 'La clôture officielle est réservée à une journée terminée.' } };
+      }
+      const { startAt, endAt } = resolveFinancialReportRange(now, 30, 'daily', date);
+      const activeSessions = await restaurantRef.collection('cashSessions')
+        .where('status', '==', 'active').get();
+      const hasOpenSessionForDay = activeSessions.docs.some((sessionDoc: any) => {
+        const openedAt = Number(sessionDoc.data()?.openedAt || 0);
+        return openedAt >= startAt && openedAt <= endAt;
+      });
+      if (hasOpenSessionForDay) {
+        return { statusCode: 409, body: { success: false, error: 'Clôture impossible : une session de caisse de cette journée est encore ouverte.' } };
+      }
+      const dayPaymentIntents = await restaurantRef.collection('paymentIntents')
+        .where('createdAt', '>=', startAt).where('createdAt', '<=', endAt).get();
+      const hasUnresolvedPayDunya = dayPaymentIntents.docs.some((intentDoc: any) =>
+        ['pending', 'creating', 'creation_unknown'].includes(String(intentDoc.data()?.status || '').toLowerCase())
+      );
+      if (hasUnresolvedPayDunya) {
+        return { statusCode: 409, body: { success: false, error: 'Clôture impossible : un paiement PayDunya de cette journée reste à rapprocher. Vérifiez son statut avant de clôturer.' } };
+      }
+      const dayRefunds = await restaurantRef.collection('refunds')
+        .where('createdAt', '>=', startAt).where('createdAt', '<=', endAt).get();
+      const hasUnresolvedRefund = dayRefunds.docs.some((refundDoc: any) =>
+        ['initiating', 'manual_review', 'created', 'pending'].includes(String(refundDoc.data()?.status || '').toLowerCase())
+      );
+      if (hasUnresolvedRefund) {
+        return { statusCode: 409, body: { success: false, error: 'Clôture impossible : un remboursement fournisseur de cette journée reste à confirmer.' } };
+      }
+      // Store a complete immutable snapshot; GET responses redact cash details
+      // unless the requesting manager has reports.cash.view.
+      const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
+        reportType: 'daily', date, includeCashDetails: true
+      });
+      const closureRef = restaurantRef.collection('dailyRevenueClosures').doc(date);
+      const closure = {
+        restaurantSlug, date, status: 'closed', report,
+        reportHash: createHash('sha256').update(JSON.stringify(report)).digest('hex'),
+        closedAt: now, closedByUid: decoded.uid,
+        closedByName: String(decoded.name || decoded.email || decoded.uid),
+        closedByRole: String(member.role || '')
+      };
+      const closeResult = await adminDb.runTransaction(async (tx: any) => {
+        const existing = await tx.get(closureRef);
+        if (existing.exists) return { created: false, record: existing.data() };
+        tx.create(closureRef, closure);
+        return { created: true, record: closure };
+      });
+      const savedClosure = closeResult.record || closure;
+      return { statusCode: 200, body: {
+        success: true, idempotentReplay: !closeResult.created,
+        closure: {
+          date, status: 'closed', closedAt: savedClosure.closedAt,
+          closedByName: savedClosure.closedByName, reportHash: savedClosure.reportHash
+        }
+      } };
+    }
     const periodDays = Number(req.query?.periodDays || 30);
-    const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
-      periodDays, includeCashDetails
+    const reportType = String(req.query?.reportType || 'period');
+    if (!['period', 'daily'].includes(reportType)) {
+      return { statusCode: 400, body: { success: false, error: 'Type de rapport invalide.' } };
+    }
+    const selectedDate = typeof req.query?.date === 'string' ? req.query.date : undefined;
+    const closureSnap = reportType === 'daily' && selectedDate
+      ? await restaurantRef.collection('dailyRevenueClosures').doc(selectedDate).get()
+      : null;
+    const closureData = closureSnap?.exists ? closureSnap.data() : null;
+    const archivedReport = closureData?.report && typeof closureData.report === 'object'
+      ? { ...closureData.report }
+      : null;
+    if (archivedReport && !includeCashDetails) delete archivedReport.cash;
+    const report = archivedReport || await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
+      periodDays, includeCashDetails, reportType: reportType as 'period' | 'daily',
+      ...(selectedDate ? { date: selectedDate } : {})
     });
-    return { statusCode: 200, body: { success: true, report } };
+    return { statusCode: 200, body: {
+      success: true, report,
+      closure: closureData ? {
+        id: closureSnap.id, date: closureData.date, status: closureData.status,
+        closedAt: closureData.closedAt, closedByName: closureData.closedByName,
+        reportHash: closureData.reportHash
+      } : null
+    } };
   } catch (error: any) {
     const message = String(error?.message || '');
     if (/auth|token|revoked|expired/i.test(message)) return { statusCode: 401, body: { success: false, error: 'Session du personnel invalide. Reconnectez-vous.' } };
@@ -1918,6 +2139,36 @@ export async function handleInventoryRequest(payload: unknown, req?: any): Promi
   } catch (error: any) {
     console.error('Erreur API gestion stock:', error?.message || String(error));
     return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la gestion du stock.' } };
+  }
+}
+
+
+
+export async function handleCustomerCreateRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service clients indisponible : Firebase Admin non configuré.' } };
+  if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  try {
+    const authorization = String(req.headers?.authorization || '');
+    const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!idToken) return { statusCode: 401, body: { success: false, error: 'Connexion du personnel requise.' } };
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
+    if (decoded.role === 'super_admin' || decoded.role === 'admin') {
+      return { statusCode: 403, body: { success: false, error: 'Le super-administrateur ne gère pas les clients des restaurants.' } };
+    }
+    const input = payload && typeof payload === 'object' ? payload as any : {};
+    const result = await createCustomerWithDb(adminDb, {
+      restaurantSlug: input.restaurantSlug, name: input.name, phone: input.phone,
+      email: input.email, notes: input.notes, actorUid: decoded.uid,
+      sessionVersion: Number(decoded.sessionVersion || 0)
+    });
+    if (result.success) return { statusCode: 200, body: result };
+    return { statusCode: result.conflict ? 409 : 403, body: result };
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    if (/auth|token|revoked|expired/i.test(message)) return { statusCode: 401, body: { success: false, error: 'Session du personnel invalide. Reconnectez-vous.' } };
+    console.error('[RestauMax customer create] Request failed:', message);
+    return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la création de la fiche client.' } };
   }
 }
 
@@ -1957,6 +2208,31 @@ export async function handleCustomerLoyaltyAdjustmentRequest(payload: unknown, r
   }
 }
 
+export async function handleCustomerOrderMutationRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
+  if (!adminDb) return { statusCode: 503, body: { success: false, error: 'Service de commande indisponible.' } };
+  if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  if (!req || !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
+  const input = payload && typeof payload === 'object' ? payload as any : {};
+  const restaurantSlug = String(input.restaurantSlug || '').trim();
+  const orderId = String(input.orderId || '').trim();
+  const accessToken = String(input.accessToken || '');
+  const action = input.action;
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(orderId) ||
+      accessToken.length < 32 || !['get', 'cancel', 'edit'].includes(action)) {
+    return { statusCode: 400, body: { success: false, error: 'Données de suivi de commande invalides.' } };
+  }
+  const result = await mutateCustomerOrderWithDb(adminDb, {
+    restaurantSlug, orderId, accessToken, action,
+    reason: input.reason,
+    items: input.items,
+    customerNote: input.customerNote
+  });
+  if (result.success) return { statusCode: 200, body: result };
+  const error = String(result.error || '');
+  return { statusCode: error.includes('plus modifiable') || error.includes('déjà réglée') ? 409
+    : error.includes('Accès') ? 403 : 400, body: result };
+}
+
 export async function handleOrderStatusRequest(payload: unknown, req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service RestauMax temporairement indisponible.' } };
   if (String(req?.method || '').toUpperCase() !== 'POST') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
@@ -1974,13 +2250,15 @@ export async function handleOrderStatusRequest(payload: unknown, req?: any): Pro
     const restaurantSlug = String(input.restaurantSlug || '').trim();
     const orderId = String(input.orderId || '').trim();
     const targetStatus = input.status;
-    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(orderId)) {
+    const cancellationReason = typeof input.cancellationReason === 'string' ? input.cancellationReason.trim().slice(0, 300) : '';
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(orderId) ||
+        (targetStatus === 'cancelled' && cancellationReason.length < 3)) {
       return { statusCode: 400, body: { success: false, error: 'Restaurant ou commande invalide.' } };
     }
-    const result = await transitionOrderStatusWithDb(adminDb, { restaurantSlug, orderId, targetStatus, actorUid: decoded.uid, sessionVersion: Number(decoded.sessionVersion || 0) });
+    const result = await transitionOrderStatusWithDb(adminDb, { restaurantSlug, orderId, targetStatus, cancellationReason, pendingOnly: input.pendingOnly === true, removalAction: input.removalAction === true, actorUid: decoded.uid, sessionVersion: Number(decoded.sessionVersion || 0) });
     if (result.success) return { statusCode: 200, body: result };
     const errorMessage = 'error' in result ? String(result.error || '') : '';
-    return { statusCode: errorMessage.includes('Transition refusée') ? 409 : 403, body: result };
+    return { statusCode: /Transition refusée|règlement effectué|paiement Mobile Money en cours/.test(errorMessage) ? 409 : 403, body: result };
   } catch (error: any) {
     console.error('[RestauMax order status] Request failed:', error?.message || String(error));
     return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la transition de commande.' } };
@@ -2047,6 +2325,13 @@ app.all('/api/platform-admin', async (req, res) => {
   await handlePlatformAdmin(req, res);
 });
 
+app.post('/api/customer-orders', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleCustomerOrderMutationRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
 app.post('/api/order-status', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -2119,11 +2404,35 @@ app.get('/api/reports', async (req, res) => {
   return res.status(result.statusCode).json(result.body);
 });
 
+app.post('/api/reports', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleRestaurantReportsRequest(req);
+  return res.status(result.statusCode).json(result.body);
+});
+
 app.post('/api/inventory', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const result = await handleInventoryRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/customers', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleCustomerCreateRequest(req.body, req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/tables', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleTableCreateRequest(req.body, req);
   return res.status(result.statusCode).json(result.body);
 });
 

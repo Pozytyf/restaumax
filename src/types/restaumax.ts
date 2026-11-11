@@ -114,6 +114,8 @@ export interface RestauOrderItem {
   id: string;
   menuItemId: string;
   name: string;
+  /** Trusted catalogue category snapshot used by kitchen station routing. */
+  category?: string;
   basePrice: number;
   unitPrice: number;
   quantity: number;
@@ -165,6 +167,8 @@ export interface RestauOrder {
   /** Customer's requested settlement method; cash is only marked paid after staff records receipt. */
   paymentPreference?: 'especes' | 'mobile_money';
   paymentPreferenceSource?: 'customer_qr' | 'staff';
+  /** Active provider intent that must be reconciled before cancellation. */
+  pendingPayDunyaIntentId?: string;
   paymentPreferenceUpdatedAt?: number;
   splitGuests?: number;
   guestAccounts?: RestauGuestAccount[];
@@ -176,6 +180,14 @@ export interface RestauOrder {
   createdAt: number; // UTC timestamp ms
   createdAtIso: string;
   statusUpdatedAt?: number;
+  statusHistory?: Array<{ status: RestauOrderStatus; changedAt: number; reason?: string }>;
+  cancellationReason?: string;
+  cancelledAt?: number;
+  cancelledBy?: string;
+  /** Logical POS removal metadata; order and audit history are retained. */
+  removedFromPosAt?: number;
+  removedFromPosBy?: string;
+  removedFromPosReason?: string;
   /** Per-line KDS completion state, keyed by stable zero-based order item index. */
   kitchenItemCompletion?: Record<string, boolean>;
   kitchenItemsCompletedCount?: number;
@@ -187,6 +199,8 @@ export interface RestauOrder {
   idempotencyKey?: string;
   idempotencyDocId?: string;
   contentSignature?: string;
+  /** Hashed one-order capability; never returned to public clients. */
+  customerAccessTokenHash?: string;
 }
 
 export interface RestaurantTable {

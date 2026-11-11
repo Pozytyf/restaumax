@@ -4,9 +4,9 @@ import { ArrowLeft, UserPlus, Shield, UserX, UserCheck, Trash2, RefreshCw } from
 
 const PERMISSIONS = [
   ['menu.view', 'Consulter le menu'], ['menu.manage', 'Modifier le menu'],
-  ['orders.view', 'Consulter les commandes'], ['orders.manage', 'Gérer les commandes'], ['orders.serve', 'Marquer comme servi'], ['orders.cancel', 'Annuler une commande'], ['payments.refund', 'Rembourser un paiement'],
+  ['orders.view', 'Consulter les commandes'], ['orders.manage', 'Gérer les commandes'], ['orders.serve', 'Marquer comme servi'], ['orders.cancel', 'Annuler une commande'], ['orders.clear_pending', 'Vider les tickets en attente'], ['payments.refund', 'Rembourser un paiement'],
   ['tables.view', 'Consulter les tables'], ['tables.manage', 'Gérer les tables'],
-  ['pos.access', 'Accéder à la caisse'], ['kitchen.access', 'Accéder à la cuisine'],
+  ['pos.access', 'Accéder à la caisse'], ['kitchen.access', 'Accéder à la cuisine'], ['bar.access', 'Accéder au Bar'],
   ['cash.view', 'Consulter la caisse'], ['cash.manage', 'Gérer les encaissements'],
   ['reports.view', 'Consulter les rapports'], ['reports.cash.view', 'Consulter son rapport de caisse'], ['customers.view', 'Consulter les clients'], ['customers.manage', 'Gérer les clients'], ['inventory.view', 'Consulter les stocks'], ['inventory.manage', 'Gérer les stocks'], ['staff.view', 'Consulter le personnel'],
   ['staff.manage', 'Gérer le personnel'], ['settings.view', 'Consulter les paramètres'],
@@ -18,19 +18,19 @@ type EditableStaffRole = Exclude<StaffRole, 'owner'>;
 type StaffMember = { uid: string; email: string; displayName: string; role: StaffRole; permissions: string[]; active: boolean };
 type StaffTable = { id: string; tableNumber?: string; section?: string; isActive?: boolean; assignedWaiter?: string | null };
 const ROLE_LABELS: Record<StaffRole, string> = {
-  owner: 'Propriétaire', manager: 'Manager', cashier: 'Caissier', server: 'Serveur', kitchen: 'Cuisine / Bar'
+  owner: 'Propriétaire', manager: 'Manager', cashier: 'Caissier', server: 'Serveur', kitchen: 'Cuisine'
 };
 const ROLE_CEILINGS: Record<EditableStaffRole, string[]> = {
-  manager: ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','orders.cancel','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view'],
+  manager: ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','bar.access','cash.view','cash.manage','orders.cancel','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view'],
   cashier: ['orders.view','tables.view','pos.access','cash.view','cash.manage','orders.cancel','payments.refund','reports.cash.view'],
-  server: ['orders.view','tables.view','pos.access','orders.serve'],
-  kitchen: ['orders.view','kitchen.access']
+  server: ['orders.view','tables.view','pos.access','orders.serve','orders.cancel'],
+  kitchen: ['orders.view','kitchen.access','orders.clear_pending']
 };
 const ROLE_DEFAULTS: Record<EditableStaffRole, string[]> = {
   manager: ROLE_CEILINGS.manager,
   cashier: ['orders.view','tables.view','pos.access','cash.view','cash.manage','reports.cash.view'],
   server: ROLE_CEILINGS.server,
-  kitchen: ROLE_CEILINGS.kitchen
+  kitchen: ['orders.view','kitchen.access','orders.clear_pending']
 };
 const permissionLabel = (id: string) => PERMISSIONS.find(([permission]) => permission === id)?.[1] || id;
 

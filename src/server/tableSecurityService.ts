@@ -315,11 +315,25 @@ export async function resolveTableQr(db: any, token: string) {
       throw new Error('Cette table est inactive ou son QR a été remplacé.');
     }
     tableNumber = String(tableData.tableNumber || currentTokenData.tableNumber || '');
+    const qrVersion = Number(currentTokenData.version || 1);
+    const tableServiceSessionId = Number(tableData.activeServiceSessionQrVersion || 0) === qrVersion &&
+      typeof tableData.activeServiceSessionId === 'string' && tableData.activeServiceSessionId
+      ? tableData.activeServiceSessionId
+      : `table_session_${randomSecret()}`;
+    if (tableData.activeServiceSessionId !== tableServiceSessionId ||
+        Number(tableData.activeServiceSessionQrVersion || 0) !== qrVersion) {
+      tx.update(tableRef, {
+        activeServiceSessionId: tableServiceSessionId,
+        activeServiceSessionQrVersion: qrVersion,
+        activeServiceSessionStartedAt: now
+      });
+    }
     tx.create(sessionRef, {
       sessionHash,
       restaurantSlug: slug,
       tableId,
       tableNumber,
+      tableServiceSessionId,
       qrTokenHash: tokenHash,
       qrVersion: Number(currentTokenData.version || 1),
       csrfHash: sha256(csrfToken),
@@ -363,6 +377,7 @@ export async function getActiveTableSession(db: any, sessionSecret: string | nul
     restaurantSlug,
     tableId,
     tableNumber: String(tableSnap.data()?.tableNumber || ''),
+    tableServiceSessionId: String(session.tableServiceSessionId || ''),
     sessionHash,
     qrTokenHash: String(session.qrTokenHash || ''),
     qrVersion: Number(session.qrVersion || 0),

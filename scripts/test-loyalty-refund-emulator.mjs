@@ -27,7 +27,7 @@ try {
       permissions: ['cash.manage', 'payments.refund']
     }),
     restaurantRef.collection('cashSessions').doc(sessionId).set({
-      id: sessionId, status: 'active', openedByUid: uid, sessionVersion: 1, cashOut: 0
+      id: sessionId, status: 'active', openedByUid: uid, sessionVersion: 1, openingBalance: 0, cashCollected: 9500, cashOut: 0
     }),
     restaurantRef.collection('cashSessionActive').doc(uid).set({
       sessionId, status: 'active', openedByUid: uid

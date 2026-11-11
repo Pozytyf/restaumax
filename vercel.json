@@ -19,6 +19,14 @@
       "destination": "/api/index?__restaumax_route=inventory"
     },
     {
+      "source": "/api/tables",
+      "destination": "/api/index?__restaumax_route=tables"
+    },
+    {
+      "source": "/api/customers",
+      "destination": "/api/index?__restaumax_route=customers"
+    },
+    {
       "source": "/api/customer-loyalty",
       "destination": "/api/index?__restaumax_route=customer-loyalty"
     },
@@ -33,6 +41,10 @@
     {
       "source": "/api/restaurant-images",
       "destination": "/api/index?__restaumax_route=restaurant-images"
+    },
+    {
+      "source": "/api/customer-orders",
+      "destination": "/api/index?__restaumax_route=customer-orders"
     },
     {
       "source": "/api/public-menu",

@@ -20,6 +20,7 @@ import {
   persistDishAvailability,
   deleteMenuItem, 
   submitOrderWithServerValidation,
+  mutateCustomerOrderWithServerValidation,
   submitPosOrderWithServerValidation,
   collectCashPaymentWithServerValidation,
   createPayDunyaPaymentWithServerValidation,
@@ -40,9 +41,11 @@ import {
   updateKitchenItemCompletionWithServerValidation,
   subscribeToTables,
   persistTable,
+  createTableWithServerValidation,
   setRestaurantServiceStatusWithServerValidation,
   deleteTable,
   testConnection,
+  auth,
   signInManager,
   signOutManager,
   subscribeToAuth,
@@ -58,7 +61,7 @@ import {
 import { formatFCFA } from './utils/format';
 import { getPosCartConfigurationKey, toClientCartItem } from './utils/posCart';
 import { sounds } from './utils/audio';
-import { mapRestauOrderToKitchenTicket } from './utils/kitchenTicket';
+import { mapRestauOrderToKitchenTicket, getKitchenCourseFromCategory, getKitchenStationFromCategory } from './utils/kitchenTicket';
 export { mapRestauOrderToKitchenTicket } from './utils/kitchenTicket';
 import { Header } from './components/Header';
 import { PosView } from './components/pos/PosView';
@@ -387,9 +390,7 @@ export default function App() {
   const [isRestaurantOwner, setIsRestaurantOwner] = useState<boolean>(false);
   const [authRestaurantRole, setAuthRestaurantRole] = useState<string>('');
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
-  const canManageCash = isRestaurantOwner ||
-    authRestaurantRole === 'manager' ||
-    (authRestaurantRole === 'cashier' && userPermissions.includes('cash.manage'));
+  const canManageCash = isRestaurantOwner || userPermissions.includes('cash.manage');
   const canCollectPayment = canManageCash;
   const mapCashPaymentRecord = (payment: any): PaymentRecord => ({
     id: String(payment.id),
@@ -420,13 +421,23 @@ export default function App() {
     refundStatus: String(payment.refundStatus || ''),
     refundEligible: payment.refundEligible === true,
     providerChannel: String(payment.providerChannel || ''),
-    paymentMethod: payment.method === 'paydunya'
-      ? (payment.providerChannel === 'wave-ci' ? 'wave'
-        : payment.providerChannel === 'orange-money-ci' ? 'orange_money'
-        : payment.providerChannel === 'mtn-ci' ? 'mtn_money'
-        : payment.providerChannel === 'moov-ci' ? 'moov_money'
-        : payment.providerChannel === 'djamo-ci' ? 'djamo' : 'carte')
-      : 'especes',
+    mobileMoneyProvider: payment.mobileMoneyProvider,
+    mobileMoneyReference: payment.mobileMoneyReference ? String(payment.mobileMoneyReference) : undefined,
+    reclassifiedAt: payment.reclassifiedAt ? Number(payment.reclassifiedAt) : undefined,
+    reclassificationReason: payment.reclassificationReason ? String(payment.reclassificationReason) : undefined,
+    paymentMethod: payment.method === 'mobile_money'
+      ? (payment.mobileMoneyProvider === 'wave' ? 'wave'
+        : payment.mobileMoneyProvider === 'orange_money' ? 'orange_money'
+        : payment.mobileMoneyProvider === 'mtn' ? 'mtn_money'
+        : payment.mobileMoneyProvider === 'moov' ? 'moov_money'
+        : payment.mobileMoneyProvider === 'djamo' ? 'djamo' : 'carte')
+      : payment.method === 'paydunya'
+        ? (payment.providerChannel === 'wave-ci' ? 'wave'
+          : payment.providerChannel === 'orange-money-ci' ? 'orange_money'
+          : payment.providerChannel === 'mtn-ci' ? 'mtn_money'
+          : payment.providerChannel === 'moov-ci' ? 'moov_money'
+          : payment.providerChannel === 'djamo-ci' ? 'djamo' : 'carte')
+        : 'especes',
     items: Array.isArray(payment.items) ? payment.items.map((item: any) => ({
       name: String(item.name || 'Article'),
       quantity: Number(item.quantity || 1),
@@ -468,7 +479,7 @@ export default function App() {
         setAuthIsSuperAdmin(superAdmin);
         setIsRestaurantOwner(owner);
         setUserPermissions(owner
-          ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
+          ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','bar.access','cash.view','cash.manage','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
           : superAdmin ? [] : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
         setAuthRestaurantRole(role);
       }).catch(() => {
@@ -556,7 +567,7 @@ export default function App() {
   }, [authUser, authRestaurantRole, activeRestaurantSlug, isRestaurantOwner, userPermissions]);
 
 
-  const canViewCashForCashPanel = isRestaurantOwner || authRestaurantRole === 'manager' ||
+  const canViewCashForCashPanel = isRestaurantOwner ||
     userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') ||
     userPermissions.includes('reports.cash.view');
 
@@ -686,7 +697,7 @@ export default function App() {
       setAuthIsSuperAdmin(token.claims.role === 'super_admin' || token.claims.role === 'admin');
       setIsRestaurantOwner(token.claims.role === 'owner');
       setUserPermissions(token.claims.role === 'owner'
-        ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','orders.cancel','tables.view','tables.manage','pos.access','kitchen.access','cash.view','cash.manage','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
+        ? ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','orders.cancel','tables.view','tables.manage','pos.access','kitchen.access','bar.access','cash.view','cash.manage','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view','settings.manage']
         : token.claims.role === 'super_admin' || token.claims.role === 'admin'
           ? []
           : (Array.isArray(token.claims.permissions) ? token.claims.permissions as string[] : []));
@@ -734,6 +745,15 @@ export default function App() {
     const saved = loadPendingOrderIntent(activeRestaurantSlug);
     return Boolean(saved?.isUncertain);
   });
+  const [pendingOrderCustomerNote, setPendingOrderCustomerNote] = useState<string>(() =>
+    loadPendingOrderIntent(activeRestaurantSlug)?.customerNote || ''
+  );
+  const [pendingOrderCustomerName, setPendingOrderCustomerName] = useState<string>(() =>
+    loadPendingOrderIntent(activeRestaurantSlug)?.customerName || ''
+  );
+  const [pendingOrderCustomerPhone, setPendingOrderCustomerPhone] = useState<string>(() =>
+    loadPendingOrderIntent(activeRestaurantSlug)?.customerPhone || ''
+  );
 
   // Synchronisation automatique de l'intention de commande avec sessionStorage
   useEffect(() => {
@@ -744,13 +764,16 @@ export default function App() {
         tableNumber: activeTableNumber,
         cart: clientCart,
         idempotencyKey: clientOrderIdempotencyKey,
+        customerNote: pendingOrderCustomerNote,
+        customerName: pendingOrderCustomerName,
+        customerPhone: pendingOrderCustomerPhone,
         timestamp: Date.now(),
         isUncertain: isOrderUncertain
       });
     } else if (!isOrderUncertain) {
       clearPendingOrderIntent();
     }
-  }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber, activeRestaurantSlug]);
+  }, [clientCart, clientOrderIdempotencyKey, isOrderUncertain, activeTableNumber, activeRestaurantSlug, pendingOrderCustomerNote, pendingOrderCustomerName, pendingOrderCustomerPhone]);
 
   // A cart is tenant-scoped. Switching restaurant clears the previous tenant's
   // cart and uncertain intent, while availability snapshots within one tenant
@@ -761,6 +784,9 @@ export default function App() {
     cartRestaurantSlugRef.current = activeRestaurantSlug;
     setClientCart([]);
     setIsOrderUncertain(false);
+    setPendingOrderCustomerNote('');
+    setPendingOrderCustomerName('');
+    setPendingOrderCustomerPhone('');
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
     clearPendingOrderIntent();
   }, [activeRestaurantSlug]);
@@ -887,12 +913,18 @@ export default function App() {
     if (isOrderUncertain) return;
     clearPendingOrderIntent();
     setClientCart([]);
+    setPendingOrderCustomerNote('');
+    setPendingOrderCustomerName('');
+    setPendingOrderCustomerPhone('');
   };
 
   const handleResetUncertainty = () => {
     clearPendingOrderIntent();
     setIsOrderUncertain(false);
     setClientCart([]);
+    setPendingOrderCustomerNote('');
+    setPendingOrderCustomerName('');
+    setPendingOrderCustomerPhone('');
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
   };
 
@@ -927,11 +959,14 @@ export default function App() {
     window.location.assign(result.checkoutUrl);
   };
 
-  const handleClientOrderConfirm = async (customerNote?: string, customer?: { name?: string; phone?: string }): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
+  const handleClientOrderConfirm = async (customerNote?: string, customer?: { name?: string; phone?: string }): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean; customerAccessToken?: string }> => {
     if (tableSessionExpected && !tableSession) {
       return { success: false, error: 'La session de cette table est indisponible ou a été révoquée. Scannez à nouveau le QR code physique.' };
     }
     const orderMode = tableSession ? 'sur_place' : 'a_emporter';
+    setPendingOrderCustomerNote(customerNote || '');
+    setPendingOrderCustomerName(customer?.name || '');
+    setPendingOrderCustomerPhone(customer?.phone || '');
     
     // Sauvegarder l'intention client complète dans sessionStorage AVANT la soumission
     savePendingOrderIntent({
@@ -973,14 +1008,13 @@ export default function App() {
 
     if (!submitRes.success) {
       if (submitRes.conflict) {
-        // Conflit d'intégrité d'idempotence : l'ancienne intention est abandonnée
-        // et une nouvelle clé sera utilisée pour la prochaine soumission.
-        clearPendingOrderIntent();
-        setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
-        setIsOrderUncertain(false);
+        // Un conflit de clé ne prouve pas que la commande précédente n'existe pas.
+        // Garder le panier et la clé : aucune nouvelle clé ne doit être générée automatiquement.
+        setIsOrderUncertain(true);
+        updatePendingOrderIntentUncertainty(true);
         return {
           success: false,
-          error: submitRes.error || "Conflit d'intégrité de clé d'idempotence. Veuillez vérifier le panier avant de recommencer."
+          error: submitRes.error || "Cette clé est déjà associée à une autre demande. Ne recommencez pas avec une nouvelle clé avant d'avoir vérifié la commande auprès du restaurant."
         };
       }
 
@@ -1004,6 +1038,9 @@ export default function App() {
     // Succès confirmé (écriture Firestore confirmée) : nettoyage strict de l'intention persistée
     clearPendingOrderIntent();
     setIsOrderUncertain(false);
+    setPendingOrderCustomerNote('');
+    setPendingOrderCustomerName('');
+    setPendingOrderCustomerPhone('');
 
     // Renouvellement de la clé d'idempotence pour la prochaine intention de commande
     setClientOrderIdempotencyKey(generateClientOrderIdempotencyKey());
@@ -1021,7 +1058,8 @@ export default function App() {
         id: `ki-${confirmedOrder.id}-${idx}`,
         name: it.name,
         quantity: it.quantity,
-        course: 'plat',
+        course: getKitchenCourseFromCategory(it.category),
+        station: getKitchenStationFromCategory(it.category),
         notes: [it.selectedOption?.optionName, it.prepNotes].filter(Boolean).join(' · '),
         completed: false
       }))
@@ -1035,13 +1073,19 @@ export default function App() {
     // Clear client cart strictly only upon confirmed write
     setClientCart([]);
 
-    return { success: true, order: confirmedOrder, isReplay: submitRes.idempotentReplay };
+    return { success: true, order: confirmedOrder, isReplay: submitRes.idempotentReplay, customerAccessToken: submitRes.customerAccessToken };
   };
 
   const handleSaveTable = async (table: RestaurantTable): Promise<void> => {
-    // Ne confirmer la création dans l'interface qu'après l'écriture Firestore.
-    // En cas de refus (droits, restaurant inactif ou réseau), l'erreur remonte au formulaire.
-    await persistTable(activeRestaurantSlug, table);
+    // Existing table edits remain scoped to Firestore rules. New table creation
+    // uses the server transaction so two managers cannot reserve the same number.
+    const alreadyExists = restauTables.some(existing => existing.id === table.id);
+    if (alreadyExists) {
+      await persistTable(activeRestaurantSlug, table);
+    } else {
+      const result = await createTableWithServerValidation(activeRestaurantSlug, table);
+      if (!result.success) throw new Error(result.error);
+    }
     setRestauTables(prev => {
       const idx = prev.findIndex(t => t.id === table.id);
       if (idx >= 0) {
@@ -1474,8 +1518,7 @@ export default function App() {
     }
   };
 
-  const canRefundPayments = isRestaurantOwner || authRestaurantRole === 'manager' ||
-    (authRestaurantRole === 'cashier' && userPermissions.includes('payments.refund'));
+  const canRefundPayments = isRestaurantOwner || userPermissions.includes('payments.refund');
 
   const handleRefundPayment = async (payment: PaymentRecord, amount: number, reason: string) => {
     if (!canRefundPayments) {
@@ -1585,17 +1628,17 @@ export default function App() {
     );
   };
 
-  const handleUpdateTicketStatus = async (ticketId: string, status: TicketStatus) => {
+  const handleUpdateTicketStatus = async (ticketId: string, status: TicketStatus, cancellationReason?: string): Promise<boolean> => {
     const canManageOrders = isRestaurantOwner || userPermissions.includes('orders.manage');
-    const canCancelOrders = canManageOrders || userPermissions.includes('orders.cancel');
+    const canCancelOrders = canManageOrders || userPermissions.includes('orders.cancel') || userPermissions.includes('orders.clear_pending');
     const canMarkServed = canManageOrders || userPermissions.includes('orders.serve');
     if (status === 'cancelled' && !canCancelOrders) {
       window.alert("Votre rôle ne permet pas d'annuler une commande.");
-      return;
+      return false;
     }
     if (status === 'served' && !canMarkServed) {
       window.alert("La remise au client doit être confirmée par un serveur ou un responsable autorisé.");
-      return;
+      return false;
     }
 
     // Persist Firestore order transitions before changing the visible KDS state.
@@ -1613,17 +1656,18 @@ export default function App() {
         if (status === 'ready' && currentOrder?.status === 'pending') {
           await updateOrderStatus(activeRestaurantSlug, rawOrderId, 'in_prep');
         }
-        await updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus);
+        await updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus, cancellationReason);
       } catch (err) {
         console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
         window.alert(err instanceof Error && err.message ? err.message : "La mise à jour a été refusée. Vérifiez les droits du compte et réessayez.");
-        return;
+        return false;
       }
     }
 
     setKitchenTickets((prev) =>
       prev.map((t) => (t.id === ticketId ? { ...t, status } : t))
     );
+    return true;
   };
 
   const handleSelectTableForOrder = (table: Table) => {
@@ -1674,6 +1718,65 @@ export default function App() {
       b.createdAt - a.createdAt
     )
     .slice(0, 8), [restauOrders]);
+
+  const pendingPosOrders = useMemo(() => restauOrders
+    .filter(order => order.status === 'pending' &&
+      Number(order.paidAmount || 0) === 0 &&
+      !['partial', 'paid'].includes(String(order.paymentStatus || '')) &&
+      !order.pendingPayDunyaIntentId &&
+      !order.removedFromPosAt)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 20), [restauOrders]);
+
+  // Cashiers and managers may cancel unpaid pending tickets only when the
+  // server-issued orders.cancel permission is present. The API rechecks it.
+  const canManagePendingPosOrders = isRestaurantOwner ||
+    (['manager', 'cashier'].includes(authRestaurantRole) && userPermissions.includes('orders.cancel'));
+
+  const handlePendingPosOrderAction = async (order: RestauOrder, action: 'cancel' | 'remove') => {
+    if (!canManagePendingPosOrders) {
+      window.alert('Cette action nécessite le rôle propriétaire, ou la permission orders.cancel pour un caissier/gérant.');
+      return;
+    }
+    const reason = window.prompt(action === 'remove'
+      ? 'Motif obligatoire du retrait du POS (3 à 300 caractères) :'
+      : 'Motif obligatoire de l’annulation (3 à 300 caractères) :');
+    if (reason === null) return;
+    if (reason.trim().length < 3 || reason.trim().length > 300) {
+      window.alert('Le motif doit contenir entre 3 et 300 caractères.');
+      return;
+    }
+    const label = action === 'remove' ? 'retirer ce ticket du POS' : 'annuler ce ticket';
+    if (!window.confirm(`Confirmer : ${label} ? Le ticket sera conservé dans l’historique avec son motif et sa trace d’audit.`)) return;
+    const user = auth.currentUser;
+    if (!user) { window.alert('Connexion requise.'); return; }
+    try {
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/order-status', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        credentials: 'same-origin', cache: 'no-store',
+        body: JSON.stringify({
+          restaurantSlug: activeRestaurantSlug,
+          orderId: order.id,
+          status: 'cancelled',
+          cancellationReason: reason.trim(),
+          pendingOnly: true,
+          removalAction: action === 'remove'
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        window.alert(data.error || 'Action refusée.');
+        return;
+      }
+      window.alert(action === 'remove'
+        ? 'Ticket retiré du terminal. Son historique est conservé.'
+        : 'Ticket annulé. Son historique est conservé.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Impossible de traiter ce ticket.');
+    }
+  };
 
   const handleCollectExistingOrder = (order: RestauOrder) => {
     if (!canCollectPayment) {
@@ -1745,6 +1848,9 @@ export default function App() {
           onRemoveItem={handleRemoveClientCartItem}
           onClearCart={handleClearClientCart}
           onConfirmOrder={handleClientOrderConfirm}
+          pendingCustomerNote={pendingOrderCustomerNote}
+          pendingCustomerName={pendingOrderCustomerName}
+          pendingCustomerPhone={pendingOrderCustomerPhone}
           onStartPayDunyaPayment={handleStartClientPayDunya}
           onSelectCashPayment={handleSelectClientCashPayment}
           isUncertain={isOrderUncertain}
@@ -1888,11 +1994,11 @@ export default function App() {
             restaurantName={restaurant.name}
           />
         ) : (
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex min-h-0">
           <Header
             currentRole={currentRole}
             permissions={userPermissions}
-            canAccessCash={isRestaurantOwner || authRestaurantRole === 'manager'}
+            canAccessCash={isRestaurantOwner || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')}
             onSelectRole={(r) => {
               sounds.playTap();
               setCurrentRole(r);
@@ -1944,6 +2050,9 @@ export default function App() {
                 }}
                 serverName={serverName}
                 unpaidOrders={canCollectPayment ? unpaidPosOrders : []}
+                pendingOrders={canManagePendingPosOrders ? pendingPosOrders : []}
+                canManagePendingOrders={canManagePendingPosOrders}
+                onCancelPendingOrder={handlePendingPosOrderAction}
                 onCollectOrder={handleCollectExistingOrder}
                 alreadyPaidAmount={pendingPosPaidAmount}
                 isExistingOrder={pendingPosOrder !== null}
@@ -1959,16 +2068,28 @@ export default function App() {
               />
             )}
 
-            {currentRole === 'kds' && userPermissions.includes('kitchen.access') && (
+            {currentRole === 'kds' && (isRestaurantOwner || userPermissions.includes('kitchen.access')) && (
               <KdsView
                 tickets={kitchenTickets}
+                stationMode="kitchen"
                 canMarkServed={isRestaurantOwner || userPermissions.includes('orders.manage') || userPermissions.includes('orders.serve')}
+                canCancelActiveTicket={isRestaurantOwner || userPermissions.includes('orders.manage') || userPermissions.includes('orders.cancel')}
+                onToggleItemComplete={handleToggleKdsItem}
+                onUpdateTicketStatus={handleUpdateTicketStatus}
+              />
+            )}
+            {currentRole === 'bar' && (isRestaurantOwner || userPermissions.includes('bar.access')) && (
+              <KdsView
+                tickets={kitchenTickets}
+                stationMode="bar"
+                canMarkServed={isRestaurantOwner || userPermissions.includes('orders.manage') || userPermissions.includes('orders.serve')}
+                canCancelActiveTicket={isRestaurantOwner || userPermissions.includes('orders.manage') || userPermissions.includes('orders.cancel')}
                 onToggleItemComplete={handleToggleKdsItem}
                 onUpdateTicketStatus={handleUpdateTicketStatus}
               />
             )}
 
-            {currentRole === 'manager' && (isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') || userPermissions.includes('reports.cash.view')) && (
+            {currentRole === 'manager' && (isRestaurantOwner || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage') || userPermissions.includes('reports.cash.view')) && (
               <ManagerView
                 restaurantSlug={activeRestaurantSlug}
                 isOwner={isRestaurantOwner}
@@ -1979,7 +2100,9 @@ export default function App() {
                 cashSessionActionLoading={cashSessionActionLoading}
                 cashMovementActionLoading={cashMovementActionLoading}
                 canManageCash={canManageCash}
+                canReclassifyPayments={isRestaurantOwner || userPermissions.includes('payments.reclassify')}
                 canRefundPayments={canRefundPayments}
+                canCancelOrders={isRestaurantOwner || userPermissions.includes('orders.cancel') || userPermissions.includes('orders.manage')}
                 onRefundPayment={handleRefundPayment}
                 onOpenCashSession={handleOpenCashSession}
                 onCloseCashSession={handleCloseCashSession}

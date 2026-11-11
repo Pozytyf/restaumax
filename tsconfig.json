@@ -25,6 +25,8 @@
     "strict": true
   },
   "exclude": [
-    "dist"
+    "dist",
+    "playwright.config.ts",
+    "tests/e2e"
   ]
 }

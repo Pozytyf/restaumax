@@ -7,6 +7,9 @@ export interface OrderLifecycleParams {
   targetStatus: 'in_prep' | 'ready' | 'completed' | 'cancelled';
   actorUid: string;
   sessionVersion: number;
+  cancellationReason?: string;
+  pendingOnly?: boolean;
+  removalAction?: boolean;
 }
 
 const validSlug = (value: string) => /^[a-zA-Z0-9_-]{1,100}$/.test(value);
@@ -24,8 +27,10 @@ function movementId(orderId: string, itemId: string, action: 'consume' | 'restor
  */
 export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycleParams) {
   const { restaurantSlug, orderId, targetStatus, actorUid, sessionVersion } = params;
+  const cancellationReason = String(params.cancellationReason || '').trim().slice(0, 300);
   if (!db || !validSlug(restaurantSlug) || !validId(orderId) || !actorUid ||
-      !['in_prep', 'ready', 'completed', 'cancelled'].includes(targetStatus)) {
+      !['in_prep', 'ready', 'completed', 'cancelled'].includes(targetStatus) ||
+      (targetStatus === 'cancelled' && cancellationReason.length < 3)) {
     return { success: false, error: 'Demande de transition invalide.' };
   }
 
@@ -42,6 +47,10 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
       const member = memberSnap.exists ? memberSnap.data() : null;
       const order = orderSnap.exists ? orderSnap.data() : null;
+      const pendingIntentId = String(order?.pendingPayDunyaIntentId || '');
+      const pendingIntentRef = pendingIntentId ? restaurantRef.collection('paymentIntents').doc(pendingIntentId) : null;
+      const pendingIntentSnap = pendingIntentRef ? await tx.get(pendingIntentRef) : null;
+      const pendingIntent = pendingIntentSnap?.exists ? pendingIntentSnap.data() : null;
       const ownerUid = await getRestaurantOwnerUid(db, restaurantSlug, tx, restaurant);
 
       if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
@@ -58,9 +67,12 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       const isOwner = member.role === 'owner' && ownerUid === actorUid;
       const permissions = Array.isArray(member.permissions) ? member.permissions : [];
       const canManage = member.role === 'manager' && permissions.includes('orders.manage');
-      const canKitchen = (member.role === 'kitchen' && permissions.includes('kitchen.access')) ||
-        (member.role === 'manager' && (permissions.includes('kitchen.access') || canManage));
-      const canCancel = member.role === 'cashier' && permissions.includes('orders.cancel');
+      const canKitchen = (member.role === 'kitchen' && (permissions.includes('kitchen.access') || permissions.includes('bar.access'))) ||
+        (member.role === 'manager' && (permissions.includes('kitchen.access') || permissions.includes('bar.access') || canManage));
+      const canCancel = (permissions.includes('orders.cancel') && (
+        member.role === 'cashier' || member.role === 'manager' ||
+        (member.role === 'server' && order.assignedWaiterUid === actorUid)
+      )) || (member.role === 'kitchen' && order.status === 'pending' && permissions.includes('orders.clear_pending'));
       const canServe = member.role === 'server' && permissions.includes('orders.serve') && order.assignedWaiterUid === actorUid;
 
       const allowed = isOwner || canManage ||
@@ -69,6 +81,23 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         (targetStatus === 'completed' && canServe) ||
         (targetStatus === 'cancelled' && canCancel);
       if (!allowed) return { success: false, error: 'Votre rôle ne permet pas cette transition de commande.' };
+      if (targetStatus === 'cancelled' && params.pendingOnly === true && order.status !== 'pending') {
+        return { success: false, error: 'Seuls les tickets encore en attente de validation peuvent être annulés ou retirés du POS.' };
+      }
+      if (targetStatus === 'cancelled' && (
+        Number(order.paidAmount || 0) > 0 || ['partial', 'paid'].includes(String(order.paymentStatus || ''))
+      )) {
+        return { success: false, error: 'Cette commande comporte déjà un règlement. Effectuez le rapprochement ou le remboursement avant toute annulation.' };
+      }
+      const cancelUnknownPayDunyaIntent = targetStatus === 'cancelled' && Boolean(pendingIntentId);
+      if (cancelUnknownPayDunyaIntent && (
+        !pendingIntentSnap?.exists || pendingIntent.orderId !== orderId ||
+        Number(pendingIntent.amount) !== Number(order.pendingPayDunyaAmount) ||
+        pendingIntent.status !== 'creation_unknown' || Boolean(pendingIntent.invoiceToken) ||
+        Number(order.paidAmount || 0) !== 0 || ['partial', 'paid'].includes(String(order.paymentStatus || ''))
+      )) {
+        return { success: false, error: 'Cette intention PayDunya n’est pas annulable automatiquement. Vérifiez son statut dans le compte marchand avant toute annulation.' };
+      }
 
       if (order.status === targetStatus) return { success: true, idempotentReplay: true, status: targetStatus };
       const transitions: Record<string, string[]> = {
@@ -378,7 +407,38 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         });
       }
 
-      const orderUpdate: Record<string, any> = { status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid };
+      const orderUpdate: Record<string, any> = {
+        status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid,
+        statusHistory: [...(Array.isArray(order.statusHistory) && order.statusHistory.length ? order.statusHistory : [{
+          status: order.status, changedAt: Number(order.statusUpdatedAt || order.createdAt || now)
+        }]), {
+          status: targetStatus, changedAt: now, actorRole: member.role,
+          ...(targetStatus === 'cancelled' ? { reason: cancellationReason } : {})
+        }].slice(-50)
+      };
+      if (targetStatus === 'cancelled') {
+        orderUpdate.cancellationReason = cancellationReason;
+        orderUpdate.cancelledAt = now;
+        orderUpdate.cancelledBy = actorUid;
+        if (cancelUnknownPayDunyaIntent && pendingIntentRef) {
+          orderUpdate.payDunyaIntentIdForReconciliation = pendingIntentId;
+          orderUpdate.payDunyaReconciliationRequired = true;
+          orderUpdate.pendingPayDunyaIntentId = null;
+          orderUpdate.pendingPayDunyaAmount = null;
+          tx.update(pendingIntentRef, {
+            status: 'order_cancelled_pending_manual_reconciliation',
+            orderCancelledAt: now,
+            orderCancelledBy: actorUid,
+            orderCancellationReason: cancellationReason,
+            updatedAt: now
+          });
+        }
+        if (params.pendingOnly === true && params.removalAction === true) {
+          orderUpdate.removedFromPosAt = now;
+          orderUpdate.removedFromPosBy = actorUid;
+          orderUpdate.removedFromPosReason = cancellationReason;
+        }
+      }
       if (menuConsumeUpdates.length) orderUpdate.menuStockConsumedAt = now;
       if (menuRestockUpdates.length) orderUpdate.menuStockRestoredAt = now;
       if (order.status === 'pending' && targetStatus === 'in_prep') {
@@ -389,6 +449,16 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         orderUpdate.stockTrackingStatus = 'restored';
       }
       tx.update(orderRef, orderUpdate);
+      if (targetStatus === 'cancelled') {
+        const auditRef = restaurantRef.collection('orderAudit').doc(`${orderId}_cancel_${hash(`${actorUid}:${now}:${cancellationReason}`)}`);
+        tx.create(auditRef, {
+          event: params.pendingOnly === true && params.removalAction === true ? 'order.removed_from_pos' : 'order.cancelled', orderId, orderNumber: String(order.orderNumber || orderId),
+          restaurantSlug, previousStatus: order.status, status: 'cancelled',
+          reason: cancellationReason, actorUid, actorRole: member.role,
+          ...(cancelUnknownPayDunyaIntent ? { paymentIntentId: pendingIntentId, paymentReconciliationRequired: true } : {}),
+          createdAt: now, stockRestored: Boolean(order.stockTrackingStatus === 'restored' || menuRestockUpdates.length || (consumption && !consumption.restoredAt))
+        });
+      }
       return { success: true, status: targetStatus, idempotentReplay: false, stockLines: recipeLines.length };
     }, { maxAttempts: 10 });
   } catch (error: any) {

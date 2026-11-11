@@ -30,5 +30,6 @@ assert(adminConfig.includes('FIREBASE_STORAGE_BUCKET') && adminConfig.includes('
 assert(api.includes('restaurant-images') && routeMap.includes('restaurant-images') && vercel.includes('/api/restaurant-images'), 'Verified restaurant image API is registered in the central router and Vercel rewrites');
 assert(!fs.existsSync(new URL('../api/menu-image.ts', import.meta.url)), 'The project retains a single Vercel function entry point');
 assert(firebase.includes('/api/restaurant-images') && firebase.includes('uploadRestaurantImage') && firebase.includes("callRestaurantImageApi('POST'"), 'Client photo uploads use the authenticated restaurant image API');
+assert(firebase.includes('await updateDoc(itemRef, updatePayload)') && firebase.includes('deleteField()') && firebase.includes('Object.entries(item).filter(([, value]) => value !== undefined)'), 'Menu edits strip undefined fields and explicitly clear removed optional values');
 assert(rules.includes("'lowStockThreshold'") && rules.includes("'allergens'") && rules.includes("'translations'"), 'Firestore menu rules validate and allow the new public metadata');
 console.log('Menu feature and photo-upload security checks passed.');

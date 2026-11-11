@@ -21,6 +21,8 @@ interface OrderConfirmationModalProps {
   onNewOrder: () => void;
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
   onSelectCashPayment?: (order: RestauOrder) => Promise<{ success: boolean; error?: string }>;
+  customerAccessToken?: string | null;
+  onCustomerOrderMutation?: (mutation: { action: 'get' | 'cancel' | 'edit'; reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }> }) => Promise<{ success: boolean; error?: string; subtotalAmount?: number; taxAmount?: number; totalAmount?: number; itemsCount?: number; order?: RestauOrder }>;
 }
 
 export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
@@ -29,7 +31,9 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   onClose,
   onNewOrder,
   onStartPayDunyaPayment,
-  onSelectCashPayment
+  onSelectCashPayment,
+  customerAccessToken,
+  onCustomerOrderMutation
 }) => {
   const [selectedChannel, setSelectedChannel] = useState<'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci'>('wave-ci');
   const [isStartingPayment, setIsStartingPayment] = useState(false);
@@ -37,6 +41,9 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
   const [isSelectingCash, setIsSelectingCash] = useState(false);
   const [cashPreferenceSaved, setCashPreferenceSaved] = useState(false);
   const [cashPreferenceError, setCashPreferenceError] = useState<string | null>(null);
+  const [isEditingOrder, setIsEditingOrder] = useState(false);
+  const [editQuantities, setEditQuantities] = useState<Record<string, number>>({});
+  const [isSavingOrderChange, setIsSavingOrderChange] = useState(false);
   useEffect(() => {
     if (order) {
       setPaymentAmount(String(Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))))));
@@ -44,6 +51,27 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
       setCashPreferenceError(null);
     }
   }, [order?.id, order?.remainingAmount, order?.paidAmount, order?.totalAmount, order?.paymentPreference]);
+  useEffect(() => {
+    if (!order || !customerAccessToken || !onCustomerOrderMutation || ['completed', 'cancelled'].includes(order.status)) return;
+    let active = true;
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight || !active) return;
+      inFlight = true;
+      try {
+        const result = await onCustomerOrderMutation({ action: 'get' });
+        if (active && result.success && result.order) {
+          // Parent owns the canonical order snapshot; the next render updates this panel.
+        }
+      } finally { inFlight = false; }
+    };
+    const timer = window.setInterval(() => { void refresh(); }, 5000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [order?.id, order?.status, customerAccessToken, onCustomerOrderMutation]);
+  useEffect(() => {
+    if (order) setEditQuantities(Object.fromEntries(order.items.map(item => [item.id, item.quantity])));
+    setIsEditingOrder(false);
+  }, [order?.id]);
   if (!order) return null;
   const remainingDue = Math.max(0, Number(order.remainingAmount ?? (order.totalAmount - Number(order.paidAmount || 0))));
   const requestedPaymentAmount = Number(paymentAmount);
@@ -79,7 +107,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
           </span>
 
           <h2 id="order-confirmed-title" className="text-xl sm:text-2xl font-black tracking-tight text-white mt-1">
-            Votre commande est en cuisine !
+            {order.status === 'cancelled' ? 'Commande annulée' : order.status === 'completed' ? 'Commande servie' : order.status === 'ready' ? 'Commande prête' : order.status === 'in_prep' ? 'Votre commande est en préparation' : 'Commande confirmée'}
           </h2>
 
           <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 border border-white/10 text-white font-mono text-sm sm:text-base font-black">
@@ -117,10 +145,65 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
               </span>
               <div className="font-extrabold text-xs sm:text-sm text-amber-700 flex items-center gap-1.5">
                 <ChefHat size={15} className="text-amber-600" />
-                <span>En préparation</span>
+                <span>{order.status === 'pending' ? 'En attente' : order.status === 'in_prep' ? 'En préparation' : order.status === 'ready' ? 'Prête' : order.status === 'completed' ? 'Servie' : 'Annulée'}</span>
+                {order.statusUpdatedAt && <span className="block text-[10px] font-semibold text-slate-500 mt-1">Mis à jour le {new Date(order.statusUpdatedAt).toLocaleString('fr-FR')}</span>}
               </div>
             </div>
           </div>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Suivi de l’évolution de la commande" aria-live="polite">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-xs font-black uppercase tracking-wide text-slate-900">Suivi de votre commande</h3>
+              <span className="text-[10px] font-semibold text-slate-500">Actualisation automatique</span>
+            </div>
+            {order.status === 'cancelled' ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                <p className="font-black">Commande annulée</p>
+                {order.cancellationReason && <p className="mt-1">Motif : {order.cancellationReason}</p>}
+                {order.statusUpdatedAt && <p className="mt-1 text-[10px]">Le {new Date(order.statusUpdatedAt).toLocaleString('fr-FR')}</p>}
+              </div>
+            ) : (
+              <ol className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {([
+                  { key: 'pending', label: 'Reçue' },
+                  { key: 'in_prep', label: 'En préparation' },
+                  { key: 'ready', label: 'Prête' },
+                  { key: 'completed', label: 'Servie' }
+                ] as const).map((step, index) => {
+                  const orderStages = ['pending', 'in_prep', 'ready', 'completed'];
+                  const currentIndex = orderStages.indexOf(order.status);
+                  const reached = currentIndex >= index;
+                  const current = order.status === step.key;
+                  return (
+                    <li key={step.key} className={`rounded-xl border p-2 text-center ${current ? 'border-orange-300 bg-orange-50 text-orange-900' : reached ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-50 text-slate-400'}`}>
+                      <span className="block text-[10px] font-black">{index + 1}. {step.label}</span>
+                      <span className="mt-1 block text-[9px] font-semibold">{current ? 'Étape actuelle' : reached ? 'Validée' : 'À venir'}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+            {order.statusHistory && order.statusHistory.length > 0 && (
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <h4 className="mb-2 text-[10px] font-black uppercase tracking-wide text-slate-600">Historique horodaté</h4>
+                <ol className="space-y-2">
+                  {order.statusHistory.map((event, index) => (
+                    <li key={index} className="flex items-start justify-between gap-3 text-[10px]">
+                      <span className="font-semibold text-slate-700">
+                        {event.status === 'pending' ? 'Commande reçue' : event.status === 'in_prep' ? 'Préparation commencée' : event.status === 'ready' ? 'Commande prête' : event.status === 'completed' ? 'Commande servie' : 'Commande annulée'}
+                        {event.status === 'cancelled' && event.reason ? <span className="block font-normal text-red-700">Motif : {event.reason}</span> : null}
+                      </span>
+                      <time className="shrink-0 text-slate-500">{new Date(event.changedAt).toLocaleString('fr-FR')}</time>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+            <p className="mt-3 text-[10px] text-slate-500">
+              Commande créée le {new Date(order.createdAt).toLocaleString('fr-FR')}
+              {order.statusUpdatedAt ? ` · Dernière évolution le ${new Date(order.statusUpdatedAt).toLocaleString('fr-FR')}` : ''}
+            </p>
+          </section>
 
           {/* Items Summary Table */}
           <div className="border border-slate-200/90 rounded-2xl p-4 space-y-3 bg-white shadow-2xs">
@@ -194,6 +277,67 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
             </div>
           </div>
 
+          {order.status === 'pending' && Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || '')) && customerAccessToken && onCustomerOrderMutation && (
+            <section className="rounded-2xl border border-orange-200 bg-orange-50/60 p-4 space-y-3" aria-label="Gestion de votre commande">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wide text-slate-900">Gérer ma commande</h3>
+                <p className="mt-1 text-[11px] text-slate-600">Vous pouvez encore modifier les quantités ou annuler tant que la préparation n’a pas commencé.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setIsEditingOrder(value => !value)}
+                  className="rounded-xl border border-orange-300 bg-white px-3 py-2 text-xs font-bold text-orange-900">
+                  {isEditingOrder ? 'Fermer la modification' : 'Modifier la commande'}
+                </button>
+                <button type="button" disabled={isSavingOrderChange}
+                  onClick={async () => {
+                    const reason = window.prompt('Pourquoi souhaitez-vous annuler cette commande ?');
+                    if (reason === null) return;
+                    if (reason.trim().length < 3) { window.alert('Veuillez indiquer un motif de 3 caractères minimum.'); return; }
+                    if (!window.confirm('Confirmer l’annulation de cette commande ?')) return;
+                    setIsSavingOrderChange(true);
+                    try {
+                      const result = await onCustomerOrderMutation({ action: 'cancel', reason: reason.trim() });
+                      if (!result.success) window.alert(result.error || 'Annulation refusée.');
+                    } finally { setIsSavingOrderChange(false); }
+                  }}
+                  className="rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-bold text-red-700 disabled:opacity-50">
+                  Annuler la commande
+                </button>
+              </div>
+              {isEditingOrder && (
+                <div className="space-y-2">
+                  {order.items.map(item => (
+                    <div key={item.id} className="flex items-center justify-between gap-2 rounded-xl border border-orange-100 bg-white p-2">
+                      <span className="min-w-0 flex-1 text-xs font-bold text-slate-800">{item.name}</span>
+                      <div className="flex items-center gap-2">
+                        <button type="button" aria-label={`Diminuer ${item.name}`}
+                          onClick={() => setEditQuantities(current => ({ ...current, [item.id]: Math.max(0, Number(current[item.id] ?? item.quantity) - 1) }))}
+                          className="h-8 w-8 rounded-lg border border-slate-200 font-bold">−</button>
+                        <span className="w-5 text-center text-xs font-black tabular-nums">{editQuantities[item.id] ?? item.quantity}</span>
+                        <button type="button" aria-label={`Augmenter ${item.name}`}
+                          onClick={() => setEditQuantities(current => ({ ...current, [item.id]: Math.min(50, Number(current[item.id] ?? item.quantity) + 1) }))}
+                          className="h-8 w-8 rounded-lg border border-slate-200 font-bold">+</button>
+                      </div>
+                    </div>
+                  ))}
+                  <button type="button" disabled={isSavingOrderChange || !order.items.some(item => Number(editQuantities[item.id] ?? item.quantity) > 0)}
+                    onClick={async () => {
+                      const items = order.items.map(item => ({ id: item.id, quantity: Number(editQuantities[item.id] ?? item.quantity), prepNotes: item.prepNotes })).filter(item => item.quantity > 0);
+                      setIsSavingOrderChange(true);
+                      try {
+                        const result = await onCustomerOrderMutation({ action: 'edit', items });
+                        if (!result.success) window.alert(result.error || 'Modification refusée.');
+                        else setIsEditingOrder(false);
+                      } finally { setIsSavingOrderChange(false); }
+                    }}
+                    className="w-full rounded-xl bg-[#101d2d] px-4 py-3 text-xs font-black text-white disabled:opacity-50">
+                    {isSavingOrderChange ? 'Enregistrement…' : 'Enregistrer les modifications'}
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
+
           {order.orderMode === 'sur_place' && onStartPayDunyaPayment && (
             <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 space-y-3">
               <div>
@@ -266,12 +410,12 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
           )}
 
           {/* Info callout */}
-          <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 flex items-start gap-2.5">
+          {order.status !== 'cancelled' && order.status !== 'completed' && <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 flex items-start gap-2.5">
             <Sparkles size={16} className="text-emerald-600 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
               <span className="font-bold text-emerald-900">Préparation en cours :</span> L'équipe de {restaurantName} a reçu votre ticket. Installez-vous confortablement, le service sera assuré dès que vos plats seront prêts.
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Footer Actions */}

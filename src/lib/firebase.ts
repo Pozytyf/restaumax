@@ -20,6 +20,8 @@ import {
   getDocFromServer,
   getDocs,
   setDoc, 
+  updateDoc,
+  deleteField,
   deleteDoc,
   runTransaction,
   collection, 
@@ -427,7 +429,22 @@ export async function persistMenuItem(restaurantSlug: string, item: RestauMenuIt
   const path = `restaurants/${restaurantSlug}/menuItems/${item.id}`;
   try {
     const itemRef = doc(db, 'restaurants', restaurantSlug, 'menuItems', item.id);
-    await setDoc(itemRef, item, { merge: true });
+    // Firestore rejects undefined values by default. The edit form deliberately
+    // omits optional fields when a manager clears them, so strip undefined
+    // before writing and use deleteField() to remove stale values on updates.
+    const payload = Object.fromEntries(
+      Object.entries(item).filter(([, value]) => value !== undefined)
+    );
+    const existing = await getDoc(itemRef);
+    if (existing.exists()) {
+      const updatePayload: Record<string, any> = { ...payload };
+      for (const field of ['tags', 'optionGroups', 'availableExtras', 'translations', 'stockQuantity']) {
+        if ((item as any)[field] === undefined) updatePayload[field] = deleteField();
+      }
+      await updateDoc(itemRef, updatePayload);
+    } else {
+      await setDoc(itemRef, payload);
+    }
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
@@ -638,7 +655,7 @@ export async function submitOrderWithServerValidation(
     fallbackCatalog?: RestauMenuItem[];
     csrfToken?: string;
   }
-): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean } | { success: false; error: string; conflict?: boolean; definitive?: boolean }> {
+): Promise<{ success: true; order: RestauOrder; idempotentReplay?: boolean; customerAccessToken?: string } | { success: false; error: string; conflict?: boolean; definitive?: boolean }> {
   try {
     let appCheckToken = '';
     if (appCheck) {
@@ -677,7 +694,7 @@ export async function submitOrderWithServerValidation(
       return {
         success: false,
         conflict: response.status === 409 || data.conflict === true,
-        definitive: response.status >= 400 && response.status < 500,
+        definitive: data.definitive === true || (response.status >= 400 && response.status < 500),
         error: data.error || 'Erreur lors de la validation serveur de la commande.',
       };
     }
@@ -686,6 +703,7 @@ export async function submitOrderWithServerValidation(
       success: true,
       order: data.order,
       idempotentReplay: data.idempotentReplay === true,
+      customerAccessToken: typeof data.customerAccessToken === 'string' ? data.customerAccessToken : undefined,
     };
   } catch (err: any) {
     console.error('Erreur appel /api/orders:', err);
@@ -693,6 +711,25 @@ export async function submitOrderWithServerValidation(
       success: false,
       error: err?.message || 'Erreur réseau lors de la communication avec le serveur RestauMax.',
     };
+  }
+}
+
+
+export async function mutateCustomerOrderWithServerValidation(input: {
+  restaurantSlug: string; orderId: string; accessToken: string; action: 'get' | 'cancel' | 'edit';
+  reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }>; customerNote?: string;
+}): Promise<{ success: true; status: string; subtotalAmount?: number; taxAmount?: number; totalAmount?: number; itemsCount?: number; order?: RestauOrder } | { success: false; error: string }> {
+  try {
+    const response = await fetch('/api/customer-orders', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin', cache: 'no-store', body: JSON.stringify(input)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Action client refusée.' };
+    return data;
+  } catch (error: any) {
+    console.error('Erreur appel /api/customer-orders:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant la mise à jour de la commande.' };
   }
 }
 
@@ -805,6 +842,8 @@ export interface CashSessionApiRecord {
   cashCollected: number;
   paymentCount: number;
   cashOut: number;
+  cashRefunds?: number;
+  refundCount?: number;
   cashMovementCount: number;
   cashMovements?: CashMovementApiRecord[];
   status: 'active' | 'closed';
@@ -1375,7 +1414,8 @@ export async function updateKitchenItemCompletionWithServerValidation(
 export async function updateOrderStatus(
   restaurantSlug: string,
   orderId: string,
-  status: RestauOrder['status']
+  status: RestauOrder['status'],
+  cancellationReason?: string
 ): Promise<void> {
   try {
     const user = auth.currentUser;
@@ -1386,7 +1426,7 @@ export async function updateOrderStatus(
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
       credentials: 'same-origin',
       cache: 'no-store',
-      body: JSON.stringify({ restaurantSlug, orderId, status })
+      body: JSON.stringify({ restaurantSlug, orderId, status, ...(status === 'cancelled' ? { cancellationReason } : {}) })
     });
     const data = await response.json();
     if (!response.ok || !data.success) throw new Error(data.error || 'Transition de commande refusée.');
@@ -1492,3 +1532,49 @@ export async function deleteTable(
   }
 }
 
+
+
+export async function createCustomerWithServerValidation(
+  restaurantSlug: string,
+  input: { name: string; phone: string; email?: string; notes?: string }
+): Promise<{ success: true; customerId: string; loyaltyPoints: number; alreadyExisted?: boolean } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/customers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin', cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, ...input })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Création de la fiche client refusée.', conflict: response.status === 409 };
+    return data;
+  } catch (error: any) {
+    console.error('Erreur appel /api/customers:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant la création du client.' };
+  }
+}
+
+
+export async function createTableWithServerValidation(
+  restaurantSlug: string,
+  table: RestaurantTable
+): Promise<{ success: true } | { success: false; error: string; conflict?: boolean }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return { success: false, error: 'Connexion du personnel requise.' };
+    const idToken = await user.getIdToken(true);
+    const response = await fetch('/api/tables', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      credentials: 'same-origin', cache: 'no-store',
+      body: JSON.stringify({ restaurantSlug, table })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) return { success: false, error: data.error || 'Création de table refusée.', conflict: response.status === 409 };
+    return { success: true };
+  } catch (error: any) {
+    console.error('Erreur appel /api/tables:', error);
+    return { success: false, error: error?.message || 'Erreur réseau pendant la création de la table.' };
+  }
+}

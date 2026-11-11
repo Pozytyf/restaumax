@@ -29,7 +29,7 @@ assert(!handler.includes("paymentStatus: 'paid'") && !handler.includes('paidAmou
 
 assert(server.includes("app.post('/api/payments/customer-cash-preference'"), 'La route client espèces doit être exposée.');
 assert(firebase.includes("fetch('/api/payments/customer-cash-preference'"), 'Le client appelle la route espèces dédiée.');
-assert(firebase.includes('definitive: response.status >= 400 && response.status < 500'), 'Un refus HTTP 4xx de validation est distingué d’une transmission réseau incertaine.');
+assert(firebase.includes('definitive: data.definitive === true || (response.status >= 400 && response.status < 500)'), 'Un refus HTTP 4xx de validation est distingué d’une transmission réseau incertaine, tandis qu’un 503 reste rejouable.');
 assert(app.includes('if (submitRes.definitive)'), 'Une validation refusée libère le verrou sans perdre le panier client.');
 assert(firebase.includes('App Check token unavailable; continuing to server-side validation.'), 'Une erreur de jeton App Check navigateur ne doit pas empêcher l’appel serveur idempotent ; le serveur garde la décision de sécurité.');
 assert(app.includes('selectCustomerCashPaymentWithServerValidation'), 'App branche le choix espèces sécurisé.');

@@ -81,7 +81,7 @@ service cloud.firestore {
       return role == 'owner' ||
         (role == 'manager' && permission in [
           'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
-          'tables.view', 'tables.manage', 'pos.access', 'kitchen.access',
+          'tables.view', 'tables.manage', 'pos.access', 'kitchen.access', 'bar.access',
           'cash.view', 'cash.manage', 'orders.cancel', 'payments.refund', 'reports.view', 'customers.view',
           'customers.manage', 'inventory.view', 'inventory.manage',
           'staff.view', 'staff.manage', 'settings.view'
@@ -91,10 +91,10 @@ service cloud.firestore {
           'orders.cancel', 'payments.refund', 'reports.cash.view'
         ]) ||
         (role == 'server' && permission in [
-          'orders.view', 'tables.view', 'pos.access', 'orders.serve'
+          'orders.view', 'tables.view', 'pos.access', 'orders.serve', 'orders.cancel'
         ]) ||
         (role == 'kitchen' && permission in [
-          'orders.view', 'kitchen.access'
+          'orders.view', 'kitchen.access', 'bar.access', 'orders.clear_pending'
         ]);
     }
 
@@ -275,15 +275,20 @@ service cloud.firestore {
       match /tables/{tableId} {
         allow get, list: if (hasRestaurantPermission(restaurantSlug, 'tables.view') || hasRestaurantPermission(restaurantSlug, 'tables.manage')) &&
           (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('role', '') != 'server' || resource.data.get('assignedWaiter', '') == request.auth.uid);
-        allow create: if hasRestaurantPermission(restaurantSlug, 'tables.manage') &&
-          isValidId(tableId) && isValidTable(incoming()) && incoming().id == tableId;
+        // Table creation and number reservation are atomic in the trusted API.
+        allow create: if false;
         allow update: if hasRestaurantPermission(restaurantSlug, 'tables.manage') &&
           isValidId(tableId) && isValidTable(incoming()) && incoming().id == tableId &&
           incoming().diff(existing()).affectedKeys().hasOnly([
-            'tableNumber', 'section', 'capacity', 'isActive', 'status', 'covers',
+            'section', 'capacity', 'isActive', 'status', 'covers',
             'seatedAt', 'assignedWaiter', 'currentOrderId', 'currentTotal'
           ]);
         allow delete: if hasRestaurantPermission(restaurantSlug, 'tables.manage') && isValidId(tableId);
+      }
+
+      // Unique table-number reservations are server-only and transactionally managed.
+      match /table_number_index/{indexId} {
+        allow read, write: if false;
       }
 
       // QR token fingerprints and table sessions are server-only collections.
@@ -298,19 +303,16 @@ service cloud.firestore {
       // Customer directory: private to authorized restaurant staff.
       match /customers/{customerId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'customers.view') || hasRestaurantPermission(restaurantSlug, 'customers.manage');
-        allow create: if hasRestaurantPermission(restaurantSlug, 'customers.manage')
-          && isValidId(customerId)
-          && incoming().keys().hasOnly(['name', 'phone', 'phoneNormalized', 'email', 'notes', 'loyaltyPoints', 'createdAt', 'updatedAt'])
-          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
-          && incoming().phone is string && incoming().phone.size() > 0 && incoming().phone.size() <= 40
-          && incoming().phoneNormalized is string && incoming().phoneNormalized.matches('^[0-9]{10}$')
-          && incoming().get('loyaltyPoints', 0) == 0;
+        // Customer creation is server-only so normalized phone uniqueness is transactional.
+        allow create: if false;
         allow update: if hasRestaurantPermission(restaurantSlug, 'customers.manage')
           && isValidId(customerId)
-          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'notes', 'updatedAt'])
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'notes', 'updatedAt', 'archivedAt', 'archivedByUid'])
           && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
-          && incoming().phone is string && incoming().phone.size() > 0 && incoming().phone.size() <= 40;
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'customers.manage') && isValidId(customerId);
+          && incoming().phone is string && incoming().phone.size() > 0 && incoming().phone.size() <= 40
+          && (!incoming().diff(existing()).affectedKeys().hasAny(['archivedAt', 'archivedByUid']) ||
+              (incoming().archivedAt is int && incoming().archivedByUid == request.auth.uid));
+        allow delete: if false;
       }
 
       // Inventory catalog and immutable stock movement audit trail.

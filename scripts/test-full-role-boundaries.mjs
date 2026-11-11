@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { resolveRolePermissions } from '../src/server/platformAdmin.ts';
 
+const adminSource = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
+const serverSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const paymentServiceSource = fs.readFileSync(new URL('../src/server/paymentService.ts', import.meta.url), 'utf8');
+const paydunyaServiceSource = fs.readFileSync(new URL('../src/server/paydunyaPaymentService.ts', import.meta.url), 'utf8');
+const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const adminModuleSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
+const staffUiSource = fs.readFileSync(new URL('../src/components/restaumax/StaffManagementView.tsx', import.meta.url), 'utf8');
+
 const owner = resolveRolePermissions('owner', []);
 assert(owner?.includes('payments.refund'), 'owner has operational refund authority');
 const manager = resolveRolePermissions('manager', []);
@@ -15,8 +23,23 @@ assert(resolveRolePermissions('cashier', ['orders.cancel'])?.includes('orders.ca
 assert.equal(resolveRolePermissions('server', ['payments.refund']), null);
 assert.equal(resolveRolePermissions('kitchen', ['payments.refund']), null);
 
-const adminSource = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
-const staffUiSource = fs.readFileSync(new URL('../src/components/restaumax/StaffManagementView.tsx', import.meta.url), 'utf8');
+assert(serverSource.includes("['manager', 'cashier'].includes(member.role) && memberPermissions.includes('cash.manage')"),
+  'Payments API requires an effective cash.manage permission for manager and cashier');
+assert(serverSource.includes("['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions)"),
+  'Payments API requires explicit refund permissions for manager and cashier');
+assert(paymentServiceSource.includes("['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions) && member.permissions.includes('cash.manage')"),
+  'Cash service enforces cash.manage in transaction-level authorization');
+assert(paymentServiceSource.includes("member.permissions.includes('payments.refund')"),
+  'Cash refund service enforces payments.refund in transaction-level authorization');
+assert(paydunyaServiceSource.includes("['manager', 'cashier'].includes(member.role) && Array.isArray(member.permissions) && member.permissions.includes('cash.manage')"),
+  'PayDunya invoice creation enforces cash.manage server-side');
+assert(appSource.includes("const canManageCash = isRestaurantOwner || userPermissions.includes('cash.manage')") &&
+  appSource.includes("const canRefundPayments = isRestaurantOwner || userPermissions.includes('payments.refund')"),
+  'Client cash/refund controls use effective permissions rather than role-name shortcuts');
+assert(adminModuleSource.includes('if (!canAccessModule) return;') &&
+  adminModuleSource.includes('if (!canAccessModule) return <div'),
+  'Admin module blocks unauthorized reads and rendering');
+
 assert(staffUiSource.includes("'orders.cancel','payments.refund','reports.view'"), 'staff UI exposes manager cancellation and refund permissions consistently');
 const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
 const hubView = fs.readFileSync(new URL('../src/components/restaumax/RestaurantHubView.tsx', import.meta.url), 'utf8');
@@ -62,6 +85,14 @@ assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
   'QR administration entry points are restricted to members with tables.manage');
 
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+assert(firestoreRules.includes('allow create: if false;') && firestoreRules.includes('Customer creation is server-only'),
+  'customer creation is restricted to the transactional server endpoint');
+assert(firestoreRules.includes("allow delete: if false;") && firestoreRules.includes("'archivedAt', 'archivedByUid'"),
+  'customer deletion is replaced by an authorized archive that preserves loyalty history');
+const customerModuleSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
+assert(customerModuleSource.includes('archivedAt: Date.now()') && customerModuleSource.includes('Son historique de fidélité sera conservé') &&
+  customerModuleSource.includes('.filter(customer => !customer.archivedAt)'),
+  'the customer directory archives profiles and hides them from the active list without deleting ledger history');
 const managerRule = firestoreRules.match(/role == 'manager' && permission in \[([\s\S]*?)\]\)/)?.[1] || '';
 assert(managerRule.includes("'orders.cancel'") && managerRule.includes("'payments.refund'"), 'Firestore manager ceiling includes cancellation and refund permissions');
 assert(adminSource.includes('user.email_verified === true') && adminSource.includes('configuredSuperAdmins()'), 'platform super-admin requires a verified allowlisted email');

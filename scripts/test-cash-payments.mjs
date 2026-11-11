@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, openCashSessionWithDb, closeCashSessionWithDb, getCashSessionWithDb, recordCashMovementWithDb } from '../src/server/paymentService.ts';
+import { recordCashPaymentWithDb, listRecentCashPaymentsWithDb, openCashSessionWithDb, closeCashSessionWithDb, getCashSessionWithDb, recordCashMovementWithDb, reclassifyCashPaymentWithDb } from '../src/server/paymentService.ts';
 
 let passed = 0;
 let failed = 0;
@@ -16,22 +16,36 @@ async function run() {
   const headerSource = readFileSync(new URL('../src/components/Header.tsx', import.meta.url), 'utf8');
   assert(
     headerSource.includes('canAccessCash || permissions.includes') &&
-    appSource.includes("canAccessCash={isRestaurantOwner || authRestaurantRole === 'manager'}"),
+    appSource.includes("canAccessCash={isRestaurantOwner || userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')}"),
     'La navigation affiche l’espace caisse aux propriétaires et gérants autorisés'
   );
   assert(
-    appSource.includes("isRestaurantOwner || authRestaurantRole === 'manager' || userPermissions.includes('cash.view')"),
+    appSource.includes("['manager', 'cashier'].includes(authRestaurantRole) && userPermissions.includes('orders.cancel')") &&
+    appSource.includes("userPermissions.includes('orders.cancel')"),
+    'Le POS expose l’annulation des tickets impayés aux caissiers/gérants autorisés, avec contrôle serveur distinct'
+  );
+  assert(
+    appSource.includes("const canViewCashForCashPanel = isRestaurantOwner ||") &&
+    appSource.includes("userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')"),
     'Le module caisse reste accessible aux propriétaires et gérants autorisés même sans permission explicite redondante'
   );
   assert(
-    managerViewSource.includes('Fond de caisse disponible') &&
-    managerViewSource.includes('cashSession.openingBalance + cashSession.cashCollected - cashSession.cashOut'),
-    'Le tiroir affiche le fond de caisse disponible calculé depuis la session persistée'
+    managerViewSource.includes('Solde théorique de caisse') &&
+    managerViewSource.includes('formatFCFA(expectedCash)') &&
+    managerViewSource.includes('cashRefunds'),
+    'Le tiroir affiche le solde théorique recalculé depuis la session persistée, remboursements espèces déduits'
   );
   assert(
-    managerViewSource.includes('Clôturer la session et rapprocher') &&
+    managerViewSource.includes('Fermer la session de caisse') &&
     managerViewSource.includes('onCloseCashSession(amount)'),
     'Le responsable dispose d’une action visible de clôture avec comptage physique'
+  );
+  assert(
+    managerViewSource.includes('Corriger paiement') &&
+    managerViewSource.includes('reclassify_cash_payment') &&
+    managerViewSource.includes('transactionReference') &&
+    managerViewSource.includes('verificationNote'),
+    'Le journal permet une correction espèces vers Mobile Money avec référence et rapprochement documenté'
   );
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
     console.error('ÉCHEC : Firestore Emulator requis pour les tests de caisse et sessions.');
@@ -45,6 +59,8 @@ async function run() {
   const uid = 'cashier-' + Date.now();
   const restaurantRef = db.collection('restaurants').doc(slug);
   const memberRef = db.collection('managers').doc(uid);
+  const managerNoCashUid = 'manager-no-cash-' + Date.now();
+  const managerNoCashRef = db.collection('managers').doc(managerNoCashUid);
   const orderRef = restaurantRef.collection('orders').doc('order-main');
   const concurrentOrderRef = restaurantRef.collection('orders').doc('order-concurrent');
   const cancelledOrderRef = restaurantRef.collection('orders').doc('order-cancelled');
@@ -58,6 +74,10 @@ async function run() {
     await restaurantRef.set({ slug, status: 'active', isActive: true, ownerUid: 'owner-test', loyaltyFcfaPerPoint: 1000 });
     await memberRef.set({
       uid, role: 'cashier', restaurantSlug: slug, permissions: ['cash.manage', 'cash.view'],
+      active: true, sessionVersion: 3
+    });
+    await managerNoCashRef.set({
+      uid: managerNoCashUid, role: 'manager', restaurantSlug: slug, permissions: ['payments.refund'],
       active: true, sessionVersion: 3
     });
     await orderRef.set({
@@ -82,6 +102,14 @@ async function run() {
     });
 
     console.log('\n--- Ouverture et contrôle de session de caisse ---');
+    const managerOpenDenied = await openCashSessionWithDb(db, {
+      restaurantSlug: slug, actorUid: managerNoCashUid, actorName: 'Manager sans caisse',
+      sessionVersion: 3, openingBalance: 2000, idempotencyKey: 'manager-open-without-cash-manage'
+    });
+    assert(managerOpenDenied.success === false, 'Un manager sans cash.manage ne peut pas ouvrir une session');
+    const managerPaymentDenied = await recordCashPaymentWithDb(db,
+      input('order-main', 1000, 'manager-pay-without-cash-manage', 3, managerNoCashUid));
+    assert(managerPaymentDenied.success === false, 'Un manager sans cash.manage ne peut pas encaisser');
     const noSession = await recordCashPaymentWithDb(db, input('order-main', 1000, 'cash-no-session-01'));
     assert(noSession.success === false, 'Un encaissement est refusé tant que le caissier ne possède pas de session ouverte');
     await memberRef.update({ permissions: [] });
@@ -154,6 +182,44 @@ async function run() {
       finalPayment.payment?.changeAmount === 500 && finalPayment.order?.remainingAmount === 0 &&
       finalPayment.order?.paymentStatus === 'paid',
       'Le paiement final règle le solde exact et calcule la monnaie à rendre');
+    const beforeCorrectionOrder = await orderRef.get();
+    const beforeCorrectionSession = await getCashSessionWithDb(db, slug, uid);
+    const correction = await reclassifyCashPaymentWithDb(db, {
+      restaurantSlug: slug,
+      paymentId: finalPayment.payment.id,
+      actorUid: uid,
+      actorName: 'Caissier Test',
+      sessionVersion: 3,
+      provider: 'wave',
+      transactionReference: 'WAVE-TEST-20261111-001',
+      reason: 'Erreur de mode de règlement saisie',
+      verificationNote: 'Rapproché dans le tableau marchand Wave',
+      idempotencyKey: 'reclassify-cash-to-wave-01'
+    });
+    const afterCorrectionOrder = await orderRef.get();
+    const afterCorrectionSession = await getCashSessionWithDb(db, slug, uid);
+    assert(correction.success === true && correction.payment?.method === 'mobile_money' &&
+      correction.payment?.mobileMoneyProvider === 'wave',
+      'Un paiement espèces peut être reclassé vers Wave avec opérateur et référence');
+    assert(Number(afterCorrectionOrder.data()?.paidAmount) === Number(beforeCorrectionOrder.data()?.paidAmount),
+      'La reclassification ne crée aucun nouvel encaissement et ne modifie pas le montant payé de la commande');
+    assert(Number(afterCorrectionSession?.cashCollected) === Number(beforeCorrectionSession?.cashCollected) - Number(finalPayment.payment.paidAmount) &&
+      Number(afterCorrectionSession?.mobileMoneyCollected) === Number(finalPayment.payment.paidAmount),
+      'Le cumul espèces diminue et le cumul Mobile Money augmente du même montant');
+    const correctionReplay = await reclassifyCashPaymentWithDb(db, {
+      restaurantSlug: slug, paymentId: finalPayment.payment.id, actorUid: uid,
+      actorName: 'Caissier Test', sessionVersion: 3, provider: 'wave',
+      transactionReference: 'WAVE-TEST-20261111-001',
+      reason: 'Erreur de mode de règlement saisie',
+      verificationNote: 'Rapproché dans le tableau marchand Wave',
+      idempotencyKey: 'reclassify-cash-to-wave-01'
+    });
+    assert(correctionReplay.success === true && correctionReplay.idempotentReplay === true,
+      'Le rejeu de la correction retourne le même résultat sans double mouvement de caisse');
+    const correctionAudit = await restaurantRef.collection('paymentReclassifications').where('paymentId', '==', finalPayment.payment.id).get();
+    assert(correctionAudit.size === 1 && correctionAudit.docs[0].data().actorUid === uid,
+      'La correction conserve un seul événement d’audit avec auteur et référence');
+
     const loyaltyCustomers = await restaurantRef.collection('customers').where('phoneNormalized', '==', '0700000001').get();
     assert(loyaltyCustomers.size === 1 && loyaltyCustomers.docs[0].data().loyaltyPoints === 9,
       'Les points sont attribués automatiquement une seule fois au paiement intégral');
@@ -222,20 +288,20 @@ async function run() {
     console.log('\n--- Clôture et rapprochement de caisse ---');
     const closed = await closeCashSessionWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
-      sessionVersion: 3, closingCount: 14000, idempotencyKey: 'close-cash-session-001'
+      sessionVersion: 3, closingCount: 7500, idempotencyKey: 'close-cash-session-001'
     });
     assert(closed.success === true && closed.session?.status === 'closed' &&
-      closed.session?.expectedCash === 14000 && closed.session?.variance === 0,
+      closed.session?.expectedCash === 7500 && closed.session?.variance === 0,
       'La clôture calcule le solde théorique après sorties et l’écart avec le comptage physique');
     const closeReplay = await closeCashSessionWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
-      sessionVersion: 3, closingCount: 14000, idempotencyKey: 'close-cash-session-001'
+      sessionVersion: 3, closingCount: 7500, idempotencyKey: 'close-cash-session-001'
     });
     assert(closeReplay.success === true && closeReplay.idempotentReplay === true,
       'Le rejeu de la même clôture retourne le même rapport sans nouvelle écriture');
     const closeConflict = await closeCashSessionWithDb(db, {
       restaurantSlug: slug, actorUid: uid, actorName: 'Caissier Test',
-      sessionVersion: 3, closingCount: 13900, idempotencyKey: 'close-cash-session-001'
+      sessionVersion: 3, closingCount: 7400, idempotencyKey: 'close-cash-session-001'
     });
     assert(closeConflict.success === false && closeConflict.conflict === true,
       'Une même clé de clôture ne peut pas être rejouée avec un comptage différent');
@@ -334,7 +400,7 @@ async function run() {
     if (movements) for (const doc of movements.docs) { try { await doc.ref.delete(); } catch {} }
     const activeSessions = await restaurantRef.collection('cashSessionActive').get().catch(() => null);
     if (activeSessions) for (const doc of activeSessions.docs) { try { await doc.ref.delete(); } catch {} }
-    for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, splitOrderRef, memberRef, restaurantRef]) {
+    for (const ref of [orderRef, concurrentOrderRef, cancelledOrderRef, splitOrderRef, memberRef, managerNoCashRef, restaurantRef]) {
       try { await ref.delete(); } catch {}
     }
     try { await app.delete(); } catch {}

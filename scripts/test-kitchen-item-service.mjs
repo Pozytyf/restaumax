@@ -78,10 +78,33 @@ managerDb.documents.set('managers/manager-1', {
 assert.equal((await updateKitchenItemCompletionWithDb(managerDb, { ...params, actorUid: 'manager-1' })).success, true);
 
 const kitchenDb = base();
+kitchenDb.documents.get('restaurants/chez-awa/orders/order-1').items[1].category = 'boissons';
 kitchenDb.documents.set('managers/kitchen-1', {
   active: true, restaurantSlug: 'chez-awa', role: 'kitchen', permissions: ['kitchen.access'], sessionVersion: 3
 });
 assert.equal((await updateKitchenItemCompletionWithDb(kitchenDb, { ...params, actorUid: 'kitchen-1' })).success, true);
+const barDb = base();
+barDb.documents.get('restaurants/chez-awa/orders/order-1').items[1].category = 'boissons';
+barDb.documents.set('managers/bar-1', {
+  active: true, restaurantSlug: 'chez-awa', role: 'kitchen', permissions: ['bar.access'], sessionVersion: 3
+});
+const barAllowed = await updateKitchenItemCompletionWithDb(barDb, {
+  ...params, actorUid: 'bar-1', itemId: 'ki-order-1-1', itemIndex: 1
+});
+assert.equal(barAllowed.success, true, 'Bar access can update beverage lines');
+const barDeniedKitchenLine = await updateKitchenItemCompletionWithDb(barDb, {
+  ...params, actorUid: 'bar-1', itemId: 'ki-order-1-0', itemIndex: 0
+});
+assert.equal(barDeniedKitchenLine.success, false, 'Bar cannot update kitchen lines');
+const kitchenAllowedLine = await updateKitchenItemCompletionWithDb(kitchenDb, {
+  ...params, actorUid: 'kitchen-1', itemId: 'ki-order-1-0', itemIndex: 0
+});
+assert.equal(kitchenAllowedLine.success, true, 'Kitchen access can update kitchen lines');
+const kitchenDeniedBarLine = await updateKitchenItemCompletionWithDb(kitchenDb, {
+  ...params, actorUid: 'kitchen-1', itemId: 'ki-order-1-1', itemIndex: 1
+});
+assert.equal(kitchenDeniedBarLine.success, false, 'Kitchen cannot update bar lines');
+
 
 const pendingDb = base();
 pendingDb.documents.set('restaurants/chez-awa/orders/order-1', {
@@ -125,7 +148,7 @@ assert(ticketProjectionSource.includes('stockTrackingStatus: order.stockTracking
 assert(kdsView.includes('STOCK PARTIEL') && kdsView.includes('STOCK NON SUIVI'), 'KDS visibly flags incomplete or missing recipe tracking');
 assert(ticketProjectionSource.includes("completed: order.kitchenItemCompletion?.[String(index)] === true"), 'KDS state is restored from Firestore snapshots');
 assert(ticketProjectionSource.includes('Options :') && ticketProjectionSource.includes('Suppléments :'), 'KDS projection preserves configured options and extras');
-assert(kdsView.includes("if (ticket.status !== 'in_prep') return;"), 'KDS line progress is locked after the ticket is ready');
+assert(kdsView.includes("if (!['pending', 'in_prep'].includes(ticket.status)) return;"), 'KDS line progress is locked after the ticket leaves pending/preparation');
 assert(kdsView.includes('if (!ticket.items.every(item => item.completed))'), 'KDS cannot dispatch a ticket with unfinished lines');
 assert(rulesSource.includes('allow update: if false;'), 'Firestore prevents client-side status and KDS writes; the server validates completed lines');
 console.log('KDS item progress service, API and transition checks passed.');

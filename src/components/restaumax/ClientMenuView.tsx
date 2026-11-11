@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { RestauMenuItem, ClientCartItem, RestaurantInfo, SelectedOption, SelectedExtra, RestauOrder } from '../../types/restaumax';
 import { ProductDetailModal } from './ProductDetailModal';
 import { CartDrawer } from './CartDrawer';
@@ -6,6 +6,7 @@ import { OrderConfirmationModal } from './OrderConfirmationModal';
 import { formatFCFA } from '../../utils/format';
 import { calculateOrderTax } from '../../utils/pricing';
 import { sounds } from '../../utils/audio';
+import { mutateCustomerOrderWithServerValidation } from '../../lib/firebase';
 import { 
   Search, 
   MapPin, 
@@ -37,7 +38,10 @@ export interface ClientMenuViewProps {
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
-  onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
+  onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean; customerAccessToken?: string }>;
+  pendingCustomerNote?: string;
+  pendingCustomerName?: string;
+  pendingCustomerPhone?: string;
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
   onSelectCashPayment?: (order: RestauOrder) => Promise<{ success: boolean; error?: string }>;
   isUncertain?: boolean;
@@ -114,6 +118,9 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   onRemoveItem,
   onClearCart,
   onConfirmOrder,
+  pendingCustomerNote = '',
+  pendingCustomerName = '',
+  pendingCustomerPhone = '',
   onStartPayDunyaPayment,
   onSelectCashPayment,
   isUncertain = false,
@@ -126,6 +133,22 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   const [quantityByDish, setQuantityByDish] = useState<Record<string, number>>({});
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [confirmedOrder, setConfirmedOrder] = useState<RestauOrder | null>(null);
+  const [confirmedOrderAccessToken, setConfirmedOrderAccessToken] = useState<string | null>(null);
+  const [isConfirmedOrderOpen, setIsConfirmedOrderOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = window.sessionStorage.getItem(`restaumax-last-order:${restaurant.slug}`);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      if (parsed?.order?.id && typeof parsed.accessToken === 'string' && parsed.accessToken.length >= 32) {
+        setConfirmedOrder(parsed.order as RestauOrder);
+        setConfirmedOrderAccessToken(parsed.accessToken);
+        setIsConfirmedOrderOpen(true);
+      }
+    } catch { /* ignore invalid or unavailable session storage */ }
+  }, [restaurant.slug]);
 
   // Filtered menu items (only available dishes are displayed and searchable)
   const filteredItems = useMemo(() => {
@@ -464,6 +487,9 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
         onUpdateQuantity={onUpdateQuantity}
         onRemoveItem={onRemoveItem}
         onClearCart={onClearCart}
+        initialCustomerNote={pendingCustomerNote}
+        initialCustomerName={pendingCustomerName}
+        initialCustomerPhone={pendingCustomerPhone}
         isUncertain={isUncertain}
         onResetUncertainty={onResetUncertainty}
         onConfirmOrder={async (note, customer) => {
@@ -474,6 +500,14 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
           if (res.success && res.order) {
             setIsCartOpen(false);
             setConfirmedOrder(res.order);
+            setConfirmedOrderAccessToken(res.customerAccessToken || null);
+            setIsConfirmedOrderOpen(true);
+            if (res.customerAccessToken && typeof window !== 'undefined') {
+              try {
+                window.sessionStorage.setItem(`restaumax-order-access:${res.order.id}`, res.customerAccessToken);
+                window.sessionStorage.setItem(`restaumax-last-order:${restaurant.slug}`, JSON.stringify({ order: res.order, accessToken: res.customerAccessToken }));
+              } catch { /* storage may be unavailable */ }
+            }
             sounds.playSuccess();
           }
           return res;
@@ -481,14 +515,50 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       />
 
       {/* Confirmed Order Modal */}
+      {confirmedOrder && !isConfirmedOrderOpen && (
+        <button type="button" onClick={() => setIsConfirmedOrderOpen(true)}
+          className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full bg-[#101d2d] px-5 py-3 text-xs font-black text-white shadow-2xl border border-white/20">
+          Suivre ma commande · {confirmedOrder.orderNumber}
+        </button>
+      )}
       <OrderConfirmationModal
-        order={confirmedOrder}
+        order={isConfirmedOrderOpen ? confirmedOrder : null}
         restaurantName={restaurant.name}
+        customerAccessToken={confirmedOrderAccessToken}
+        onCustomerOrderMutation={async (mutation) => {
+          if (!confirmedOrder || !confirmedOrderAccessToken) return { success: false, error: 'Lien sécurisé de suivi indisponible.' };
+          const result = await mutateCustomerOrderWithServerValidation({ restaurantSlug: restaurant.slug, orderId: confirmedOrder.id, accessToken: confirmedOrderAccessToken, ...mutation });
+          if (result.success && mutation.action === 'get' && result.order) {
+            setConfirmedOrder(result.order);
+            try { window.sessionStorage.setItem(`restaumax-last-order:${restaurant.slug}`, JSON.stringify({ order: result.order, accessToken: confirmedOrderAccessToken })); } catch { /* storage may be unavailable */ }
+            return result;
+          }
+          if (result.success && mutation.action === 'cancel') {
+            const cancelledAt = Date.now();
+            setConfirmedOrder({ ...confirmedOrder, status: 'cancelled', statusUpdatedAt: cancelledAt, cancelledAt, cancellationReason: mutation.reason || '', statusHistory: [...(confirmedOrder.statusHistory || [{ status: 'pending', changedAt: confirmedOrder.createdAt }]), { status: 'cancelled', changedAt: cancelledAt, reason: mutation.reason || '' }] });
+          }
+          if (result.success && mutation.action === 'edit' && mutation.items) {
+            const nextItems = mutation.items.map(change => {
+              const original = confirmedOrder.items.find(item => item.id === change.id)!;
+              return { ...original, quantity: change.quantity, totalPrice: original.unitPrice * change.quantity, prepNotes: change.prepNotes };
+            });
+            const updated = { ...confirmedOrder, items: nextItems, itemsCount: result.itemsCount ?? nextItems.reduce((sum, item) => sum + item.quantity, 0), subtotalAmount: result.subtotalAmount ?? confirmedOrder.subtotalAmount, taxAmount: result.taxAmount ?? confirmedOrder.taxAmount, totalAmount: result.totalAmount ?? confirmedOrder.totalAmount, remainingAmount: result.totalAmount ?? confirmedOrder.remainingAmount };
+            setConfirmedOrder(updated);
+            try { window.sessionStorage.setItem(`restaumax-last-order:${restaurant.slug}`, JSON.stringify({ order: updated, accessToken: confirmedOrderAccessToken })); } catch { /* storage may be unavailable */ }
+          }
+          return result;
+        }}
         onStartPayDunyaPayment={onStartPayDunyaPayment}
         onSelectCashPayment={onSelectCashPayment}
-        onClose={() => setConfirmedOrder(null)}
+        onClose={() => setIsConfirmedOrderOpen(false)}
         onNewOrder={() => {
           setConfirmedOrder(null);
+          setConfirmedOrderAccessToken(null);
+          setIsConfirmedOrderOpen(false);
+          try {
+            window.sessionStorage.removeItem(`restaumax-last-order:${restaurant.slug}`);
+            if (confirmedOrder) window.sessionStorage.removeItem(`restaumax-order-access:${confirmedOrder.id}`);
+          } catch { /* storage may be unavailable */ }
           onClearCart();
         }}
       />

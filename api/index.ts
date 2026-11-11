@@ -1,6 +1,8 @@
 import {
   adminDb,
   getServerHealth,
+  handleCustomerCreateRequest,
+  handleTableCreateRequest,
   handleCustomerLoyaltyAdjustmentRequest,
   handleCustomerCashPreferenceRequest,
   handleCustomerPayDunyaInvoiceRequest,
@@ -9,6 +11,7 @@ import {
   handleInventoryRequest,
   handleKitchenItemRequest,
   handleOrderStatusRequest,
+  handleCustomerOrderMutationRequest,
   handleOrderSubmission,
   handlePaymentsRequest,
   handlePayDunyaCallbackRequest,
@@ -76,12 +79,24 @@ export default async function handler(req: any, res: any) {
       const result = await handleInventoryRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);
     }
+    case 'tables': {
+      const result = await handleTableCreateRequest(req.body, req);
+      return res.status(result.statusCode).json(result.body);
+    }
+    case 'customers': {
+      const result = await handleCustomerCreateRequest(req.body, req);
+      return res.status(result.statusCode).json(result.body);
+    }
     case 'customer-loyalty': {
       const result = await handleCustomerLoyaltyAdjustmentRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);
     }
     case 'kitchen-item': {
       const result = await handleKitchenItemRequest(req.body, req);
+      return res.status(result.statusCode).json(result.body);
+    }
+    case 'customer-orders': {
+      const result = await handleCustomerOrderMutationRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);
     }
     case 'order-status': {

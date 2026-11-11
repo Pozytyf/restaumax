@@ -316,7 +316,16 @@ async function run() {
 
   const resolved = await resolveTableQr(db, token);
   const session = await getActiveTableSession(db, resolved.sessionSecret);
+  const secondGuestResolved = await resolveTableQr(db, token);
+  const secondGuestSession = await getActiveTableSession(db, secondGuestResolved.sessionSecret);
   assert(session?.tableNumber === '4', 'Résolution QR et création de session liée à la table');
+  assert(Boolean(session?.tableServiceSessionId) &&
+    session.tableServiceSessionId === secondGuestSession?.tableServiceSessionId,
+    'Deux clients scannant le même QR rejoignent la même session de service de table');
+  assert(session?.sessionHash !== secondGuestSession?.sessionHash,
+    'Chaque client conserve une session sécurisée individuelle distincte');
+  assert(session?.tableServiceSessionId !== session?.sessionHash,
+    'L’identifiant de service partagé ne révèle pas le secret de session individuel');
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'provisioning' });
   assert(await getActiveTableSession(db, resolved.sessionSecret) === null, 'Une session existante est refusée si le restaurant repasse en provisioning');
   db.store.set('restaurants/chez-awa', { ...db.store.get('restaurants/chez-awa'), status: 'active' });

@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  addDoc, collection, deleteDoc, doc, getDocs, limit, onSnapshot, orderBy, query, where
+  collection, doc, getDocs, limit, onSnapshot, orderBy, query, updateDoc, where
 } from 'firebase/firestore';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Download, Save, Pencil, Package, Users, BarChart3, Settings, AlertTriangle } from 'lucide-react';
-import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation, adjustCustomerLoyaltyPointsWithServerValidation } from '../../lib/firebase';
+import { auth, db, persistRestaurant, createInventoryItemWithServerValidation, updateInventoryItemWithServerValidation, moveInventoryStockWithServerValidation, archiveInventoryItemWithServerValidation, adjustCustomerLoyaltyPointsWithServerValidation, createCustomerWithServerValidation } from '../../lib/firebase';
 import type { RestaurantInfo, RestauOrder } from '../../types/restaumax';
 import { formatFCFA } from '../../utils/format';
 import { InventoryRecipePanel } from './InventoryRecipePanel';
 
 type ModuleId = 'customers' | 'inventory' | 'reports' | 'settings';
-type Customer = { id: string; name: string; phone: string; phoneNormalized?: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number };
+type Customer = { id: string; name: string; phone: string; phoneNormalized?: string; email?: string; notes?: string; loyaltyPoints: number; createdAt?: number; archivedAt?: number; archivedByUid?: string };
 type InventoryItem = { id: string; name: string; unit: string; quantity: number; minQuantity: number; unitCost: number; supplier?: string; updatedAt: number; active?: boolean };
 type StockMovement = { id: string; itemName: string; unit: string; quantityBefore: number; delta: number; quantityAfter: number; reason: string; createdAt: number; createdBy: string };
 type FinancialReport = {
@@ -46,12 +46,20 @@ export const RestaurantAdminModuleView: React.FC<{
   permissions: string[];
   onBack: () => void;
 }> = ({ module, restaurant, permissions, onBack }) => {
-  const canManage = permissions.includes(module === 'customers' ? 'customers.manage' : module === 'inventory' ? 'inventory.manage' : 'settings.manage');
+  const requiredPermission = module === 'customers' ? 'customers.view' : module === 'inventory' ? 'inventory.view' : module === 'reports' ? 'reports.view' : 'settings.view';
+  const canAccessModule = permissions.includes(requiredPermission);
+  const canManage = module === 'customers' ? permissions.includes('customers.manage')
+    : module === 'inventory' ? permissions.includes('inventory.manage')
+      : module === 'settings' ? permissions.includes('settings.manage') : false;
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [orders, setOrders] = useState<RestauOrder[]>([]);
   const [financialReport, setFinancialReport] = useState<FinancialReport | null>(null);
+  const [dailyReport, setDailyReport] = useState<FinancialReport | null>(null);
+  const [dailyClosure, setDailyClosure] = useState<{ closedAt: number; closedByName: string; reportHash: string } | null>(null);
+  const [closingDailyRevenue, setClosingDailyRevenue] = useState(false);
+  const [selectedReportDate, setSelectedReportDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [reportLoading, setReportLoading] = useState(false);
   const [reportRefreshKey, setReportRefreshKey] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -76,10 +84,11 @@ export const RestaurantAdminModuleView: React.FC<{
   });
 
   useEffect(() => {
+    if (!canAccessModule) return;
     setError('');
     if (module === 'customers') {
       return onSnapshot(collection(db, 'restaurants', restaurant.slug, 'customers'), snap => {
-        setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer)).sort((a,b) => a.name.localeCompare(b.name)));
+        setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() } as Customer)).filter(customer => !customer.archivedAt).sort((a,b) => a.name.localeCompare(b.name)));
       }, err => setError(err.message));
     }
     if (module === 'inventory') {
@@ -107,13 +116,31 @@ export const RestaurantAdminModuleView: React.FC<{
           const user = auth.currentUser;
           if (!user) throw new Error('Connexion requise pour consulter les rapports.');
           const token = await user.getIdToken(true);
-          const response = await fetch('/api/reports?restaurantSlug=' + encodeURIComponent(restaurant.slug) + '&periodDays=30', {
-            headers: { Authorization: 'Bearer ' + token },
-            credentials: 'same-origin', cache: 'no-store'
-          });
-          const data = await response.json();
-          if (!response.ok || !data.success) throw new Error(data.error || 'Chargement des rapports impossible.');
-          if (active) setFinancialReport(data.report as FinancialReport);
+          const requestReport = async (queryString: string) => {
+            const response = await fetch('/api/reports?restaurantSlug=' + encodeURIComponent(restaurant.slug) + '&' + queryString, {
+              headers: { Authorization: 'Bearer ' + token },
+              credentials: 'same-origin', cache: 'no-store'
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Chargement des rapports impossible.');
+            return { report: data.report as FinancialReport, closure: data.closure || null };
+          };
+          const [periodResult, todayResult] = await Promise.allSettled([
+            requestReport('periodDays=30&reportType=period'),
+            requestReport('reportType=daily&date=' + encodeURIComponent(selectedReportDate))
+          ]);
+          if (active) {
+            if (periodResult.status === 'fulfilled') setFinancialReport(periodResult.value.report);
+            else setError(periodResult.reason instanceof Error ? periodResult.reason.message : 'Rapport périodique indisponible.');
+            if (todayResult.status === 'fulfilled') {
+              setDailyReport(todayResult.value.report);
+              setDailyClosure(todayResult.value.closure ? {
+                closedAt: Number(todayResult.value.closure.closedAt || 0),
+                closedByName: String(todayResult.value.closure.closedByName || 'Responsable'),
+                reportHash: String(todayResult.value.closure.reportHash || '')
+              } : null);
+            } else setError(todayResult.reason instanceof Error ? todayResult.reason.message : 'Recette journalière indisponible.');
+          }
         } catch (e) {
           if (active) setError(e instanceof Error ? e.message : 'Chargement des rapports impossible.');
         } finally {
@@ -124,7 +151,7 @@ export const RestaurantAdminModuleView: React.FC<{
       return () => { active = false; stopOrders(); };
     }
     return undefined;
-  }, [module, restaurant.slug, reportRefreshKey]);
+  }, [module, restaurant.slug, reportRefreshKey, canAccessModule, selectedReportDate]);
 
   useEffect(() => {
     setSettings({
@@ -136,6 +163,41 @@ export const RestaurantAdminModuleView: React.FC<{
       receiptFooter: restaurant.receiptFooter || '', receiptPaperWidth: restaurant.receiptPaperWidth || '80mm'
     });
   }, [restaurant]);
+
+  const closeDailyRevenue = async () => {
+    if (closingDailyRevenue || dailyClosure) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (selectedReportDate >= today) {
+      setError('La clôture officielle est disponible le lendemain, lorsque la journée est terminée.');
+      return;
+    }
+    if (!window.confirm('Clôturer définitivement la recette du ' + new Date(selectedReportDate + 'T00:00:00Z').toLocaleDateString('fr-FR') + ' ? Cette clôture sera horodatée et ne pourra pas être remplacée.')) return;
+    const user = auth.currentUser;
+    if (!user) { setError('Connexion requise pour clôturer la recette.'); return; }
+    setClosingDailyRevenue(true); setError(''); setNotice('');
+    try {
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/reports', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        credentials: 'same-origin', cache: 'no-store',
+        body: JSON.stringify({ restaurantSlug: restaurant.slug, date: selectedReportDate })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Clôture journalière refusée.');
+      setDailyClosure({
+        closedAt: Number(data.closure?.closedAt || Date.now()),
+        closedByName: String(data.closure?.closedByName || user.displayName || user.email || 'Responsable'),
+        reportHash: String(data.closure?.reportHash || '')
+      });
+      setNotice('Recette du ' + selectedReportDate + ' clôturée et archivée. La clôture est définitive.');
+      setReportRefreshKey(value => value + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Impossible de clôturer cette recette.');
+    } finally {
+      setClosingDailyRevenue(false);
+    }
+  };
 
   const completedOrders = useMemo(() => orders.filter(o => o.status === 'completed'), [orders]);
   const bestSellers = useMemo(() => {
@@ -152,27 +214,30 @@ export const RestaurantAdminModuleView: React.FC<{
       setLoading(false); return;
     }
     try {
-      const duplicate = await getDocs(query(
-        collection(db, 'restaurants', restaurant.slug, 'customers'),
-        where('phoneNormalized', '==', phoneNormalized), limit(1)
-      ));
-      if (!duplicate.empty) {
-        setError('Un client utilise déjà ce numéro de téléphone dans ce restaurant.');
-        setLoading(false); return;
-      }
-      await addDoc(collection(db, 'restaurants', restaurant.slug, 'customers'), {
-        ...customerForm, name: customerForm.name.trim(), phone: customerForm.phone.trim(), phoneNormalized,
-        email: customerForm.email.trim(), loyaltyPoints: 0, createdAt: Date.now(), updatedAt: Date.now()
+      const result = await createCustomerWithServerValidation(restaurant.slug, {
+        name: customerForm.name.trim(), phone: customerForm.phone.trim(),
+        email: customerForm.email.trim(), notes: customerForm.notes.trim()
       });
-      setCustomerForm({ name: '', phone: '', email: '', notes: '' }); setNotice('Client enregistré.');
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      setCustomerForm({ name: '', phone: '', email: '', notes: '' });
+      setNotice(result.alreadyExisted ? 'Fiche fidélité existante complétée.' : 'Client enregistré.');
     } catch (e) { setError(e instanceof Error ? e.message : 'Impossible d’enregistrer le client.'); }
     finally { setLoading(false); }
   };
 
   const removeCustomer = async (id: string) => {
-    if (!canManage || !window.confirm('Supprimer cette fiche client ?')) return;
-    try { await deleteDoc(doc(db, 'restaurants', restaurant.slug, 'customers', id)); setNotice('Fiche client supprimée.'); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Suppression impossible.'); }
+    if (!canManage || !window.confirm('Archiver cette fiche client ? Son historique de fidélité sera conservé.')) return;
+    try {
+      const actorUid = auth.currentUser?.uid;
+      if (!actorUid) throw new Error('Connexion du personnel requise.');
+      await updateDoc(doc(db, 'restaurants', restaurant.slug, 'customers', id), {
+        archivedAt: Date.now(), archivedByUid: actorUid, updatedAt: Date.now()
+      });
+      setNotice('Fiche client archivée. Son historique de fidélité est conservé.');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Archivage impossible.'); }
   };
 
   const adjustPoints = async (customer: Customer, delta: number) => {
@@ -354,6 +419,8 @@ export const RestaurantAdminModuleView: React.FC<{
   const lowStockInventory = inventory.filter(item => item.active !== false && Number(item.quantity) <= Number(item.minQuantity));
   const outOfStockInventory = lowStockInventory.filter(item => Number(item.quantity) <= 0);
 
+  if (!canAccessModule) return <div className="min-h-screen bg-slate-50 p-6 text-slate-900"><div className="mx-auto max-w-xl rounded-2xl border border-rose-200 bg-white p-6"><h1 className="text-lg font-black">Accès refusé</h1><p className="mt-2 text-sm text-slate-600">Votre rôle ne dispose pas de l’autorisation nécessaire pour consulter ce module.</p><button onClick={onBack} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white">Retour</button></div></div>;
+
   return <div className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
     <div className="mx-auto max-w-6xl space-y-6">
       <button onClick={onBack} className="flex items-center gap-2 text-sm font-bold text-slate-600"><ArrowLeft size={16}/> Retour au centre de gestion</button>
@@ -371,7 +438,7 @@ export const RestaurantAdminModuleView: React.FC<{
           <button disabled={loading} className="flex items-center justify-center gap-2 rounded-lg bg-slate-900 p-3 font-bold text-white md:col-span-2"><Plus size={16}/> Enregistrer le client</button>
         </form>}
         <section className="overflow-hidden rounded-2xl border bg-white"><div className="border-b p-4 font-bold">Répertoire clients · {customers.length}</div>
-          {customers.map(c=><div key={c.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{c.name}</p><p className="text-xs text-slate-500">{c.phone}{c.email ? ' · '+c.email : ''}</p>{c.notes && <p className="mt-1 text-sm text-slate-600">{c.notes}</p>}<p className="mt-1 text-xs font-semibold text-orange-700">{c.loyaltyPoints || 0} point(s) fidélité</p></div>{canManage && <div className="flex items-center gap-2"><button onClick={()=>adjustPoints(c,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">+1 point</button><button onClick={()=>removeCustomer(c.id)} aria-label="Supprimer le client" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
+          {customers.map(c=><div key={c.id} className="flex flex-wrap items-center justify-between gap-3 border-b p-4 last:border-0"><div><p className="font-bold">{c.name}</p><p className="text-xs text-slate-500">{c.phone}{c.email ? ' · '+c.email : ''}</p>{c.notes && <p className="mt-1 text-sm text-slate-600">{c.notes}</p>}<p className="mt-1 text-xs font-semibold text-orange-700">{c.loyaltyPoints || 0} point(s) fidélité</p></div>{canManage && <div className="flex items-center gap-2"><button onClick={()=>adjustPoints(c,1)} disabled={loading} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">+1 point</button><button onClick={()=>removeCustomer(c.id)} aria-label="Archiver le client" className="rounded-lg border border-rose-200 p-2 text-rose-700"><Trash2 size={16}/></button></div>}</div>)}
           {customers.length===0 && <p className="p-8 text-center text-sm text-slate-500">Aucun client enregistré pour le moment.</p>}
         </section>
       </>}
@@ -424,8 +491,48 @@ export const RestaurantAdminModuleView: React.FC<{
       </>}
       
       {module === 'reports' && <>
+        <section className="rounded-2xl border border-orange-200 bg-orange-50/50 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-black text-slate-900">Calendrier des recettes journalières</h2>
+              <p className="mt-1 text-xs text-slate-600">Consultez la recette nette de chaque date. Les journées passées couvrent 00:00–23:59 (UTC+0, Côte d’Ivoire) ; la journée en cours s’arrête à maintenant.</p>
+            </div>
+            <label className="flex items-center gap-2 rounded-xl border border-orange-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">
+              <span>📅 Date des recettes</span>
+              <input
+                aria-label="Choisir la date des recettes"
+                type="date"
+                value={selectedReportDate}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={event => setSelectedReportDate(event.target.value)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-sm"
+              />
+            </label>
+          </div>
+          {dailyClosure ? (
+            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+              <strong>Journée clôturée</strong> · {new Date(dailyClosure.closedAt).toLocaleString('fr-FR')} · par {dailyClosure.closedByName}
+            </div>
+          ) : selectedReportDate < new Date().toISOString().slice(0, 10) ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs text-amber-900">Cette journée passée n’est pas encore clôturée. Fermez d’abord toutes les sessions de caisse de cette date.</p>
+              <button type="button" onClick={() => void closeDailyRevenue()} disabled={closingDailyRevenue || reportLoading || !dailyReport}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">
+                {closingDailyRevenue ? 'Clôture en cours…' : '🔒 Clôturer la recette du jour'}
+              </button>
+            </div>
+          ) : <p className="mt-3 text-xs font-semibold text-slate-600">La clôture de cette journée sera disponible demain.</p>}
+          {dailyReport ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">Encaissements nets du jour</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyReport.grossCollected)}</p></div>
+              <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">Commandes réglées</p><p className="mt-1 text-xl font-black">{dailyReport.paidOrderCount}</p></div>
+              <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">Dépenses suivies</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyReport.expenseTotal)}</p></div>
+              <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">Résultat après dépenses suivies</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyReport.operatingResult)}</p></div>
+            </div>
+          ) : <p className="mt-3 text-sm text-slate-500">{reportLoading ? 'Calcul du point journalier…' : 'Aucune donnée journalière disponible.'}</p>}
+        </section>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-slate-500">Période : {financialReport ? new Date(financialReport.period.startAt).toLocaleDateString('fr-FR') + ' – ' + new Date(financialReport.period.endAt).toLocaleDateString('fr-FR') : '30 derniers jours'}</p>
+          <p className="text-xs text-slate-500">Rapport périodique · Période : {financialReport ? new Date(financialReport.period.startAt).toLocaleDateString('fr-FR') + ' – ' + new Date(financialReport.period.endAt).toLocaleDateString('fr-FR') : '30 derniers jours'}</p>
           <button type="button" onClick={()=>setReportRefreshKey(value=>value+1)} disabled={reportLoading} className="rounded-lg border px-3 py-2 text-xs font-bold">{reportLoading ? 'Actualisation…' : 'Actualiser les rapports'}</button>
         </div>
         {financialReport && <>

@@ -23,8 +23,10 @@ const tsconfig = JSON.parse(fs.readFileSync(new URL('../tsconfig.json', import.m
 const reportStart = server.indexOf('export async function handleRestaurantReportsRequest');
 const reportEnd = server.indexOf('\nexport async function ', reportStart + 10);
 const reportHandler = server.slice(reportStart, reportEnd > reportStart ? reportEnd : undefined);
-assert(reportHandler.includes('verifyIdToken') && !reportHandler.includes('requestHasValidOrigin'),
-  'same-origin authenticated GET reports do not depend on a browser Origin header');
+assert(reportHandler.includes('verifyIdToken') &&
+  reportHandler.includes("method === 'POST' && !requestHasValidOrigin(req)") &&
+  !reportHandler.includes("if (!requestHasValidOrigin(req))"),
+  'GET reports remain bearer-authenticated without an Origin dependency while POST daily closure requests validate Origin');
 
 const healthHandler = api.slice(api.indexOf("if (route.id === 'health')"), api.indexOf("if (route.id === 'platform-admin')"));
 assert(healthHandler.includes("if (!adminDb)") && !healthHandler.includes('listCollections') &&
@@ -82,10 +84,12 @@ assert(paydunyaMerchant.includes('payDunyaCredentialsAad') &&
   paydunyaMerchant.includes('version: 2') &&
   paydunyaMerchant.includes('PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY_V'),
   'PayDunya credentials use tenant-bound AAD and versioned encryption keys');
-assert(workflowEmulator.includes('actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683') &&
+assert(workflowEmulator.includes('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1') &&
+  workflowEmulator.includes('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1') &&
   workflowEmulator.includes('permissions:') && workflowEmulator.includes('contents: read'),
   'Firestore emulator workflow pins actions and uses read-only repository permissions');
-assert(workflowHardening.includes('actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683') &&
+assert(workflowHardening.includes('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1') &&
+  workflowHardening.includes('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1') &&
   workflowHardening.includes('firebase-tools@15.34.2') &&
   !workflowHardening.includes('fix/security-full-hardening'),
   'security hardening workflow pins actions/tooling and no longer targets a stale branch');
@@ -113,7 +117,7 @@ assert(restaurantRules.includes('isPublicRestaurant(resource.data)'),
 const customerRuleStart = rules.indexOf('match /customers/{customerId}');
 const customerRuleEnd = rules.indexOf('\n      }', customerRuleStart);
 const customerRules = rules.slice(customerRuleStart, customerRuleEnd);
-assert(customerRules.includes("hasOnly(['name', 'phone', 'email', 'notes', 'updatedAt'])") &&
-  !customerRules.includes("incoming().loyaltyPoints is number"), 'loyalty points cannot be changed directly by a client SDK');
+assert(customerRules.includes('allow create: if false;') &&
+  !customerRules.includes("incoming().loyaltyPoints is number"), 'customer creation and loyalty point writes are server-only');
 
 console.log('RestauMax security audit hardening checks passed.');
