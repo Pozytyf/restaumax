@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { calculateRestaurantFinancialReport } from '../src/server/reportService.ts';
+import { calculateRestaurantFinancialReport, resolveFinancialReportRange } from '../src/server/reportService.ts';
+
+const localNow = Date.UTC(2026, 10, 11, 9, 30, 0);
+const dailyRange = resolveFinancialReportRange(localNow, 30, 'daily');
+assert.equal(dailyRange.startAt, Date.UTC(2026, 10, 11, 0, 0, 0), 'Le point journalier commence à minuit UTC+0, heure de Côte d’Ivoire.');
+assert.equal(dailyRange.endAt, localNow, 'Le point journalier s’arrête à l’instant de calcul.');
+const periodRange = resolveFinancialReportRange(localNow, 30, 'period');
+assert.equal(periodRange.startAt, localNow - 30 * 24 * 60 * 60 * 1000, 'Le rapport périodique conserve sa fenêtre glissante.');
+assert.throws(() => resolveFinancialReportRange(localNow, 0, 'daily'), /Période de rapport invalide/, 'Une période invalide est rejetée.');
 
 const report = calculateRestaurantFinancialReport({
   orders: [{
@@ -81,4 +89,4 @@ assert.equal(Number.isInteger(refundedRanking.bestSellers[0].quantity), true,
   'Le classement ne fabrique pas de quantités fractionnaires faute de détail des articles retournés.');
 assert.equal(refundedRanking.grossCollected, 500, 'Le classement et le chiffre d’affaires net reposent sur la même base après remboursement.');
 
-console.log('Financial report calculation tests passed: 20 assertions.');
+console.log('Financial report calculation tests passed: 24 assertions.');
