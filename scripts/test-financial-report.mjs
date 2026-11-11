@@ -117,6 +117,7 @@ assert(reportServiceSource.includes('linkedOrderIds') && reportServiceSource.inc
 assert(reportServiceSource.includes("refunds.map((doc: any) => String(doc.data()?.orderId || ''))"),
   'A refund made on the selected date loads its original order even when the payment was received earlier.');
 assert(reportApiSource.includes("closureSnap.data()?.report"), 'A closed day always displays its immutable archived report snapshot.');
+assert(reportApiSource.includes('delete archivedReport.cash') && !reportApiSource.includes('...closureSnap.data()'), 'Archived closures never bypass reports.cash.view when exposing cash details.');
 assert(reportApiSource.includes("dailyRevenueClosures") && reportApiSource.includes("Seul le propriétaire ou le gérant"),
   'Daily revenue closure is stored server-side and restricted to owners and managers.');
 assert(reportApiSource.includes("hasOpenSessionForDay") && reportApiSource.includes("journée terminée"),
