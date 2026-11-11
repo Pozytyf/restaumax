@@ -1998,15 +1998,22 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     const closureSnap = reportType === 'daily' && selectedDate
       ? await restaurantRef.collection('dailyRevenueClosures').doc(selectedDate).get()
       : null;
-    const report = closureSnap?.exists
-      ? closureSnap.data()?.report
-      : await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
-          periodDays, includeCashDetails, reportType: reportType as 'period' | 'daily',
-          ...(selectedDate ? { date: selectedDate } : {})
-        });
+    const closureData = closureSnap?.exists ? closureSnap.data() : null;
+    const archivedReport = closureData?.report && typeof closureData.report === 'object'
+      ? { ...closureData.report }
+      : null;
+    if (archivedReport && !includeCashDetails) delete archivedReport.cash;
+    const report = archivedReport || await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
+      periodDays, includeCashDetails, reportType: reportType as 'period' | 'daily',
+      ...(selectedDate ? { date: selectedDate } : {})
+    });
     return { statusCode: 200, body: {
       success: true, report,
-      closure: closureSnap?.exists ? { id: closureSnap.id, ...closureSnap.data() } : null
+      closure: closureData ? {
+        id: closureSnap.id, date: closureData.date, status: closureData.status,
+        closedAt: closureData.closedAt, closedByName: closureData.closedByName,
+        reportHash: closureData.reportHash
+      } : null
     } };
   } catch (error: any) {
     const message = String(error?.message || '');
