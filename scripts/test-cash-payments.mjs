@@ -35,6 +35,13 @@ async function run() {
     managerViewSource.includes('onCloseCashSession(amount)'),
     'Le responsable dispose d’une action visible de clôture avec comptage physique'
   );
+  assert(
+    managerViewSource.includes('Corriger paiement') &&
+    managerViewSource.includes('reclassify_cash_payment') &&
+    managerViewSource.includes('transactionReference') &&
+    managerViewSource.includes('verificationNote'),
+    'Le journal permet une correction espèces vers Mobile Money avec référence et rapprochement documenté'
+  );
   if (!process.env.FIRESTORE_EMULATOR_HOST) {
     console.error('ÉCHEC : Firestore Emulator requis pour les tests de caisse et sessions.');
     process.exit(1);
