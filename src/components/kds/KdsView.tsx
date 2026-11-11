@@ -18,6 +18,7 @@ import {
 
 interface KdsViewProps {
   tickets: KitchenTicket[];
+  stationMode?: 'kitchen' | 'bar';
   canMarkServed?: boolean;
   onToggleItemComplete: (ticketId: string, itemId: string, completed: boolean) => void;
   onUpdateTicketStatus: (ticketId: string, status: TicketStatus, cancellationReason?: string) => Promise<boolean>;
@@ -25,11 +26,12 @@ interface KdsViewProps {
 
 export const KdsView: React.FC<KdsViewProps> = ({
   tickets,
+  stationMode = 'kitchen',
   canMarkServed = true,
   onToggleItemComplete,
   onUpdateTicketStatus
 }) => {
-  const [filterStation, setFilterStation] = useState<'all' | 'grillades' | 'plats' | 'bar'>('all');
+  const [filterStation, setFilterStation] = useState<'all' | 'grillades' | 'plats' | 'bar'>(stationMode === 'bar' ? 'bar' : 'all');
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [selectedTicketIndex, setSelectedTicketIndex] = useState<number>(0);
   const [lastBumpedMsg, setLastBumpedMsg] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
 
   const allActiveTickets = tickets.filter(t => t.status === 'pending' || t.status === 'in_prep' || t.status === 'ready');
   const visibleTickets = allActiveTickets
-    .map(ticket => ({ ...ticket, stationItems: filterKitchenTicketItems(ticket.items, filterStation) }))
+    .map(ticket => ({ ...ticket, stationItems: filterKitchenTicketItems(ticket.items, stationMode === 'bar' ? 'bar' : filterStation).filter(item => stationMode === 'bar' ? (item.station || 'plats') === 'bar' : (item.station || 'plats') !== 'bar') }))
     .filter(ticket => ticket.stationItems.length > 0);
 
   // Keep selectedTicketIndex within valid bounds
@@ -205,7 +207,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm sm:text-base font-extrabold tracking-tight">
-                  Écran KDS Cuisine en Direct
+                  {stationMode === 'bar' ? 'Écran Bar en Direct' : 'Écran KDS Cuisine en Direct'}
                 </h2>
                 <span className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
                   <Keyboard size={11} />
@@ -252,12 +254,11 @@ export const KdsView: React.FC<KdsViewProps> = ({
             </button>
 
             <div className="flex items-center gap-1 bg-slate-900/80 p-1 rounded-lg border border-slate-800">
-              {[
-                { id: 'all', label: 'Toutes Stations' },
+              {(stationMode === 'bar' ? [{ id: 'bar', label: 'Bar' }] : [
+                { id: 'all', label: 'Toute la Cuisine' },
                 { id: 'grillades', label: 'Grillades' },
-                { id: 'plats', label: 'Fourneaux' },
-                { id: 'bar', label: 'Bar' }
-              ].map((tab) => (
+                { id: 'plats', label: 'Fourneaux' }
+              ]).map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => {
