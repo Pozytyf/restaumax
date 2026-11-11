@@ -106,7 +106,7 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
   }
 }
 
-function isSuperAdmin(user: DecodedIdToken) {
+export function isSuperAdmin(user: DecodedIdToken) {
   // Trust only the server-issued Firebase custom claim or the verified bootstrap allowlist.
   const hasTrustedSuperAdminClaim = user.role === 'super_admin';
   const verifiedAllowlistedEmail = user.email_verified === true &&
