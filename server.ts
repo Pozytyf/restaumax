@@ -1921,7 +1921,7 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     if (decoded.role === 'super_admin' || decoded.role === 'admin') {
       return { statusCode: 403, body: { success: false, error: 'Le super-administrateur n’a pas accès aux opérations d’un restaurant.' } };
     }
-    const restaurantSlug = String(req.query?.restaurantSlug || '').trim();
+    const restaurantSlug = String(method === 'POST' ? req.body?.restaurantSlug : req.query?.restaurantSlug || '').trim();
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
     const [restaurantSnap, memberSnap] = await Promise.all([
       adminDb.collection('restaurants').doc(restaurantSlug).get(),
@@ -1957,9 +1957,12 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
       }
       const { startAt, endAt } = resolveFinancialReportRange(now, 30, 'daily', date);
       const activeSessions = await restaurantRef.collection('cashSessions')
-        .where('openedAt', '>=', startAt).where('openedAt', '<=', endAt)
-        .where('status', '==', 'active').limit(1).get();
-      if (!activeSessions.empty) {
+        .where('status', '==', 'active').get();
+      const hasOpenSessionForDay = activeSessions.docs.some((sessionDoc: any) => {
+        const openedAt = Number(sessionDoc.data()?.openedAt || 0);
+        return openedAt >= startAt && openedAt <= endAt;
+      });
+      if (hasOpenSessionForDay) {
         return { statusCode: 409, body: { success: false, error: 'Clôture impossible : une session de caisse de cette journée est encore ouverte.' } };
       }
       const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
