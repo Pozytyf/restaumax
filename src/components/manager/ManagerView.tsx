@@ -482,7 +482,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </label>
               <button type="submit" disabled={cashSessionActionLoading}
                 className="rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
-                {cashSessionActionLoading ? 'Ouverture…' : 'Ouvrir la session'}
+                {cashSessionActionLoading ? 'Ouverture…' : 'Ouvrir la session de caisse'}
               </button>
             </form>
           ) : <p className="mt-4 text-sm text-slate-500">Aucune session active. Demandez à un responsable d’ouvrir la caisse.</p>}
@@ -951,7 +951,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
               <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 font-sans font-medium">
                 <CheckCircle size={18} className="text-emerald-600 shrink-0" />
-                <span>Aperçu indicatif : les sessions, sorties de caisse et comptages physiques sont enregistrés. Les remboursements et le rapprochement comptable complet restent à intégrer.</span>
+                <span>Aperçu indicatif : les sessions, sorties de caisse et remboursements sont suivis. Ce document ne remplace pas la clôture officielle ni le rapprochement comptable.</span>
               </div>
 
               <div className="pt-2 flex items-center gap-2 font-sans">
