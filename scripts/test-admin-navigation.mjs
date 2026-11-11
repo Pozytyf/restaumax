@@ -7,6 +7,7 @@ const firebase = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.u
 const dishForm = fs.readFileSync(new URL('../src/components/restaumax/DishFormModal.tsx', import.meta.url), 'utf8');
 const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
 const managerView = fs.readFileSync(new URL('../src/components/manager/ManagerView.tsx', import.meta.url), 'utf8');
+const closedCashSessions = fs.readFileSync(new URL('../src/components/manager/ClosedCashSessionsHistory.tsx', import.meta.url), 'utf8');
 const posView = fs.readFileSync(new URL('../src/components/pos/PosView.tsx', import.meta.url), 'utf8');
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 
@@ -85,6 +86,10 @@ assert(managerView.includes('paymentFilter') && managerView.includes('Mobile Mon
   'cash supervision exposes payment filters, channel totals, live closing variance and date-range CSV export');
 assert(managerView.includes('min-h-11') && managerView.includes('aria-current') && managerView.includes('aria-live'),
   'cash supervision controls expose accessible focus targets, active navigation and live variance feedback');
+assert(managerView.includes('Commandes') && managerView.includes('Cuisine') && managerView.includes('Propriétaire') && managerView.includes('restaurantName'),
+  'cash supervision uses the shared restaurant top bar and role label');
+assert(closedCashSessions.includes('Sessions clôturées (Z)') && closedCashSessions.includes('Écart à examiner') && closedCashSessions.includes('<table'),
+  'cash control exposes Z session history in a horizontally scrollable variance table');
 assert(managerView.includes('Écarts de comptage, clôtures journalières et rapports') &&
   managerView.includes('Journal des Transactions Récentes') && managerView.includes('Fermer la session de caisse') &&
   managerView.includes('Ouvrir la session de caisse'),
