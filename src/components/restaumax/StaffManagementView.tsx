@@ -30,7 +30,7 @@ const ROLE_DEFAULTS: Record<EditableStaffRole, string[]> = {
   manager: ROLE_CEILINGS.manager,
   cashier: ['orders.view','tables.view','pos.access','cash.view','cash.manage','reports.cash.view'],
   server: ROLE_CEILINGS.server,
-  kitchen: ROLE_CEILINGS.kitchen
+  kitchen: ['orders.view','kitchen.access','orders.clear_pending']
 };
 const permissionLabel = (id: string) => PERMISSIONS.find(([permission]) => permission === id)?.[1] || id;
 
