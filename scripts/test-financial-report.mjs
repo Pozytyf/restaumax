@@ -111,4 +111,4 @@ assert(reportApiSource.includes("hasOpenSessionForDay") && reportApiSource.inclu
   'A daily closure is rejected while a cash session from that day remains open or the day is still current.');
 assert(reportUiSource.includes('Clôturer la recette du jour') && reportUiSource.includes('Journée clôturée'),
   'The revenue calendar exposes a close action and an immutable closure confirmation.');
-console.log('Financial report calculation tests passed: 32 assertions.');
+console.log('Financial report calculation tests passed: 36 assertions.');
