@@ -97,5 +97,5 @@ assert(reportApiSource.includes("['period', 'daily']") && reportApiSource.includ
   'The authenticated reports API explicitly accepts separate daily and periodic modes.');
 assert(reportUiSource.includes('Point journalier indépendant') && reportUiSource.includes('reportType=daily') && reportUiSource.includes('periodDays=30&reportType=period'),
   'The reports screen loads the daily point separately from the rolling 30-day report.');
-assert(reportServiceSource.includes('linkedOrderIds') && reportServiceSource.includes('prior-day'), 'Daily settlement reports include prior-day orders when their payment is made in the selected period.');
+assert(reportServiceSource.includes('linkedOrderIds') && reportServiceSource.includes('previous day'), 'Daily settlement reports include prior-day orders when their payment is made in the selected period.');
 console.log('Financial report calculation tests passed: 28 assertions.');
