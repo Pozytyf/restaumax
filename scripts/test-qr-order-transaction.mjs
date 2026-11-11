@@ -27,6 +27,8 @@ async function run() {
   const tableId = 'table-4';
   const qrLifecycleTableId = 'qr-lifecycle';
   const sessionHash = 'session-hash-' + Date.now();
+  const secondGuestSessionHash = 'session-hash-guest-2-' + Date.now();
+  const tableServiceSessionId = 'table-service-session-' + Date.now();
   const qrTokenHash = 'qr-token-hash-' + Date.now();
   const restaurantRef = db.collection('restaurants').doc(slug);
   const qrLifecycleTableRef = restaurantRef.collection('tables').doc(qrLifecycleTableId);
@@ -34,6 +36,7 @@ async function run() {
   const staffUid = staffRef.id;
   const tableRef = restaurantRef.collection('tables').doc(tableId);
   const sessionRef = restaurantRef.collection('table_sessions').doc(sessionHash);
+  const secondGuestSessionRef = restaurantRef.collection('table_sessions').doc(secondGuestSessionHash);
   const qrRef = restaurantRef.collection('table_qr_tokens').doc(qrTokenHash);
   const createdRefs = [];
 
@@ -56,19 +59,25 @@ async function run() {
     );
     return {
       restaurantSlug: slug, idempotencyKey: key, keyDocId, orderId, signature, orderToCreate,
-      ...(mode === 'sur_place' ? { tableSession: { sessionHash, qrTokenHash, qrVersion: 1, tableId } } : {})
+      ...(mode === 'sur_place' ? { tableSession: { sessionHash, qrTokenHash, qrVersion: 1, tableId, tableServiceSessionId } } : {})
     };
   }
 
   try {
     await restaurantRef.set({ slug, status: 'active', isActive: true, isOpen: true, tableSessionVersion: 0, ownerUid: 'owner-test' });
     await staffRef.set({ uid: staffUid, role: 'cashier', restaurantSlug: slug, permissions: ['pos.access'], active: true, sessionVersion: 0 });
-    await tableRef.set({ tableNumber: '4', isActive: true, qrVersion: 1 });
+    await tableRef.set({ tableNumber: '4', isActive: true, qrVersion: 1, activeServiceSessionId: tableServiceSessionId, activeServiceSessionQrVersion: 1 });
     await qrRef.set({ tokenHash: qrTokenHash, restaurantSlug: slug, tableId, version: 1, status: 'active' });
     await sessionRef.set({
-      sessionHash, restaurantSlug: slug, tableId, tableNumber: '4', qrTokenHash,
+      sessionHash, restaurantSlug: slug, tableId, tableNumber: '4', tableServiceSessionId, qrTokenHash,
       qrVersion: 1, csrfHash: 'a'.repeat(64), restaurantSessionVersion: 0, status: 'active',
       createdAt: Date.now(), lastSeenAt: Date.now(), expiresAt: Date.now() + 60 * 60 * 1000
+    });
+    await secondGuestSessionRef.set({
+      sessionHash: secondGuestSessionHash, restaurantSlug: slug, tableId, tableNumber: '4',
+      tableServiceSessionId, qrTokenHash, qrVersion: 1, csrfHash: 'b'.repeat(64),
+      restaurantSessionVersion: 0, status: 'active', createdAt: Date.now(),
+      lastSeenAt: Date.now(), expiresAt: Date.now() + 60 * 60 * 1000
     });
 
     // Real Firestore Emulator lifecycle: issue, resolve, revoke and concurrent rotation.
@@ -102,6 +111,16 @@ async function run() {
     assert(concurrentResults.length === 2, 'Les opérations concurrentes d’émission et de révocation se terminent');
 
     const valid = await executeOrderTransactionWithDb(db, buildParams('valid-session-' + Date.now()));
+    const secondGuestParams = buildParams('second-guest-session-' + Date.now());
+    secondGuestParams.tableSession.sessionHash = secondGuestSessionHash;
+    const secondGuestOrder = await executeOrderTransactionWithDb(db, secondGuestParams);
+    const firstGuestOrderDoc = await restaurantRef.collection('orders').doc(valid.order.id).get();
+    const secondGuestOrderDoc = await restaurantRef.collection('orders').doc(secondGuestOrder.order.id).get();
+    assert(valid.success && secondGuestOrder.success && valid.order.id !== secondGuestOrder.order.id,
+      'Deux clients peuvent créer deux tickets indépendants depuis la même table');
+    assert(firstGuestOrderDoc.data()?.tableSession?.tableServiceSessionId === tableServiceSessionId &&
+      secondGuestOrderDoc.data()?.tableSession?.tableServiceSessionId === tableServiceSessionId,
+      'Les deux tickets conservent le même identifiant de session de service sans fusionner leurs lignes');
 
     const menuItemRef = restaurantRef.collection('menuItems').doc('dish-poulet');
     await menuItemRef.set({
