@@ -12,7 +12,9 @@ jobs:
   browser-smoke:
     name: Playwright browser smoke tests (Firebase Demo isolated)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    timeout-minutes: 30
     env:
       VITE_APP_ENV: preview
       VITE_FIREBASE_API_KEY: browser-smoke-demo-key
@@ -38,8 +40,10 @@ jobs:
       - name: Install pinned Playwright test runner
         run: npm install --no-save --package-lock=false @playwright/test@1.56.1
 
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Verify preinstalled Chromium
+        run: |
+          npx playwright install --list
+          test -d /ms-playwright
 
       - name: Build isolated Demo Preview frontend
         run: npm run build
