@@ -81,12 +81,12 @@ assert.equal(wrongUnit.documents.get('restaurants/chez-awa/orders/order-1').stat
 const restoreDb = base();
 assert.equal((await transitionOrderStatusWithDb(restoreDb, { ...params, targetStatus: 'in_prep' })).success, true);
 assert.equal((await transitionOrderStatusWithDb(restoreDb, { ...params, targetStatus: 'ready' })).success, true);
-assert.equal((await transitionOrderStatusWithDb(restoreDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal((await transitionOrderStatusWithDb(restoreDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' })).success, true);
 assert.equal(restoreDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 assert.equal(restoreDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'restored');
 const restoreMovement = [...restoreDb.documents.entries()].find(([path, value]) => path.includes('/stockMovements/order_') && value.orderId === 'order-1' && value.delta > 0);
 assert.equal(restoreMovement?.[1].delta, 0.5);
-const cancelReplay = await transitionOrderStatusWithDb(restoreDb, { ...params, targetStatus: 'cancelled' });
+const cancelReplay = await transitionOrderStatusWithDb(restoreDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' });
 assert.equal(cancelReplay.idempotentReplay, true);
 assert.equal(restoreDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 
@@ -102,13 +102,13 @@ menuStockRestoreDb.documents.set('restaurants/chez-awa/menuItems/dish-1', {
   id: 'dish-1', restaurantSlug: 'chez-awa', name: 'Poulet braisé',
   trackStock: true, stockQuantity: 3, available: true
 });
-const menuCancel = await transitionOrderStatusWithDb(menuStockRestoreDb, { ...params, targetStatus: 'cancelled' });
+const menuCancel = await transitionOrderStatusWithDb(menuStockRestoreDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' });
 assert.equal(menuCancel.success, true);
 assert.equal(menuStockRestoreDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 5,
   'L’annulation restitue les portions du menu décrémentées à la commande');
 const menuRestoration = menuStockRestoreDb.documents.get('restaurants/chez-awa/menuStockRestorations/order-1');
 assert.equal(menuRestoration.items[0].quantity, 2, 'La restitution du stock menu est journalisée une fois');
-const menuCancelReplay = await transitionOrderStatusWithDb(menuStockRestoreDb, { ...params, targetStatus: 'cancelled' });
+const menuCancelReplay = await transitionOrderStatusWithDb(menuStockRestoreDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' });
 assert.equal(menuCancelReplay.idempotentReplay, true);
 assert.equal(menuStockRestoreDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 5,
   'Un rejeu de l’annulation ne restitue pas les quantités une seconde fois');
@@ -125,7 +125,7 @@ assert.equal(deferredStart.success, true);
 assert.equal(deferredMenuDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 1,
   'Le stock vendable est consommé uniquement lorsque le personnel démarre la préparation');
 assert.equal(deferredMenuDb.documents.get('restaurants/chez-awa/menuStockConsumptions/order-1').items[0].quantity, 2);
-assert.equal((await transitionOrderStatusWithDb(deferredMenuDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal((await transitionOrderStatusWithDb(deferredMenuDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' })).success, true);
 assert.equal(deferredMenuDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 3,
   'Une annulation après acceptation restitue le stock consommé');
 
@@ -136,7 +136,7 @@ deferredPendingCancelDb.documents.set('restaurants/chez-awa/menuItems/dish-1', {
   id: 'dish-1', restaurantSlug: 'chez-awa', name: 'Poulet braisé',
   trackStock: true, stockQuantity: 3, available: true
 });
-assert.equal((await transitionOrderStatusWithDb(deferredPendingCancelDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal((await transitionOrderStatusWithDb(deferredPendingCancelDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' })).success, true);
 assert.equal(deferredPendingCancelDb.documents.get('restaurants/chez-awa/menuItems/dish-1').stockQuantity, 3,
   'Une commande encore en attente n’a jamais consommé le stock et ne le restitue pas artificiellement');
 
@@ -155,7 +155,7 @@ assert.equal((await transitionOrderStatusWithDb(partialDb, { ...params, targetSt
 assert.equal(partialDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'partial');
 assert.equal(partialDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'partial');
 assert.deepEqual(partialDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').untrackedItemIds, ['dish-untracked']);
-assert.equal((await transitionOrderStatusWithDb(partialDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal((await transitionOrderStatusWithDb(partialDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' })).success, true);
 assert.equal(partialDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10, 'Partial consumption restores only tracked ingredients');
 assert.equal(partialDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'restored');
 
@@ -164,7 +164,7 @@ customizedDb.documents.get('restaurants/chez-awa/orders/order-1').items[0].selec
 assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'in_prep' })).success, true);
 assert.equal(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'partial', 'Custom extras without component recipes are flagged instead of silently omitted');
 assert.deepEqual(customizedDb.documents.get('restaurants/chez-awa/orders/order-1').stockUntrackedItemIds, ['dish-1:extra:extra-cheese']);
-assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal((await transitionOrderStatusWithDb(customizedDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' })).success, true);
 assert.equal(customizedDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 const mismatchedOwnerDb = base();
 mismatchedOwnerDb.documents.set('managers/owner-2', { active: true, restaurantSlug: 'chez-awa', role: 'owner', sessionVersion: 4 });
@@ -223,7 +223,7 @@ assert.equal(customizationRecipesDb.documents.get('restaurants/chez-awa/inventor
 assert.equal(customizationRecipesDb.documents.get('restaurants/chez-awa/stockOrderConsumptions/order-1').status, 'applied');
 assert.equal(customizationRecipesDb.documents.get('restaurants/chez-awa/orders/order-1').stockTrackingStatus, 'applied');
 assert.equal((await transitionOrderStatusWithDb(customizationRecipesDb, { ...params, targetStatus: 'ready' })).success, true);
-assert.equal((await transitionOrderStatusWithDb(customizationRecipesDb, { ...params, targetStatus: 'cancelled' })).success, true);
+assert.equal((await transitionOrderStatusWithDb(customizationRecipesDb, { ...params, targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie' })).success, true);
 assert.equal(customizationRecipesDb.documents.get('restaurants/chez-awa/inventoryItems/rice').quantity, 10);
 assert.equal(customizationRecipesDb.documents.get('restaurants/chez-awa/inventoryItems/oil').quantity, 5);
 
