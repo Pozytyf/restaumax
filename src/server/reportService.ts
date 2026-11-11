@@ -150,15 +150,20 @@ export function calculateRestaurantFinancialReport(
 export async function getRestaurantFinancialReportWithDb(
   db: any,
   restaurantSlug: string,
-  options: { periodDays?: number; includeCashDetails?: boolean; now?: number } = {}
+  options: { periodDays?: number; includeCashDetails?: boolean; now?: number; reportType?: 'period' | 'daily' } = {}
 ) {
   if (!db) throw new Error('Firestore indisponible.');
   const slug = String(restaurantSlug || '').trim();
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) throw new Error('Restaurant invalide.');
   const now = Number(options.now || Date.now());
+  const reportType = options.reportType === 'daily' ? 'daily' : 'period';
   const periodDays = Number(options.periodDays || 30);
   if (!Number.isSafeInteger(periodDays) || periodDays < 1 || periodDays > 366) throw new Error('Période de rapport invalide.');
-  const startAt = now - periodDays * 24 * 60 * 60 * 1000;
+  // Côte d’Ivoire uses UTC+0: the daily point starts at local midnight,
+  // not at a rolling 24-hour offset from the request time.
+  const startAt = reportType === 'daily'
+    ? new Date(now).setUTCHours(0, 0, 0, 0)
+    : now - periodDays * 24 * 60 * 60 * 1000;
   const restaurantRef = db.collection('restaurants').doc(slug);
   // Paginer jusqu'à épuisement : une limite fixe silencieuse faussait les
   // rapports des restaurants ayant plus de 1 000 mouvements sur la période.
