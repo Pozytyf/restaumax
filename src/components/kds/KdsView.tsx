@@ -20,6 +20,7 @@ interface KdsViewProps {
   tickets: KitchenTicket[];
   stationMode?: 'kitchen' | 'bar';
   canMarkServed?: boolean;
+  canCancelActiveTicket?: boolean;
   onToggleItemComplete: (ticketId: string, itemId: string, completed: boolean) => void;
   onUpdateTicketStatus: (ticketId: string, status: TicketStatus, cancellationReason?: string) => Promise<boolean>;
 }
@@ -28,6 +29,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
   tickets,
   stationMode = 'kitchen',
   canMarkServed = true,
+  canCancelActiveTicket = false,
   onToggleItemComplete,
   onUpdateTicketStatus
 }) => {
@@ -513,6 +515,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
                         </button>
                       </div>
                     ) : ticket.status === 'ready' ? (
+                      <div className="flex-1 flex gap-2">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -526,7 +529,10 @@ export const KdsView: React.FC<KdsViewProps> = ({
                         <CheckCircle2 size={16} />
                         <span>Marquer Servi & Retirer</span>
                       </button>
+                      {canCancelActiveTicket && <button type="button" onClick={(e) => { e.stopPropagation(); void handleCancelTicket(ticket); }} className="h-12 px-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl">Annuler</button>}
+                      </div>
                     ) : (
+                      <div className="flex-1 flex gap-2">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -544,6 +550,8 @@ export const KdsView: React.FC<KdsViewProps> = ({
                         <ChefHat size={16} />
                         <span>Prêt pour le Service</span>
                       </button>
+                      {canCancelActiveTicket && <button type="button" onClick={(e) => { e.stopPropagation(); void handleCancelTicket(ticket); }} className="h-12 px-3 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl">Annuler</button>}
+                      </div>
                     )}
                   </div>
                 </div>
