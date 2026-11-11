@@ -1842,7 +1842,7 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       input.tableNumber = null;
       delete input.tableSession;
     }
-    const accessSecret = String(process.env.ORDER_CUSTOMER_ACCESS_SECRET || process.env.ORDER_RATE_LIMIT_SECRET || process.env.CRON_SECRET || '');
+    const accessSecret = String(process.env.ORDER_CUSTOMER_ACCESS_SECRET || process.env.ORDER_RATE_LIMIT_SECRET || '');
     const customerAccessEnabled = accessSecret.length >= 32 && typeof input.idempotencyKey === 'string' && input.idempotencyKey.length > 0;
     if (customerAccessEnabled) {
       const identifiers = deriveIdempotencyIdentifiers(String(input.restaurantSlug || ''), input.idempotencyKey);
