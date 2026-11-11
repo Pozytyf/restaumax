@@ -409,7 +409,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     wave: transactions.filter((tx) => tx.paymentMethod === 'wave').reduce((sum, tx) => sum + tx.paidAmount, 0),
     orangeMoney: transactions.filter((tx) => tx.paymentMethod === 'orange_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
     mtnMoney: transactions.filter((tx) => tx.paymentMethod === 'mtn_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
-    moovMoney: transactions.filter((tx) => tx.paymentMethod === 'moov_money').reduce((sum, tx) => sum + tx.paidAmount, 0)
+    moovMoney: transactions.filter((tx) => tx.paymentMethod === 'moov_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
+    other: transactions.filter((tx) => ['djamo', 'card', 'carte', 'bank_card'].includes(String(tx.paymentMethod))).reduce((sum, tx) => sum + tx.paidAmount, 0)
   }), [transactions]);
   const channelPercent = (amount: number) => drawerState.totalSales > 0
     ? Math.round((amount / drawerState.totalSales) * 100)
@@ -812,72 +813,28 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           </div>
 
           {/* Payment Methods Breakdown */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs lg:col-span-2">
-            <h3 className="text-sm font-extrabold text-[#101d2d] uppercase tracking-wider mb-4 flex items-center gap-2">
-              <Smartphone size={16} className="text-[#ff6500]" />
-              Répartition par Canal de Paiement
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-              <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/60">
-                <div className="flex items-center gap-2 text-amber-900 text-xs font-bold mb-1">
-                  <Coins size={14} className="text-amber-600" /> Espèces
-                </div>
-                <div className="text-lg font-black text-amber-950 tnum">{formatFCFA(channelSales.cash)}</div>
-                <div className="text-[11px] text-amber-800 mt-1">{channelPercent(channelSales.cash)}% des encaissements</div>
-              </div>
-              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50">
-                <div className="flex items-center gap-2 text-blue-900 text-xs font-bold mb-1">
-                  <Smartphone size={14} className="text-blue-500" /> Wave
-                </div>
-                <div className="text-lg font-black text-blue-950 tnum">{formatFCFA(channelSales.wave)}</div>
-                <div className="text-[11px] text-blue-700 mt-1">{channelPercent(channelSales.wave)}% des encaissements</div>
-              </div>
-              <div className="p-4 rounded-xl border border-orange-200 bg-orange-50/50">
-                <div className="flex items-center gap-2 text-orange-900 text-xs font-bold mb-1">
-                  <Smartphone size={14} className="text-orange-500" /> Orange Money
-                </div>
-                <div className="text-lg font-black text-orange-950 tnum">{formatFCFA(channelSales.orangeMoney)}</div>
-                <div className="text-[11px] text-orange-700 mt-1">{channelPercent(channelSales.orangeMoney)}% des encaissements</div>
-              </div>
-              <div className="p-4 rounded-xl border border-yellow-200 bg-yellow-50/60">
-                <div className="flex items-center gap-2 text-yellow-900 text-xs font-bold mb-1">
-                  <Smartphone size={14} className="text-yellow-600" /> MTN Money
-                </div>
-                <div className="text-lg font-black text-yellow-950 tnum">{formatFCFA(channelSales.mtnMoney)}</div>
-                <div className="text-[11px] text-yellow-800 mt-1">{channelPercent(channelSales.mtnMoney)}% des encaissements</div>
-              </div>
-              <div className="p-4 rounded-xl border border-cyan-200 bg-cyan-50/50">
-                <div className="flex items-center gap-2 text-cyan-900 text-xs font-bold mb-1">
-                  <Smartphone size={14} className="text-cyan-600" /> Moov Money
-                </div>
-                <div className="text-lg font-black text-cyan-950 tnum">{formatFCFA(channelSales.moovMoney)}</div>
-                <div className="text-[11px] text-cyan-800 mt-1">{channelPercent(channelSales.moovMoney)}% des encaissements</div>
-              </div>
+          <div className="rounded-2xl border border-[#dbe3ee] bg-white p-5 shadow-2xs lg:col-span-2">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div><h3 className="text-base font-extrabold text-[#101d2d]">Répartition par canal</h3><p className="mt-1 text-xs text-slate-600">Total des encaissements chargés : <strong>{formatFCFA(channelTotal)}</strong></p></div>
             </div>
-
-            {/* Visual ratio bar */}
-            <div className="mt-5">
-              <div className="h-3 w-full rounded-full bg-slate-200 overflow-hidden flex">
-                <div 
-                  className="bg-amber-500 h-full" 
-                  style={{ width: `${drawerState.totalSales > 0 ? (drawerState.cashSales / drawerState.totalSales) * 100 : 30}%` }} 
-                />
-                <div 
-                  className="bg-[#1ba8f0] h-full" 
-                  style={{ width: `${drawerState.totalSales > 0 ? (drawerState.mobileMoneySales / drawerState.totalSales) * 100 : 50}%` }} 
-                />
-                <div 
-                  className="bg-emerald-500 h-full" 
-                  style={{ width: `${drawerState.totalSales > 0 ? (drawerState.cardSales / drawerState.totalSales) * 100 : 20}%` }} 
-                />
-              </div>
-              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 mt-2">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> Espèces</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#1ba8f0]" /> Mobile Money</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Carte Bancaire</span>
-              </div>
+            <div className="space-y-4">
+              {[
+                { label: 'Espèces', amount: channelSales.cash },
+                { label: 'Wave', amount: channelSales.wave },
+                { label: 'Orange Money', amount: channelSales.orangeMoney },
+                { label: 'MTN Money', amount: channelSales.mtnMoney },
+                { label: 'Autres canaux (Moov, Djamo, carte)', amount: channelSales.moovMoney + channelSales.other }
+              ].map((item) => (
+                <div key={item.label} className="grid grid-cols-[minmax(112px,150px)_minmax(50px,1fr)_auto] items-center gap-3">
+                  <span className="text-xs font-semibold text-slate-700">{item.label}</span>
+                  <div className="h-3 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label={item.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={channelTotal > 0 ? Math.round(item.amount / channelTotal * 100) : 0}>
+                    <div className="h-full rounded-full bg-[#c2410c]" style={{ width: channelTotal > 0 ? (item.amount / channelTotal * 100) + '%' : '0%' }} />
+                  </div>
+                  <strong className="whitespace-nowrap text-xs tabular-nums text-[#101d2d]">{formatFCFA(item.amount)}</strong>
+                </div>
+              ))}
             </div>
+            <p className="mt-3 text-xs text-slate-500">Les montants sont calculés à partir des encaissements actuellement chargés dans le journal (100 opérations au maximum).</p>
           </div>
         </div>
 
