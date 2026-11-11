@@ -459,7 +459,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
 
   return (
-        <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-[#f4f7fb]">
+        <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-[#f4f7fb] font-[Inter]">
       <div className="sticky top-0 z-30 flex min-h-16 flex-wrap items-center justify-between gap-3 bg-[#101d2d] px-4 py-3 text-white shadow-sm lg:px-8">
         <div className="flex min-w-0 items-center gap-3"><span className="text-lg font-extrabold tracking-tight">RestauMax</span><span className="truncate text-sm font-medium text-slate-300">{restaurantName}</span></div>
         <nav aria-label="Navigation principale" className="flex flex-wrap items-center justify-center gap-1">
