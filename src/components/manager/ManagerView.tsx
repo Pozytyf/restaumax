@@ -412,9 +412,6 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     moovMoney: transactions.filter((tx) => tx.paymentMethod === 'moov_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
     other: transactions.filter((tx) => ['djamo', 'card', 'carte', 'bank_card'].includes(String(tx.paymentMethod))).reduce((sum, tx) => sum + tx.paidAmount, 0)
   }), [transactions]);
-  const channelPercent = (amount: number) => drawerState.totalSales > 0
-    ? Math.round((amount / drawerState.totalSales) * 100)
-    : 0;
   const cashRefunds = Number(cashSession?.cashRefunds || 0);
   const otherCashOut = Math.max(0, Number(cashSession?.cashOut || 0) - cashRefunds);
   const expectedCash = Number(cashSession?.openingBalance || 0) + Number(cashSession?.cashCollected || 0) - otherCashOut - cashRefunds;
@@ -452,7 +449,6 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     URL.revokeObjectURL(url);
   };
   const currentVariance = closingCountInput === '' ? Number(cashSession?.variance || 0) : Number(closingCountInput) - expectedCash;
-  const sessionsWithVariance = closedSessions.filter((session) => Math.abs(Number((session as any).variance || 0)) > 0).length;
   const recentClosedSessions = closedSessions.filter((session) => Boolean(session.closedAt) && Number(session.closedAt) >= Date.now() - 3 * 86400000);
   const recentVarianceCount = recentClosedSessions.filter((session) => Math.abs(Number(session.variance || 0)) > 0).length;
 
@@ -464,9 +460,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 
         {/* Supervision header */}
         <header className="space-y-2">
-          <p className="text-xs font-semibold text-slate-500">Centre de gestion <span aria-hidden="true">›</span> Supervision &amp; Caisse</p>
+          <p className="text-xs font-semibold text-slate-500">Centre de gestion <span aria-hidden="true">›</span> Supervision &amp; Caisse{activeCashSection !== "session" && <><span aria-hidden="true"> › </span>{activeCashSection === "collections" ? "Encaissements" : "Contrôle"}</>}</p>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div><h1 className="text-2xl font-extrabold tracking-tight text-[#101d2d]">Supervision &amp; Caisse</h1><p className="mt-1 text-sm font-medium text-slate-600">Pilotez la session, suivez les règlements et contrôlez les clôtures.</p></div>
+            <div><h1 className="text-2xl font-extrabold tracking-tight text-[#101d2d]">{activeCashSection === "session" ? "Supervision & Caisse" : activeCashSection === "collections" ? "Encaissements" : "Contrôle"}</h1><p className="mt-1 text-sm font-medium text-slate-600">Pilotez la session, suivez les règlements et contrôlez les clôtures.</p></div>
             <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-950">Maquette · valeurs d’exemple</span>
           </div>
         </header>
