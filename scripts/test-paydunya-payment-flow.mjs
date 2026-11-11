@@ -461,4 +461,14 @@ assert(paymentsApiSource.includes("action || '') === 'paydunya_intents'") &&
 assert(cashUiSource.includes('Paiements PayDunya à suivre') && cashUiSource.includes('Vérifier le statut') &&
   cashUiSource.includes('reconcile_paydunya_payment'),
   'The cash journal exposes pending intent status and a controlled reconciliation action.');
+assert(paymentsApiSource.includes("action === 'archive_paydunya_intent'") &&
+  paymentsApiSource.includes("paymentIntentAudit") &&
+  paymentsApiSource.includes("order_cancelled_pending_manual_reconciliation") &&
+  paymentsApiSource.includes("providerPaymentStatusVerified: false"),
+  'PayDunya archive is owner/manager authorized, limited to manually reconciled cancellations, and auditable without claiming provider verification.');
+assert(paymentsApiSource.includes("includeArchived") && paymentsApiSource.includes("!intent.archivedAt"),
+  'Archived PayDunya intents are hidden from the operational list by default and can be requested for review.');
+assert(cashUiSource.includes('Archiver du suivi') && cashUiSource.includes('Afficher les archives') &&
+  cashUiSource.includes("action: 'archive_paydunya_intent'"),
+  'The cash UI supports reversible PayDunya archiving and archive review.');
 console.log(`Résultats PayDunya end-to-end : ${passed}/${passed} réussis.`);
