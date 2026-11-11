@@ -151,6 +151,44 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
             </div>
           </div>
 
+          <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Suivi de l’évolution de la commande" aria-live="polite">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-xs font-black uppercase tracking-wide text-slate-900">Suivi de votre commande</h3>
+              <span className="text-[10px] font-semibold text-slate-500">Actualisation automatique</span>
+            </div>
+            {order.status === 'cancelled' ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                <p className="font-black">Commande annulée</p>
+                {order.cancellationReason && <p className="mt-1">Motif : {order.cancellationReason}</p>}
+                {order.statusUpdatedAt && <p className="mt-1 text-[10px]">Le {new Date(order.statusUpdatedAt).toLocaleString('fr-FR')}</p>}
+              </div>
+            ) : (
+              <ol className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {([
+                  { key: 'pending', label: 'Reçue' },
+                  { key: 'in_prep', label: 'En préparation' },
+                  { key: 'ready', label: 'Prête' },
+                  { key: 'completed', label: 'Servie' }
+                ] as const).map((step, index) => {
+                  const orderStages = ['pending', 'in_prep', 'ready', 'completed'];
+                  const currentIndex = orderStages.indexOf(order.status);
+                  const reached = currentIndex >= index;
+                  const current = order.status === step.key;
+                  return (
+                    <li key={step.key} className={`rounded-xl border p-2 text-center ${current ? 'border-orange-300 bg-orange-50 text-orange-900' : reached ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-50 text-slate-400'}`}>
+                      <span className="block text-[10px] font-black">{index + 1}. {step.label}</span>
+                      <span className="mt-1 block text-[9px] font-semibold">{current ? 'Étape actuelle' : reached ? 'Validée' : 'À venir'}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+            <p className="mt-3 text-[10px] text-slate-500">
+              Commande créée le {new Date(order.createdAt).toLocaleString('fr-FR')}
+              {order.statusUpdatedAt ? ` · Dernière évolution le ${new Date(order.statusUpdatedAt).toLocaleString('fr-FR')}` : ''}
+            </p>
+          </section>
+
           {/* Items Summary Table */}
           <div className="border border-slate-200/90 rounded-2xl p-4 space-y-3 bg-white shadow-2xs">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
