@@ -175,6 +175,10 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
       });
       const data = await response.json();
       if (!response.ok || !data.success) window.alert(data.error || 'Annulation refusée.');
+      else {
+        window.alert('Commande annulée logiquement. L’intention PayDunya est conservée pour rapprochement manuel ; ne recréez pas la facture.');
+        await loadPayDunyaIntents();
+      }
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Impossible d’annuler cette commande.');
     } finally {
@@ -383,19 +387,18 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <p className="text-xs sm:text-sm text-slate-500 font-medium">Gérez la session, consultez les encaissements et contrôlez les clôtures depuis trois rubriques dédiées.</p>
         </header>
 
-        <div className="grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)] lg:items-start">
-          <nav aria-label="Rubriques du journal de caisse" className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:sticky lg:top-4">
-            <p className="px-3 pb-2 pt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">Journal de caisse</p>
-            <button type="button" aria-current={activeCashSection === 'session' ? 'page' : undefined} onClick={() => setActiveCashSection('session')} className={`mb-1 w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'session' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
-              <span className="block text-sm font-extrabold">1 · Session de caisse</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'session' ? 'text-slate-300' : 'text-slate-500'}`}>Ouverture, fond, sorties et clôture</span>
-            </button>
-            <button type="button" aria-current={activeCashSection === 'collections' ? 'page' : undefined} onClick={() => setActiveCashSection('collections')} className={`mb-1 w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'collections' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
-              <span className="block text-sm font-extrabold">2 · Encaissements</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'collections' ? 'text-slate-300' : 'text-slate-500'}`}>Canaux, transactions et remboursements</span>
-            </button>
-            <button type="button" aria-current={activeCashSection === 'control' ? 'page' : undefined} onClick={() => setActiveCashSection('control')} className={`w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'control' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
-              <span className="block text-sm font-extrabold">3 · Contrôle</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'control' ? 'text-slate-300' : 'text-slate-500'}`}>Écarts, clôtures et rapports</span>
-            </button>
-          </nav>
+        <nav aria-label="Rubriques du journal de caisse" className="flex w-full items-stretch gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+          <button type="button" aria-current={activeCashSection === 'session' ? 'page' : undefined} onClick={() => setActiveCashSection('session')} className={`min-w-[190px] flex-1 rounded-xl p-3 text-left transition-colors ${activeCashSection === 'session' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
+            <span className="block text-sm font-extrabold">1 · Session de caisse</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'session' ? 'text-slate-300' : 'text-slate-500'}`}>Ouverture, fond, sorties et clôture</span>
+          </button>
+          <button type="button" aria-current={activeCashSection === 'collections' ? 'page' : undefined} onClick={() => setActiveCashSection('collections')} className={`min-w-[190px] flex-1 rounded-xl p-3 text-left transition-colors ${activeCashSection === 'collections' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
+            <span className="block text-sm font-extrabold">2 · Encaissements</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'collections' ? 'text-slate-300' : 'text-slate-500'}`}>Canaux, transactions et remboursements</span>
+          </button>
+          <button type="button" aria-current={activeCashSection === 'control' ? 'page' : undefined} onClick={() => setActiveCashSection('control')} className={`min-w-[190px] flex-1 rounded-xl p-3 text-left transition-colors ${activeCashSection === 'control' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
+            <span className="block text-sm font-extrabold">3 · Contrôle</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'control' ? 'text-slate-300' : 'text-slate-500'}`}>Écarts, clôtures et rapports</span>
+          </button>
+        </nav>
+        <div className="min-w-0 space-y-5">
 
           <main className="min-w-0 space-y-5">
             <div hidden={activeCashSection !== 'session'} aria-label="Session de caisse" className="space-y-5">
@@ -579,8 +582,18 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     <p className="text-xs font-black text-slate-800">Commande {intent.orderId} · {formatFCFA(intent.amount)}</p>
                     <p className="mt-1 text-[10px] text-slate-500">{intent.channel || 'Canal non précisé'} · {intent.status} · Créée le {intent.createdAt ? new Date(intent.createdAt).toLocaleString('fr-FR') : 'Date inconnue'}</p>
                     {intent.lastProviderError && <p className="mt-1 text-[10px] text-amber-700">{intent.lastProviderError}</p>}
-                    {['creation_unknown', 'creating'].includes(intent.status.toLowerCase()) && !intent.canReconcile && <p className="mt-1 text-[10px] font-semibold text-amber-800">Rapprochement manuel requis · ne pas recréer la facture</p>}
+                    {['creation_unknown', 'creating', 'order_cancelled_pending_manual_reconciliation'].includes(intent.status.toLowerCase()) && !intent.canReconcile && <p className="mt-1 text-[10px] font-semibold text-amber-800">{intent.status.toLowerCase() === 'order_cancelled_pending_manual_reconciliation' ? 'Commande annulée · rapprochement manuel requis · ne pas recréer la facture' : 'Rapprochement manuel requis · ne pas recréer la facture'}</p>}
                   </div>
+                  {canCancelOrders && intent.status.toLowerCase() === 'creation_unknown' && (() => {
+                    const order = activeOrders.find(candidate => candidate.id === intent.orderId);
+                    const unpaid = order && Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || ''));
+                    return unpaid ? (
+                      <button type="button" onClick={() => void cancelActiveOrder(order)} disabled={cancellingOrderId === order.id}
+                        className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold text-rose-800 disabled:opacity-50">
+                        {cancellingOrderId === order.id ? 'Annulation…' : 'Annuler la commande impayée'}
+                      </button>
+                    ) : null;
+                  })()}
                   {canManageCash && intent.canReconcile && (
                     <button type="button" onClick={() => void reconcilePayDunyaIntent(intent.id)} disabled={payDunyaActionId === intent.id}
                       className="rounded-lg bg-blue-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">
@@ -971,9 +984,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           onRefresh={loadClosedSessions}
         />
             </div>
-          </main>
-        </div>
-      </div>
+          </div>
 
       {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
       {showZReportModal && (
