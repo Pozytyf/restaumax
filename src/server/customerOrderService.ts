@@ -16,7 +16,7 @@ export interface CustomerOrderMutation {
   restaurantSlug: string;
   orderId: string;
   accessToken: string;
-  action: 'cancel' | 'edit';
+  action: 'get' | 'cancel' | 'edit';
   reason?: string;
   items?: Array<{ id: string; quantity: number; prepNotes?: string }>;
   customerNote?: string;
@@ -31,7 +31,7 @@ export async function mutateCustomerOrderWithDb(db: any, input: CustomerOrderMut
   const { restaurantSlug, orderId, accessToken, action } = input;
   if (!db || !validSlug(restaurantSlug) || !validId(orderId) ||
       typeof accessToken !== 'string' || accessToken.length < 32 ||
-      !['cancel', 'edit'].includes(action)) {
+      !['get', 'cancel', 'edit'].includes(action)) {
     return { success: false, error: 'Demande de modification invalide.' };
   }
   const restaurantRef = db.collection('restaurants').doc(restaurantSlug);
@@ -48,6 +48,29 @@ export async function mutateCustomerOrderWithDb(db: any, input: CustomerOrderMut
       if (!order || order.id !== orderId || order.restaurantSlug !== restaurantSlug ||
           !tokenMatches(order.customerAccessTokenHash, accessToken)) {
         return { success: false, error: 'Accès à cette commande refusé. Vérifiez votre lien de suivi.' };
+      }
+      if (action === 'get') {
+        const safeOrder = {
+          id: order.id, orderNumber: order.orderNumber, restaurantSlug,
+          orderMode: order.orderMode, tableNumber: order.tableNumber ?? null,
+          items: (Array.isArray(order.items) ? order.items : []).map((item: any) => ({
+            id: item.id, menuItemId: item.menuItemId, name: item.name, category: item.category,
+            basePrice: item.basePrice, unitPrice: item.unitPrice, quantity: item.quantity,
+            totalPrice: item.totalPrice, selectedOption: item.selectedOption,
+            selectedExtras: item.selectedExtras, prepNotes: item.prepNotes
+          })),
+          itemsCount: order.itemsCount, totalAmount: order.totalAmount,
+          subtotalAmount: order.subtotalAmount, taxAmount: order.taxAmount,
+          taxRatePercent: order.taxRatePercent, taxMode: order.taxMode,
+          paidAmount: order.paidAmount || 0, refundedAmount: order.refundedAmount || 0,
+          remainingAmount: order.remainingAmount ?? Math.max(0, Number(order.totalAmount || 0) - Number(order.paidAmount || 0)),
+          paymentStatus: order.paymentStatus || 'unpaid', paymentPreference: order.paymentPreference,
+          currency: order.currency || 'FCFA', status: order.status,
+          customerNote: order.customerNote, createdAt: order.createdAt,
+          createdAtIso: order.createdAtIso, statusUpdatedAt: order.statusUpdatedAt,
+          cancellationReason: order.cancellationReason
+        };
+        return { success: true, status: order.status, order: safeOrder };
       }
       if (order.status !== 'pending') {
         return { success: false, error: 'Cette commande n’est plus modifiable : sa préparation a commencé ou elle est déjà clôturée.' };
