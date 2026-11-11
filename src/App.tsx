@@ -20,6 +20,7 @@ import {
   persistDishAvailability,
   deleteMenuItem, 
   submitOrderWithServerValidation,
+  mutateCustomerOrderWithServerValidation,
   submitPosOrderWithServerValidation,
   collectCashPaymentWithServerValidation,
   createPayDunyaPaymentWithServerValidation,
@@ -947,7 +948,7 @@ export default function App() {
     window.location.assign(result.checkoutUrl);
   };
 
-  const handleClientOrderConfirm = async (customerNote?: string, customer?: { name?: string; phone?: string }): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }> => {
+  const handleClientOrderConfirm = async (customerNote?: string, customer?: { name?: string; phone?: string }): Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean; customerAccessToken?: string }> => {
     if (tableSessionExpected && !tableSession) {
       return { success: false, error: 'La session de cette table est indisponible ou a été révoquée. Scannez à nouveau le QR code physique.' };
     }
@@ -1061,7 +1062,7 @@ export default function App() {
     // Clear client cart strictly only upon confirmed write
     setClientCart([]);
 
-    return { success: true, order: confirmedOrder, isReplay: submitRes.idempotentReplay };
+    return { success: true, order: confirmedOrder, isReplay: submitRes.idempotentReplay, customerAccessToken: submitRes.customerAccessToken };
   };
 
   const handleSaveTable = async (table: RestaurantTable): Promise<void> => {
