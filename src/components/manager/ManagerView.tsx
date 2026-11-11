@@ -51,6 +51,7 @@ interface PayDunyaIntentSummary {
   status: string;
   createdAt: number;
   updatedAt: number;
+  canReconcile: boolean;
   lastProviderError?: string;
 }
 
@@ -398,8 +399,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     <p className="text-xs font-black text-slate-800">Commande {intent.orderId} · {formatFCFA(intent.amount)}</p>
                     <p className="mt-1 text-[10px] text-slate-500">{intent.channel || 'Canal non précisé'} · {intent.status} · Créée le {intent.createdAt ? new Date(intent.createdAt).toLocaleString('fr-FR') : 'Date inconnue'}</p>
                     {intent.lastProviderError && <p className="mt-1 text-[10px] text-amber-700">{intent.lastProviderError}</p>}
+                    {['creation_unknown', 'creating'].includes(intent.status.toLowerCase()) && !intent.canReconcile && <p className="mt-1 text-[10px] font-semibold text-amber-800">Rapprochement manuel requis · ne pas recréer la facture</p>}
                   </div>
-                  {canManageCash && ['pending', 'creation_unknown', 'creating'].includes(intent.status.toLowerCase()) && (
+                  {canManageCash && intent.canReconcile && (
                     <button type="button" onClick={() => void reconcilePayDunyaIntent(intent.id)} disabled={payDunyaActionId === intent.id}
                       className="rounded-lg bg-blue-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">
                       {payDunyaActionId === intent.id ? 'Vérification…' : 'Vérifier le statut'}
