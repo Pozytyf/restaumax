@@ -7,6 +7,7 @@ const firebase = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.u
 const dishForm = fs.readFileSync(new URL('../src/components/restaumax/DishFormModal.tsx', import.meta.url), 'utf8');
 const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
 const managerView = fs.readFileSync(new URL('../src/components/manager/ManagerView.tsx', import.meta.url), 'utf8');
+const posView = fs.readFileSync(new URL('../src/components/pos/PosView.tsx', import.meta.url), 'utf8');
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 
 assert(hub.includes("actionLabel: canViewCatalog ? 'Gérer les options, suppléments et prix'"), 'module 3 is clearly labelled and permission-gated as catalogue management');
@@ -66,4 +67,15 @@ assert(menuView.includes("id: 'boissons'") && menuView.includes('Menu du restaur
   'drinks remain a first-class category in the restaurant menu and dish editor');
 assert(!dishForm.includes("restaurant.slug || 'chez-awa'"), 'dish creation never falls back to a hardcoded demo tenant');
 assert(dishForm.includes('newDishIdRef.current') && dishForm.includes('await onSave(savedDish)'), 'dish creation reuses one document ID after an ambiguous network failure');
+
+assert(managerView.includes('id="cash-session"') && managerView.includes('id="revenue-calendar"') &&
+  managerView.includes('id="cash-payments"') && managerView.includes('id="pending-orders"') &&
+  managerView.includes('id="paydunya-settings"'), 'cash supervision has ordered sections and direct navigation anchors');
+assert(!managerView.startsWith("import React") || managerView.includes('Navigation de la supervision'),
+  'cash supervision exposes a clear navigation bar');
+assert(posView.includes('Tickets en attente de validation') && posView.includes("onCancelPendingOrder?.(order, 'cancel')") &&
+  posView.includes("onCancelPendingOrder?.(order, 'remove')"), 'POS exposes cancel and logical removal actions for pending tickets');
+assert(app.includes('canManagePendingPosOrders') && app.includes('pendingOnly: true') &&
+  app.includes("authRestaurantRole === 'manager' && userPermissions.includes('orders.manage')"),
+  'pending ticket actions are exposed only to the bound owner or authorized manager');
 console.log('Restaurant management navigation checks passed.');
