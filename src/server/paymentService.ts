@@ -929,9 +929,20 @@ export async function reclassifyCashPaymentWithDb(db: any, input: ReclassifyCash
     if (!sessionId) return { success: false, conflict: true, error: 'Session de caisse d’origine introuvable.' };
     const cashSessionRef = restaurantRef.collection('cashSessions').doc(sessionId);
     const cashSessionSnap = await tx.get(cashSessionRef);
+    const orderRef = restaurantRef.collection('orders').doc(String(payment.orderId || ''));
+    const orderSnap = await tx.get(orderRef);
     const cashSession = cashSessionSnap.exists ? cashSessionSnap.data() : null;
-    if (!cashSession || !['active', 'closed'].includes(String(cashSession.status || ''))) {
-      return { success: false, conflict: true, error: 'Session de caisse d’origine absente ou invalide.' };
+    const order = orderSnap.exists ? orderSnap.data() : null;
+    if (!cashSession || !['active', 'closed'].includes(String(cashSession.status || '')) ||
+        !order || order.restaurantSlug !== slug || Number(order.paidAmount || 0) < amount) {
+      return { success: false, conflict: true, error: 'Session de caisse ou commande d’origine absente ou incohérente.' };
+    }
+    if (order.pendingPayDunyaIntentId) {
+      return { success: false, conflict: true, error: 'Une facture PayDunya est encore en attente pour cette commande. Rapprochez-la avant la correction.' };
+    }
+    if (cashSession.status === 'active' && member.role === 'cashier' &&
+        (cashSession.openedByUid !== actorUid || payment.actorUid !== actorUid)) {
+      return { success: false, error: 'Un caissier ne peut corriger que son propre encaissement dans sa session active.' };
     }
     if (cashSession.status === 'closed' && !isOwner && !hasReclassifyPermission) {
       return { success: false, error: 'Une correction après clôture exige le propriétaire ou un manager autorisé (payments.reclassify).' };
