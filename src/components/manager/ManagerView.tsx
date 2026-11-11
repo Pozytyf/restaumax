@@ -584,7 +584,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     </label>
                     <p aria-live="polite" className="text-xs font-semibold text-slate-700">Écart avec le solde théorique : {closingCountInput === '' ? '—' : formatFCFA(Number(closingCountInput) - expectedCash)}</p>
                     <button type="submit" disabled={cashSessionActionLoading || closingCountInput === ''}
-                      className="rounded-lg bg-[#101d2d] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
+                      className="min-h-11 rounded-lg bg-[#101d2d] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
                       {cashSessionActionLoading ? 'Clôture en cours…' : 'Clôturer la session'}
                     </button>
                   </form>
@@ -631,7 +631,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   className="mt-2 w-full rounded-lg border border-slate-300 p-3 text-sm"/>
               </label>
               <button type="submit" disabled={cashSessionActionLoading}
-                className="rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
+                className="min-h-11 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
                 {cashSessionActionLoading ? 'Ouverture…' : 'Ouvrir la session de caisse'}
               </button>
             </form>
@@ -649,11 +649,11 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => setShowArchivedPayDunyaIntents(value => !value)}
-                className="rounded-lg border px-3 py-2 text-xs font-bold">
+                className="min-h-11 rounded-lg border px-3 py-2 text-xs font-bold">
                 {showArchivedPayDunyaIntents ? 'Masquer les archives' : 'Afficher les archives'}
               </button>
               <button type="button" onClick={() => void loadPayDunyaIntents()} disabled={payDunyaLoading}
-                className="rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-50">
+                className="min-h-11 rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-50">
                 {payDunyaLoading ? 'Actualisation…' : 'Actualiser'}
               </button>
             </div>
@@ -675,14 +675,14 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     const unpaid = order && order.status === 'pending' && Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || ''));
                     return unpaid ? (
                       <button type="button" onClick={() => void cancelActiveOrder(order, true)} disabled={cancellingOrderId === order.id}
-                        className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold text-rose-800 disabled:opacity-50">
+                        className="min-h-11 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold text-rose-800 disabled:opacity-50">
                         {cancellingOrderId === order.id ? 'Retrait…' : 'Retirer de la caisse'}
                       </button>
                     ) : null;
                   })()}
                   {canManageCash && !showArchivedPayDunyaIntents && intent.status.toLowerCase() === 'order_cancelled_pending_manual_reconciliation' && (
                     <button type="button" onClick={() => void archivePayDunyaIntent(intent.id)} disabled={payDunyaActionId === intent.id}
-                      className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-700 disabled:opacity-50">
+                      className="min-h-11 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-700 disabled:opacity-50">
                       {payDunyaActionId === intent.id ? 'Archivage…' : 'Archiver du suivi'}
                     </button>
                   )}
@@ -691,7 +691,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   )}
                   {canManageCash && intent.canReconcile && (
                     <button type="button" onClick={() => void reconcilePayDunyaIntent(intent.id)} disabled={payDunyaActionId === intent.id}
-                      className="rounded-lg bg-blue-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">
+                      className="min-h-11 rounded-lg bg-blue-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">
                       {payDunyaActionId === intent.id ? 'Vérification…' : 'Vérifier le statut'}
                     </button>
                   )}
@@ -718,7 +718,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                       <p className="mt-1 text-[10px] text-slate-500">{order.status === 'pending' ? 'En attente' : order.status === 'in_prep' ? 'En préparation' : 'Prête'} · {order.itemsCount} article(s) · {new Date(order.createdAt).toLocaleString('fr-FR')}</p>
                     </div>
                     <button type="button" onClick={() => void cancelActiveOrder(order)} disabled={cancellingOrderId === order.id}
-                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-800 disabled:opacity-50">
+                      className="min-h-11 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-800 disabled:opacity-50">
                       {cancellingOrderId === order.id ? 'Annulation…' : 'Annuler la commande'}
                     </button>
                   </div>
@@ -1002,7 +1002,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <div hidden={activeCashSection !== 'control'} aria-label="Contrôle de caisse" className="space-y-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div><h2 className="text-base font-black text-[#101d2d]">3 · Contrôle</h2><p className="mt-1 text-xs text-slate-500">Écarts de comptage, clôtures journalières et rapports.</p></div>
-                <button type="button" onClick={() => { sounds.playTap(); setShowZReportModal(true); }} className="rounded-xl bg-[#101d2d] px-4 py-2.5 text-xs font-bold text-white"><FileText size={15} className="mr-2 inline"/>Consulter le rapport</button>
+                <button type="button" onClick={() => { sounds.playTap(); setShowZReportModal(true); }} className="min-h-11 rounded-xl bg-[#101d2d] px-4 py-2.5 text-xs font-bold text-white"><FileText size={15} className="mr-2 inline"/>Consulter le rapport</button>
               </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Écart session en cours</p><p className="mt-2 text-2xl font-extrabold text-[#101d2d]">{formatFCFA(closingCountInput === "" ? 0 : currentVariance)}</p></div>
@@ -1043,7 +1043,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Résultat après dépenses</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.operatingResult || 0)}</p></div>
             </div>
             {dailyRevenueClosure ? <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">Journée clôturée · {dailyRevenueClosure.closedAt ? new Date(dailyRevenueClosure.closedAt).toLocaleString('fr-FR') : 'Clôture enregistrée'} · {dailyRevenueClosure.closedByName || 'Responsable'}</p>
-              : selectedRevenueDate < new Date().toISOString().slice(0, 10) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">Journée terminée, en attente de clôture officielle.</p><button type="button" onClick={() => void closeSelectedRevenueDay()} disabled={dailyRevenueClosing} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{dailyRevenueClosing ? 'Clôture…' : 'Clôturer cette journée'}</button></div>
+              : selectedRevenueDate < new Date().toISOString().slice(0, 10) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">Journée terminée, en attente de clôture officielle.</p><button type="button" onClick={() => void closeSelectedRevenueDay()} disabled={dailyRevenueClosing} className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{dailyRevenueClosing ? 'Clôture…' : 'Clôturer cette journée'}</button></div>
               : <p className="mt-3 text-xs text-slate-500">La clôture sera disponible après la fin de cette journée.</p>}
           </> : <p className="mt-4 text-sm text-slate-500">Aucune recette disponible pour cette date.</p>}
         </section>
@@ -1129,13 +1129,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     sounds.playTap();
                     window.print();
                   }}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors"
+                  className="min-h-11 flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors"
                 >
                   Imprimer l’aperçu
                 </button>
                 <button
                   onClick={() => setShowZReportModal(false)}
-                  className="flex-1 py-2.5 bg-[#ff6500] hover:bg-[#e05800] text-white font-bold text-xs rounded-xl shadow-sm transition-colors"
+                  className="min-h-11 flex-1 py-2.5 bg-[#ff6500] hover:bg-[#e05800] text-white font-bold text-xs rounded-xl shadow-sm transition-colors"
                 >
                   Fermer l’aperçu
                 </button>
