@@ -19,7 +19,7 @@ const ROLE_PERMISSION_CEILINGS: Record<RestaurantRole, readonly Permission[]> = 
   owner: PERMISSIONS,
   manager: [
     'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
-    'tables.view', 'tables.manage', 'pos.access', 'kitchen.access', 'cash.view',
+    'tables.view', 'tables.manage', 'pos.access', 'kitchen.access', 'bar.access', 'cash.view',
     'cash.manage', 'orders.cancel', 'payments.refund', 'reports.view', 'customers.view', 'customers.manage',
     'inventory.view', 'inventory.manage', 'staff.view', 'staff.manage', 'settings.view'
   ],
@@ -36,7 +36,7 @@ const ROLE_BASE_PERMISSIONS: Record<RestaurantRole, readonly Permission[]> = {
   manager: ROLE_PERMISSION_CEILINGS.manager,
   cashier: ['orders.view', 'tables.view', 'pos.access', 'cash.view', 'cash.manage', 'reports.cash.view'],
   server: ROLE_PERMISSION_CEILINGS.server,
-  kitchen: ROLE_PERMISSION_CEILINGS.kitchen
+  kitchen: ['orders.view', 'kitchen.access', 'orders.clear_pending']
 };
 
 function parseRestaurantRole(value: unknown): Exclude<RestaurantRole, 'owner'> | null {
