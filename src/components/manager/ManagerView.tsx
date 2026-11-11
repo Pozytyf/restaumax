@@ -869,13 +869,14 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <th className="py-3 px-4">Articles</th>
                   <th className="py-3 px-4">Règlement</th>
                   <th className="py-3 px-4 text-right">Montant encaissé</th>
+                  <th className="py-3 px-4">Statut</th>
                   <th className="py-3 px-4 text-center">Reçu</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400">
+                    <td colSpan={9} className="py-8 text-center text-slate-400">
                       Aucun encaissement enregistré dans les 100 dernières opérations.
                     </td>
                   </tr>
@@ -915,6 +916,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                             Partiel · reste {formatFCFA(tx.remainingAmount || 0)}
                           </div>
                         )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={tx.paymentStatus === 'partial' ? 'inline-flex min-h-7 items-center rounded-full bg-amber-100 px-3 py-1 text-[11px] font-bold text-amber-950' : 'inline-flex min-h-7 items-center rounded-full bg-[#dcfce7] px-3 py-1 text-[11px] font-bold text-[#14532d]'}>{tx.paymentStatus === 'partial' ? 'Partiel' : 'Payé'}</span>
                       </td>
                       <td className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center gap-2">
@@ -976,6 +980,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </tbody>
             </table>
           </div>
+          <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">Les 100 derniers encaissements au maximum sont affichés.</p>
         </div>
       <section id="paydunya-settings" aria-label="Paramètres du compte PayDunya" className="rounded-2xl border border-slate-200 bg-white p-4">
         <h2 className="mb-3 text-sm font-black text-slate-900">5. ⚙️ Paramètres PayDunya</h2>
