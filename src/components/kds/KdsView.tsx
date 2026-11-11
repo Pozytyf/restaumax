@@ -16,6 +16,8 @@ import {
   Trash2
 } from 'lucide-react';
 
+type VisibleKitchenTicket = KitchenTicket & { stationItems: KitchenTicket['items'] };
+
 interface KdsViewProps {
   tickets: KitchenTicket[];
   stationMode?: 'kitchen' | 'bar';
@@ -49,7 +51,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
   }, []);
 
   const allActiveTickets = tickets.filter(t => t.status === 'pending' || t.status === 'in_prep' || t.status === 'ready');
-  const visibleTickets = allActiveTickets
+  const visibleTickets: VisibleKitchenTicket[] = allActiveTickets
     .map(ticket => ({ ...ticket, stationItems: filterKitchenTicketItems(ticket.items, stationMode === 'bar' ? 'bar' : filterStation).filter(item => stationMode === 'bar' ? (item.station || 'plats') === 'bar' : (item.station || 'plats') !== 'bar') }))
     .filter(ticket => ticket.stationItems.length > 0);
 
@@ -81,7 +83,7 @@ export const KdsView: React.FC<KdsViewProps> = ({
     if (saved) setLastBumpedMsg(`Ticket ${ticket.ticketNumber} annulé et archivé.`);
   };
 
-  const handleBumpTicket = async (ticket: KitchenTicket, slotNumber?: number) => {
+  const handleBumpTicket = async (ticket: VisibleKitchenTicket, slotNumber?: number) => {
     if (ticket.status === 'pending') {
       setLastBumpedMsg(`Ticket ${ticket.ticketNumber} en attente : démarrez sa préparation depuis une ligne.`);
       return;
