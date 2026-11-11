@@ -13,15 +13,27 @@ export interface FinancialReportOptions {
   includeCashDetails: boolean;
 }
 
-export function resolveFinancialReportRange(now: number, periodDays: number, reportType: 'period' | 'daily' = 'period') {
+export function resolveFinancialReportRange(
+  now: number,
+  periodDays: number,
+  reportType: 'period' | 'daily' = 'period',
+  selectedDate?: string
+) {
   if (!Number.isFinite(now) || !Number.isSafeInteger(periodDays) || periodDays < 1 || periodDays > 366) {
     throw new Error('Période de rapport invalide.');
   }
-  const endAt = now;
-  const startAt = reportType === 'daily'
-    ? new Date(now).setUTCHours(0, 0, 0, 0)
-    : now - periodDays * 24 * 60 * 60 * 1000;
-  return { startAt, endAt };
+  if (reportType === 'daily') {
+    const date = selectedDate || new Date(now).toISOString().slice(0, 10);
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) throw new Error('Date de recette invalide.');
+    const startAt = Date.parse(date + 'T00:00:00.000Z');
+    if (!Number.isFinite(startAt) || new Date(startAt).toISOString().slice(0, 10) !== date) {
+      throw new Error('Date de recette invalide.');
+    }
+    const todayStart = new Date(now).setUTCHours(0, 0, 0, 0);
+    if (startAt > todayStart) throw new Error('La recette d’une date future ne peut pas être consultée.');
+    return { startAt, endAt: startAt === todayStart ? now : startAt + 24 * 60 * 60 * 1000 - 1 };
+  }
+  return { startAt: now - periodDays * 24 * 60 * 60 * 1000, endAt: now };
 }
 
 const safeAmount = (value: unknown) => {
@@ -161,7 +173,7 @@ export function calculateRestaurantFinancialReport(
 export async function getRestaurantFinancialReportWithDb(
   db: any,
   restaurantSlug: string,
-  options: { periodDays?: number; includeCashDetails?: boolean; now?: number; reportType?: 'period' | 'daily' } = {}
+  options: { periodDays?: number; includeCashDetails?: boolean; now?: number; reportType?: 'period' | 'daily'; date?: string } = {}
 ) {
   if (!db) throw new Error('Firestore indisponible.');
   const slug = String(restaurantSlug || '').trim();
@@ -170,7 +182,7 @@ export async function getRestaurantFinancialReportWithDb(
   const reportType = options.reportType === 'daily' ? 'daily' : 'period';
   const periodDays = Number(options.periodDays || 30);
   // Côte d’Ivoire uses UTC+0; daily reporting is bounded by calendar midnight.
-  const { startAt, endAt } = resolveFinancialReportRange(now, periodDays, reportType);
+  const { startAt, endAt } = resolveFinancialReportRange(now, periodDays, reportType, options.date);
   const restaurantRef = db.collection('restaurants').doc(slug);
   // Paginer jusqu'à épuisement : une limite fixe silencieuse faussait les
   // rapports des restaurants ayant plus de 1 000 mouvements sur la période.
