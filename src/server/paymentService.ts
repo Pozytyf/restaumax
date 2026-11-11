@@ -815,6 +815,7 @@ export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput
     });
     tx.update(cashSessionRef, {
       cashOut: Number(cashSession.cashOut || 0) + input.amount,
+      cashRefunds: Number(cashSession.cashRefunds || 0) + input.amount,
       refundCount: Number(cashSession.refundCount || 0) + 1,
       lastRefundAt: now
     });
