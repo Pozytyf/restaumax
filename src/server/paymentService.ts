@@ -877,15 +877,13 @@ export async function reclassifyCashPaymentWithDb(db: any, input: ReclassifyCash
   const paymentRef = restaurantRef.collection('payments').doc(paymentId);
   const correctionRef = restaurantRef.collection('paymentReclassifications').doc(correctionId);
   const idempotencyRef = db.collection('payment_reclassification_idempotency').doc(correctionId);
-  const referenceQuery = restaurantRef.collection('payments')
-    .where('mobileMoneyProvider', '==', provider)
-    .where('mobileMoneyReference', '==', reference)
-    .limit(2);
+  const referenceRef = restaurantRef.collection('mobileMoneyReferences')
+    .doc(sha256(`${provider}::${reference}`).slice(0, 48));
 
   return db.runTransaction(async (tx: any) => {
-    const [restaurantSnap, memberSnap, paymentSnap, correctionSnap, idempotencySnap, duplicateRefs] = await Promise.all([
+    const [restaurantSnap, memberSnap, paymentSnap, correctionSnap, idempotencySnap, referenceSnap] = await Promise.all([
       tx.get(restaurantRef), tx.get(memberRef), tx.get(paymentRef),
-      tx.get(correctionRef), tx.get(idempotencyRef), tx.get(referenceQuery)
+      tx.get(correctionRef), tx.get(idempotencyRef), tx.get(referenceRef)
     ]);
     const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
     const member = memberSnap.exists ? memberSnap.data() : null;
@@ -917,8 +915,11 @@ export async function reclassifyCashPaymentWithDb(db: any, input: ReclassifyCash
         !['cash', 'especes'].includes(String(payment.method || '').toLowerCase())) {
       return { success: false, conflict: true, error: 'Seul un paiement espèces existant peut être reclassé.' };
     }
-    if (duplicateRefs.docs.some((doc: any) => doc.id !== paymentId)) {
+    if (referenceSnap.exists && String(referenceSnap.data()?.paymentId || '') !== paymentId) {
       return { success: false, conflict: true, error: 'Cette référence Mobile Money est déjà rattachée à un autre paiement.' };
+    }
+    if (referenceSnap.exists && String(referenceSnap.data()?.paymentId || '') === paymentId) {
+      return { success: false, conflict: true, error: 'Cette référence Mobile Money a déjà été utilisée pour ce paiement.' };
     }
     const amount = Number(payment.paidAmount || 0);
     if (!Number.isSafeInteger(amount) || amount <= 0 || payment.refundStatus || Number(payment.refundedAmount || 0) > 0) {
@@ -984,6 +985,10 @@ export async function reclassifyCashPaymentWithDb(db: any, input: ReclassifyCash
     tx.update(paymentRef, correctedPayment);
     tx.update(cashSessionRef, updatedSession);
     tx.create(correctionRef, correction);
+    tx.create(referenceRef, {
+      provider, transactionReference: reference, paymentId, correctionId,
+      amount, verifiedByUid: actorUid, verificationNote, createdAt: now
+    });
     tx.create(idempotencyRef, { signature, actorUid, paymentId, correctionId, createdAt: now });
     return { success: true, payment: correctedPayment, idempotentReplay: false };
   });
