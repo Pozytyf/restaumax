@@ -82,10 +82,12 @@ assert(paydunyaMerchant.includes('payDunyaCredentialsAad') &&
   paydunyaMerchant.includes('version: 2') &&
   paydunyaMerchant.includes('PAYDUNYA_CREDENTIALS_ENCRYPTION_KEY_V'),
   'PayDunya credentials use tenant-bound AAD and versioned encryption keys');
-assert(workflowEmulator.includes('actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683') &&
+assert(workflowEmulator.includes('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1') &&
+  workflowEmulator.includes('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1') &&
   workflowEmulator.includes('permissions:') && workflowEmulator.includes('contents: read'),
   'Firestore emulator workflow pins actions and uses read-only repository permissions');
-assert(workflowHardening.includes('actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683') &&
+assert(workflowHardening.includes('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1') &&
+  workflowHardening.includes('actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1') &&
   workflowHardening.includes('firebase-tools@15.34.2') &&
   !workflowHardening.includes('fix/security-full-hardening'),
   'security hardening workflow pins actions/tooling and no longer targets a stale branch');
