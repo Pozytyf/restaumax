@@ -20,6 +20,11 @@ async function run() {
     'La navigation affiche l’espace caisse aux propriétaires et gérants autorisés'
   );
   assert(
+    appSource.includes("['manager', 'cashier'].includes(authRestaurantRole) && userPermissions.includes('orders.cancel')") &&
+    appSource.includes("userPermissions.includes('orders.cancel')"),
+    'Le POS expose l’annulation des tickets impayés aux caissiers/gérants autorisés, avec contrôle serveur distinct'
+  );
+  assert(
     appSource.includes("const canViewCashForCashPanel = isRestaurantOwner ||") &&
     appSource.includes("userPermissions.includes('cash.view') || userPermissions.includes('cash.manage')"),
     'Le module caisse reste accessible aux propriétaires et gérants autorisés même sans permission explicite redondante'
