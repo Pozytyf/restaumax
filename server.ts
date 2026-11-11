@@ -523,6 +523,9 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         sessionData.tableId === tableSession.tableId &&
         sessionData.qrTokenHash === tableSession.qrTokenHash &&
         Number(sessionData.qrVersion) === Number(tableSession.qrVersion) &&
+        typeof sessionData.tableServiceSessionId === 'string' &&
+        sessionData.tableServiceSessionId.length >= 16 &&
+        sessionData.tableServiceSessionId === tableSession.tableServiceSessionId &&
         qrData &&
         qrData.status === 'active' &&
         qrData.tokenHash === tableSession.qrTokenHash &&
@@ -532,6 +535,8 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
         tableData &&
         tableData.isActive === true &&
         Number(tableData.qrVersion || 0) === Number(sessionData.qrVersion || 0) &&
+        tableData.activeServiceSessionId === sessionData.tableServiceSessionId &&
+        Number(tableData.activeServiceSessionQrVersion || 0) === Number(sessionData.qrVersion || 0) &&
         String(tableData.tableNumber || '') === String(orderToCreate.tableNumber || '') &&
         Number(sessionData.restaurantSessionVersion || 0) === Number(restaurantData.tableSessionVersion || 0) &&
         restaurantData.isOpen !== false
@@ -656,7 +661,8 @@ export async function executeOrderTransactionWithDb(db: any, params: any) {
           sessionHash: tableSession.sessionHash,
           qrTokenHash: tableSession.qrTokenHash,
           qrVersion: Number(tableSession.qrVersion),
-          tableId: tableSession.tableId
+          tableId: tableSession.tableId,
+          tableServiceSessionId: tableSession.tableServiceSessionId
         }
       } : orderToCreate),
       orderNumber,
@@ -1851,7 +1857,8 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
         sessionHash: session.sessionHash,
         qrTokenHash: session.qrTokenHash,
         qrVersion: session.qrVersion,
-        tableId: session.tableId
+        tableId: session.tableId,
+        tableServiceSessionId: session.tableServiceSessionId
       };
     } else if (input.orderMode === 'a_emporter') {
       input.tableNumber = null;
