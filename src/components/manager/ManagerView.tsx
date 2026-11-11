@@ -1054,6 +1054,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           </main>
         </div>
       </div>
+      </div>
 
       {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
       {showZReportModal && (
