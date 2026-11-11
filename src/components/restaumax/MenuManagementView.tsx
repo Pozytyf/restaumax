@@ -171,7 +171,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                   Module n° 02
                 </span>
                 <h1 className="text-xl font-black text-white tracking-tight">
-                  Menu et catalogue des plats
+                  Menu du restaurant · plats & boissons
                 </h1>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -184,10 +184,10 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
             {canManageCatalog && <button
               onClick={handleOpenCreateModal}
               className="px-4 py-2 bg-[#ff6500] hover:bg-[#e05800] text-white rounded-xl text-xs font-black transition-all shadow-sm flex items-center gap-1.5 active:scale-95"
-              title="Ajouter un nouveau plat au catalogue"
+              title="Ajouter un plat, une boisson ou un dessert au catalogue"
             >
               <Plus size={16} />
-              <span>Nouveau plat</span>
+              <span>Nouvel article</span>
             </button>}
 
             <button
@@ -212,7 +212,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
           <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between">
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                Total Plats au Catalogue
+                Articles du menu au catalogue
               </p>
               <p className="text-2xl font-black text-slate-900 mt-1">
                 {totalDishes}
