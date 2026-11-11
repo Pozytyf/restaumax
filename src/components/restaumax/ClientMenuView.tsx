@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { RestauMenuItem, ClientCartItem, RestaurantInfo, SelectedOption, SelectedExtra, RestauOrder } from '../../types/restaumax';
 import { ProductDetailModal } from './ProductDetailModal';
 import { CartDrawer } from './CartDrawer';
