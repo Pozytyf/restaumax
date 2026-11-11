@@ -563,6 +563,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                         placeholder="Saisir le montant réellement compté"
                         className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
                     </label>
+                    <p aria-live="polite" className="text-xs font-semibold text-slate-700">Écart avec le solde théorique : {closingCountInput === '' ? '—' : formatFCFA(Number(closingCountInput) - expectedCash)}</p>
                     <button type="submit" disabled={cashSessionActionLoading || closingCountInput === ''}
                       className="rounded-lg bg-[#101d2d] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
                       {cashSessionActionLoading ? 'Clôture en cours…' : 'Fermer la session de caisse'}
