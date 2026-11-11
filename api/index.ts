@@ -11,6 +11,7 @@ import {
   handleInventoryRequest,
   handleKitchenItemRequest,
   handleOrderStatusRequest,
+  handleCustomerOrderMutationRequest,
   handleOrderSubmission,
   handlePaymentsRequest,
   handlePayDunyaCallbackRequest,
@@ -92,6 +93,10 @@ export default async function handler(req: any, res: any) {
     }
     case 'kitchen-item': {
       const result = await handleKitchenItemRequest(req.body, req);
+      return res.status(result.statusCode).json(result.body);
+    }
+    case 'customer-orders': {
+      const result = await handleCustomerOrderMutationRequest(req.body, req);
       return res.status(result.statusCode).json(result.body);
     }
     case 'order-status': {
