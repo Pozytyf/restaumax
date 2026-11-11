@@ -31,6 +31,8 @@ assert(kds.includes("t.status === 'pending' || t.status === 'in_prep' || t.statu
 assert(kds.includes("onUpdateTicketStatus(ticket.id, 'cancelled', reason.trim())"));
 assert(kds.includes("stationMode === 'bar' ? 'Écran Bar en Direct' : 'Écran KDS Cuisine en Direct'"));
 assert(kds.includes('Vider le ticket'));
+assert(kds.includes('canCancelActiveTicket &&'));
+assert(kds.includes('Annuler</button>'));
 assert(kds.includes('Motif obligatoire pour annuler le ticket'));
 assert(kds.includes("stationMode === 'bar' ? [{ id: 'bar', label: 'Bar' }]"));
 assert(!kds.includes("e.key === 'Tab'"));
