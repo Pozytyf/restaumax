@@ -2000,6 +2000,7 @@ export default function App() {
                 tickets={kitchenTickets}
                 stationMode="kitchen"
                 canMarkServed={isRestaurantOwner || userPermissions.includes('orders.manage') || userPermissions.includes('orders.serve')}
+                canCancelActiveTicket={isRestaurantOwner || userPermissions.includes('orders.manage') || userPermissions.includes('orders.cancel')}
                 onToggleItemComplete={handleToggleKdsItem}
                 onUpdateTicketStatus={handleUpdateTicketStatus}
               />
