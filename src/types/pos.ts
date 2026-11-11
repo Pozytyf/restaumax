@@ -110,6 +110,10 @@ export interface PaymentRecord {
   refundStatus?: string;
   refundEligible?: boolean;
   providerChannel?: string;
+  mobileMoneyProvider?: 'orange_money' | 'wave' | 'mtn' | 'moov' | 'djamo';
+  mobileMoneyReference?: string;
+  reclassifiedAt?: number;
+  reclassificationReason?: string;
   items: { name: string; quantity: number; price: number }[];
 }
 
