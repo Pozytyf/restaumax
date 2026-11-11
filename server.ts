@@ -2098,7 +2098,7 @@ export async function handleOrderStatusRequest(payload: unknown, req?: any): Pro
     const result = await transitionOrderStatusWithDb(adminDb, { restaurantSlug, orderId, targetStatus, cancellationReason, actorUid: decoded.uid, sessionVersion: Number(decoded.sessionVersion || 0) });
     if (result.success) return { statusCode: 200, body: result };
     const errorMessage = 'error' in result ? String(result.error || '') : '';
-    return { statusCode: errorMessage.includes('Transition refusée') ? 409 : 403, body: result };
+    return { statusCode: /Transition refusée|règlement effectué|paiement Mobile Money en cours/.test(errorMessage) ? 409 : 403, body: result };
   } catch (error: any) {
     console.error('[RestauMax order status] Request failed:', error?.message || String(error));
     return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la transition de commande.' } };
