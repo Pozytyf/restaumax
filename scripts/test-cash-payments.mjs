@@ -31,7 +31,7 @@ async function run() {
     'Le tiroir affiche le solde théorique recalculé depuis la session persistée, remboursements espèces déduits'
   );
   assert(
-    managerViewSource.includes('Clôturer la session et rapprocher') &&
+    managerViewSource.includes('Fermer la session de caisse') &&
     managerViewSource.includes('onCloseCashSession(amount)'),
     'Le responsable dispose d’une action visible de clôture avec comptage physique'
   );
