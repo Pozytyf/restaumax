@@ -492,38 +492,16 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             {cashSession && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Session ouverte</span>}
           </div>
 
+          {cashSession && <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900">Session ouverte</span><span className="text-xs font-medium text-emerald-950">Ouverte à {new Date(cashSession.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span></div>}
           {cashSessionLoading && !cashSession ? (
             <p className="mt-4 text-sm text-slate-500">Chargement de la session de caisse…</p>
           ) : cashSession ? (
             <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr]">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">Fond d’ouverture</p>
-                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.openingBalance)}</p>
-                </div>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                  <p className="text-xs font-semibold text-emerald-800">Solde théorique de caisse</p>
-                  <p className="mt-1 text-lg font-black text-emerald-950">{formatFCFA(expectedCash)}</p>
-                  <p className="mt-1 text-[10px] text-emerald-800">Fond initial + espèces encaissées − sorties − remboursements espèces</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">Espèces encaissées</p>
-                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.cashCollected)}</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">Nombre d’encaissements</p>
-                  <p className="mt-1 text-lg font-black">{cashSession.paymentCount}</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">Sorties hors remboursements</p>
-                  <p className="mt-1 text-lg font-black">{formatFCFA(otherCashOut)}</p>
-                  <p className="text-[10px] text-slate-500">{cashSession.cashMovementCount} mouvement(s)</p>
-                </div>
-                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
-                  <p className="text-xs font-semibold text-rose-800">Remboursements espèces</p>
-                  <p className="mt-1 text-lg font-black text-rose-900">-{formatFCFA(cashRefunds)}</p>
-                  <p className="text-[10px] text-rose-700">{Number(cashSession.refundCount || 0)} remboursement(s) tracé(s)</p>
-                </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Fond d’ouverture</p><p className="mt-2 text-xl font-extrabold text-[#101d2d]">{formatFCFA(cashSession.openingBalance)}</p></div>
+                <div className="rounded-xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Encaissements espèces</p><p className="mt-2 text-xl font-extrabold text-[#101d2d]">{formatFCFA(cashSession.cashCollected)}</p></div>
+                <div className="rounded-xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Sorties de caisse</p><p className="mt-2 text-xl font-extrabold text-[#101d2d]">{formatFCFA(otherCashOut)}</p><p className="mt-1 text-xs text-slate-500">Remboursements espèces suivis séparément : {formatFCFA(cashRefunds)}</p></div>
+                <div className="rounded-xl border border-[#101d2d] bg-[#101d2d] p-4 text-white"><p className="text-xs font-semibold text-slate-200">Solde théorique</p><p className="mt-2 text-xl font-extrabold">{formatFCFA(expectedCash)}</p><p className="mt-1 text-xs text-slate-200">Fond + espèces − sorties − remboursements espèces</p></div>
               </div>
               {canManageCash ? (
                 <div className="space-y-3">
