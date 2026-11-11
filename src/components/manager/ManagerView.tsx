@@ -846,8 +846,15 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 Journal des Transactions Récentes
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Historique instantané des règlements enregistrés en caisse
+                Historique instantané des règlements enregistrés en caisse · 100 derniers au maximum
               </p>
+            </div>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrer les encaissements">
+              {[
+                { value: 'all', label: 'Tous' },
+                { value: 'cash', label: 'Espèces' },
+                { value: 'mobile', label: 'Mobile Money' }
+              ].map((filter) => <button key={filter.value} type="button" aria-pressed={paymentFilter === filter.value} onClick={() => setPaymentFilter(filter.value as typeof paymentFilter)} className={`min-h-11 rounded-full border px-4 text-xs font-bold ${paymentFilter === filter.value ? 'border-[#101d2d] bg-[#101d2d] text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}>{filter.label}</button>)}
             </div>
           </div>
 
@@ -866,14 +873,14 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {transactions.length === 0 ? (
+                {filteredTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-slate-400">
                       Aucun encaissement enregistré dans les 100 dernières opérations.
                     </td>
                   </tr>
                 ) : (
-                  transactions.map((tx) => (
+                  filteredTransactions.map((tx) => (
                     <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-4 font-black text-slate-900">{tx.orderId}</td>
                       <td className="py-3 px-4 text-slate-500 tnum">
