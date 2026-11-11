@@ -119,6 +119,18 @@ assert.equal(pendingRefundReport.grossCollected, 1000, 'Les remboursements fourn
 const reportApiSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
 const reportUiSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
 const reportServiceSource = fs.readFileSync(new URL('../src/server/reportService.ts', import.meta.url), 'utf8');
+const cashSupervisionSource = fs.readFileSync(new URL('../src/components/manager/ManagerView.tsx', import.meta.url), 'utf8');
+const cashSessionTypesSource = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.url), 'utf8');
+assert(cashSupervisionSource.includes('Calendrier des recettes journalières') &&
+  cashSupervisionSource.includes('Date de consultation de la recette') &&
+  cashSupervisionSource.includes('/api/reports?restaurantSlug=') &&
+  cashSupervisionSource.includes('closeSelectedRevenueDay'),
+  'La supervision du journal de caisse expose le calendrier daté et la clôture journalière.');
+assert(!cashSupervisionSource.includes('cashSession.openingBalance + cashSession.cashCollected - cashSession.cashOut'),
+  'La supervision ne présente plus une seconde formule de solde théorique contradictoire.');
+assert(cashSessionTypesSource.includes('cashRefunds?: number') && cashSessionTypesSource.includes('refundCount?: number'),
+  'Le contrat de session de caisse expose les totaux de remboursements.');
+
 assert(reportApiSource.includes("['period', 'daily']") && reportApiSource.includes("reportType: reportType as 'period' | 'daily'"),
   'The authenticated reports API explicitly accepts separate daily and periodic modes.');
 assert(reportUiSource.includes('Calendrier des recettes journalières') && reportUiSource.includes('type=\"date\"') && reportUiSource.includes('reportType=daily') && reportUiSource.includes('periodDays=30&reportType=period'),
