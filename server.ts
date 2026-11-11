@@ -1982,17 +1982,20 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
         closedByName: String(decoded.name || decoded.email || decoded.uid),
         closedByRole: String(member.role || '')
       };
-      const created = await adminDb.runTransaction(async (tx: any) => {
+      const closeResult = await adminDb.runTransaction(async (tx: any) => {
         const existing = await tx.get(closureRef);
-        if (existing.exists) return false;
+        if (existing.exists) return { created: false, record: existing.data() };
         tx.create(closureRef, closure);
-        return true;
+        return { created: true, record: closure };
       });
-      if (!created) return { statusCode: 409, body: { success: false, error: 'Cette journée a déjà été clôturée. La clôture initiale est conservée.' } };
-      return { statusCode: 200, body: { success: true, closure: {
-        date, status: 'closed', closedAt: now,
-        closedByName: closure.closedByName, reportHash: closure.reportHash
-      } } };
+      const savedClosure = closeResult.record || closure;
+      return { statusCode: 200, body: {
+        success: true, idempotentReplay: !closeResult.created,
+        closure: {
+          date, status: 'closed', closedAt: savedClosure.closedAt,
+          closedByName: savedClosure.closedByName, reportHash: savedClosure.reportHash
+        }
+      } };
     }
     const periodDays = Number(req.query?.periodDays || 30);
     const reportType = String(req.query?.reportType || 'period');
