@@ -320,7 +320,8 @@ assert(api.includes("case 'order-status'") && api.includes('handleOrderStatusReq
 assert(client.includes("fetch('/api/order-status'"), 'the browser uses the trusted lifecycle API');
 assert(rules.includes('allow update: if false;'), 'direct client order updates are disabled');
 assert(managerUi.includes('Commandes actives · Annulation contrôlée') && managerUi.includes("status: 'cancelled'") && managerUi.includes('cancellationReason'), 'The cash panel exposes reasoned logical cancellation for active orders.');
-assert(appSource.includes('canCancelOrders={isRestaurantOwner || userPermissions.includes(\'orders.cancel\')}'), 'The cancellation action is gated by the owner or the dedicated order permission.');
+assert(managerUi.includes('Retirer de la caisse') && managerUi.includes('pendingOnly: true') && managerUi.includes('removalAction: true'), 'The PayDunya follow-up list allows an unpaid pending order to be removed from cash without deleting its intent.');
+assert(appSource.includes('canCancelOrders={isRestaurantOwner || userPermissions.includes(\'orders.cancel\') || userPermissions.includes(\'orders.manage\')}'), 'The cancellation action is gated by the owner or a dedicated order permission.');
 
 const posPendingRemoveDb = base('pending', 10, false);
 const posPendingRemove = await transitionOrderStatusWithDb(posPendingRemoveDb, {
