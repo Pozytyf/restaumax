@@ -103,4 +103,12 @@ assert(reportApiSource.includes("['period', 'daily']") && reportApiSource.includ
 assert(reportUiSource.includes('Calendrier des recettes journalières') && reportUiSource.includes('type=\"date\"') && reportUiSource.includes('reportType=daily') && reportUiSource.includes('periodDays=30&reportType=period'),
   'The reports screen loads the daily point separately from the rolling 30-day report.');
 assert(reportServiceSource.includes('linkedOrderIds') && reportServiceSource.includes('previous day'), 'Daily settlement reports include prior-day orders when their payment is made in the selected period.');
+assert(reportServiceSource.includes("refunds.map((doc: any) => String(doc.data()?.orderId || ''))"),
+  'A refund made on the selected date loads its original order even when the payment was received earlier.');
+assert(reportApiSource.includes("dailyRevenueClosures") && reportApiSource.includes("Seul le propriétaire ou le gérant"),
+  'Daily revenue closure is stored server-side and restricted to owners and managers.');
+assert(reportApiSource.includes("hasOpenSessionForDay") && reportApiSource.includes("journée terminée"),
+  'A daily closure is rejected while a cash session from that day remains open or the day is still current.');
+assert(reportUiSource.includes('Clôturer la recette du jour') && reportUiSource.includes('Journée clôturée'),
+  'The revenue calendar exposes a close action and an immutable closure confirmation.');
 console.log('Financial report calculation tests passed: 32 assertions.');
