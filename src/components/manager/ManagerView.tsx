@@ -571,6 +571,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     void onCloseCashSession(amount).then(() => loadClosedSessions());
                     setClosingCountInput('');
                   }} className="flex flex-col justify-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+                    <h3 className="text-sm font-black text-slate-800">Clôture de la session</h3>
                     <label className="text-sm font-bold text-slate-800">Comptage physique en caisse (FCFA)
                       <input required type="number" min="0" max="100000000" step="1" value={closingCountInput}
                         onChange={(event) => setClosingCountInput(event.target.value)}
@@ -580,7 +581,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     <p aria-live="polite" className="text-xs font-semibold text-slate-700">Écart avec le solde théorique : {closingCountInput === '' ? '—' : formatFCFA(Number(closingCountInput) - expectedCash)}</p>
                     <button type="submit" disabled={cashSessionActionLoading || closingCountInput === ''}
                       className="rounded-lg bg-[#101d2d] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
-                      {cashSessionActionLoading ? 'Clôture en cours…' : 'Fermer la session de caisse'}
+                      {cashSessionActionLoading ? 'Clôture en cours…' : 'Clôturer la session'}
                     </button>
                   </form>
                 </div>
