@@ -42,6 +42,7 @@ interface CashSessionSummary {
   }>;
   status: 'active' | 'closed';
   openedAt: number;
+  openedByName?: string;
   expectedCash?: number;
   variance?: number;
 }
@@ -410,7 +411,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     orangeMoney: transactions.filter((tx) => tx.paymentMethod === 'orange_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
     mtnMoney: transactions.filter((tx) => tx.paymentMethod === 'mtn_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
     moovMoney: transactions.filter((tx) => tx.paymentMethod === 'moov_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
-    other: transactions.filter((tx) => ['djamo', 'card', 'carte', 'bank_card'].includes(String(tx.paymentMethod))).reduce((sum, tx) => sum + tx.paidAmount, 0)
+    other: transactions.filter((tx) => ['djamo', 'card', 'carte', 'bank_card', 'carte_bancaire', 'credit_card'].includes(String(tx.paymentMethod))).reduce((sum, tx) => sum + tx.paidAmount, 0)
   }), [transactions]);
   const cashRefunds = Number(cashSession?.cashRefunds || 0);
   const otherCashOut = Math.max(0, Number(cashSession?.cashOut || 0) - cashRefunds);
@@ -463,7 +464,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <p className="text-xs font-semibold text-slate-500">Centre de gestion <span aria-hidden="true">›</span> Supervision &amp; Caisse{activeCashSection !== "session" && <><span aria-hidden="true"> › </span>{activeCashSection === "collections" ? "Encaissements" : "Contrôle"}</>}</p>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><h1 className="text-2xl font-extrabold tracking-tight text-[#101d2d]">{activeCashSection === "session" ? "Supervision & Caisse" : activeCashSection === "collections" ? "Encaissements" : "Contrôle"}</h1><p className="mt-1 text-sm font-medium text-slate-600">Pilotez la session, suivez les règlements et contrôlez les clôtures.</p></div>
-            <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-950">Maquette · valeurs d’exemple</span>
+            <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-950">Données du restaurant · FCFA</span>
           </div>
         </header>
         <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -639,7 +640,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </div>
           </div>
           {payDunyaIntents.filter(intent => !['paid', 'completed', 'succeeded', 'refunded', 'cancelled', 'expired'].includes(intent.status.toLowerCase())).length === 0 ? (
-            <p className="mt-3 text-xs text-slate-500">{payDunyaLoading ? 'Chargement…' : 'Aucune intention PayDunya non soldée dans les 50 dernières opérations.'}</p>
+            <p className="mt-3 text-xs text-slate-500">{payDunyaLoading ? 'Chargement…' : 'Aucune intention PayDunya non soldée dans les 100 dernières opérations.'}</p>
           ) : (
             <div className="mt-3 divide-y divide-slate-100">
               {payDunyaIntents.filter(intent => !['paid', 'completed', 'succeeded', 'refunded'].includes(intent.status.toLowerCase())).map(intent => (
@@ -1030,8 +1031,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Dépenses suivies</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.expenseTotal || 0)}</p></div>
               <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Résultat après dépenses</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.operatingResult || 0)}</p></div>
             </div>
-            {dailyRevenueClosure ? <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">🔒 Journée clôturée · {dailyRevenueClosure.closedAt ? new Date(dailyRevenueClosure.closedAt).toLocaleString('fr-FR') : 'Clôture enregistrée'} · {dailyRevenueClosure.closedByName || 'Responsable'}</p>
-              : selectedRevenueDate < new Date().toISOString().slice(0, 10) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">Journée terminée, en attente de clôture officielle.</p><button type="button" onClick={() => void closeSelectedRevenueDay()} disabled={dailyRevenueClosing} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{dailyRevenueClosing ? 'Clôture…' : '🔒 Clôturer cette journée'}</button></div>
+            {dailyRevenueClosure ? <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">Journée clôturée · {dailyRevenueClosure.closedAt ? new Date(dailyRevenueClosure.closedAt).toLocaleString('fr-FR') : 'Clôture enregistrée'} · {dailyRevenueClosure.closedByName || 'Responsable'}</p>
+              : selectedRevenueDate < new Date().toISOString().slice(0, 10) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">Journée terminée, en attente de clôture officielle.</p><button type="button" onClick={() => void closeSelectedRevenueDay()} disabled={dailyRevenueClosing} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{dailyRevenueClosing ? 'Clôture…' : 'Clôturer cette journée'}</button></div>
               : <p className="mt-3 text-xs text-slate-500">La clôture sera disponible après la fin de cette journée.</p>}
           </> : <p className="mt-4 text-sm text-slate-500">Aucune recette disponible pour cette date.</p>}
         </section>
