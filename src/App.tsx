@@ -1708,6 +1708,63 @@ export default function App() {
     )
     .slice(0, 8), [restauOrders]);
 
+  const pendingPosOrders = useMemo(() => restauOrders
+    .filter(order => order.status === 'pending' &&
+      Number(order.paidAmount || 0) === 0 &&
+      !['partial', 'paid'].includes(String(order.paymentStatus || '')) &&
+      !order.pendingPayDunyaIntentId &&
+      !order.removedFromPosAt)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 20), [restauOrders]);
+
+  const canManagePendingPosOrders = isRestaurantOwner ||
+    (authRestaurantRole === 'manager' && userPermissions.includes('orders.manage'));
+
+  const handlePendingPosOrderAction = async (order: RestauOrder, action: 'cancel' | 'remove') => {
+    if (!canManagePendingPosOrders) {
+      window.alert('Seuls le propriétaire et le gérant peuvent gérer les tickets en attente.');
+      return;
+    }
+    const reason = window.prompt(action === 'remove'
+      ? 'Motif obligatoire du retrait du POS (3 à 300 caractères) :'
+      : 'Motif obligatoire de l’annulation (3 à 300 caractères) :');
+    if (reason === null) return;
+    if (reason.trim().length < 3 || reason.trim().length > 300) {
+      window.alert('Le motif doit contenir entre 3 et 300 caractères.');
+      return;
+    }
+    const label = action === 'remove' ? 'retirer ce ticket du POS' : 'annuler ce ticket';
+    if (!window.confirm(`Confirmer : ${label} ? Le ticket sera conservé dans l’historique avec son motif et sa trace d’audit.`)) return;
+    const user = auth.currentUser;
+    if (!user) { window.alert('Connexion requise.'); return; }
+    try {
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/order-status', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        credentials: 'same-origin', cache: 'no-store',
+        body: JSON.stringify({
+          restaurantSlug: activeRestaurantSlug,
+          orderId: order.id,
+          status: 'cancelled',
+          cancellationReason: reason.trim(),
+          pendingOnly: true,
+          removalAction: action === 'remove'
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        window.alert(data.error || 'Action refusée.');
+        return;
+      }
+      window.alert(action === 'remove'
+        ? 'Ticket retiré du terminal. Son historique est conservé.'
+        : 'Ticket annulé. Son historique est conservé.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Impossible de traiter ce ticket.');
+    }
+  };
+
   const handleCollectExistingOrder = (order: RestauOrder) => {
     if (!canCollectPayment) {
       window.alert("Votre rôle ne permet pas d'encaisser cette commande.");
@@ -1980,6 +2037,9 @@ export default function App() {
                 }}
                 serverName={serverName}
                 unpaidOrders={canCollectPayment ? unpaidPosOrders : []}
+                pendingOrders={canManagePendingPosOrders ? pendingPosOrders : []}
+                canManagePendingOrders={canManagePendingPosOrders}
+                onCancelPendingOrder={handlePendingPosOrderAction}
                 onCollectOrder={handleCollectExistingOrder}
                 alreadyPaidAmount={pendingPosPaidAmount}
                 isExistingOrder={pendingPosOrder !== null}
