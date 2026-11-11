@@ -45,6 +45,7 @@ import {
   setRestaurantServiceStatusWithServerValidation,
   deleteTable,
   testConnection,
+  auth,
   signInManager,
   signOutManager,
   subscribeToAuth,
