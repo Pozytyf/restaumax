@@ -23,7 +23,7 @@ const ROLE_LABELS: Record<StaffRole, string> = {
 const ROLE_CEILINGS: Record<EditableStaffRole, string[]> = {
   manager: ['menu.view','menu.manage','orders.view','orders.manage','orders.serve','tables.view','tables.manage','pos.access','kitchen.access','bar.access','cash.view','cash.manage','orders.cancel','payments.refund','reports.view','customers.view','customers.manage','inventory.view','inventory.manage','staff.view','staff.manage','settings.view'],
   cashier: ['orders.view','tables.view','pos.access','cash.view','cash.manage','orders.cancel','payments.refund','reports.cash.view'],
-  server: ['orders.view','tables.view','pos.access','orders.serve'],
+  server: ['orders.view','tables.view','pos.access','orders.serve','orders.cancel'],
   kitchen: ['orders.view','kitchen.access','orders.clear_pending']
 };
 const ROLE_DEFAULTS: Record<EditableStaffRole, string[]> = {
