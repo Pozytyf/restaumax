@@ -96,8 +96,12 @@ const barDeniedKitchenLine = await updateKitchenItemCompletionWithDb(barDb, {
   ...params, actorUid: 'bar-1', itemId: 'ki-order-1-0', itemIndex: 0
 });
 assert.equal(barDeniedKitchenLine.success, false, 'Bar cannot update kitchen lines');
+const kitchenAllowedLine = await updateKitchenItemCompletionWithDb(kitchenDb, {
+  ...params, actorUid: 'kitchen-1', itemId: 'ki-order-1-0', itemIndex: 0
+});
+assert.equal(kitchenAllowedLine.success, true, 'Kitchen access can update kitchen lines');
 const kitchenDeniedBarLine = await updateKitchenItemCompletionWithDb(kitchenDb, {
-  ...params, itemId: 'ki-order-1-1', itemIndex: 1
+  ...params, actorUid: 'kitchen-1', itemId: 'ki-order-1-1', itemIndex: 1
 });
 assert.equal(kitchenDeniedBarLine.success, false, 'Kitchen cannot update bar lines');
 
