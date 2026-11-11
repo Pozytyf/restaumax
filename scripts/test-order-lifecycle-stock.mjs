@@ -151,9 +151,22 @@ cashierDb.documents.set('managers/cashier-1', {
   active: true, restaurantSlug: 'chez-awa', role: 'cashier', permissions: ['orders.cancel'], sessionVersion: 4
 });
 const cashierCancel = await transitionOrderStatusWithDb(cashierDb, {
-  ...params, actorUid: 'cashier-1', targetStatus: 'cancelled'
+  ...params, actorUid: 'cashier-1', targetStatus: 'cancelled', cancellationReason: 'Erreur de saisie'
 });
 assert.equal(cashierCancel.success, true);
+const kitchenClearDb = base();
+kitchenClearDb.documents.set('managers/kitchen-1', {
+  active: true, restaurantSlug: 'chez-awa', role: 'kitchen',
+  permissions: ['kitchen.access', 'orders.cancel'], sessionVersion: 4
+});
+const kitchenClear = await transitionOrderStatusWithDb(kitchenClearDb, {
+  ...params, actorUid: 'kitchen-1', targetStatus: 'cancelled', cancellationReason: 'Ticket erroné'
+});
+assert.equal(kitchenClear.success, true, 'Un membre Cuisine autorisé peut vider un ticket en attente');
+assert.equal(kitchenClearDb.documents.get('restaurants/chez-awa/orders/order-1').status, 'cancelled');
+assert.ok([...kitchenClearDb.documents.entries()].some(([path, value]) =>
+  path.startsWith('restaurants/chez-awa/orderAudit/') && value.actorUid === 'kitchen-1'));
+
 const partialDb = base();
 partialDb.documents.get('restaurants/chez-awa/orders/order-1').items.push({ id: 'line-2', menuItemId: 'dish-untracked', quantity: 1 });
 partialDb.documents.get('restaurants/chez-awa/orders/order-1').kitchenItemsCompletedCount = 2;
