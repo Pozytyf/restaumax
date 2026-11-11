@@ -2102,7 +2102,7 @@ export default function App() {
                 canManageCash={canManageCash}
                 canReclassifyPayments={isRestaurantOwner || userPermissions.includes('payments.reclassify')}
                 canRefundPayments={canRefundPayments}
-                canCancelOrders={isRestaurantOwner || userPermissions.includes('orders.cancel')}
+                canCancelOrders={isRestaurantOwner || userPermissions.includes('orders.cancel') || userPermissions.includes('orders.manage')}
                 onRefundPayment={handleRefundPayment}
                 onOpenCashSession={handleOpenCashSession}
                 onCloseCashSession={handleCloseCashSession}
