@@ -78,6 +78,7 @@ managerDb.documents.set('managers/manager-1', {
 assert.equal((await updateKitchenItemCompletionWithDb(managerDb, { ...params, actorUid: 'manager-1' })).success, true);
 
 const kitchenDb = base();
+kitchenDb.documents.get('restaurants/chez-awa/orders/order-1').items[1].category = 'boissons';
 kitchenDb.documents.set('managers/kitchen-1', {
   active: true, restaurantSlug: 'chez-awa', role: 'kitchen', permissions: ['kitchen.access'], sessionVersion: 3
 });
