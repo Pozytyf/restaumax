@@ -384,7 +384,13 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         });
       }
 
-      const orderUpdate: Record<string, any> = { status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid };
+      const orderUpdate: Record<string, any> = {
+        status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid,
+        statusHistory: [...(Array.isArray(order.statusHistory) ? order.statusHistory : []), {
+          status: targetStatus, changedAt: now, actorRole: member.role,
+          ...(targetStatus === 'cancelled' ? { reason: cancellationReason } : {})
+        }].slice(-50)
+      };
       if (targetStatus === 'cancelled') {
         orderUpdate.cancellationReason = cancellationReason;
         orderUpdate.cancelledAt = now;
