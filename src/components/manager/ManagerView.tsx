@@ -97,6 +97,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   onRefundPayment
 }) => {
   const [showZReportModal, setShowZReportModal] = useState(false);
+  const [activeCashSection, setActiveCashSection] = useState<'session' | 'collections' | 'control'>('session');
   const [openingBalanceInput, setOpeningBalanceInput] = useState('0');
   const [closingCountInput, setClosingCountInput] = useState('');
   const [movementAmountInput, setMovementAmountInput] = useState('');
@@ -319,26 +320,23 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </p>
           </div>
 
-          <button
-            onClick={() => {
-              sounds.playTap();
-              setShowZReportModal(true);
-            }}
-            className="px-4 py-2.5 bg-[#101d2d] hover:bg-[#1a2c42] text-white text-xs sm:text-sm font-bold rounded-xl shadow-sm flex items-center gap-2 self-start sm:self-auto transition-colors"
-          >
-            <FileText size={16} />
-            <span>Consulter le rapport des encaissements</span>
-          </button>
+
         </div>
 
-        <nav aria-label="Navigation de la supervision" className="sticky top-0 z-20 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
-          <a href="#cash-session" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">💵 Session de caisse</a>
-          <a href="#revenue-calendar" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">📅 Recettes par date</a>
-          <a href="#cash-payments" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">💳 Journal des paiements</a>
-          <a href="#pending-orders" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">🧾 Commandes</a>
-          <a href="#paydunya-settings" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">⚙️ PayDunya</a>
-        </nav>
+        <div className="grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)] lg:items-start">
+          <aside aria-label="Rubriques du journal de caisse" className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:sticky lg:top-4">
+            <p className="px-3 pb-2 pt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">Journal de caisse</p>
+            <button type="button" aria-current={activeCashSection === 'session' ? 'page' : undefined} onClick={() => setActiveCashSection('session')} className={`mb-1 w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'session' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}><span className="block text-sm font-extrabold">1 · Session de caisse</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'session' ? 'text-slate-300' : 'text-slate-500'}`}>Ouverture, fond, sorties et clôture</span></button>
+            <button type="button" aria-current={activeCashSection === 'collections' ? 'page' : undefined} onClick={() => setActiveCashSection('collections')} className={`mb-1 w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'collections' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}><span className="block text-sm font-extrabold">2 · Encaissements</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'collections' ? 'text-slate-300' : 'text-slate-500'}`}>Canaux, transactions et remboursements</span></button>
+            <button type="button" aria-current={activeCashSection === 'control' ? 'page' : undefined} onClick={() => setActiveCashSection('control')} className={`w-full rounded-xl p-3 text-left transition-colors ${activeCashSection === 'control' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}><span className="block text-sm font-extrabold">3 · Contrôle</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'control' ? 'text-slate-300' : 'text-slate-500'}`}>Écarts, clôtures et rapports</span></button>
+          </aside>
+          <div className="min-w-0 space-y-5">
 
+        <section id="cash-session" aria-labelledby="cash-session-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 id="cash-session-title" className="text-base font-black text-[#101d2d]">1. Session de caisse</h2>
+              <p className="mt-1 text-xs text-slate-500">Fond initial, encaissements de la session et r        <div hidden={activeCashSection !== 'session'} aria-label="Session de caisse">
         <section id="cash-session" aria-labelledby="cash-session-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -494,43 +492,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </form>
           ) : <p className="mt-4 text-sm text-slate-500">Aucune session active. Demandez à un responsable d’ouvrir la caisse.</p>}
         </section>
-
-
-        <section id="revenue-calendar" aria-labelledby="revenue-calendar-title" className="rounded-2xl border border-orange-200 bg-white p-5 shadow-2xs">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 id="revenue-calendar-title" className="text-base font-black text-slate-900">2. 📅 Calendrier des recettes journalières</h2>
-              <p className="mt-1 text-xs text-slate-500">Consultez la recette nette à une date précise et clôturez chaque journée terminée.</p>
-            </div>
-            <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
-              Date
-              <input aria-label="Date de consultation de la recette" type="date" max={new Date().toISOString().slice(0, 10)}
-                value={selectedRevenueDate} onChange={event => setSelectedRevenueDate(event.target.value)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"/>
-            </label>
-          </div>
-          {dailyRevenueError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{dailyRevenueError}</p>}
-          {dailyRevenueNotice && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800">{dailyRevenueNotice}</p>}
-          {dailyRevenueLoading ? <p className="mt-4 text-sm text-slate-500">Chargement de la recette…</p> : dailyRevenueReport ? <>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Encaissements nets</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.grossCollected || 0)}</p></div>
-              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Commandes réglées</p><p className="mt-1 text-xl font-black">{dailyRevenueReport.paidOrderCount || 0}</p></div>
-              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Dépenses suivies</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.expenseTotal || 0)}</p></div>
-              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Résultat après dépenses</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.operatingResult || 0)}</p></div>
-            </div>
-            {dailyRevenueClosure ? <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">🔒 Journée clôturée · {dailyRevenueClosure.closedAt ? new Date(dailyRevenueClosure.closedAt).toLocaleString('fr-FR') : 'Clôture enregistrée'} · {dailyRevenueClosure.closedByName || 'Responsable'}</p>
-              : selectedRevenueDate < new Date().toISOString().slice(0, 10) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">Journée terminée, en attente de clôture officielle.</p><button type="button" onClick={() => void closeSelectedRevenueDay()} disabled={dailyRevenueClosing} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{dailyRevenueClosing ? 'Clôture…' : '🔒 Clôturer cette journée'}</button></div>
-              : <p className="mt-3 text-xs text-slate-500">La clôture sera disponible après la fin de cette journée.</p>}
-          </> : <p className="mt-4 text-sm text-slate-500">Aucune recette disponible pour cette date.</p>}
-        </section>
-
-        {/* Closed Cash Sessions History & Performance Comparison Component */}
-        <ClosedCashSessionsHistory
-          sessions={closedSessions}
-          loading={closedSessionsLoading}
-          onRefresh={loadClosedSessions}
-        />
-
+        </div>
+        <div hidden={activeCashSection !== 'collections'} aria-label="Encaissements">
+          <div className="mb-1"><h2 className="text-base font-black text-[#101d2d]">2 · Encaissements</h2><p className="mt-1 text-xs text-slate-500">Canaux de paiement, journal des règlements, remboursements et rapprochements Mobile Money.</p></div>
         <section id="paydunya-reconcile" className="rounded-2xl border border-blue-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -886,13 +850,51 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         <h2 className="mb-3 text-sm font-black text-slate-900">5. ⚙️ Paramètres PayDunya</h2>
         <PayDunyaAccountSettings restaurantSlug={restaurantSlug} isOwner={isOwner} />
       </section>
+          </div>
+        </div>
       </div>
 
-      {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
-      {showZReportModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-2xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-150">
-            <div className="bg-[#101d2d] text-white p-5 flex items-start justify-between">
+
+        </div>
+        <div hidden={activeCashSection !== 'control'} aria-label="Contrôle de caisse">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-base font-black text-[#101d2d]">3 · Contrôle</h2><p className="mt-1 text-xs text-slate-500">Écarts de comptage, clôtures journalières et rapports.</p></div><button type="button" onClick={() => { sounds.playTap(); setShowZReportModal(true); }} className="rounded-xl bg-[#101d2d] px-4 py-2.5 text-xs font-bold text-white"><FileText size={15} className="mr-2 inline"/>Consulter le rapport</button></div>
+        <section id="revenue-calendar" aria-labelledby="revenue-calendar-title" className="rounded-2xl border border-orange-200 bg-white p-5 shadow-2xs">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 id="revenue-calendar-title" className="text-base font-black text-slate-900">2. 📅 Calendrier des recettes journalières</h2>
+              <p className="mt-1 text-xs text-slate-500">Consultez la recette nette à une date précise et clôturez chaque journée terminée.</p>
+            </div>
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+              Date
+              <input aria-label="Date de consultation de la recette" type="date" max={new Date().toISOString().slice(0, 10)}
+                value={selectedRevenueDate} onChange={event => setSelectedRevenueDate(event.target.value)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"/>
+            </label>
+          </div>
+          {dailyRevenueError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{dailyRevenueError}</p>}
+          {dailyRevenueNotice && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800">{dailyRevenueNotice}</p>}
+          {dailyRevenueLoading ? <p className="mt-4 text-sm text-slate-500">Chargement de la recette…</p> : dailyRevenueReport ? <>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Encaissements nets</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.grossCollected || 0)}</p></div>
+              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Commandes réglées</p><p className="mt-1 text-xl font-black">{dailyRevenueReport.paidOrderCount || 0}</p></div>
+              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Dépenses suivies</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.expenseTotal || 0)}</p></div>
+              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Résultat après dépenses</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.operatingResult || 0)}</p></div>
+            </div>
+            {dailyRevenueClosure ? <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">🔒 Journée clôturée · {dailyRevenueClosure.closedAt ? new Date(dailyRevenueClosure.closedAt).toLocaleString('fr-FR') : 'Clôture enregistrée'} · {dailyRevenueClosure.closedByName || 'Responsable'}</p>
+              : selectedRevenueDate < new Date().toISOString().slice(0, 10) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">Journée terminée, en attente de clôture officielle.</p><button type="button" onClick={() => void closeSelectedRevenueDay()} disabled={dailyRevenueClosing} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{dailyRevenueClosing ? 'Clôture…' : '🔒 Clôturer cette journée'}</button></div>
+              : <p className="mt-3 text-xs text-slate-500">La clôture sera disponible après la fin de cette journée.</p>}
+          </> : <p className="mt-4 text-sm text-slate-500">Aucune recette disponible pour cette date.</p>}
+        </section>
+
+        {/* Closed Cash Sessions History & Performance Comparison Component */}
+        <ClosedCashSessionsHistory
+          sessions={closedSessions}
+          loading={closedSessionsLoading}
+          onRefresh={loadClosedSessions}
+        />
+
+
+        </div>tween">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
                   Aperçu non officiel
