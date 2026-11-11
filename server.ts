@@ -1969,8 +1969,10 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
       if (hasOpenSessionForDay) {
         return { statusCode: 409, body: { success: false, error: 'Clôture impossible : une session de caisse de cette journée est encore ouverte.' } };
       }
+      // Store a complete immutable snapshot; GET responses redact cash details
+      // unless the requesting manager has reports.cash.view.
       const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
-        reportType: 'daily', date, includeCashDetails
+        reportType: 'daily', date, includeCashDetails: true
       });
       const closureRef = restaurantRef.collection('dailyRevenueClosures').doc(date);
       const closure = {
@@ -1987,7 +1989,10 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
         return true;
       });
       if (!created) return { statusCode: 409, body: { success: false, error: 'Cette journée a déjà été clôturée. La clôture initiale est conservée.' } };
-      return { statusCode: 200, body: { success: true, closure } };
+      return { statusCode: 200, body: { success: true, closure: {
+        date, status: 'closed', closedAt: now,
+        closedByName: closure.closedByName, reportHash: closure.reportHash
+      } } };
     }
     const periodDays = Number(req.query?.periodDays || 30);
     const reportType = String(req.query?.reportType || 'period');
