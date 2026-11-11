@@ -69,6 +69,7 @@ interface ManagerViewProps {
   cashSessionActionLoading: boolean;
   cashMovementActionLoading: boolean;
   canManageCash: boolean;
+  canReclassifyPayments: boolean;
   canRefundPayments: boolean;
   canCancelOrders: boolean;
   onOpenCashSession: (openingBalance: number) => Promise<void>;
@@ -88,6 +89,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   cashSessionActionLoading,
   cashMovementActionLoading,
   canManageCash,
+  canReclassifyPayments,
   canRefundPayments,
   canCancelOrders,
   onOpenCashSession,
@@ -871,7 +873,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                           >
                             <Eye size={14} />
                           </button>
-                          {canManageCash && tx.paymentMethod === 'especes' && (
+                          {(canManageCash || canReclassifyPayments) && tx.paymentMethod === 'especes' && (
                             <button
                               onClick={() => void reclassifyCashPayment(tx)}
                               disabled={paymentCorrectionId === tx.id}
