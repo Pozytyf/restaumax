@@ -453,6 +453,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   };
   const currentVariance = closingCountInput === '' ? Number(cashSession?.variance || 0) : Number(closingCountInput) - expectedCash;
   const sessionsWithVariance = closedSessions.filter((session) => Math.abs(Number((session as any).variance || 0)) > 0).length;
+  const recentClosedSessions = closedSessions.filter((session) => Boolean(session.closedAt) && Number(session.closedAt) >= Date.now() - 3 * 86400000);
+  const recentVarianceCount = recentClosedSessions.filter((session) => Math.abs(Number(session.variance || 0)) > 0).length;
 
 
   return (
