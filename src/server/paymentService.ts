@@ -733,6 +733,11 @@ export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput
         Number(cashSession.sessionVersion || 0) !== Number(input.sessionVersion || 0)) {
       return { success: false, error: 'La session de caisse active ne correspond pas à cet utilisateur.' };
     }
+    const availableCash = Number(cashSession.openingBalance || 0) +
+      Number(cashSession.cashCollected || 0) - Number(cashSession.cashOut || 0);
+    if (!Number.isSafeInteger(availableCash) || input.amount > availableCash) {
+      return { success: false, error: 'Le remboursement dépasse le solde espèces théorique disponible dans le tiroir.' };
+    }
 
     const now = Date.now();
     const totalRefundedForPayment = alreadyRefunded + input.amount;
