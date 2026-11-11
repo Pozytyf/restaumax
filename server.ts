@@ -2038,7 +2038,7 @@ export async function handleCustomerOrderMutationRequest(payload: unknown, req?:
   const accessToken = String(input.accessToken || '');
   const action = input.action;
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(orderId) ||
-      accessToken.length < 32 || !['cancel', 'edit'].includes(action)) {
+      accessToken.length < 32 || !['get', 'cancel', 'edit'].includes(action)) {
     return { statusCode: 400, body: { success: false, error: 'Données de suivi de commande invalides.' } };
   }
   const result = await mutateCustomerOrderWithDb(adminDb, {
