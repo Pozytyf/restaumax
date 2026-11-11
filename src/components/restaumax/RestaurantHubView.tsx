@@ -52,7 +52,7 @@ export interface RestaurantHubViewProps {
   canManageService?: boolean;
   onNavigateHome: () => void;
   onNavigateToClientMenu: () => void;
-  onNavigateToStaffRole: (role: 'pos' | 'floor' | 'kds' | 'manager') => void;
+  onNavigateToStaffRole: (role: 'pos' | 'floor' | 'kds' | 'bar' | 'manager') => void;
   onToggleDishAvailability: (dishId: string) => void;
   onCreateDish: (dish: RestauMenuItem) => Promise<void>;
   onUpdateDish: (dish: RestauMenuItem) => Promise<void>;
@@ -190,8 +190,23 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
       }
     },
     {
-      id: 'floor',
+      id: 'bar',
       order: 6,
+      title: 'Bar et boissons',
+      subtitle: 'Préparation des boissons & tickets Bar',
+      description: 'Espace Bar indépendant : commandes de boissons, suivi des tickets et validation de préparation.',
+      status: permissions.includes('bar.access') ? 'active' : 'unavailable',
+      statusLabel: permissions.includes('bar.access') ? 'Accès Bar autorisé' : 'Réservé au personnel autorisé',
+      icon: Wine,
+      actionLabel: permissions.includes('bar.access') ? 'Accéder au poste Bar' : undefined,
+      onAction: permissions.includes('bar.access') ? () => {
+        sounds.playTap();
+        onNavigateToStaffRole('bar');
+      } : undefined
+    },
+    {
+      id: 'floor',
+      order: 7,
       title: 'Salle, tables et QR codes',
       subtitle: 'Chevalets de table & Affectations',
       description: 'Génération et impression des QR codes de tables, gestion des zones (salle, terrasse, bar) et couverts.',
@@ -206,7 +221,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     },
     {
       id: 'cash-register',
-      order: 7,
+      order: 8,
       title: 'Caisse et paiements',
       subtitle: 'Supervision & Clôture Z',
       description: 'Encaissements en espèces et Mobile Money, audit des règlements et clôture de shift. Carte bancaire non activée en V1.',
@@ -221,7 +236,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     },
     {
       id: 'customers',
-      order: 8,
+      order: 9,
       title: 'Clients et fidélité',
       subtitle: 'Répertoire & Historique client',
       description: 'Répertoire des clients, coordonnées, notes et suivi manuel des points de fidélité.',
@@ -233,7 +248,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     },
     {
       id: 'inventory',
-      order: 9,
+      order: 10,
       title: 'Stocks et approvisionnements',
       subtitle: 'Matières premières & Alertes',
       description: 'Suivi des matières premières, quantités disponibles, seuils d’alerte et mouvements de stock.',
@@ -245,7 +260,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     },
     {
       id: 'reports',
-      order: 10,
+      order: 11,
       title: 'Rapports et statistiques',
       subtitle: 'Analyses consolidées & Exports',
       description: 'Synthèse des commandes finalisées, montants, panier moyen, meilleures ventes et export CSV.',
@@ -257,7 +272,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     },
     {
       id: 'staff',
-      order: 11,
+      order: 12,
       title: 'Personnel et rôles',
       subtitle: 'Comptes, gérants & autorisations',
       description: 'Le propriétaire crée les comptes, choisit les rôles et contrôle chaque autorisation accordée.',
@@ -269,7 +284,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
     },
     {
       id: 'settings',
-      order: 12,
+      order: 13,
       title: 'Paramètres du restaurant',
       subtitle: 'Configuration de l’établissement',
       description: 'Coordonnées, horaires, ouverture du service, taux de taxe indicatif et format de ticket.',
@@ -543,7 +558,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                 Catalogue des Modules Métier
               </h3>
               <p className="text-xs text-slate-500 font-medium">
-                Organisation des 12 modules cibles de RestauMax avec leur état de disponibilité réel.
+                Organisation des 13 modules métier de RestauMax avec leur état de disponibilité réel.
               </p>
             </div>
 
@@ -564,7 +579,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
               if (mod.id === 'staff') return canManageStaff;
               const required: Record<string, string[]> = {
                 menu: ['menu.manage'], 'options-prices': ['menu.view', 'menu.manage'],
-                orders: ['pos.access'], kitchen: ['kitchen.access'],
+                orders: ['pos.access'], kitchen: ['kitchen.access'], bar: ['bar.access'],
                 floor: ['tables.manage'], 'cash-register': ['cash.view', 'cash.manage'],
                 reports: ['reports.view'], customers: ['customers.view'], inventory: ['inventory.view'], settings: ['settings.view']
               };
@@ -592,7 +607,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                             : 'bg-slate-200/80 text-slate-500'
                         }`}
                       >
-                        <Icon size={20} />
+                        {mod.id === 'hub' ? '🏠' : mod.id === 'menu' || mod.id === 'options-prices' ? '🍽️' : mod.id === 'orders' ? '🛒' : mod.id === 'kitchen' ? '👨‍🍳' : mod.id === 'bar' ? '🍹' : mod.id === 'floor' ? '🪑' : mod.id === 'cash-register' ? '💳' : mod.id === 'customers' ? '👥' : mod.id === 'inventory' ? '📦' : mod.id === 'reports' ? '📊' : mod.id === 'staff' ? '🧑‍🤝‍🧑' : '⚙️'}
                       </div>
 
                       <div className="flex items-center gap-1.5">
