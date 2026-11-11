@@ -1728,12 +1728,14 @@ export default function App() {
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 20), [restauOrders]);
 
+  // Cashiers and managers may cancel unpaid pending tickets only when the
+  // server-issued orders.cancel permission is present. The API rechecks it.
   const canManagePendingPosOrders = isRestaurantOwner ||
-    (authRestaurantRole === 'manager' && userPermissions.includes('orders.manage'));
+    (['manager', 'cashier'].includes(authRestaurantRole) && userPermissions.includes('orders.cancel'));
 
   const handlePendingPosOrderAction = async (order: RestauOrder, action: 'cancel' | 'remove') => {
     if (!canManagePendingPosOrders) {
-      window.alert('Seuls le propriétaire et le gérant peuvent gérer les tickets en attente.');
+      window.alert('Cette action nécessite le rôle propriétaire, ou la permission orders.cancel pour un caissier/gérant.');
       return;
     }
     const reason = window.prompt(action === 'remove'
