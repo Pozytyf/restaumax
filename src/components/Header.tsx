@@ -48,23 +48,23 @@ export const Header: React.FC<HeaderProps> = ({
       {onNavigateToHub && (
         <div className="border-b border-white/10 p-2 sm:p-3">
           <button type="button" onClick={() => { sounds.playTap(); onNavigateToHub(); }}
-            className="flex w-full items-center justify-center gap-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-200 transition hover:bg-emerald-500/20 sm:justify-start">
-            <Building2 size={19} /><span className="hidden text-left text-xs font-bold sm:block">Centre de Gestion</span>
+            className="flex min-h-14 w-full items-center justify-center gap-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-emerald-100 transition hover:bg-emerald-500/20 sm:justify-start">
+            <Building2 size={19} /><span className="hidden text-left text-sm font-extrabold sm:block">Centre de Gestion</span>
           </button>
         </div>
       )}
       <nav className="flex-1 space-y-2 overflow-y-auto p-2 sm:p-3" aria-label="Espaces RestauMax">
-        <p className="hidden px-2 pb-1 pt-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 sm:block">Espaces de travail</p>
+        <p className="hidden px-2 pb-2 pt-3 text-xs font-black uppercase tracking-[0.14em] text-slate-400 sm:block">Espaces de travail</p>
         {visibleItems.map(item => {
           const Icon = item.icon, active = currentRole === item.role;
           return (
             <button key={item.role} type="button" aria-current={active ? 'page' : undefined}
               onClick={() => { sounds.playTap(); onSelectRole(item.role); }} title={item.label}
-              className={`relative flex w-full items-center justify-center gap-3 rounded-xl border p-2.5 text-left transition sm:justify-start sm:p-3 ${active ? item.activeTone + ' text-white shadow-sm' : 'border-transparent text-slate-300 hover:border-white/10 hover:bg-white/5 hover:text-white'}`}>
+              className={`relative flex min-h-[68px] w-full items-center justify-center gap-3 rounded-xl border p-3 text-left transition sm:justify-start sm:p-3.5 ${active ? item.activeTone + ' text-white shadow-sm' : 'border-transparent text-slate-300 hover:border-white/10 hover:bg-white/5 hover:text-white'}`}>
               <Icon size={20} className={active ? 'text-white' : item.tone} />
               <span className="hidden min-w-0 flex-1 sm:block">
-                <span className="block text-xs font-extrabold">{item.label}</span>
-                <span className="mt-0.5 block truncate text-[10px] text-slate-400">{item.description}</span>
+                <span className="block text-sm font-extrabold leading-5">{item.label}</span>
+                <span className="mt-1 block whitespace-normal text-xs leading-4 text-slate-300">{item.description}</span>
               </span>
               {!!item.badge && item.badge > 0 && <span className="absolute right-1 top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-black text-slate-950 sm:static">{item.badge}</span>}
             </button>
@@ -74,14 +74,14 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="space-y-2 border-t border-white/10 p-2 sm:p-3">
         {permissions.includes('pos.access') && (
           <button type="button" onClick={() => { sounds.playTap(); onQuickNewOrder(); }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#ff6500] p-3 text-xs font-extrabold text-white shadow-sm transition hover:bg-[#e05800] sm:justify-start">
+            className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#ff6500] p-3 text-sm font-extrabold text-white shadow-sm transition hover:bg-[#e05800] sm:justify-start">
             <Plus size={18} strokeWidth={2.5} /><span className="hidden sm:inline">Nouvelle commande</span>
           </button>
         )}
         <button type="button" onClick={onToggleAudio} title={audioEnabled ? 'Désactiver le son' : 'Activer le son'}
           className="flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 p-3 text-slate-300 transition hover:bg-white/5 hover:text-white sm:justify-start">
           {audioEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
-          <span className="hidden text-xs font-semibold sm:inline">{audioEnabled ? 'Son activé' : 'Son désactivé'}</span>
+          <span className="hidden text-sm font-semibold sm:inline">{audioEnabled ? 'Son activé' : 'Son désactivé'}</span>
         </button>
       </div>
     </aside>
