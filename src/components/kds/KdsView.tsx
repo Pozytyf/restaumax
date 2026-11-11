@@ -454,13 +454,13 @@ export const KdsView: React.FC<KdsViewProps> = ({
                         key={item.id}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (ticket.status !== 'in_prep') return;
+                          if (!['pending', 'in_prep'].includes(ticket.status)) return;
                           sounds.playTap();
                           onToggleItemComplete(ticket.id, item.id, !item.completed);
                         }}
                         aria-disabled={ticket.status !== 'in_prep'}
-                        title={ticket.status !== 'in_prep' ? 'La commande est prête : progression verrouillée.' : 'Marquer la ligne comme préparée'}
-                        className={`py-2.5 px-2 rounded-lg ${ticket.status === 'in_prep' ? 'cursor-pointer' : 'cursor-not-allowed'} transition-colors flex items-start gap-2.5 ${
+                        title={!['pending', 'in_prep'].includes(ticket.status) ? 'La commande est prête : progression verrouillée.' : 'Marquer la ligne comme préparée'}
+                        className={`py-2.5 px-2 rounded-lg ${['pending', 'in_prep'].includes(ticket.status) ? 'cursor-pointer' : 'cursor-not-allowed'} transition-colors flex items-start gap-2.5 ${
                           item.completed
                             ? 'bg-slate-100 opacity-60'
                             : 'hover:bg-slate-50'
