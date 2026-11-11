@@ -157,7 +157,7 @@ assert.equal(cashierCancel.success, true);
 const kitchenClearDb = base();
 kitchenClearDb.documents.set('managers/kitchen-1', {
   active: true, restaurantSlug: 'chez-awa', role: 'kitchen',
-  permissions: ['kitchen.access', 'orders.cancel'], sessionVersion: 4
+  permissions: ['kitchen.access', 'orders.clear_pending'], sessionVersion: 4
 });
 const kitchenClear = await transitionOrderStatusWithDb(kitchenClearDb, {
   ...params, actorUid: 'kitchen-1', targetStatus: 'cancelled', cancellationReason: 'Ticket erroné'
