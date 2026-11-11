@@ -315,6 +315,7 @@ const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'u
 const managerUi = fs.readFileSync(new URL('../src/components/manager/ManagerView.tsx', import.meta.url), 'utf8');
 const appSource = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 assert(source.includes("app.post('/api/order-status'"), 'Express exposes the transactional lifecycle API');
+assert(source.includes('/Transition refusée|règlement effectué|paiement Mobile Money en cours/'), 'Payment-protected cancellation conflicts are returned as HTTP 409.');
 assert(api.includes("case 'order-status'") && api.includes('handleOrderStatusRequest(req.body, req)'), 'Central Vercel function exposes the transactional lifecycle API');
 assert(client.includes("fetch('/api/order-status'"), 'the browser uses the trusted lifecycle API');
 assert(rules.includes('allow update: if false;'), 'direct client order updates are disabled');
