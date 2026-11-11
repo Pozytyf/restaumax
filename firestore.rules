@@ -81,7 +81,7 @@ service cloud.firestore {
       return role == 'owner' ||
         (role == 'manager' && permission in [
           'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
-          'tables.view', 'tables.manage', 'pos.access', 'kitchen.access',
+          'tables.view', 'tables.manage', 'pos.access', 'kitchen.access', 'bar.access',
           'cash.view', 'cash.manage', 'orders.cancel', 'payments.refund', 'reports.view', 'customers.view',
           'customers.manage', 'inventory.view', 'inventory.manage',
           'staff.view', 'staff.manage', 'settings.view'
@@ -94,7 +94,7 @@ service cloud.firestore {
           'orders.view', 'tables.view', 'pos.access', 'orders.serve'
         ]) ||
         (role == 'kitchen' && permission in [
-          'orders.view', 'kitchen.access'
+          'orders.view', 'kitchen.access', 'bar.access'
         ]);
     }
 
