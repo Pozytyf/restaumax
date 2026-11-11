@@ -57,6 +57,7 @@ export const RestaurantAdminModuleView: React.FC<{
   const [orders, setOrders] = useState<RestauOrder[]>([]);
   const [financialReport, setFinancialReport] = useState<FinancialReport | null>(null);
   const [dailyReport, setDailyReport] = useState<FinancialReport | null>(null);
+  const [selectedReportDate, setSelectedReportDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [reportLoading, setReportLoading] = useState(false);
   const [reportRefreshKey, setReportRefreshKey] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -124,7 +125,7 @@ export const RestaurantAdminModuleView: React.FC<{
           };
           const [periodResult, todayResult] = await Promise.allSettled([
             requestReport('periodDays=30&reportType=period'),
-            requestReport('reportType=daily')
+            requestReport('reportType=daily&date=' + encodeURIComponent(selectedReportDate))
           ]);
           if (active) {
             if (periodResult.status === 'fulfilled') setFinancialReport(periodResult.value);
@@ -142,7 +143,7 @@ export const RestaurantAdminModuleView: React.FC<{
       return () => { active = false; stopOrders(); };
     }
     return undefined;
-  }, [module, restaurant.slug, reportRefreshKey, canAccessModule]);
+  }, [module, restaurant.slug, reportRefreshKey, canAccessModule, selectedReportDate]);
 
   useEffect(() => {
     setSettings({
@@ -450,10 +451,20 @@ export const RestaurantAdminModuleView: React.FC<{
         <section className="rounded-2xl border border-orange-200 bg-orange-50/50 p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="font-black text-slate-900">Point journalier indépendant</h2>
-              <p className="mt-1 text-xs text-slate-600">Journée calendaire de Côte d’Ivoire (00:00 à maintenant, UTC+0) · indépendant du rapport périodique</p>
+              <h2 className="font-black text-slate-900">Calendrier des recettes journalières</h2>
+              <p className="mt-1 text-xs text-slate-600">Consultez la recette nette de chaque date. Les journées passées couvrent 00:00–23:59 (UTC+0, Côte d’Ivoire) ; la journée en cours s’arrête à maintenant.</p>
             </div>
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-700">{dailyReport ? new Date(dailyReport.period.startAt).toLocaleDateString('fr-FR') : 'Aujourd’hui'}</span>
+            <label className="flex items-center gap-2 rounded-xl border border-orange-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">
+              <span>📅 Date des recettes</span>
+              <input
+                aria-label="Choisir la date des recettes"
+                type="date"
+                value={selectedReportDate}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={event => setSelectedReportDate(event.target.value)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-sm"
+              />
+            </label>
           </div>
           {dailyReport ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
