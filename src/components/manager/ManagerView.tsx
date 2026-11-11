@@ -110,6 +110,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   const [activeOrders, setActiveOrders] = useState<RestauOrder[]>([]);
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
   const [payDunyaIntents, setPayDunyaIntents] = useState<PayDunyaIntentSummary[]>([]);
+  const [showArchivedPayDunyaIntents, setShowArchivedPayDunyaIntents] = useState(false);
   const [payDunyaLoading, setPayDunyaLoading] = useState(false);
   const [payDunyaActionId, setPayDunyaActionId] = useState<string | null>(null);
   const [paymentCorrectionId, setPaymentCorrectionId] = useState<string | null>(null);
@@ -202,7 +203,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     setPayDunyaLoading(true);
     try {
       const token = await user.getIdToken();
-      const response = await fetch('/api/payments?restaurantSlug=' + encodeURIComponent(restaurantSlug) + '&action=paydunya_intents', {
+      const response = await fetch('/api/payments?restaurantSlug=' + encodeURIComponent(restaurantSlug) + '&action=paydunya_intents&includeArchived=' + String(showArchivedPayDunyaIntents), {
         headers: { Authorization: 'Bearer ' + token }, credentials: 'same-origin', cache: 'no-store'
       });
       const data = await response.json();
@@ -213,7 +214,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     } finally {
       setPayDunyaLoading(false);
     }
-  }, [restaurantSlug]);
+  }, [restaurantSlug, showArchivedPayDunyaIntents]);
 
   useEffect(() => { void loadPayDunyaIntents(); }, [loadPayDunyaIntents]);
 
@@ -279,6 +280,32 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
       window.alert(error instanceof Error ? error.message : 'Impossible de corriger ce paiement.');
     } finally {
       setPaymentCorrectionId(null);
+    }
+  };
+
+  const archivePayDunyaIntent = async (intentId: string) => {
+    const reason = window.prompt('Motif obligatoire de l’archivage (3 à 300 caractères) :');
+    if (reason === null) return;
+    if (reason.trim().length < 3) { window.alert('Le motif doit contenir au moins trois caractères.'); return; }
+    if (!window.confirm('Masquer cette intention de la liste opérationnelle ? Sa référence et son historique resteront conservés dans les archives. Aucun statut de paiement ne sera modifié.')) return;
+    const user = auth.currentUser;
+    if (!user) { window.alert('Connexion requise.'); return; }
+    setPayDunyaActionId(intentId);
+    try {
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/payments', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        credentials: 'same-origin', cache: 'no-store',
+        body: JSON.stringify({ restaurantSlug, action: 'archive_paydunya_intent', paymentIntentId: intentId, reason: reason.trim() })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Archivage refusé.');
+      window.alert('Intention archivée. La trace financière et le rapprochement manuel sont conservés.');
+      await loadPayDunyaIntents();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Impossible d’archiver cette intention.');
+    } finally {
+      setPayDunyaActionId(null);
     }
   };
 
@@ -575,10 +602,16 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               <h2 className="text-sm font-black text-slate-900">Paiements PayDunya à suivre</h2>
               <p className="mt-1 text-xs text-slate-500">Intentions en attente ou nécessitant un rapprochement. Aucun paiement confirmé n’est supprimé.</p>
             </div>
-            <button type="button" onClick={() => void loadPayDunyaIntents()} disabled={payDunyaLoading}
-              className="rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-50">
-              {payDunyaLoading ? 'Actualisation…' : 'Actualiser'}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => setShowArchivedPayDunyaIntents(value => !value)}
+                className="rounded-lg border px-3 py-2 text-xs font-bold">
+                {showArchivedPayDunyaIntents ? 'Masquer les archives' : 'Afficher les archives'}
+              </button>
+              <button type="button" onClick={() => void loadPayDunyaIntents()} disabled={payDunyaLoading}
+                className="rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-50">
+                {payDunyaLoading ? 'Actualisation…' : 'Actualiser'}
+              </button>
+            </div>
           </div>
           {payDunyaIntents.filter(intent => !['paid', 'completed', 'succeeded', 'refunded', 'cancelled', 'expired'].includes(intent.status.toLowerCase())).length === 0 ? (
             <p className="mt-3 text-xs text-slate-500">{payDunyaLoading ? 'Chargement…' : 'Aucune intention PayDunya non soldée dans les 50 dernières opérations.'}</p>
@@ -602,6 +635,15 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                       </button>
                     ) : null;
                   })()}
+                  {canManageCash && !showArchivedPayDunyaIntents && intent.status.toLowerCase() === 'order_cancelled_pending_manual_reconciliation' && (
+                    <button type="button" onClick={() => void archivePayDunyaIntent(intent.id)} disabled={payDunyaActionId === intent.id}
+                      className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-700 disabled:opacity-50">
+                      {payDunyaActionId === intent.id ? 'Archivage…' : 'Archiver du suivi'}
+                    </button>
+                  )}
+                  {showArchivedPayDunyaIntents && intent.archivedAt > 0 && (
+                    <span className="rounded-lg bg-slate-100 px-3 py-2 text-[10px] font-bold text-slate-600">Archivée · {intent.archiveReason}</span>
+                  )}
                   {canManageCash && intent.canReconcile && (
                     <button type="button" onClick={() => void reconcilePayDunyaIntent(intent.id)} disabled={payDunyaActionId === intent.id}
                       className="rounded-lg bg-blue-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">
