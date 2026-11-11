@@ -178,6 +178,9 @@ export interface RestauOrder {
   createdAt: number; // UTC timestamp ms
   createdAtIso: string;
   statusUpdatedAt?: number;
+  cancellationReason?: string;
+  cancelledAt?: number;
+  cancelledBy?: string;
   /** Per-line KDS completion state, keyed by stable zero-based order item index. */
   kitchenItemCompletion?: Record<string, boolean>;
   kitchenItemsCompletedCount?: number;
