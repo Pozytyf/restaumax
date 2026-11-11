@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import {
   getPayDunyaConfig,
@@ -452,4 +453,12 @@ assert(db.read('restaurants/maquis-awa/orders/order-qr').paidAmount === 2500 &&
   db.read('restaurants/maquis-awa/orders/order-qr').remainingAmount === 2000,
   'Le paiement QR partiel conserve le solde restant de la commande');
 
+const paymentsApiSource = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const cashUiSource = fs.readFileSync(new URL('../src/components/manager/ManagerView.tsx', import.meta.url), 'utf8');
+assert(paymentsApiSource.includes("action || '') === 'paydunya_intents'") &&
+  paymentsApiSource.includes("collection('paymentIntents').orderBy('createdAt', 'desc').limit(50)"),
+  'The cash API lists recent PayDunya intents with a bounded query.');
+assert(cashUiSource.includes('Paiements PayDunya à suivre') && cashUiSource.includes('Vérifier le statut') &&
+  cashUiSource.includes('reconcile_paydunya_payment'),
+  'The cash journal exposes pending intent status and a controlled reconciliation action.');
 console.log(`Résultats PayDunya end-to-end : ${passed}/${passed} réussis.`);
