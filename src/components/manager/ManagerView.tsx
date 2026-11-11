@@ -334,7 +334,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         <nav aria-label="Navigation de la supervision" className="sticky top-0 z-20 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
           <a href="#cash-session" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">💵 Session de caisse</a>
           <a href="#revenue-calendar" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">📅 Recettes par date</a>
-          <a href="#cash-payments" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">💳 Paiements</a>
+          <a href="#cash-payments" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">💳 Journal des paiements</a>
           <a href="#pending-orders" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">🧾 Commandes</a>
           <a href="#paydunya-settings" className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200">⚙️ PayDunya</a>
         </nav>
@@ -569,7 +569,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         {canCancelOrders && (
           <section id="pending-orders" className="rounded-2xl border border-amber-200 bg-white p-5 shadow-2xs">
             <div className="mb-3">
-              <h2 className="text-sm font-black text-slate-900">3. Commandes actives · Annulation contrôlée</h2>
+              <h2 className="text-sm font-black text-slate-900">4. Commandes actives · Annulation contrôlée</h2>
               <p className="mt-1 text-xs text-slate-500">Annulation logique avec motif, journal d’audit et restitution transactionnelle des stocks si nécessaire. Les commandes réglées ou avec un paiement PayDunya en cours sont protégées.</p>
             </div>
             {activeOrders.filter(order => Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || '')) && !order.pendingPayDunyaIntentId).length === 0 ? (
@@ -767,7 +767,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         </div>
 
         {/* Transactions Audit Trail Table */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+        <div id="cash-payments" className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
           <div className="p-5 border-b border-slate-100 flex items-center justify-between">
             <div>
               <h3 className="text-sm font-extrabold text-[#101d2d] uppercase tracking-wider">
@@ -885,7 +885,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
       </div>
 
       <section id="paydunya-settings" aria-label="Paramètres du compte PayDunya" className="rounded-2xl border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 text-sm font-black text-slate-900">4. ⚙️ Paramètres PayDunya</h2>
+        <h2 className="mb-3 text-sm font-black text-slate-900">5. ⚙️ Paramètres PayDunya</h2>
         <PayDunyaAccountSettings restaurantSlug={restaurantSlug} isOwner={isOwner} />
       </section>
 
