@@ -539,7 +539,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
               const original = confirmedOrder.items.find(item => item.id === change.id)!;
               return { ...original, quantity: change.quantity, totalPrice: original.unitPrice * change.quantity, prepNotes: change.prepNotes };
             });
-            const updated = { ...confirmedOrder, items: nextItems, itemsCount: result.itemsCount ?? nextItems.reduce((sum, item) => sum + item.quantity, 0), subtotalAmount: result.totalAmount ?? confirmedOrder.subtotalAmount, totalAmount: result.totalAmount ?? confirmedOrder.totalAmount, remainingAmount: result.totalAmount ?? confirmedOrder.remainingAmount };
+            const updated = { ...confirmedOrder, items: nextItems, itemsCount: result.itemsCount ?? nextItems.reduce((sum, item) => sum + item.quantity, 0), subtotalAmount: result.subtotalAmount ?? confirmedOrder.subtotalAmount, taxAmount: result.taxAmount ?? confirmedOrder.taxAmount, totalAmount: result.totalAmount ?? confirmedOrder.totalAmount, remainingAmount: result.totalAmount ?? confirmedOrder.remainingAmount };
             setConfirmedOrder(updated);
             try { window.sessionStorage.setItem(`restaumax-last-order:${restaurant.slug}`, JSON.stringify({ order: updated, accessToken: confirmedOrderAccessToken })); } catch { /* storage may be unavailable */ }
           }
@@ -552,7 +552,10 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
           setConfirmedOrder(null);
           setConfirmedOrderAccessToken(null);
           setIsConfirmedOrderOpen(false);
-          try { window.sessionStorage.removeItem(`restaumax-last-order:${restaurant.slug}`); } catch { /* storage may be unavailable */ }
+          try {
+            window.sessionStorage.removeItem(`restaumax-last-order:${restaurant.slug}`);
+            if (confirmedOrder) window.sessionStorage.removeItem(`restaumax-order-access:${confirmedOrder.id}`);
+          } catch { /* storage may be unavailable */ }
           onClearCart();
         }}
       />
