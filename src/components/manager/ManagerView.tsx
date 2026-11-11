@@ -112,6 +112,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   const [closedSessions, setClosedSessions] = useState<CashSessionApiRecord[]>([]);
   const [closedSessionsLoading, setClosedSessionsLoading] = useState(false);
   const hasLoadedClosedSessionsRef = useRef(false);
+  const [selectedRevenueDate, setSelectedRevenueDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dailyRevenueReport, setDailyRevenueReport] = useState<any>(null);
+  const [dailyRevenueClosure, setDailyRevenueClosure] = useState<any>(null);
+  const [dailyRevenueLoading, setDailyRevenueLoading] = useState(false);
+  const [dailyRevenueClosing, setDailyRevenueClosing] = useState(false);
+  const [dailyRevenueError, setDailyRevenueError] = useState('');
+  const [dailyRevenueNotice, setDailyRevenueNotice] = useState('');
 
   const loadClosedSessions = useCallback(async () => {
     if (!restaurantSlug) return;
@@ -220,6 +227,65 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     void loadClosedSessions();
   }, [loadClosedSessions]);
 
+
+  useEffect(() => {
+    let active = true;
+    const loadDailyRevenue = async () => {
+      setDailyRevenueLoading(true);
+      setDailyRevenueError('');
+      try {
+        const user = auth.currentUser;
+        if (!user) throw new Error('Connexion requise pour consulter les recettes.');
+        const token = await user.getIdToken(true);
+        const response = await fetch('/api/reports?restaurantSlug=' + encodeURIComponent(restaurantSlug) + '&reportType=daily&date=' + encodeURIComponent(selectedRevenueDate), {
+          headers: { Authorization: 'Bearer ' + token },
+          credentials: 'same-origin', cache: 'no-store'
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Chargement de la recette impossible.');
+        if (!active) return;
+        setDailyRevenueReport(data.report || null);
+        setDailyRevenueClosure(data.closure || null);
+      } catch (error) {
+        if (active) setDailyRevenueError(error instanceof Error ? error.message : 'Recette journalière indisponible.');
+      } finally {
+        if (active) setDailyRevenueLoading(false);
+      }
+    };
+    void loadDailyRevenue();
+    return () => { active = false; };
+  }, [restaurantSlug, selectedRevenueDate]);
+
+  const closeSelectedRevenueDay = async () => {
+    if (dailyRevenueClosing || dailyRevenueClosure || !dailyRevenueReport) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (selectedRevenueDate >= today) {
+      setDailyRevenueError('La clôture définitive est disponible uniquement pour une journée terminée.');
+      return;
+    }
+    if (!window.confirm('Clôturer définitivement la recette du ' + new Date(selectedRevenueDate + 'T00:00:00Z').toLocaleDateString('fr-FR') + ' ?')) return;
+    const user = auth.currentUser;
+    if (!user) { setDailyRevenueError('Connexion requise pour clôturer la recette.'); return; }
+    setDailyRevenueClosing(true); setDailyRevenueError(''); setDailyRevenueNotice('');
+    try {
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/reports', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        credentials: 'same-origin', cache: 'no-store',
+        body: JSON.stringify({ restaurantSlug, date: selectedRevenueDate })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Clôture journalière refusée.');
+      setDailyRevenueClosure(data.closure || { closedAt: Date.now(), closedByName: user.displayName || user.email || 'Responsable' });
+      setDailyRevenueNotice('Recette clôturée et archivée définitivement.');
+    } catch (error) {
+      setDailyRevenueError(error instanceof Error ? error.message : 'Impossible de clôturer cette recette.');
+    } finally {
+      setDailyRevenueClosing(false);
+    }
+  };
+
   const averageTicket = useMemo(() => drawerState.transactionCount > 0
     ? Math.round(drawerState.totalSales / drawerState.transactionCount)
     : 0, [drawerState.transactionCount, drawerState.totalSales]);
@@ -291,10 +357,6 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 <div className="rounded-xl bg-slate-50 p-4">
                   <p className="text-xs font-semibold text-slate-500">Espèces encaissées</p>
                   <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.cashCollected)}</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">Espèces théoriques</p>
-                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.openingBalance + cashSession.cashCollected - cashSession.cashOut)}</p>
                 </div>
                 <div className="rounded-xl bg-slate-50 p-4">
                   <p className="text-xs font-semibold text-slate-500">Nombre d’encaissements</p>
@@ -423,6 +485,35 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </button>
             </form>
           ) : <p className="mt-4 text-sm text-slate-500">Aucune session active. Demandez à un responsable d’ouvrir la caisse.</p>}
+        </section>
+
+
+        <section className="rounded-2xl border border-orange-200 bg-white p-5 shadow-2xs">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-black text-slate-900">📅 Calendrier des recettes journalières</h2>
+              <p className="mt-1 text-xs text-slate-500">Consultez la recette nette à une date précise et clôturez chaque journée terminée.</p>
+            </div>
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+              Date
+              <input aria-label="Date de consultation de la recette" type="date" max={new Date().toISOString().slice(0, 10)}
+                value={selectedRevenueDate} onChange={event => setSelectedRevenueDate(event.target.value)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"/>
+            </label>
+          </div>
+          {dailyRevenueError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{dailyRevenueError}</p>}
+          {dailyRevenueNotice && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800">{dailyRevenueNotice}</p>}
+          {dailyRevenueLoading ? <p className="mt-4 text-sm text-slate-500">Chargement de la recette…</p> : dailyRevenueReport ? <>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Encaissements nets</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.grossCollected || 0)}</p></div>
+              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Commandes réglées</p><p className="mt-1 text-xl font-black">{dailyRevenueReport.paidOrderCount || 0}</p></div>
+              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Dépenses suivies</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.expenseTotal || 0)}</p></div>
+              <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Résultat après dépenses</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.operatingResult || 0)}</p></div>
+            </div>
+            {dailyRevenueClosure ? <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">🔒 Journée clôturée · {dailyRevenueClosure.closedAt ? new Date(dailyRevenueClosure.closedAt).toLocaleString('fr-FR') : 'Clôture enregistrée'} · {dailyRevenueClosure.closedByName || 'Responsable'}</p>
+              : selectedRevenueDate < new Date().toISOString().slice(0, 10) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">Journée terminée, en attente de clôture officielle.</p><button type="button" onClick={() => void closeSelectedRevenueDay()} disabled={dailyRevenueClosing} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{dailyRevenueClosing ? 'Clôture…' : '🔒 Clôturer cette journée'}</button></div>
+              : <p className="mt-3 text-xs text-slate-500">La clôture sera disponible après la fin de cette journée.</p>}
+          </> : <p className="mt-4 text-sm text-slate-500">Aucune recette disponible pour cette date.</p>}
         </section>
 
         {/* Closed Cash Sessions History & Performance Comparison Component */}
