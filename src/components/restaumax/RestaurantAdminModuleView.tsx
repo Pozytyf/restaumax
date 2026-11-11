@@ -57,6 +57,8 @@ export const RestaurantAdminModuleView: React.FC<{
   const [orders, setOrders] = useState<RestauOrder[]>([]);
   const [financialReport, setFinancialReport] = useState<FinancialReport | null>(null);
   const [dailyReport, setDailyReport] = useState<FinancialReport | null>(null);
+  const [dailyClosure, setDailyClosure] = useState<{ closedAt: number; closedByName: string; reportHash: string } | null>(null);
+  const [closingDailyRevenue, setClosingDailyRevenue] = useState(false);
   const [selectedReportDate, setSelectedReportDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [reportLoading, setReportLoading] = useState(false);
   const [reportRefreshKey, setReportRefreshKey] = useState(0);
@@ -121,17 +123,23 @@ export const RestaurantAdminModuleView: React.FC<{
             });
             const data = await response.json();
             if (!response.ok || !data.success) throw new Error(data.error || 'Chargement des rapports impossible.');
-            return data.report as FinancialReport;
+            return { report: data.report as FinancialReport, closure: data.closure || null };
           };
           const [periodResult, todayResult] = await Promise.allSettled([
             requestReport('periodDays=30&reportType=period'),
             requestReport('reportType=daily&date=' + encodeURIComponent(selectedReportDate))
           ]);
           if (active) {
-            if (periodResult.status === 'fulfilled') setFinancialReport(periodResult.value);
+            if (periodResult.status === 'fulfilled') setFinancialReport(periodResult.value.report);
             else setError(periodResult.reason instanceof Error ? periodResult.reason.message : 'Rapport périodique indisponible.');
-            if (todayResult.status === 'fulfilled') setDailyReport(todayResult.value);
-            else setError(todayResult.reason instanceof Error ? todayResult.reason.message : 'Point journalier indisponible.');
+            if (todayResult.status === 'fulfilled') {
+              setDailyReport(todayResult.value.report);
+              setDailyClosure(todayResult.value.closure ? {
+                closedAt: Number(todayResult.value.closure.closedAt || 0),
+                closedByName: String(todayResult.value.closure.closedByName || 'Responsable'),
+                reportHash: String(todayResult.value.closure.reportHash || '')
+              } : null);
+            } else setError(todayResult.reason instanceof Error ? todayResult.reason.message : 'Recette journalière indisponible.');
           }
         } catch (e) {
           if (active) setError(e instanceof Error ? e.message : 'Chargement des rapports impossible.');
@@ -155,6 +163,41 @@ export const RestaurantAdminModuleView: React.FC<{
       receiptFooter: restaurant.receiptFooter || '', receiptPaperWidth: restaurant.receiptPaperWidth || '80mm'
     });
   }, [restaurant]);
+
+  const closeDailyRevenue = async () => {
+    if (closingDailyRevenue || dailyClosure) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (selectedReportDate >= today) {
+      setError('La clôture officielle est disponible le lendemain, lorsque la journée est terminée.');
+      return;
+    }
+    if (!window.confirm('Clôturer définitivement la recette du ' + new Date(selectedReportDate + 'T00:00:00Z').toLocaleDateString('fr-FR') + ' ? Cette clôture sera horodatée et ne pourra pas être remplacée.')) return;
+    const user = auth.currentUser;
+    if (!user) { setError('Connexion requise pour clôturer la recette.'); return; }
+    setClosingDailyRevenue(true); setError(''); setNotice('');
+    try {
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/reports', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        credentials: 'same-origin', cache: 'no-store',
+        body: JSON.stringify({ restaurantSlug: restaurant.slug, date: selectedReportDate })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Clôture journalière refusée.');
+      setDailyClosure({
+        closedAt: Number(data.closure?.closedAt || Date.now()),
+        closedByName: String(data.closure?.closedByName || user.displayName || user.email || 'Responsable'),
+        reportHash: String(data.closure?.reportHash || '')
+      });
+      setNotice('Recette du ' + selectedReportDate + ' clôturée et archivée. La clôture est définitive.');
+      setReportRefreshKey(value => value + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Impossible de clôturer cette recette.');
+    } finally {
+      setClosingDailyRevenue(false);
+    }
+  };
 
   const completedOrders = useMemo(() => orders.filter(o => o.status === 'completed'), [orders]);
   const bestSellers = useMemo(() => {
@@ -466,6 +509,19 @@ export const RestaurantAdminModuleView: React.FC<{
               />
             </label>
           </div>
+          {dailyClosure ? (
+            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+              <strong>Journée clôturée</strong> · {new Date(dailyClosure.closedAt).toLocaleString('fr-FR')} · par {dailyClosure.closedByName}
+            </div>
+          ) : selectedReportDate < new Date().toISOString().slice(0, 10) ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs text-amber-900">Cette journée passée n’est pas encore clôturée. Fermez d’abord toutes les sessions de caisse de cette date.</p>
+              <button type="button" onClick={() => void closeDailyRevenue()} disabled={closingDailyRevenue || reportLoading || !dailyReport}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">
+                {closingDailyRevenue ? 'Clôture en cours…' : '🔒 Clôturer la recette du jour'}
+              </button>
+            </div>
+          ) : <p className="mt-3 text-xs font-semibold text-slate-600">La clôture de cette journée sera disponible demain.</p>}
           {dailyReport ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">Encaissements nets du jour</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyReport.grossCollected)}</p></div>
