@@ -52,6 +52,7 @@ assert.equal(first.payment.cashDisbursementConfirmed, true, 'cash handover confi
 assert.equal(first.payment.cashDisbursementConfirmedByUid, 'actor-1', 'cash handover confirmation records the acting operator');
 assert.equal(db.data.get('restaurants/demo/payments/pay-1').refundedAmount, 2000);
 assert.equal(db.data.get('restaurants/demo/cashSessions/session-1').cashOut, 2000);
+assert.equal(db.data.get('restaurants/demo/cashSessions/session-1').cashRefunds, 2000, 'cash refunds are tracked separately from operating cash movements');
 const replay = await refundCashPaymentWithDb(db, base);
 assert.equal(replay.success, true);
 assert.equal(replay.idempotentReplay, true);
