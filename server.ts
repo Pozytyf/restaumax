@@ -2030,10 +2030,12 @@ export async function handleOrderStatusRequest(payload: unknown, req?: any): Pro
     const restaurantSlug = String(input.restaurantSlug || '').trim();
     const orderId = String(input.orderId || '').trim();
     const targetStatus = input.status;
-    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(orderId)) {
+    const cancellationReason = typeof input.cancellationReason === 'string' ? input.cancellationReason.trim().slice(0, 300) : '';
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(orderId) ||
+        (targetStatus === 'cancelled' && cancellationReason.length < 3)) {
       return { statusCode: 400, body: { success: false, error: 'Restaurant ou commande invalide.' } };
     }
-    const result = await transitionOrderStatusWithDb(adminDb, { restaurantSlug, orderId, targetStatus, actorUid: decoded.uid, sessionVersion: Number(decoded.sessionVersion || 0) });
+    const result = await transitionOrderStatusWithDb(adminDb, { restaurantSlug, orderId, targetStatus, cancellationReason, actorUid: decoded.uid, sessionVersion: Number(decoded.sessionVersion || 0) });
     if (result.success) return { statusCode: 200, body: result };
     const errorMessage = 'error' in result ? String(result.error || '') : '';
     return { statusCode: errorMessage.includes('Transition refusée') ? 409 : 403, body: result };
