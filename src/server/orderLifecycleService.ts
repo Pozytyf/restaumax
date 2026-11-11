@@ -7,6 +7,7 @@ export interface OrderLifecycleParams {
   targetStatus: 'in_prep' | 'ready' | 'completed' | 'cancelled';
   actorUid: string;
   sessionVersion: number;
+  cancellationReason?: string;
 }
 
 const validSlug = (value: string) => /^[a-zA-Z0-9_-]{1,100}$/.test(value);
@@ -24,8 +25,10 @@ function movementId(orderId: string, itemId: string, action: 'consume' | 'restor
  */
 export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycleParams) {
   const { restaurantSlug, orderId, targetStatus, actorUid, sessionVersion } = params;
+  const cancellationReason = String(params.cancellationReason || '').trim().slice(0, 300);
   if (!db || !validSlug(restaurantSlug) || !validId(orderId) || !actorUid ||
-      !['in_prep', 'ready', 'completed', 'cancelled'].includes(targetStatus)) {
+      !['in_prep', 'ready', 'completed', 'cancelled'].includes(targetStatus) ||
+      (targetStatus === 'cancelled' && cancellationReason.length < 3)) {
     return { success: false, error: 'Demande de transition invalide.' };
   }
 
@@ -60,7 +63,10 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       const canManage = member.role === 'manager' && permissions.includes('orders.manage');
       const canKitchen = (member.role === 'kitchen' && permissions.includes('kitchen.access')) ||
         (member.role === 'manager' && (permissions.includes('kitchen.access') || canManage));
-      const canCancel = member.role === 'cashier' && permissions.includes('orders.cancel');
+      const canCancel = permissions.includes('orders.cancel') && (
+        member.role === 'cashier' || member.role === 'manager' ||
+        (member.role === 'server' && order.assignedWaiterUid === actorUid)
+      );
       const canServe = member.role === 'server' && permissions.includes('orders.serve') && order.assignedWaiterUid === actorUid;
 
       const allowed = isOwner || canManage ||
@@ -379,6 +385,11 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       }
 
       const orderUpdate: Record<string, any> = { status: targetStatus, statusUpdatedAt: now, statusUpdatedBy: actorUid };
+      if (targetStatus === 'cancelled') {
+        orderUpdate.cancellationReason = cancellationReason;
+        orderUpdate.cancelledAt = now;
+        orderUpdate.cancelledBy = actorUid;
+      }
       if (menuConsumeUpdates.length) orderUpdate.menuStockConsumedAt = now;
       if (menuRestockUpdates.length) orderUpdate.menuStockRestoredAt = now;
       if (order.status === 'pending' && targetStatus === 'in_prep') {
@@ -389,6 +400,15 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         orderUpdate.stockTrackingStatus = 'restored';
       }
       tx.update(orderRef, orderUpdate);
+      if (targetStatus === 'cancelled') {
+        const auditRef = restaurantRef.collection('orderAudit').doc(`${orderId}_cancel_${hash(`${actorUid}:${now}:${cancellationReason}`)}`);
+        tx.create(auditRef, {
+          event: 'order.cancelled', orderId, orderNumber: String(order.orderNumber || orderId),
+          restaurantSlug, previousStatus: order.status, status: 'cancelled',
+          reason: cancellationReason, actorUid, actorRole: member.role,
+          createdAt: now, stockRestored: Boolean(order.stockTrackingStatus === 'restored' || menuRestockUpdates.length || (consumption && !consumption.restoredAt))
+        });
+      }
       return { success: true, status: targetStatus, idempotentReplay: false, stockLines: recipeLines.length };
     }, { maxAttempts: 10 });
   } catch (error: any) {
