@@ -1619,7 +1619,7 @@ export default function App() {
 
   const handleUpdateTicketStatus = async (ticketId: string, status: TicketStatus, cancellationReason?: string): Promise<boolean> => {
     const canManageOrders = isRestaurantOwner || userPermissions.includes('orders.manage');
-    const canCancelOrders = canManageOrders || userPermissions.includes('orders.cancel');
+    const canCancelOrders = canManageOrders || userPermissions.includes('orders.cancel') || userPermissions.includes('orders.clear_pending');
     const canMarkServed = canManageOrders || userPermissions.includes('orders.serve');
     if (status === 'cancelled' && !canCancelOrders) {
       window.alert("Votre rôle ne permet pas d'annuler une commande.");
