@@ -421,13 +421,19 @@ export default function App() {
     refundStatus: String(payment.refundStatus || ''),
     refundEligible: payment.refundEligible === true,
     providerChannel: String(payment.providerChannel || ''),
-    paymentMethod: payment.method === 'paydunya'
-      ? (payment.providerChannel === 'wave-ci' ? 'wave'
-        : payment.providerChannel === 'orange-money-ci' ? 'orange_money'
-        : payment.providerChannel === 'mtn-ci' ? 'mtn_money'
-        : payment.providerChannel === 'moov-ci' ? 'moov_money'
-        : payment.providerChannel === 'djamo-ci' ? 'djamo' : 'carte')
-      : 'especes',
+    paymentMethod: payment.method === 'mobile_money'
+      ? (payment.mobileMoneyProvider === 'wave' ? 'wave'
+        : payment.mobileMoneyProvider === 'orange_money' ? 'orange_money'
+        : payment.mobileMoneyProvider === 'mtn' ? 'mtn_money'
+        : payment.mobileMoneyProvider === 'moov' ? 'moov_money'
+        : payment.mobileMoneyProvider === 'djamo' ? 'djamo' : 'carte')
+      : payment.method === 'paydunya'
+        ? (payment.providerChannel === 'wave-ci' ? 'wave'
+          : payment.providerChannel === 'orange-money-ci' ? 'orange_money'
+          : payment.providerChannel === 'mtn-ci' ? 'mtn_money'
+          : payment.providerChannel === 'moov-ci' ? 'moov_money'
+          : payment.providerChannel === 'djamo-ci' ? 'djamo' : 'carte')
+        : 'especes',
     items: Array.isArray(payment.items) ? payment.items.map((item: any) => ({
       name: String(item.name || 'Article'),
       quantity: Number(item.quantity || 1),
