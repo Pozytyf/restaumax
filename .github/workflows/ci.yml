@@ -2,7 +2,7 @@ name: RestauMax CI
 
 on:
   push:
-    branches: [main, fix/authorization-refunds-platform-audit]
+    branches: [main, fix/authorization-refunds-platform-audit, fix/functional-hardening-modules-2026-11-10]
   pull_request:
     branches: [main, fix/separate-platform-admin-login, fix/qr-table-session-diagnostics]
 
