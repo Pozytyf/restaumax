@@ -184,6 +184,10 @@ export interface RestauOrder {
   cancellationReason?: string;
   cancelledAt?: number;
   cancelledBy?: string;
+  /** Logical POS removal metadata; order and audit history are retained. */
+  removedFromPosAt?: number;
+  removedFromPosBy?: string;
+  removedFromPosReason?: string;
   /** Per-line KDS completion state, keyed by stable zero-based order item index. */
   kitchenItemCompletion?: Record<string, boolean>;
   kitchenItemsCompletedCount?: number;
