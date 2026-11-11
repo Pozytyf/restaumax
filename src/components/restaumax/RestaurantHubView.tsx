@@ -388,13 +388,13 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                   </button>
                 )}
               </div>
-              <p className="text-xs text-slate-300 font-medium">
+              <p className="text-sm text-slate-200 font-medium">
                 {restaurant.name}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-slate-300">
+          <div className="flex items-center gap-3 text-sm text-slate-200">
             {permissions.includes('tables.manage') && <button
               onClick={() => {
                 sounds.playTap();
@@ -452,10 +452,10 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
               <h2 className="text-2xl sm:text-3xl font-black text-[#101d2d] tracking-tight">
                 {restaurant.name}
               </h2>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              <p className="text-sm sm:text-base text-slate-700 leading-relaxed">
                 Ce centre de gestion constitue le point central de coordination de l'établissement : accès direct aux terminaux de commande, à la cuisine, au plan de salle, à la caisse et à la carte client QR en FCFA.
               </p>
-              <div className="pt-1 flex flex-wrap items-center gap-y-1 gap-x-4 text-xs text-slate-500 font-medium">
+              <div className="pt-1 flex flex-wrap items-center gap-y-2 gap-x-4 text-sm text-slate-600 font-medium">
                 <span>📍 {restaurant.address}, {restaurant.city}</span>
                 <span>📞 {restaurant.phone}</span>
                 <span>⏰ {restaurant.openingHours || '11h30 – 23h30'}</span>
@@ -463,13 +463,13 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             </div>
 
             <div className="bg-[#101d2d] text-white p-4 rounded-2xl shrink-0 space-y-2 text-center md:text-right border border-slate-800">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
                 Devise d'exploitation
               </span>
               <div className="text-xl font-extrabold text-[#ff6500]">
                 {restaurant.currency} (Zone UEMOA)
               </div>
-              <div className="text-[11px] text-slate-400">
+              <div className="text-xs text-slate-300">
                 Tarification et encaissements sans centimes
               </div>
             </div>
@@ -486,7 +486,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
               title="Cliquez pour gérer le catalogue et les disponibilités"
             >
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1 group-hover:text-[#ff6500] transition-colors">
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider block mb-1 group-hover:text-[#ff6500] transition-colors">
                   Plats à la Carte
                 </span>
                 <span className="text-[10px] font-bold text-[#ff6500] opacity-0 group-hover:opacity-100 transition-opacity">
@@ -496,7 +496,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
               <div className="text-2xl font-black text-[#101d2d] tnum">
                 {menuItemsCount}
               </div>
-              <span className="text-[11px] text-slate-500 font-medium mt-0.5 block">
+              <span className="text-xs text-slate-600 font-medium mt-1 block">
                 Catalogue actif · {restaurant.name}
               </span>
             </div>
@@ -510,7 +510,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
               title="Cliquez pour gérer les tables et imprimer les QR codes"
             >
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1 group-hover:text-emerald-700 transition-colors">
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider block mb-1 group-hover:text-emerald-700 transition-colors">
                   Tables configurées
                 </span>
                 <span className="text-[10px] font-bold text-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -526,7 +526,7 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+              <span className="text-xs font-bold text-slate-600 uppercase tracking-wider block mb-1">
                 Bons Cuisine en Cours
               </span>
               <div className="text-2xl font-black text-amber-600 tnum">
@@ -629,13 +629,13 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                     </div>
 
                     <div>
-                      <h4 className="text-sm font-extrabold text-[#101d2d] leading-snug">
+                      <h4 className="text-base font-extrabold text-[#101d2d] leading-snug">
                         {mod.title}
                       </h4>
-                      <p className="text-[11px] font-bold text-slate-400 mt-0.5">
+                      <p className="text-sm font-bold text-slate-600 mt-1">
                         {mod.subtitle}
                       </p>
-                      <p className="text-xs text-slate-600 leading-relaxed mt-2">
+                      <p className="text-sm text-slate-700 leading-relaxed mt-2">
                         {mod.description}
                       </p>
                     </div>
@@ -645,17 +645,17 @@ export const RestaurantHubView: React.FC<RestaurantHubViewProps> = ({
                     {isActive && mod.onAction ? (
                       <button
                         onClick={mod.onAction}
-                        className="w-full py-2.5 px-3 bg-[#101d2d] hover:bg-[#1a2c42] text-white text-xs font-bold rounded-xl flex items-center justify-between transition-colors shadow-2xs group"
+                        className="w-full py-2.5 px-3 bg-[#101d2d] hover:bg-[#1a2c42] text-white text-sm font-bold rounded-xl flex items-center justify-between transition-colors shadow-2xs group"
                       >
                         <span>{mod.actionLabel}</span>
                         <ArrowRight size={14} className="text-[#ff6500] group-hover:translate-x-0.5 transition-transform" />
                       </button>
                     ) : isActive ? (
-                      <div className="py-2 px-3 bg-emerald-50 text-emerald-800 text-[11px] font-bold rounded-xl text-center border border-emerald-200/60">
+                      <div className="py-2 px-3 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-xl text-center border border-emerald-200/60">
                         {mod.statusLabel}
                       </div>
                     ) : (
-                      <div className="py-2 px-3 bg-slate-100 text-slate-500 text-[11px] font-medium rounded-xl text-center border border-slate-200/60 flex items-center justify-center gap-1.5">
+                      <div className="py-2 px-3 bg-slate-100 text-slate-500 text-xs font-medium rounded-xl text-center border border-slate-200/60 flex items-center justify-center gap-1.5">
                         <Clock size={12} className="text-slate-400" />
                         <span>Prévu dans les étapes ultérieures</span>
                       </div>
