@@ -417,6 +417,42 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   const cashRefunds = Number(cashSession?.cashRefunds || 0);
   const otherCashOut = Math.max(0, Number(cashSession?.cashOut || 0) - cashRefunds);
   const expectedCash = Number(cashSession?.openingBalance || 0) + Number(cashSession?.cashCollected || 0) - otherCashOut - cashRefunds;
+  const channelTotal = Object.values(channelSales).reduce((sum, amount) => sum + amount, 0);
+  const filteredTransactions = transactions.filter((tx) => {
+    const method = String(tx.paymentMethod || '');
+    if (paymentFilter === 'cash') return method === 'especes';
+    if (paymentFilter === 'mobile') return ['wave', 'orange_money', 'mtn_money', 'moov_money', 'djamo'].includes(method);
+    return true;
+  });
+  const exportCollectionsCsv = () => {
+    if (reportFrom > reportTo) { window.alert('La date de début doit précéder la date de fin.'); return; }
+    const rows = transactions.filter((tx) => {
+      const date = new Date(tx.timestamp).toISOString().slice(0, 10);
+      return date >= reportFrom && date <= reportTo;
+    });
+    const columns = ['Date et heure', 'Commande', 'Canal', 'Montant FCFA', 'Statut', 'Référence'];
+    const escapeCsv = (value: unknown) => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+    const lines = [columns.map(escapeCsv).join(';'), ...rows.map((tx) => [
+      new Date(tx.timestamp).toLocaleString('fr-FR'),
+      tx.orderId,
+      tx.paymentMethod,
+      tx.paidAmount,
+      tx.paymentStatus || 'paid',
+      tx.mobileMoneyReference || ''
+    ].map(escapeCsv).join(';'))];
+    const blob = new Blob(['\\uFEFF' + lines.join('\\r\\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'restaumax-encaissements-' + reportFrom + '-' + reportTo + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+  const currentVariance = closingCountInput === '' ? Number(cashSession?.variance || 0) : Number(closingCountInput) - expectedCash;
+  const sessionsWithVariance = closedSessions.filter((session) => Math.abs(Number((session as any).variance || 0)) > 0).length;
+
 
   return (
     <div className="flex-1 flex flex-col h-[calc(100vh-60px)] overflow-y-auto bg-[#f4f7fb] p-4 lg:p-8">
