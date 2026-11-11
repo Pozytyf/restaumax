@@ -503,7 +503,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 <div className="rounded-xl border border-[#101d2d] bg-[#101d2d] p-4 text-white"><p className="text-xs font-semibold text-slate-200">Solde théorique</p><p className="mt-2 text-xl font-extrabold">{formatFCFA(expectedCash)}</p><p className="mt-1 text-xs text-slate-200">Fond + espèces − sorties − remboursements espèces</p></div>
               </div>
               {canManageCash ? (
-                <div className="space-y-3">
+                <div className="grid gap-3 xl:grid-cols-2">
                   <form onSubmit={(event) => {
                     event.preventDefault();
                     const amount = Number(movementAmountInput);
@@ -616,6 +616,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </button>
             </form>
           ) : <p className="mt-4 text-sm text-slate-500">Aucune session active. Demandez à un responsable d’ouvrir la caisse.</p>}
+          <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Le détail par canal et le journal sont dans « Encaissements » ; les écarts, clôtures Z et rapports dans « Contrôle ».</p>
         </section>
             </div>
 
