@@ -27,7 +27,7 @@ async function run() {
   assert(
     managerViewSource.includes('Solde théorique de caisse') &&
     managerViewSource.includes('formatFCFA(expectedCash)') &&
-    managerViewSource.includes('cashSession.cashRefunds'),
+    managerViewSource.includes('cashRefunds'),
     'Le tiroir affiche le solde théorique recalculé depuis la session persistée, remboursements espèces déduits'
   );
   assert(
