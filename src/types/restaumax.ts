@@ -178,6 +178,7 @@ export interface RestauOrder {
   createdAt: number; // UTC timestamp ms
   createdAtIso: string;
   statusUpdatedAt?: number;
+  statusHistory?: Array<{ status: RestauOrderStatus; changedAt: number; reason?: string }>;
   cancellationReason?: string;
   cancelledAt?: number;
   cancelledBy?: string;
