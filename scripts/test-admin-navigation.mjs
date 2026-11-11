@@ -7,6 +7,7 @@ const firebase = fs.readFileSync(new URL('../src/lib/firebase.ts', import.meta.u
 const dishForm = fs.readFileSync(new URL('../src/components/restaumax/DishFormModal.tsx', import.meta.url), 'utf8');
 const menuView = fs.readFileSync(new URL('../src/components/restaumax/MenuManagementView.tsx', import.meta.url), 'utf8');
 const managerView = fs.readFileSync(new URL('../src/components/manager/ManagerView.tsx', import.meta.url), 'utf8');
+const closedCashSessions = fs.readFileSync(new URL('../src/components/manager/ClosedCashSessionsHistory.tsx', import.meta.url), 'utf8');
 const posView = fs.readFileSync(new URL('../src/components/pos/PosView.tsx', import.meta.url), 'utf8');
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 
@@ -75,13 +76,22 @@ assert(managerView.includes("hidden={activeCashSection !== 'session'}") &&
   managerView.includes("hidden={activeCashSection !== 'collections'}") &&
   managerView.includes("hidden={activeCashSection !== 'control'}"),
   'the three cash supervision sections switch without removing their underlying data or permission checks');
-assert(managerView.includes('flex w-full items-stretch gap-2 overflow-x-auto') &&
+assert(managerView.includes('overflow-x-auto rounded-2xl') && managerView.includes('flex w-full gap-2') &&
   managerView.includes('Retirer de la caisse') &&
   managerView.includes('pendingOnly: true, removalAction: true') &&
   managerView.includes('order_cancelled_pending_manual_reconciliation'),
-  'cash sections use horizontal tabs and unpaid PayDunya orders expose guarded removal with manual reconciliation');
+  'cash sections use a responsive horizontal navigation and unpaid PayDunya orders expose guarded removal with manual reconciliation');
+assert(managerView.includes('paymentFilter') && managerView.includes('Mobile Money') && managerView.includes('Exporter en CSV') &&
+  managerView.includes('reportFrom') && managerView.includes('channelTotal') && managerView.includes('Écart avec le solde théorique'),
+  'cash supervision exposes payment filters, channel totals, live closing variance and date-range CSV export');
+assert(managerView.includes('min-h-11') && managerView.includes('aria-current') && managerView.includes('aria-live'),
+  'cash supervision controls expose accessible focus targets, active navigation and live variance feedback');
+assert(managerView.includes('Commandes') && managerView.includes('Cuisine') && managerView.includes('Propriétaire') && managerView.includes('restaurantName'),
+  'cash supervision uses the shared restaurant top bar and role label');
+assert(closedCashSessions.includes('Sessions clôturées (Z)') && closedCashSessions.includes('Écart à examiner') && closedCashSessions.includes('<table'),
+  'cash control exposes Z session history in a horizontally scrollable variance table');
 assert(managerView.includes('Écarts de comptage, clôtures journalières et rapports') &&
-  managerView.includes('Journal des Transactions Récentes') && managerView.includes('Fermer la session de caisse') &&
+  managerView.includes('Journal des Transactions Récentes') && managerView.includes('Clôturer la session') &&
   managerView.includes('Ouvrir la session de caisse'),
   'cash supervision groups session, collections and control content by purpose and exposes the current open/close actions');
 assert(posView.includes('Tickets en attente de validation') && posView.includes("onCancelPendingOrder?.(order, 'cancel')") &&

@@ -129,11 +129,11 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
               <Calendar size={16} />
             </span>
             <h2 className="text-base font-black text-[#101d2d]">
-              Historique & Comparatif des sessions de caisse
+              Sessions clôturées (Z)
             </h2>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            Comparez le chiffre d'affaires en espèces, les volumes et la conformité des clôtures entre les jours.
+            Historique des clôtures, montants théoriques, comptages physiques et écarts à examiner.
           </p>
         </div>
 
@@ -141,7 +141,7 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
           <button
             onClick={() => void onRefresh()}
             disabled={loading}
-            className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50"
+            className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50"
           >
             <RefreshCw size={13} className={loading ? 'animate-spin text-[#ff6500]' : ''} />
             <span>Actualiser</span>
@@ -172,7 +172,7 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
 
           <div className="rounded-xl bg-slate-50 p-3.5 border border-slate-100">
             <div className="flex items-center justify-between text-slate-500">
-              <span className="text-[11px] font-semibold">Session record</span>
+              <span className="text-[11px] font-semibold">Meilleure session</span>
               <Award size={14} className="text-amber-500" />
             </div>
             <p className="mt-1 text-base font-black text-slate-900">{formatFCFA(metrics.maxRevenue)}</p>
@@ -218,10 +218,10 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
                     <div
                       className={`h-full rounded-md transition-all duration-500 ${
                         isBest 
-                          ? 'bg-gradient-to-r from-amber-400 to-[#ff6500]' 
+                          ? 'bg-[#c2410c]' 
                           : variance !== 0 
-                            ? 'bg-gradient-to-r from-slate-400 to-indigo-500' 
-                            : 'bg-gradient-to-r from-emerald-400 to-teal-500'
+                            ? 'bg-slate-600' 
+                            : 'bg-emerald-700'
                       }`}
                       style={{ width: `${percentage}%` }}
                     />
@@ -244,7 +244,7 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
         <div className="flex items-center gap-1.5 rounded-xl bg-slate-100 p-1 text-xs font-semibold text-slate-600">
           <button
             onClick={() => setFilterMode('all')}
-            className={`rounded-lg px-3 py-1.5 transition-all ${
+            className={`min-h-11 rounded-lg px-3 py-2 transition-all ${
               filterMode === 'all' ? 'bg-white font-bold text-slate-900 shadow-sm' : 'hover:text-slate-900'
             }`}
           >
@@ -273,6 +273,30 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
         </span>
       </div>
 
+      <div className="mt-5 overflow-hidden rounded-xl border border-[#dbe3ee] bg-white">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-left text-xs">
+            <thead className="bg-slate-50 text-[11px] font-bold text-slate-600"><tr>
+              <th className="px-4 py-3">Date</th><th className="px-4 py-3">Ouverture – clôture</th><th className="px-4 py-3 text-right">Théorique (FCFA)</th><th className="px-4 py-3 text-right">Compté (FCFA)</th><th className="px-4 py-3 text-right">Écart (FCFA)</th><th className="px-4 py-3">Statut</th>
+            </tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredSessions.map((session) => {
+                const variance = Number(session.variance || 0);
+                return <tr key={"z-" + session.id} className="hover:bg-slate-50">
+                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-800">{new Date(session.openedAt).toLocaleDateString("fr-FR")}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{new Date(session.openedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} – {session.closedAt ? new Date(session.closedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatFCFA(Number(session.expectedCash || 0))}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatFCFA(Number(session.closingCount || 0))}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-bold tabular-nums">{formatFCFA(variance)}</td>
+                  <td className="px-4 py-3">{variance === 0 ? <span className="inline-flex min-h-7 items-center rounded-full bg-[#dcfce7] px-3 py-1 text-[11px] font-bold text-[#14532d]">Conforme</span> : <span className="inline-flex min-h-7 items-center rounded-full bg-[#fef3c7] px-3 py-1 text-[11px] font-bold text-[#78350f]">Écart à examiner</span>}</td>
+                </tr>;
+              })}
+              {filteredSessions.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">Aucune session clôturée sur cette sélection.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <h3 className="mt-5 text-sm font-extrabold text-[#101d2d]">Détails et comparaison des sessions</h3>
       {/* Sessions List */}
       <div className="mt-4 space-y-3">
         {loading && sessions.length === 0 ? (
@@ -363,7 +387,7 @@ export const ClosedCashSessionsHistory: React.FC<ClosedCashSessionsHistoryProps>
                     </div>
 
                     <button
-                      className="p-1 text-slate-400 hover:text-slate-600"
+                      className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
                       aria-label={isExpanded ? 'Réduire' : 'Développer'}
                     >
                       {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}

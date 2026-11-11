@@ -42,6 +42,7 @@ interface CashSessionSummary {
   }>;
   status: 'active' | 'closed';
   openedAt: number;
+  openedByName?: string;
   expectedCash?: number;
   variance?: number;
 }
@@ -63,6 +64,10 @@ interface PayDunyaIntentSummary {
 
 interface ManagerViewProps {
   restaurantSlug: string;
+  restaurantName: string;
+  onNavigateToRole: (role: 'pos' | 'kds' | 'manager') => void;
+  canAccessPos: boolean;
+  canAccessKitchen: boolean;
   isOwner: boolean;
   drawerState: CashDrawerState;
   transactions: PaymentRecord[];
@@ -83,6 +88,10 @@ interface ManagerViewProps {
 
 export const ManagerView: React.FC<ManagerViewProps> = ({
   restaurantSlug,
+  restaurantName,
+  onNavigateToRole,
+  canAccessPos,
+  canAccessKitchen,
   isOwner,
   drawerState,
   transactions,
@@ -102,6 +111,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
 }) => {
   const [showZReportModal, setShowZReportModal] = useState(false);
   const [activeCashSection, setActiveCashSection] = useState<'session' | 'collections' | 'control'>('session');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'cash' | 'mobile'>('all');
+  const [reportFrom, setReportFrom] = useState(() => new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10));
+  const [reportTo, setReportTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [openingBalanceInput, setOpeningBalanceInput] = useState('0');
   const [closingCountInput, setClosingCountInput] = useState('');
   const [movementAmountInput, setMovementAmountInput] = useState('');
@@ -406,37 +418,89 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
     wave: transactions.filter((tx) => tx.paymentMethod === 'wave').reduce((sum, tx) => sum + tx.paidAmount, 0),
     orangeMoney: transactions.filter((tx) => tx.paymentMethod === 'orange_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
     mtnMoney: transactions.filter((tx) => tx.paymentMethod === 'mtn_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
-    moovMoney: transactions.filter((tx) => tx.paymentMethod === 'moov_money').reduce((sum, tx) => sum + tx.paidAmount, 0)
+    moovMoney: transactions.filter((tx) => tx.paymentMethod === 'moov_money').reduce((sum, tx) => sum + tx.paidAmount, 0),
+    other: transactions.filter((tx) => ['djamo', 'card', 'carte', 'bank_card', 'carte_bancaire', 'credit_card'].includes(String(tx.paymentMethod))).reduce((sum, tx) => sum + tx.paidAmount, 0)
   }), [transactions]);
-  const channelPercent = (amount: number) => drawerState.totalSales > 0
-    ? Math.round((amount / drawerState.totalSales) * 100)
-    : 0;
   const cashRefunds = Number(cashSession?.cashRefunds || 0);
   const otherCashOut = Math.max(0, Number(cashSession?.cashOut || 0) - cashRefunds);
   const expectedCash = Number(cashSession?.openingBalance || 0) + Number(cashSession?.cashCollected || 0) - otherCashOut - cashRefunds;
+  const channelTotal = Object.values(channelSales).reduce((sum, amount) => sum + amount, 0);
+  const filteredTransactions = transactions.filter((tx) => {
+    const method = String(tx.paymentMethod || '');
+    if (paymentFilter === 'cash') return method === 'especes';
+    if (paymentFilter === 'mobile') return ['wave', 'orange_money', 'mtn_money', 'moov_money', 'djamo'].includes(method);
+    return true;
+  });
+  const exportCollectionsCsv = () => {
+    if (reportFrom > reportTo) { window.alert('La date de début doit précéder la date de fin.'); return; }
+    const rows = transactions.filter((tx) => {
+      const date = new Date(tx.timestamp).toISOString().slice(0, 10);
+      return date >= reportFrom && date <= reportTo;
+    });
+    const columns = ['Date et heure', 'Commande', 'Canal', 'Montant FCFA', 'Statut', 'Référence'];
+    const escapeCsv = (value: unknown) => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+    const lines = [columns.map(escapeCsv).join(';'), ...rows.map((tx) => [
+      new Date(tx.timestamp).toLocaleString('fr-FR'),
+      tx.orderId,
+      tx.paymentMethod,
+      tx.paidAmount,
+      tx.paymentStatus || 'paid',
+      tx.mobileMoneyReference || ''
+    ].map(escapeCsv).join(';'))];
+    const blob = new Blob(['\\uFEFF' + lines.join('\\r\\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'restaumax-encaissements-' + reportFrom + '-' + reportTo + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+  const currentVariance = closingCountInput === '' ? Number(cashSession?.variance || 0) : Number(closingCountInput) - expectedCash;
+  const recentClosedSessions = closedSessions.filter((session) => Boolean(session.closedAt) && Number(session.closedAt) >= Date.now() - 3 * 86400000);
+  const recentVarianceCount = recentClosedSessions.filter((session) => Math.abs(Number(session.variance || 0)) > 0).length;
+
 
   return (
-    <div className="flex-1 flex flex-col h-[calc(100vh-60px)] overflow-y-auto bg-[#f4f7fb] p-4 lg:p-8">
-      <div className="max-w-7xl mx-auto w-full space-y-6">
+        <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-[#f4f7fb] font-[Inter]">
+      <div className="sticky top-0 z-30 flex min-h-16 flex-wrap items-center justify-between gap-3 bg-[#101d2d] px-4 py-3 text-white shadow-sm lg:px-8">
+        <div className="flex min-w-0 items-center gap-3"><span className="text-lg font-extrabold tracking-tight">RestauMax</span><span className="truncate text-sm font-medium text-slate-300">{restaurantName}</span></div>
+        <nav aria-label="Navigation principale" className="flex flex-wrap items-center justify-center gap-1">
+          <button type="button" disabled={!canAccessPos} onClick={() => onNavigateToRole("pos")} className="min-h-11 rounded-lg px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Commandes</button>
+          <button type="button" disabled={!canAccessKitchen} onClick={() => onNavigateToRole("kds")} className="min-h-11 rounded-lg px-4 text-sm font-semibold text-slate-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Cuisine</button>
+          <button type="button" aria-current="page" onClick={() => onNavigateToRole("manager")} className="min-h-11 rounded-lg bg-[#c2410c] px-4 text-sm font-bold text-white">Supervision &amp; Caisse</button>
+        </nav>
+        <span className="rounded-lg px-3 py-2 text-sm font-semibold text-white">{isOwner ? "Propriétaire" : "Personnel autorisé"}</span>
+      </div>
+      <div className="w-full flex-1 p-4 lg:p-8">
+
+      <div className="max-w-[1440px] mx-auto w-full space-y-6">
         
 
         {/* Supervision header */}
-        <header className="flex flex-col gap-2">
-          <h1 className="text-xl sm:text-2xl font-extrabold text-[#101d2d] tracking-tight">Supervision du journal de caisse</h1>
-          <p className="text-xs sm:text-sm text-slate-500 font-medium">Gérez la session, consultez les encaissements et contrôlez les clôtures depuis trois rubriques dédiées.</p>
+        <header className="space-y-2">
+          <p className="text-xs font-semibold text-slate-500">Centre de gestion <span aria-hidden="true">›</span> Supervision &amp; Caisse{activeCashSection !== "session" && <><span aria-hidden="true"> › </span>{activeCashSection === "collections" ? "Encaissements" : "Contrôle"}</>}</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><h1 className="text-2xl font-extrabold tracking-tight text-[#101d2d]">{activeCashSection === "session" ? "Supervision & Caisse" : activeCashSection === "collections" ? "Encaissements" : "Contrôle"}</h1><p className="mt-1 text-sm font-medium text-slate-600">Pilotez la session, suivez les règlements et contrôlez les clôtures.</p></div>
+            <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-950">Données du restaurant · FCFA</span>
+          </div>
         </header>
-
-        <nav aria-label="Rubriques du journal de caisse" className="flex w-full items-stretch gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-          <button type="button" aria-current={activeCashSection === 'session' ? 'page' : undefined} onClick={() => setActiveCashSection('session')} className={`min-w-[190px] flex-1 rounded-xl p-3 text-left transition-colors ${activeCashSection === 'session' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
-            <span className="block text-sm font-extrabold">1 · Session de caisse</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'session' ? 'text-slate-300' : 'text-slate-500'}`}>Ouverture, fond, sorties et clôture</span>
-          </button>
-          <button type="button" aria-current={activeCashSection === 'collections' ? 'page' : undefined} onClick={() => setActiveCashSection('collections')} className={`min-w-[190px] flex-1 rounded-xl p-3 text-left transition-colors ${activeCashSection === 'collections' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
-            <span className="block text-sm font-extrabold">2 · Encaissements</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'collections' ? 'text-slate-300' : 'text-slate-500'}`}>Canaux, transactions et remboursements</span>
-          </button>
-          <button type="button" aria-current={activeCashSection === 'control' ? 'page' : undefined} onClick={() => setActiveCashSection('control')} className={`min-w-[190px] flex-1 rounded-xl p-3 text-left transition-colors ${activeCashSection === 'control' ? 'bg-[#101d2d] text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
-            <span className="block text-sm font-extrabold">3 · Contrôle</span><span className={`mt-1 block text-[11px] ${activeCashSection === 'control' ? 'text-slate-300' : 'text-slate-500'}`}>Écarts, clôtures et rapports</span>
-          </button>
-        </nav>
+        <div className="space-y-4">
+          <nav aria-label="Sous-sections Supervision et Caisse" className="flex w-full gap-2 overflow-x-auto rounded-2xl border border-[#dbe3ee] bg-white p-2 shadow-2xs">
+            <button type="button" aria-current={activeCashSection === "session" ? "page" : undefined} onClick={() => setActiveCashSection("session")} className={"min-h-14 min-w-[190px] flex-1 rounded-xl px-4 py-2.5 text-left transition-colors sm:min-w-0 " + (activeCashSection === "session" ? "bg-[#101d2d] text-white shadow-sm" : "bg-white text-[#101d2d] hover:bg-slate-50")}>
+              <span className="block text-sm font-extrabold">1 · Session de caisse</span>
+              <span className={"mt-1 block text-xs " + (activeCashSection === "session" ? "text-slate-200" : "text-slate-600")}>Ouverture, sorties et clôture</span>
+            </button>
+            <button type="button" aria-current={activeCashSection === "collections" ? "page" : undefined} onClick={() => setActiveCashSection("collections")} className={"min-h-14 min-w-[190px] flex-1 rounded-xl px-4 py-2.5 text-left transition-colors sm:min-w-0 " + (activeCashSection === "collections" ? "bg-[#101d2d] text-white shadow-sm" : "bg-white text-[#101d2d] hover:bg-slate-50")}>
+              <span className="block text-sm font-extrabold">2 · Encaissements</span>
+              <span className={"mt-1 block text-xs " + (activeCashSection === "collections" ? "text-slate-200" : "text-slate-600")}>Journal et modes de règlement</span>
+            </button>
+            <button type="button" aria-current={activeCashSection === "control" ? "page" : undefined} onClick={() => setActiveCashSection("control")} className={"min-h-14 min-w-[190px] flex-1 rounded-xl px-4 py-2.5 text-left transition-colors sm:min-w-0 " + (activeCashSection === "control" ? "bg-[#101d2d] text-white shadow-sm" : "bg-white text-[#101d2d] hover:bg-slate-50")}>
+              <span className="block text-sm font-extrabold">3 · Contrôle</span>
+              <span className={"mt-1 block text-xs " + (activeCashSection === "control" ? "text-slate-200" : "text-slate-600")}>Écarts, clôtures et rapports</span>
+            </button>
+          </nav>
         <main className="min-w-0 space-y-5">
             <div hidden={activeCashSection !== 'session'} aria-label="Session de caisse" className="space-y-5">
         <section id="cash-session" aria-labelledby="cash-session-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
@@ -445,44 +509,21 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               <h2 id="cash-session-title" className="text-base font-black text-[#101d2d]">1. Session de caisse</h2>
               <p className="mt-1 text-xs text-slate-500">Fond initial, encaissements de la session et rapprochement physique</p>
             </div>
-            {cashSession && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Session ouverte</span>}
           </div>
 
+          {cashSession && <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900">Session ouverte</span><span className="text-xs font-medium text-emerald-950">Ouverte à {new Date(cashSession.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · {cashSession.openedByName || 'Responsable'}</span></div>}
           {cashSessionLoading && !cashSession ? (
             <p className="mt-4 text-sm text-slate-500">Chargement de la session de caisse…</p>
           ) : cashSession ? (
             <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr]">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">Fond d’ouverture</p>
-                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.openingBalance)}</p>
-                </div>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                  <p className="text-xs font-semibold text-emerald-800">Solde théorique de caisse</p>
-                  <p className="mt-1 text-lg font-black text-emerald-950">{formatFCFA(expectedCash)}</p>
-                  <p className="mt-1 text-[10px] text-emerald-800">Fond initial + espèces encaissées − sorties − remboursements espèces</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">Espèces encaissées</p>
-                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.cashCollected)}</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">Nombre d’encaissements</p>
-                  <p className="mt-1 text-lg font-black">{cashSession.paymentCount}</p>
-                </div>
-                <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">Sorties hors remboursements</p>
-                  <p className="mt-1 text-lg font-black">{formatFCFA(otherCashOut)}</p>
-                  <p className="text-[10px] text-slate-500">{cashSession.cashMovementCount} mouvement(s)</p>
-                </div>
-                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
-                  <p className="text-xs font-semibold text-rose-800">Remboursements espèces</p>
-                  <p className="mt-1 text-lg font-black text-rose-900">-{formatFCFA(cashRefunds)}</p>
-                  <p className="text-[10px] text-rose-700">{Number(cashSession.refundCount || 0)} remboursement(s) tracé(s)</p>
-                </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Fond d’ouverture</p><p className="mt-2 text-xl font-extrabold text-[#101d2d]">{formatFCFA(cashSession.openingBalance)}</p></div>
+                <div className="rounded-xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Encaissements espèces</p><p className="mt-2 text-xl font-extrabold text-[#101d2d]">{formatFCFA(cashSession.cashCollected)}</p></div>
+                <div className="rounded-xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Sorties de caisse</p><p className="mt-2 text-xl font-extrabold text-[#101d2d]">{formatFCFA(otherCashOut)}</p><p className="mt-1 text-xs text-slate-500">Remboursements espèces suivis séparément : {formatFCFA(cashRefunds)}</p></div>
+                <div className="rounded-xl border border-[#101d2d] bg-[#101d2d] p-4 text-white"><p className="text-xs font-semibold text-slate-200">Solde théorique</p><p className="mt-2 text-xl font-extrabold">{formatFCFA(expectedCash)}</p><p className="mt-1 text-xs text-slate-200">Fond + espèces − sorties − remboursements espèces</p></div>
               </div>
               {canManageCash ? (
-                <div className="space-y-3">
+                <div className="grid gap-3 xl:grid-cols-2">
                   <form onSubmit={(event) => {
                     event.preventDefault();
                     const amount = Number(movementAmountInput);
@@ -498,7 +539,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     <div className="grid grid-cols-2 gap-2">
                       <label className="text-xs font-bold text-slate-700">Type
                         <select value={movementTypeInput} onChange={(event) => setMovementTypeInput(event.target.value as 'expense' | 'withdrawal')}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm">
+                          className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm">
                           <option value="expense">Dépense</option>
                           <option value="withdrawal">Retrait</option>
                         </select>
@@ -518,13 +559,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                         onChange={(event) => setMovementAmountInput(event.target.value)}
                         className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
                     </label>
-                    <label className="text-xs font-bold text-slate-700">Motif (facultatif)
-                      <input maxLength={200} value={movementNoteInput} onChange={(event) => setMovementNoteInput(event.target.value)}
-                        placeholder="Ex. achat de charbon"
+                    <label className="text-xs font-bold text-slate-700">Motif
+                      <input required maxLength={200} value={movementNoteInput} onChange={(event) => setMovementNoteInput(event.target.value)}
+                        placeholder="Ex. Achat de glace"
                         className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
                     </label>
                     <button type="submit" disabled={cashMovementActionLoading || movementAmountInput === ''}
-                      className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-800 disabled:opacity-50">
+                      className="min-h-11 rounded-lg border border-slate-300 bg-[#c2410c] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">
                       {cashMovementActionLoading ? 'Enregistrement…' : 'Enregistrer la sortie'}
                     </button>
                   </form>
@@ -535,15 +576,17 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     void onCloseCashSession(amount).then(() => loadClosedSessions());
                     setClosingCountInput('');
                   }} className="flex flex-col justify-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+                    <h3 className="text-sm font-black text-slate-800">Clôture de la session</h3>
                     <label className="text-sm font-bold text-slate-800">Comptage physique en caisse (FCFA)
                       <input required type="number" min="0" max="100000000" step="1" value={closingCountInput}
                         onChange={(event) => setClosingCountInput(event.target.value)}
                         placeholder="Saisir le montant réellement compté"
                         className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
                     </label>
+                    <p aria-live="polite" className="text-xs font-semibold text-slate-700">Écart avec le solde théorique : {closingCountInput === '' ? '—' : formatFCFA(Number(closingCountInput) - expectedCash)}</p>
                     <button type="submit" disabled={cashSessionActionLoading || closingCountInput === ''}
-                      className="rounded-lg bg-[#101d2d] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
-                      {cashSessionActionLoading ? 'Clôture en cours…' : 'Fermer la session de caisse'}
+                      className="min-h-11 rounded-lg bg-[#101d2d] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
+                      {cashSessionActionLoading ? 'Clôture en cours…' : 'Clôturer la session'}
                     </button>
                   </form>
                 </div>
@@ -589,11 +632,12 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   className="mt-2 w-full rounded-lg border border-slate-300 p-3 text-sm"/>
               </label>
               <button type="submit" disabled={cashSessionActionLoading}
-                className="rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
+                className="min-h-11 rounded-lg bg-emerald-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
                 {cashSessionActionLoading ? 'Ouverture…' : 'Ouvrir la session de caisse'}
               </button>
             </form>
           ) : <p className="mt-4 text-sm text-slate-500">Aucune session active. Demandez à un responsable d’ouvrir la caisse.</p>}
+          <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Le détail par canal et le journal sont dans « Encaissements » ; les écarts, clôtures Z et rapports dans « Contrôle ».</p>
         </section>
             </div>
 
@@ -606,17 +650,17 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => setShowArchivedPayDunyaIntents(value => !value)}
-                className="rounded-lg border px-3 py-2 text-xs font-bold">
+                className="min-h-11 rounded-lg border px-3 py-2 text-xs font-bold">
                 {showArchivedPayDunyaIntents ? 'Masquer les archives' : 'Afficher les archives'}
               </button>
               <button type="button" onClick={() => void loadPayDunyaIntents()} disabled={payDunyaLoading}
-                className="rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-50">
+                className="min-h-11 rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-50">
                 {payDunyaLoading ? 'Actualisation…' : 'Actualiser'}
               </button>
             </div>
           </div>
           {payDunyaIntents.filter(intent => !['paid', 'completed', 'succeeded', 'refunded', 'cancelled', 'expired'].includes(intent.status.toLowerCase())).length === 0 ? (
-            <p className="mt-3 text-xs text-slate-500">{payDunyaLoading ? 'Chargement…' : 'Aucune intention PayDunya non soldée dans les 50 dernières opérations.'}</p>
+            <p className="mt-3 text-xs text-slate-500">{payDunyaLoading ? 'Chargement…' : 'Aucune intention PayDunya non soldée dans les 100 dernières opérations.'}</p>
           ) : (
             <div className="mt-3 divide-y divide-slate-100">
               {payDunyaIntents.filter(intent => !['paid', 'completed', 'succeeded', 'refunded'].includes(intent.status.toLowerCase())).map(intent => (
@@ -632,14 +676,14 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     const unpaid = order && order.status === 'pending' && Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || ''));
                     return unpaid ? (
                       <button type="button" onClick={() => void cancelActiveOrder(order, true)} disabled={cancellingOrderId === order.id}
-                        className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold text-rose-800 disabled:opacity-50">
+                        className="min-h-11 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] font-bold text-rose-800 disabled:opacity-50">
                         {cancellingOrderId === order.id ? 'Retrait…' : 'Retirer de la caisse'}
                       </button>
                     ) : null;
                   })()}
                   {canManageCash && !showArchivedPayDunyaIntents && intent.status.toLowerCase() === 'order_cancelled_pending_manual_reconciliation' && (
                     <button type="button" onClick={() => void archivePayDunyaIntent(intent.id)} disabled={payDunyaActionId === intent.id}
-                      className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-700 disabled:opacity-50">
+                      className="min-h-11 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-[10px] font-bold text-slate-700 disabled:opacity-50">
                       {payDunyaActionId === intent.id ? 'Archivage…' : 'Archiver du suivi'}
                     </button>
                   )}
@@ -648,7 +692,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   )}
                   {canManageCash && intent.canReconcile && (
                     <button type="button" onClick={() => void reconcilePayDunyaIntent(intent.id)} disabled={payDunyaActionId === intent.id}
-                      className="rounded-lg bg-blue-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">
+                      className="min-h-11 rounded-lg bg-blue-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">
                       {payDunyaActionId === intent.id ? 'Vérification…' : 'Vérifier le statut'}
                     </button>
                   )}
@@ -675,7 +719,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                       <p className="mt-1 text-[10px] text-slate-500">{order.status === 'pending' ? 'En attente' : order.status === 'in_prep' ? 'En préparation' : 'Prête'} · {order.itemsCount} article(s) · {new Date(order.createdAt).toLocaleString('fr-FR')}</p>
                     </div>
                     <button type="button" onClick={() => void cancelActiveOrder(order)} disabled={cancellingOrderId === order.id}
-                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-800 disabled:opacity-50">
+                      className="min-h-11 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-800 disabled:opacity-50">
                       {cancellingOrderId === order.id ? 'Annulation…' : 'Annuler la commande'}
                     </button>
                   </div>
@@ -789,72 +833,28 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           </div>
 
           {/* Payment Methods Breakdown */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs lg:col-span-2">
-            <h3 className="text-sm font-extrabold text-[#101d2d] uppercase tracking-wider mb-4 flex items-center gap-2">
-              <Smartphone size={16} className="text-[#ff6500]" />
-              Répartition par Canal de Paiement
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
-              <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/60">
-                <div className="flex items-center gap-2 text-amber-900 text-xs font-bold mb-1">
-                  <Coins size={14} className="text-amber-600" /> Espèces
-                </div>
-                <div className="text-lg font-black text-amber-950 tnum">{formatFCFA(channelSales.cash)}</div>
-                <div className="text-[11px] text-amber-800 mt-1">{channelPercent(channelSales.cash)}% des encaissements</div>
-              </div>
-              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50">
-                <div className="flex items-center gap-2 text-blue-900 text-xs font-bold mb-1">
-                  <Smartphone size={14} className="text-blue-500" /> Wave
-                </div>
-                <div className="text-lg font-black text-blue-950 tnum">{formatFCFA(channelSales.wave)}</div>
-                <div className="text-[11px] text-blue-700 mt-1">{channelPercent(channelSales.wave)}% des encaissements</div>
-              </div>
-              <div className="p-4 rounded-xl border border-orange-200 bg-orange-50/50">
-                <div className="flex items-center gap-2 text-orange-900 text-xs font-bold mb-1">
-                  <Smartphone size={14} className="text-orange-500" /> Orange Money
-                </div>
-                <div className="text-lg font-black text-orange-950 tnum">{formatFCFA(channelSales.orangeMoney)}</div>
-                <div className="text-[11px] text-orange-700 mt-1">{channelPercent(channelSales.orangeMoney)}% des encaissements</div>
-              </div>
-              <div className="p-4 rounded-xl border border-yellow-200 bg-yellow-50/60">
-                <div className="flex items-center gap-2 text-yellow-900 text-xs font-bold mb-1">
-                  <Smartphone size={14} className="text-yellow-600" /> MTN Money
-                </div>
-                <div className="text-lg font-black text-yellow-950 tnum">{formatFCFA(channelSales.mtnMoney)}</div>
-                <div className="text-[11px] text-yellow-800 mt-1">{channelPercent(channelSales.mtnMoney)}% des encaissements</div>
-              </div>
-              <div className="p-4 rounded-xl border border-cyan-200 bg-cyan-50/50">
-                <div className="flex items-center gap-2 text-cyan-900 text-xs font-bold mb-1">
-                  <Smartphone size={14} className="text-cyan-600" /> Moov Money
-                </div>
-                <div className="text-lg font-black text-cyan-950 tnum">{formatFCFA(channelSales.moovMoney)}</div>
-                <div className="text-[11px] text-cyan-800 mt-1">{channelPercent(channelSales.moovMoney)}% des encaissements</div>
-              </div>
+          <div className="rounded-2xl border border-[#dbe3ee] bg-white p-5 shadow-2xs lg:col-span-2">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div><h3 className="text-base font-extrabold text-[#101d2d]">Répartition par canal</h3><p className="mt-1 text-xs text-slate-600">Total des encaissements chargés : <strong>{formatFCFA(channelTotal)}</strong></p></div>
             </div>
-
-            {/* Visual ratio bar */}
-            <div className="mt-5">
-              <div className="h-3 w-full rounded-full bg-slate-200 overflow-hidden flex">
-                <div 
-                  className="bg-amber-500 h-full" 
-                  style={{ width: `${drawerState.totalSales > 0 ? (drawerState.cashSales / drawerState.totalSales) * 100 : 30}%` }} 
-                />
-                <div 
-                  className="bg-[#1ba8f0] h-full" 
-                  style={{ width: `${drawerState.totalSales > 0 ? (drawerState.mobileMoneySales / drawerState.totalSales) * 100 : 50}%` }} 
-                />
-                <div 
-                  className="bg-emerald-500 h-full" 
-                  style={{ width: `${drawerState.totalSales > 0 ? (drawerState.cardSales / drawerState.totalSales) * 100 : 20}%` }} 
-                />
-              </div>
-              <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 mt-2">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> Espèces</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#1ba8f0]" /> Mobile Money</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Carte Bancaire</span>
-              </div>
+            <div className="space-y-4">
+              {[
+                { label: 'Espèces', amount: channelSales.cash },
+                { label: 'Wave', amount: channelSales.wave },
+                { label: 'Orange Money', amount: channelSales.orangeMoney },
+                { label: 'MTN Money', amount: channelSales.mtnMoney },
+                { label: 'Autres canaux (Moov, Djamo, carte)', amount: channelSales.moovMoney + channelSales.other }
+              ].map((item) => (
+                <div key={item.label} className="grid grid-cols-[minmax(112px,150px)_minmax(50px,1fr)_auto] items-center gap-3">
+                  <span className="text-xs font-semibold text-slate-700">{item.label}</span>
+                  <div className="h-3 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label={item.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={channelTotal > 0 ? Math.round(item.amount / channelTotal * 100) : 0}>
+                    <div className="h-full rounded-full bg-[#c2410c]" style={{ width: channelTotal > 0 ? (item.amount / channelTotal * 100) + '%' : '0%' }} />
+                  </div>
+                  <strong className="whitespace-nowrap text-xs tabular-nums text-[#101d2d]">{formatFCFA(item.amount)}</strong>
+                </div>
+              ))}
             </div>
+            <p className="mt-3 text-xs text-slate-500">Les montants sont calculés à partir des encaissements actuellement chargés dans le journal (100 opérations au maximum).</p>
           </div>
         </div>
 
@@ -866,43 +866,43 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 Journal des Transactions Récentes
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Historique instantané des règlements enregistrés en caisse
+                Historique instantané des règlements enregistrés en caisse · 100 derniers au maximum
               </p>
+            </div>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrer les encaissements">
+              {[
+                { value: 'all', label: 'Tous' },
+                { value: 'cash', label: 'Espèces' },
+                { value: 'mobile', label: 'Mobile Money' }
+              ].map((filter) => <button key={filter.value} type="button" aria-pressed={paymentFilter === filter.value} onClick={() => setPaymentFilter(filter.value as typeof paymentFilter)} className={`min-h-11 rounded-full border px-4 text-xs font-bold ${paymentFilter === filter.value ? 'border-[#101d2d] bg-[#101d2d] text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}>{filter.label}</button>)}
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+            <table className="w-full min-w-[760px] text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-extrabold uppercase text-[10px] tracking-wider">
-                  <th className="py-3 px-4">Ticket</th>
-                  <th className="py-3 px-4">Date et heure</th>
-                  <th className="py-3 px-4">Table</th>
-                  <th className="py-3 px-4">Serveur</th>
-                  <th className="py-3 px-4">Articles</th>
-                  <th className="py-3 px-4">Règlement</th>
-                  <th className="py-3 px-4 text-right">Montant encaissé</th>
-                  <th className="py-3 px-4 text-center">Reçu</th>
+                  <th className="py-3 px-4">Commande</th>
+                  <th className="py-3 px-4">Heure</th>
+                  <th className="py-3 px-4">Canal</th>
+                  <th className="py-3 px-4 text-right">Montant</th>
+                  <th className="py-3 px-4">Statut</th>
+                  <th className="py-3 px-4 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {transactions.length === 0 ? (
+                {filteredTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400">
+                    <td colSpan={6} className="py-8 text-center text-slate-400">
                       Aucun encaissement enregistré dans les 100 dernières opérations.
                     </td>
                   </tr>
                 ) : (
-                  transactions.map((tx) => (
+                  filteredTransactions.map((tx) => (
                     <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-4 font-black text-slate-900">{tx.orderId}</td>
                       <td className="py-3 px-4 text-slate-500 tnum">
                         {new Date(tx.timestamp).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'medium' })}
-                      </td>
-                      <td className="py-3 px-4 font-bold text-slate-800">{tx.tableNumber}</td>
-                      <td className="py-3 px-4 text-slate-600">{tx.waiter}</td>
-                      <td className="py-3 px-4 text-slate-600">
-                        {tx.items.length} article(s)
                       </td>
                       <td className="py-3 px-4">
                         <span className="capitalize font-semibold text-slate-700">
@@ -929,11 +929,14 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                           </div>
                         )}
                       </td>
+                      <td className="py-3 px-4">
+                        <span className={tx.paymentStatus === 'partial' ? 'inline-flex min-h-7 items-center rounded-full bg-amber-100 px-3 py-1 text-[11px] font-bold text-amber-950' : 'inline-flex min-h-7 items-center rounded-full bg-[#dcfce7] px-3 py-1 text-[11px] font-bold text-[#14532d]'}>{tx.paymentStatus === 'partial' ? 'Partiel' : 'Payé'}</span>
+                      </td>
                       <td className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center gap-2">
                           <button
                             onClick={() => onViewReceipt(tx)}
-                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-[#ff6500] hover:text-white text-slate-600 transition-colors"
+                            className="min-h-11 min-w-11 rounded-lg bg-slate-100 p-2 hover:bg-[#ff6500] hover:text-white text-slate-600 transition-colors"
                             title="Voir le reçu"
                           >
                             <Eye size={14} />
@@ -942,7 +945,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                             <button
                               onClick={() => void reclassifyCashPayment(tx)}
                               disabled={paymentCorrectionId === tx.id}
-                              className="rounded-lg bg-sky-50 px-2 py-1.5 text-[10px] font-bold text-sky-800 hover:bg-sky-100 disabled:opacity-50"
+                              className="min-h-11 rounded-lg bg-sky-50 px-3 py-2 text-[10px] font-bold text-sky-800 hover:bg-sky-100 disabled:opacity-50"
                               title="Corriger le mode de règlement après rapprochement Mobile Money"
                             >
                               {paymentCorrectionId === tx.id ? 'Correction…' : 'Corriger paiement'}
@@ -975,7 +978,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                                   : `Confirmer le remboursement de ${formatFCFA(amount)} vers le wallet d’origine ?`;
                                 if (window.confirm(confirmation)) void onRefundPayment(tx, amount, reason.trim());
                               }}
-                              className="rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] font-bold text-amber-800 hover:bg-amber-100"
+                              className="min-h-11 rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-800 hover:bg-amber-100"
                               title={tx.paymentMethod === 'especes' ? "Rembourser en espèces" : "Rembourser via PayDunya"}
                             >
                               Rembourser
@@ -989,9 +992,10 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </tbody>
             </table>
           </div>
+          <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">Les 100 derniers encaissements au maximum sont affichés.</p>
         </div>
       <section id="paydunya-settings" aria-label="Paramètres du compte PayDunya" className="rounded-2xl border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 text-sm font-black text-slate-900">5. ⚙️ Paramètres PayDunya</h2>
+        <h2 className="mb-3 text-sm font-black text-slate-900">Paramètres PayDunya</h2>
         <PayDunyaAccountSettings restaurantSlug={restaurantSlug} isOwner={isOwner} />
       </section>
             </div>
@@ -999,12 +1003,28 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <div hidden={activeCashSection !== 'control'} aria-label="Contrôle de caisse" className="space-y-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div><h2 className="text-base font-black text-[#101d2d]">3 · Contrôle</h2><p className="mt-1 text-xs text-slate-500">Écarts de comptage, clôtures journalières et rapports.</p></div>
-                <button type="button" onClick={() => { sounds.playTap(); setShowZReportModal(true); }} className="rounded-xl bg-[#101d2d] px-4 py-2.5 text-xs font-bold text-white"><FileText size={15} className="mr-2 inline"/>Consulter le rapport</button>
+                <button type="button" onClick={() => { sounds.playTap(); setShowZReportModal(true); }} className="min-h-11 rounded-xl bg-[#101d2d] px-4 py-2.5 text-xs font-bold text-white"><FileText size={15} className="mr-2 inline"/>Consulter le rapport</button>
               </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Écart session en cours</p><p className="mt-2 text-2xl font-extrabold text-[#101d2d]">{formatFCFA(closingCountInput === "" ? 0 : currentVariance)}</p></div>
+          <div className="rounded-2xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Sessions clôturées (3 jours)</p><p className="mt-2 text-2xl font-extrabold text-[#101d2d]">{recentClosedSessions.length}</p></div>
+          <div className="rounded-2xl border border-[#101d2d] bg-[#101d2d] p-4 text-white"><p className="text-xs font-semibold text-slate-200">Écarts à examiner</p><p className="mt-2 text-2xl font-extrabold">{recentVarianceCount + (cashSession && closingCountInput !== "" && currentVariance !== 0 ? 1 : 0)}</p></div>
+        </div>
+        <section aria-labelledby="cash-report-title" className="rounded-2xl border border-[#dbe3ee] bg-white p-5 shadow-2xs">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div><h3 id="cash-report-title" className="text-base font-extrabold text-[#101d2d]">Rapport des encaissements</h3><p className="mt-1 text-xs text-slate-600">Export CSV des opérations chargées sur la période sélectionnée.</p></div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-xs font-semibold text-slate-700">Du<input type="date" value={reportFrom} max={reportTo} onChange={(event) => setReportFrom(event.target.value)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm"/></label>
+              <label className="flex flex-col gap-1 text-xs font-semibold text-slate-700">Au<input type="date" value={reportTo} min={reportFrom} onChange={(event) => setReportTo(event.target.value)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm"/></label>
+              <button type="button" onClick={exportCollectionsCsv} className="min-h-11 rounded-lg bg-[#c2410c] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#9a3412]">Exporter en CSV</button>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">Le journal est limité aux 100 derniers encaissements chargés ; l’export respecte cette même limite.</p>
+        </section>
         <section id="revenue-calendar" aria-labelledby="revenue-calendar-title" className="rounded-2xl border border-orange-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 id="revenue-calendar-title" className="text-base font-black text-slate-900">2. 📅 Calendrier des recettes journalières</h2>
+              <h2 id="revenue-calendar-title" className="text-base font-black text-slate-900">Calendrier des recettes journalières</h2>
               <p className="mt-1 text-xs text-slate-500">Consultez la recette nette à une date précise et clôturez chaque journée terminée.</p>
             </div>
             <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
@@ -1023,8 +1043,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Dépenses suivies</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.expenseTotal || 0)}</p></div>
               <div className="rounded-xl border bg-slate-50 p-4"><p className="text-xs text-slate-500">Résultat après dépenses</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyRevenueReport.operatingResult || 0)}</p></div>
             </div>
-            {dailyRevenueClosure ? <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">🔒 Journée clôturée · {dailyRevenueClosure.closedAt ? new Date(dailyRevenueClosure.closedAt).toLocaleString('fr-FR') : 'Clôture enregistrée'} · {dailyRevenueClosure.closedByName || 'Responsable'}</p>
-              : selectedRevenueDate < new Date().toISOString().slice(0, 10) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">Journée terminée, en attente de clôture officielle.</p><button type="button" onClick={() => void closeSelectedRevenueDay()} disabled={dailyRevenueClosing} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{dailyRevenueClosing ? 'Clôture…' : '🔒 Clôturer cette journée'}</button></div>
+            {dailyRevenueClosure ? <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">Journée clôturée · {dailyRevenueClosure.closedAt ? new Date(dailyRevenueClosure.closedAt).toLocaleString('fr-FR') : 'Clôture enregistrée'} · {dailyRevenueClosure.closedByName || 'Responsable'}</p>
+              : selectedRevenueDate < new Date().toISOString().slice(0, 10) ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">Journée terminée, en attente de clôture officielle.</p><button type="button" onClick={() => void closeSelectedRevenueDay()} disabled={dailyRevenueClosing} className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{dailyRevenueClosing ? 'Clôture…' : 'Clôturer cette journée'}</button></div>
               : <p className="mt-3 text-xs text-slate-500">La clôture sera disponible après la fin de cette journée.</p>}
           </> : <p className="mt-4 text-sm text-slate-500">Aucune recette disponible pour cette date.</p>}
         </section>
@@ -1037,6 +1057,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
         />
             </div>
           </main>
+        </div>
+      </div>
       </div>
 
       {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
@@ -1055,7 +1077,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </div>
               <button
                 onClick={() => setShowZReportModal(false)}
-                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+                className="min-h-11 min-w-11 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
               >
                 ✕
               </button>
@@ -1108,13 +1130,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     sounds.playTap();
                     window.print();
                   }}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors"
+                  className="min-h-11 flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors"
                 >
                   Imprimer l’aperçu
                 </button>
                 <button
                   onClick={() => setShowZReportModal(false)}
-                  className="flex-1 py-2.5 bg-[#ff6500] hover:bg-[#e05800] text-white font-bold text-xs rounded-xl shadow-sm transition-colors"
+                  className="min-h-11 flex-1 py-2.5 bg-[#ff6500] hover:bg-[#e05800] text-white font-bold text-xs rounded-xl shadow-sm transition-colors"
                 >
                   Fermer l’aperçu
                 </button>

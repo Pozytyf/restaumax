@@ -52,11 +52,11 @@ assert(managerView.includes("transactions.filter((tx) => tx.paymentMethod === 'w
 assert(managerView.includes("transactions.filter((tx) => tx.paymentMethod === 'orange_money')"), 'Le journal calcule séparément les encaissements Orange Money.');
 assert(managerView.includes("transactions.filter((tx) => tx.paymentMethod === 'mtn_money')"), 'Le journal calcule séparément les encaissements MTN Money.');
 assert(managerView.includes("transactions.filter((tx) => tx.paymentMethod === 'moov_money')"), 'Le journal calcule séparément les encaissements Moov Money.');
-assert(managerView.includes('formatFCFA(channelSales.cash)'), 'Le journal affiche le montant des espèces en FCFA.');
-assert(managerView.includes('formatFCFA(channelSales.wave)'), 'Le journal affiche le montant Wave en FCFA.');
-assert(managerView.includes('formatFCFA(channelSales.orangeMoney)'), 'Le journal affiche le montant Orange Money en FCFA.');
-assert(managerView.includes('formatFCFA(channelSales.mtnMoney)'), 'Le journal affiche le montant MTN Money en FCFA.');
-assert(managerView.includes('formatFCFA(channelSales.moovMoney)'), 'Le journal affiche le montant Moov Money en FCFA.');
+assert(managerView.includes('formatFCFA(item.amount)') && managerView.includes('amount: channelSales.cash'), 'Le journal affiche le montant des espèces en FCFA.');
+assert(managerView.includes('amount: channelSales.wave'), 'Le journal affiche le montant Wave en FCFA.');
+assert(managerView.includes('amount: channelSales.orangeMoney'), 'Le journal affiche le montant Orange Money en FCFA.');
+assert(managerView.includes('amount: channelSales.mtnMoney'), 'Le journal affiche le montant MTN Money en FCFA.');
+assert(managerView.includes('channelSales.moovMoney + channelSales.other'), 'Le journal affiche le montant Moov Money en FCFA.');
 assert(modal.includes('|| cashPreferenceSaved'), 'Le client ne peut pas lancer PayDunya après avoir confirmé son choix espèces.');
 
 

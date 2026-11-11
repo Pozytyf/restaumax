@@ -30,13 +30,13 @@ async function run() {
     'Le module caisse reste accessible aux propriétaires et gérants autorisés même sans permission explicite redondante'
   );
   assert(
-    managerViewSource.includes('Solde théorique de caisse') &&
+    managerViewSource.includes('Solde théorique') &&
     managerViewSource.includes('formatFCFA(expectedCash)') &&
     managerViewSource.includes('cashRefunds'),
     'Le tiroir affiche le solde théorique recalculé depuis la session persistée, remboursements espèces déduits'
   );
   assert(
-    managerViewSource.includes('Fermer la session de caisse') &&
+    managerViewSource.includes('Clôturer la session') &&
     managerViewSource.includes('onCloseCashSession(amount)'),
     'Le responsable dispose d’une action visible de clôture avec comptage physique'
   );
