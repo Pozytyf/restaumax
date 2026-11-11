@@ -6,7 +6,7 @@ import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwner
 
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
-  'orders.cancel', 'payments.refund', 'tables.view', 'tables.manage', 'pos.access',
+  'orders.cancel', 'orders.clear_pending', 'payments.refund', 'tables.view', 'tables.manage', 'pos.access',
   'kitchen.access', 'cash.view', 'cash.manage', 'reports.view', 'reports.cash.view',
   'customers.view', 'customers.manage', 'inventory.view', 'inventory.manage',
   'staff.view', 'staff.manage', 'settings.view', 'settings.manage'
@@ -28,7 +28,7 @@ const ROLE_PERMISSION_CEILINGS: Record<RestaurantRole, readonly Permission[]> = 
     'orders.cancel', 'payments.refund', 'reports.cash.view'
   ],
   server: ['orders.view', 'tables.view', 'pos.access', 'orders.serve'],
-  kitchen: ['orders.view', 'kitchen.access']
+  kitchen: ['orders.view', 'kitchen.access', 'orders.clear_pending']
 };
 
 const ROLE_BASE_PERMISSIONS: Record<RestaurantRole, readonly Permission[]> = {
