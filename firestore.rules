@@ -88,7 +88,7 @@ service cloud.firestore {
         ]) ||
         (role == 'cashier' && permission in [
           'orders.view', 'tables.view', 'pos.access', 'cash.view', 'cash.manage',
-          'orders.cancel', 'orders.clear_pending', 'payments.refund', 'reports.cash.view'
+          'orders.cancel', 'payments.refund', 'reports.cash.view'
         ]) ||
         (role == 'server' && permission in [
           'orders.view', 'tables.view', 'pos.access', 'orders.serve', 'orders.cancel'
