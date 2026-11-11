@@ -82,6 +82,24 @@ kitchenDb.documents.set('managers/kitchen-1', {
   active: true, restaurantSlug: 'chez-awa', role: 'kitchen', permissions: ['kitchen.access'], sessionVersion: 3
 });
 assert.equal((await updateKitchenItemCompletionWithDb(kitchenDb, { ...params, actorUid: 'kitchen-1' })).success, true);
+const barDb = base();
+barDb.documents.get('restaurants/chez-awa/orders/order-1').items[1].category = 'boissons';
+barDb.documents.set('managers/bar-1', {
+  active: true, restaurantSlug: 'chez-awa', role: 'kitchen', permissions: ['bar.access'], sessionVersion: 3
+});
+const barAllowed = await updateKitchenItemCompletionWithDb(barDb, {
+  ...params, actorUid: 'bar-1', itemId: 'ki-order-1-1', itemIndex: 1
+});
+assert.equal(barAllowed.success, true, 'Bar access can update beverage lines');
+const barDeniedKitchenLine = await updateKitchenItemCompletionWithDb(barDb, {
+  ...params, actorUid: 'bar-1', itemId: 'ki-order-1-0', itemIndex: 0
+});
+assert.equal(barDeniedKitchenLine.success, false, 'Bar cannot update kitchen lines');
+const kitchenDeniedBarLine = await updateKitchenItemCompletionWithDb(kitchenDb, {
+  ...params, itemId: 'ki-order-1-1', itemIndex: 1
+});
+assert.equal(kitchenDeniedBarLine.success, false, 'Kitchen cannot update bar lines');
+
 
 const pendingDb = base();
 pendingDb.documents.set('restaurants/chez-awa/orders/order-1', {
