@@ -504,7 +504,6 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               <h2 id="cash-session-title" className="text-base font-black text-[#101d2d]">1. Session de caisse</h2>
               <p className="mt-1 text-xs text-slate-500">Fond initial, encaissements de la session et rapprochement physique</p>
             </div>
-            {cashSession && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">Session ouverte</span>}
           </div>
 
           {cashSession && <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3"><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900">Session ouverte</span><span className="text-xs font-medium text-emerald-950">Ouverte à {new Date(cashSession.openedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · {cashSession.openedByName || 'Responsable'}</span></div>}
@@ -535,7 +534,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                     <div className="grid grid-cols-2 gap-2">
                       <label className="text-xs font-bold text-slate-700">Type
                         <select value={movementTypeInput} onChange={(event) => setMovementTypeInput(event.target.value as 'expense' | 'withdrawal')}
-                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm">
+                          className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm">
                           <option value="expense">Dépense</option>
                           <option value="withdrawal">Retrait</option>
                         </select>
@@ -555,13 +554,13 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                         onChange={(event) => setMovementAmountInput(event.target.value)}
                         className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
                     </label>
-                    <label className="text-xs font-bold text-slate-700">Motif (facultatif)
-                      <input maxLength={200} value={movementNoteInput} onChange={(event) => setMovementNoteInput(event.target.value)}
-                        placeholder="Ex. achat de charbon"
+                    <label className="text-xs font-bold text-slate-700">Motif
+                      <input required maxLength={200} value={movementNoteInput} onChange={(event) => setMovementNoteInput(event.target.value)}
+                        placeholder="Ex. Achat de glace"
                         className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-3 text-sm"/>
                     </label>
                     <button type="submit" disabled={cashMovementActionLoading || movementAmountInput === ''}
-                      className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-800 disabled:opacity-50">
+                      className="min-h-11 rounded-lg border border-slate-300 bg-[#c2410c] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">
                       {cashMovementActionLoading ? 'Enregistrement…' : 'Enregistrer la sortie'}
                     </button>
                   </form>
@@ -931,7 +930,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                         <div className="flex items-center justify-center gap-2">
                           <button
                             onClick={() => onViewReceipt(tx)}
-                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-[#ff6500] hover:text-white text-slate-600 transition-colors"
+                            className="min-h-11 min-w-11 rounded-lg bg-slate-100 p-2 hover:bg-[#ff6500] hover:text-white text-slate-600 transition-colors"
                             title="Voir le reçu"
                           >
                             <Eye size={14} />
@@ -940,7 +939,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                             <button
                               onClick={() => void reclassifyCashPayment(tx)}
                               disabled={paymentCorrectionId === tx.id}
-                              className="rounded-lg bg-sky-50 px-2 py-1.5 text-[10px] font-bold text-sky-800 hover:bg-sky-100 disabled:opacity-50"
+                              className="min-h-11 rounded-lg bg-sky-50 px-3 py-2 text-[10px] font-bold text-sky-800 hover:bg-sky-100 disabled:opacity-50"
                               title="Corriger le mode de règlement après rapprochement Mobile Money"
                             >
                               {paymentCorrectionId === tx.id ? 'Correction…' : 'Corriger paiement'}
@@ -973,7 +972,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                                   : `Confirmer le remboursement de ${formatFCFA(amount)} vers le wallet d’origine ?`;
                                 if (window.confirm(confirmation)) void onRefundPayment(tx, amount, reason.trim());
                               }}
-                              className="rounded-lg bg-amber-50 px-2 py-1.5 text-[10px] font-bold text-amber-800 hover:bg-amber-100"
+                              className="min-h-11 rounded-lg bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-800 hover:bg-amber-100"
                               title={tx.paymentMethod === 'especes' ? "Rembourser en espèces" : "Rembourser via PayDunya"}
                             >
                               Rembourser
@@ -1072,7 +1071,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
               </div>
               <button
                 onClick={() => setShowZReportModal(false)}
-                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+                className="min-h-11 min-w-11 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
               >
                 ✕
               </button>
