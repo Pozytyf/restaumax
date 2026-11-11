@@ -167,6 +167,8 @@ export interface RestauOrder {
   /** Customer's requested settlement method; cash is only marked paid after staff records receipt. */
   paymentPreference?: 'especes' | 'mobile_money';
   paymentPreferenceSource?: 'customer_qr' | 'staff';
+  /** Active provider intent that must be reconciled before cancellation. */
+  pendingPayDunyaIntentId?: string;
   paymentPreferenceUpdatedAt?: number;
   splitGuests?: number;
   guestAccounts?: RestauGuestAccount[];
