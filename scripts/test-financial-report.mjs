@@ -6,6 +6,11 @@ const localNow = Date.UTC(2026, 10, 11, 9, 30, 0);
 const dailyRange = resolveFinancialReportRange(localNow, 30, 'daily');
 assert.equal(dailyRange.startAt, Date.UTC(2026, 10, 11, 0, 0, 0), 'Le point journalier commence à minuit UTC+0, heure de Côte d’Ivoire.');
 assert.equal(dailyRange.endAt, localNow, 'Le point journalier s’arrête à l’instant de calcul.');
+const selectedPastDay = resolveFinancialReportRange(localNow, 30, 'daily', '2026-11-10');
+assert.equal(selectedPastDay.startAt, Date.UTC(2026, 10, 10, 0, 0, 0), 'Le calendrier commence la journée choisie à minuit UTC+0.');
+assert.equal(selectedPastDay.endAt, Date.UTC(2026, 10, 11, 0, 0, 0) - 1, 'Une journée passée couvre les 24 heures calendaires complètes.');
+assert.throws(() => resolveFinancialReportRange(localNow, 30, 'daily', '2026-11-12'), /date future/i, 'Une date future est refusée.');
+assert.throws(() => resolveFinancialReportRange(localNow, 30, 'daily', '2026-02-30'), /Date de recette invalide/, 'Une date impossible est refusée.');
 const periodRange = resolveFinancialReportRange(localNow, 30, 'period');
 assert.equal(periodRange.startAt, localNow - 30 * 24 * 60 * 60 * 1000, 'Le rapport périodique conserve sa fenêtre glissante.');
 assert.throws(() => resolveFinancialReportRange(localNow, 0, 'daily'), /Période de rapport invalide/, 'Une période invalide est rejetée.');
@@ -95,7 +100,7 @@ const reportUiSource = fs.readFileSync(new URL('../src/components/restaumax/Rest
 const reportServiceSource = fs.readFileSync(new URL('../src/server/reportService.ts', import.meta.url), 'utf8');
 assert(reportApiSource.includes("['period', 'daily']") && reportApiSource.includes("reportType: reportType as 'period' | 'daily'"),
   'The authenticated reports API explicitly accepts separate daily and periodic modes.');
-assert(reportUiSource.includes('Point journalier indépendant') && reportUiSource.includes('reportType=daily') && reportUiSource.includes('periodDays=30&reportType=period'),
+assert(reportUiSource.includes('Calendrier des recettes journalières') && reportUiSource.includes('type=\"date\"') && reportUiSource.includes('reportType=daily') && reportUiSource.includes('periodDays=30&reportType=period'),
   'The reports screen loads the daily point separately from the rolling 30-day report.');
 assert(reportServiceSource.includes('linkedOrderIds') && reportServiceSource.includes('previous day'), 'Daily settlement reports include prior-day orders when their payment is made in the selected period.');
-console.log('Financial report calculation tests passed: 28 assertions.');
+console.log('Financial report calculation tests passed: 32 assertions.');
