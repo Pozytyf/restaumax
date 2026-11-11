@@ -6,6 +6,7 @@ import { OrderConfirmationModal } from './OrderConfirmationModal';
 import { formatFCFA } from '../../utils/format';
 import { calculateOrderTax } from '../../utils/pricing';
 import { sounds } from '../../utils/audio';
+import { mutateCustomerOrderWithServerValidation } from '../../lib/firebase';
 import { 
   Search, 
   MapPin, 
@@ -37,7 +38,7 @@ export interface ClientMenuViewProps {
   onUpdateQuantity: (cartItemId: string, delta: number) => void;
   onRemoveItem: (cartItemId: string) => void;
   onClearCart: () => void;
-  onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean }>;
+  onConfirmOrder?: (customerNote?: string, customer?: { name?: string; phone?: string }) => Promise<{ success: boolean; error?: string; order?: RestauOrder; isReplay?: boolean; customerAccessToken?: string }>;
   pendingCustomerNote?: string;
   pendingCustomerName?: string;
   pendingCustomerPhone?: string;
@@ -132,6 +133,7 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
   const [quantityByDish, setQuantityByDish] = useState<Record<string, number>>({});
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [confirmedOrder, setConfirmedOrder] = useState<RestauOrder | null>(null);
+  const [confirmedOrderAccessToken, setConfirmedOrderAccessToken] = useState<string | null>(null);
 
   // Filtered menu items (only available dishes are displayed and searchable)
   const filteredItems = useMemo(() => {
@@ -483,6 +485,10 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
           if (res.success && res.order) {
             setIsCartOpen(false);
             setConfirmedOrder(res.order);
+            setConfirmedOrderAccessToken(res.customerAccessToken || null);
+            if (res.customerAccessToken && typeof window !== 'undefined') {
+              try { window.sessionStorage.setItem(`restaumax-order-access:${res.order.id}`, res.customerAccessToken); } catch { /* storage may be unavailable */ }
+            }
             sounds.playSuccess();
           }
           return res;
@@ -493,6 +499,20 @@ export const ClientMenuView: React.FC<ClientMenuViewProps> = ({
       <OrderConfirmationModal
         order={confirmedOrder}
         restaurantName={restaurant.name}
+        customerAccessToken={confirmedOrderAccessToken}
+        onCustomerOrderMutation={async (mutation) => {
+          if (!confirmedOrder || !confirmedOrderAccessToken) return { success: false, error: 'Lien sécurisé de suivi indisponible.' };
+          const result = await mutateCustomerOrderWithServerValidation({ restaurantSlug: restaurant.slug, orderId: confirmedOrder.id, accessToken: confirmedOrderAccessToken, ...mutation });
+          if (result.success && mutation.action === 'cancel') setConfirmedOrder({ ...confirmedOrder, status: 'cancelled' });
+          if (result.success && mutation.action === 'edit' && mutation.items) {
+            const nextItems = mutation.items.map(change => {
+              const original = confirmedOrder.items.find(item => item.id === change.id)!;
+              return { ...original, quantity: change.quantity, totalPrice: original.unitPrice * change.quantity, prepNotes: change.prepNotes };
+            });
+            setConfirmedOrder({ ...confirmedOrder, items: nextItems, itemsCount: nextItems.reduce((sum, item) => sum + item.quantity, 0), totalAmount: result.totalAmount ?? confirmedOrder.totalAmount });
+          }
+          return result;
+        }}
         onStartPayDunyaPayment={onStartPayDunyaPayment}
         onSelectCashPayment={onSelectCashPayment}
         onClose={() => setConfirmedOrder(null)}
