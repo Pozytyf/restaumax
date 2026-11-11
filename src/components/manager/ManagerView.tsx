@@ -28,6 +28,7 @@ interface CashSessionSummary {
   cashCollected: number;
   paymentCount: number;
   cashOut: number;
+  cashRefunds?: number;
   cashMovementCount: number;
   cashMovements?: Array<{
     id: string;
@@ -231,6 +232,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   const channelPercent = (amount: number) => drawerState.totalSales > 0
     ? Math.round((amount / drawerState.totalSales) * 100)
     : 0;
+  const cashRefunds = Number(cashSession?.cashRefunds || 0);
+  const otherCashOut = Math.max(0, Number(cashSession?.cashOut || 0) - cashRefunds);
+  const expectedCash = Number(cashSession?.openingBalance || 0) + Number(cashSession?.cashCollected || 0) - otherCashOut - cashRefunds;
 
   return (
     <div className="flex-1 flex flex-col h-[calc(100vh-60px)] overflow-y-auto bg-[#f4f7fb] p-4 lg:p-8">
@@ -279,9 +283,9 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.openingBalance)}</p>
                 </div>
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                  <p className="text-xs font-semibold text-emerald-800">Fond de caisse disponible</p>
-                  <p className="mt-1 text-lg font-black text-emerald-950">{formatFCFA(cashSession.openingBalance + cashSession.cashCollected - cashSession.cashOut)}</p>
-                  <p className="mt-1 text-[10px] text-emerald-800">Fond initial + espèces encaissées − sorties</p>
+                  <p className="text-xs font-semibold text-emerald-800">Solde théorique de caisse</p>
+                  <p className="mt-1 text-lg font-black text-emerald-950">{formatFCFA(expectedCash)}</p>
+                  <p className="mt-1 text-[10px] text-emerald-800">Fond initial + espèces encaissées − sorties − remboursements espèces</p>
                 </div>
                 <div className="rounded-xl bg-slate-50 p-4">
                   <p className="text-xs font-semibold text-slate-500">Espèces encaissées</p>
@@ -296,9 +300,14 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                   <p className="mt-1 text-lg font-black">{cashSession.paymentCount}</p>
                 </div>
                 <div className="rounded-xl bg-slate-50 p-4">
-                  <p className="text-xs font-semibold text-slate-500">Sorties de caisse</p>
-                  <p className="mt-1 text-lg font-black">{formatFCFA(cashSession.cashOut)}</p>
+                  <p className="text-xs font-semibold text-slate-500">Sorties hors remboursements</p>
+                  <p className="mt-1 text-lg font-black">{formatFCFA(otherCashOut)}</p>
                   <p className="text-[10px] text-slate-500">{cashSession.cashMovementCount} mouvement(s)</p>
+                </div>
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
+                  <p className="text-xs font-semibold text-rose-800">Remboursements espèces</p>
+                  <p className="mt-1 text-lg font-black text-rose-900">-{formatFCFA(cashRefunds)}</p>
+                  <p className="text-[10px] text-rose-700">{Number(cashSession.refundCount || 0)} remboursement(s) tracé(s)</p>
                 </div>
               </div>
               <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
