@@ -1616,7 +1616,7 @@ export default function App() {
     );
   };
 
-  const handleUpdateTicketStatus = async (ticketId: string, status: TicketStatus): Promise<boolean> => {
+  const handleUpdateTicketStatus = async (ticketId: string, status: TicketStatus, cancellationReason?: string): Promise<boolean> => {
     const canManageOrders = isRestaurantOwner || userPermissions.includes('orders.manage');
     const canCancelOrders = canManageOrders || userPermissions.includes('orders.cancel');
     const canMarkServed = canManageOrders || userPermissions.includes('orders.serve');
@@ -1644,7 +1644,7 @@ export default function App() {
         if (status === 'ready' && currentOrder?.status === 'pending') {
           await updateOrderStatus(activeRestaurantSlug, rawOrderId, 'in_prep');
         }
-        await updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus);
+        await updateOrderStatus(activeRestaurantSlug, rawOrderId, firestoreStatus, cancellationReason);
       } catch (err) {
         console.warn('Erreur mise à jour statut commande Firestore depuis KDS:', err);
         window.alert(err instanceof Error && err.message ? err.message : "La mise à jour a été refusée. Vérifiez les droits du compte et réessayez.");
