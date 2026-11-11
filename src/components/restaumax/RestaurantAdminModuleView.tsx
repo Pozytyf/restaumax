@@ -56,6 +56,7 @@ export const RestaurantAdminModuleView: React.FC<{
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [orders, setOrders] = useState<RestauOrder[]>([]);
   const [financialReport, setFinancialReport] = useState<FinancialReport | null>(null);
+  const [dailyReport, setDailyReport] = useState<FinancialReport | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportRefreshKey, setReportRefreshKey] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -112,13 +113,23 @@ export const RestaurantAdminModuleView: React.FC<{
           const user = auth.currentUser;
           if (!user) throw new Error('Connexion requise pour consulter les rapports.');
           const token = await user.getIdToken(true);
-          const response = await fetch('/api/reports?restaurantSlug=' + encodeURIComponent(restaurant.slug) + '&periodDays=30', {
-            headers: { Authorization: 'Bearer ' + token },
-            credentials: 'same-origin', cache: 'no-store'
-          });
-          const data = await response.json();
-          if (!response.ok || !data.success) throw new Error(data.error || 'Chargement des rapports impossible.');
-          if (active) setFinancialReport(data.report as FinancialReport);
+          const requestReport = async (queryString: string) => {
+            const response = await fetch('/api/reports?restaurantSlug=' + encodeURIComponent(restaurant.slug) + '&' + queryString, {
+              headers: { Authorization: 'Bearer ' + token },
+              credentials: 'same-origin', cache: 'no-store'
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Chargement des rapports impossible.');
+            return data.report as FinancialReport;
+          };
+          const [periodReport, todayReport] = await Promise.all([
+            requestReport('periodDays=30&reportType=period'),
+            requestReport('reportType=daily')
+          ]);
+          if (active) {
+            setFinancialReport(periodReport);
+            setDailyReport(todayReport);
+          }
         } catch (e) {
           if (active) setError(e instanceof Error ? e.message : 'Chargement des rapports impossible.');
         } finally {
@@ -434,8 +445,25 @@ export const RestaurantAdminModuleView: React.FC<{
       </>}
       
       {module === 'reports' && <>
+        <section className="rounded-2xl border border-orange-200 bg-orange-50/50 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-black text-slate-900">Point journalier indépendant</h2>
+              <p className="mt-1 text-xs text-slate-600">Journée calendaire de Côte d’Ivoire (00:00 à maintenant, UTC+0) · indépendant du rapport périodique</p>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-700">{dailyReport ? new Date(dailyReport.period.startAt).toLocaleDateString('fr-FR') : 'Aujourd’hui'}</span>
+          </div>
+          {dailyReport ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">Encaissements nets du jour</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyReport.grossCollected)}</p></div>
+              <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">Commandes réglées</p><p className="mt-1 text-xl font-black">{dailyReport.paidOrderCount}</p></div>
+              <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">Dépenses suivies</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyReport.expenseTotal)}</p></div>
+              <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">Résultat après dépenses suivies</p><p className="mt-1 text-xl font-black">{formatFCFA(dailyReport.operatingResult)}</p></div>
+            </div>
+          ) : <p className="mt-3 text-sm text-slate-500">{reportLoading ? 'Calcul du point journalier…' : 'Aucune donnée journalière disponible.'}</p>}
+        </section>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-slate-500">Période : {financialReport ? new Date(financialReport.period.startAt).toLocaleDateString('fr-FR') + ' – ' + new Date(financialReport.period.endAt).toLocaleDateString('fr-FR') : '30 derniers jours'}</p>
+          <p className="text-xs text-slate-500">Rapport périodique · Période : {financialReport ? new Date(financialReport.period.startAt).toLocaleDateString('fr-FR') + ' – ' + new Date(financialReport.period.endAt).toLocaleDateString('fr-FR') : '30 derniers jours'}</p>
           <button type="button" onClick={()=>setReportRefreshKey(value=>value+1)} disabled={reportLoading} className="rounded-lg border px-3 py-2 text-xs font-bold">{reportLoading ? 'Actualisation…' : 'Actualiser les rapports'}</button>
         </div>
         {financialReport && <>
