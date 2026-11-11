@@ -39,6 +39,9 @@ interface PosViewProps {
   onOpenPayment: () => void;
   serverName: string;
   unpaidOrders: RestauOrder[];
+  pendingOrders?: RestauOrder[];
+  canManagePendingOrders?: boolean;
+  onCancelPendingOrder?: (order: RestauOrder, action: 'cancel' | 'remove') => void;
   onCollectOrder: (order: RestauOrder) => void;
   alreadyPaidAmount?: number;
   isExistingOrder?: boolean;
@@ -78,6 +81,9 @@ export const PosView: React.FC<PosViewProps> = ({
   onOpenPayment,
   serverName,
   unpaidOrders,
+  pendingOrders = [],
+  canManagePendingOrders = false,
+  onCancelPendingOrder,
   onCollectOrder,
   alreadyPaidAmount = 0,
   isExistingOrder = false,
@@ -178,6 +184,38 @@ export const PosView: React.FC<PosViewProps> = ({
             })}
           </div>
         </div>
+
+        {canManagePendingOrders && pendingOrders.length > 0 && (
+          <section aria-label="Tickets en attente de validation" className="shrink-0 border-b border-rose-200 bg-rose-50 px-4 py-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-black uppercase tracking-wide text-rose-950">Tickets en attente de validation</span>
+              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900">{pendingOrders.length}</span>
+              <span className="text-[10px] text-rose-800">Commandes non acceptées, non réglées et sans paiement Mobile Money en cours.</span>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {pendingOrders.map((order) => (
+                <article key={order.id} className="min-w-[245px] rounded-xl border border-rose-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <strong className="text-xs text-slate-900">{order.orderNumber}</strong>
+                    <span className="text-[9px] font-bold uppercase text-rose-700">En attente</span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-600">{order.tableNumber ? `Table ${order.tableNumber}` : 'À emporter'} · {new Date(order.createdAt).toLocaleString('fr-FR')}</p>
+                  <p className="mt-1 text-sm font-black text-slate-900">{formatFCFA(order.totalAmount)}</p>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={() => onCancelPendingOrder?.(order, 'cancel')}
+                      className="flex-1 rounded-lg bg-rose-700 px-2 py-2 text-[10px] font-bold text-white hover:bg-rose-800">
+                      Annuler
+                    </button>
+                    <button type="button" onClick={() => onCancelPendingOrder?.(order, 'remove')}
+                      className="flex-1 rounded-lg border border-slate-300 bg-white px-2 py-2 text-[10px] font-bold text-slate-700 hover:bg-slate-50">
+                      Retirer du POS
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
 
         {unpaidOrders.length > 0 && (
           <div className="shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-2.5">
