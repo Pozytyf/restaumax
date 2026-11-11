@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 /**
  * RESTAUMAX — SERVEUR BACKEND SÉCURISÉ & PASSERELLE API RESTAUMAX
  *
@@ -46,6 +46,7 @@ import { getRestaurantFinancialReportWithDb } from './src/server/reportService.j
 import { sanitizePublicMenuItem } from './src/server/publicMenu.js';
 import { runSubscriptionBillingCycleWithDb } from './src/server/subscriptionBillingService.js';
 import { updateKitchenItemCompletionWithDb } from './src/server/kitchenService.js';
+import { mutateCustomerOrderWithDb } from './src/server/customerOrderService.ts';
 import { transitionOrderStatusWithDb } from './src/server/orderLifecycleService.js';
 import { consumePublicOrderRateLimit } from './src/server/orderRateLimit.ts';
 import { verifyPublicOrderAppCheck } from './src/server/appCheckGuard.js';
@@ -55,7 +56,8 @@ import { manageInventoryWithDb } from './src/server/inventoryService.js';
 import { adjustCustomerLoyaltyPointsWithDb, createCustomerWithDb } from './src/server/loyaltyService.js';
 import { createTableWithDb } from './src/server/tableService.js';
 import { 
-  processOrderSubmission, 
+  processOrderSubmission,
+  deriveIdempotencyIdentifiers,
   ServerFirestoreProvider,
   ServerIdempotencyRecord,
   OrderProbeResult,
@@ -1840,11 +1842,24 @@ export async function handleOrderSubmission(payload: unknown, req?: any): Promis
       input.tableNumber = null;
       delete input.tableSession;
     }
+    const accessSecret = String(process.env.ORDER_CUSTOMER_ACCESS_SECRET || process.env.ORDER_RATE_LIMIT_SECRET || process.env.CRON_SECRET || '');
+    const customerAccessEnabled = accessSecret.length >= 32 && typeof input.idempotencyKey === 'string' && input.idempotencyKey.length > 0;
+    if (customerAccessEnabled) {
+      const identifiers = deriveIdempotencyIdentifiers(String(input.restaurantSlug || ''), input.idempotencyKey);
+      const token = createHmac('sha256', accessSecret).update(`${input.restaurantSlug}:${identifiers.orderId}`).digest('hex');
+      input.customerAccessTokenHash = createHash('sha256').update(token).digest('hex');
+    }
     const result = await processOrderSubmission(input, serverFirestoreProvider);
     if (result.success) {
       const safeOrder = result.order ? { ...result.order } as any : undefined;
-      if (safeOrder) delete safeOrder.tableSession;
-      return { statusCode: 200, body: { ...result, order: safeOrder } };
+      if (safeOrder) {
+        delete safeOrder.tableSession;
+        delete safeOrder.customerAccessTokenHash;
+      }
+      const customerAccessToken = customerAccessEnabled && result.order?.id
+        ? createHmac('sha256', accessSecret).update(`${input.restaurantSlug}:${result.order.id}`).digest('hex')
+        : undefined;
+      return { statusCode: 200, body: { ...result, order: safeOrder, ...(customerAccessToken ? { customerAccessToken } : {}) } };
     }
     if (result.conflict) return { statusCode: 409, body: result };
     return { statusCode: result.retryable ? 503 : 400, body: result };
