@@ -47,6 +47,10 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
       const member = memberSnap.exists ? memberSnap.data() : null;
       const order = orderSnap.exists ? orderSnap.data() : null;
+      const pendingIntentId = String(order?.pendingPayDunyaIntentId || '');
+      const pendingIntentRef = pendingIntentId ? restaurantRef.collection('paymentIntents').doc(pendingIntentId) : null;
+      const pendingIntentSnap = pendingIntentRef ? await tx.get(pendingIntentRef) : null;
+      const pendingIntent = pendingIntentSnap?.exists ? pendingIntentSnap.data() : null;
       const ownerUid = await getRestaurantOwnerUid(db, restaurantSlug, tx, restaurant);
 
       if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false) {
@@ -81,9 +85,18 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         return { success: false, error: 'Seuls les tickets encore en attente de validation peuvent être annulés ou retirés du POS.' };
       }
       if (targetStatus === 'cancelled' && (
-        Number(order.paidAmount || 0) > 0 || ['partial', 'paid'].includes(String(order.paymentStatus || '')) || Boolean(order.pendingPayDunyaIntentId)
+        Number(order.paidAmount || 0) > 0 || ['partial', 'paid'].includes(String(order.paymentStatus || ''))
       )) {
-        return { success: false, error: 'Cette commande comporte un règlement effectué ou un paiement Mobile Money en cours. Effectuez le rapprochement ou le remboursement avant toute annulation.' };
+        return { success: false, error: 'Cette commande comporte déjà un règlement. Effectuez le rapprochement ou le remboursement avant toute annulation.' };
+      }
+      const cancelUnknownPayDunyaIntent = targetStatus === 'cancelled' && Boolean(pendingIntentId);
+      if (cancelUnknownPayDunyaIntent && (
+        !pendingIntentSnap?.exists || pendingIntent.orderId !== orderId ||
+        Number(pendingIntent.amount) !== Number(order.pendingPayDunyaAmount) ||
+        pendingIntent.status !== 'creation_unknown' || Boolean(pendingIntent.invoiceToken) ||
+        Number(order.paidAmount || 0) !== 0 || ['partial', 'paid'].includes(String(order.paymentStatus || ''))
+      )) {
+        return { success: false, error: 'Cette intention PayDunya n’est pas annulable automatiquement. Vérifiez son statut dans le compte marchand avant toute annulation.' };
       }
 
       if (order.status === targetStatus) return { success: true, idempotentReplay: true, status: targetStatus };
@@ -407,6 +420,19 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
         orderUpdate.cancellationReason = cancellationReason;
         orderUpdate.cancelledAt = now;
         orderUpdate.cancelledBy = actorUid;
+        if (cancelUnknownPayDunyaIntent && pendingIntentRef) {
+          orderUpdate.payDunyaIntentIdForReconciliation = pendingIntentId;
+          orderUpdate.payDunyaReconciliationRequired = true;
+          orderUpdate.pendingPayDunyaIntentId = null;
+          orderUpdate.pendingPayDunyaAmount = null;
+          tx.update(pendingIntentRef, {
+            status: 'order_cancelled_pending_manual_reconciliation',
+            orderCancelledAt: now,
+            orderCancelledBy: actorUid,
+            orderCancellationReason: cancellationReason,
+            updatedAt: now
+          });
+        }
         if (params.pendingOnly === true && params.removalAction === true) {
           orderUpdate.removedFromPosAt = now;
           orderUpdate.removedFromPosBy = actorUid;
@@ -429,6 +455,7 @@ export async function transitionOrderStatusWithDb(db: any, params: OrderLifecycl
           event: params.pendingOnly === true && params.removalAction === true ? 'order.removed_from_pos' : 'order.cancelled', orderId, orderNumber: String(order.orderNumber || orderId),
           restaurantSlug, previousStatus: order.status, status: 'cancelled',
           reason: cancellationReason, actorUid, actorRole: member.role,
+          ...(cancelUnknownPayDunyaIntent ? { paymentIntentId: pendingIntentId, paymentReconciliationRequired: true } : {}),
           createdAt: now, stockRestored: Boolean(order.stockTrackingStatus === 'restored' || menuRestockUpdates.length || (consumption && !consumption.restoredAt))
         });
       }
