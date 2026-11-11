@@ -2187,7 +2187,7 @@ export async function handleOrderStatusRequest(payload: unknown, req?: any): Pro
         (targetStatus === 'cancelled' && cancellationReason.length < 3)) {
       return { statusCode: 400, body: { success: false, error: 'Restaurant ou commande invalide.' } };
     }
-    const result = await transitionOrderStatusWithDb(adminDb, { restaurantSlug, orderId, targetStatus, cancellationReason, actorUid: decoded.uid, sessionVersion: Number(decoded.sessionVersion || 0) });
+    const result = await transitionOrderStatusWithDb(adminDb, { restaurantSlug, orderId, targetStatus, cancellationReason, pendingOnly: input.pendingOnly === true, removalAction: input.removalAction === true, actorUid: decoded.uid, sessionVersion: Number(decoded.sessionVersion || 0) });
     if (result.success) return { statusCode: 200, body: result };
     const errorMessage = 'error' in result ? String(result.error || '') : '';
     return { statusCode: /Transition refusée|règlement effectué|paiement Mobile Money en cours/.test(errorMessage) ? 409 : 403, body: result };
