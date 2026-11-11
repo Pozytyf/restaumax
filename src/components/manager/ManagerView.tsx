@@ -882,12 +882,11 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </table>
           </div>
         </div>
-      </div>
-
       <section id="paydunya-settings" aria-label="Paramètres du compte PayDunya" className="rounded-2xl border border-slate-200 bg-white p-4">
         <h2 className="mb-3 text-sm font-black text-slate-900">5. ⚙️ Paramètres PayDunya</h2>
         <PayDunyaAccountSettings restaurantSlug={restaurantSlug} isOwner={isOwner} />
       </section>
+      </div>
 
       {/* Aperçu des encaissements — ne constitue pas une clôture officielle */}
       {showZReportModal && (
