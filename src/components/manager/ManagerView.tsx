@@ -486,20 +486,21 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             <span className="rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-950">Données du restaurant · FCFA</span>
           </div>
         </header>
-        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <aside className="rounded-2xl border border-[#dbe3ee] bg-white p-3 shadow-2xs">
-            <nav aria-label="Sous-sections Supervision et Caisse" className="flex flex-col gap-2">
-              <button type="button" aria-current={activeCashSection === "session" ? "page" : undefined} onClick={() => setActiveCashSection("session")} className={"min-h-16 w-full rounded-xl p-3 text-left transition-colors " + (activeCashSection === "session" ? "bg-[#101d2d] text-white" : "bg-white text-[#101d2d] hover:bg-slate-50")}>
-                <span className="block text-sm font-extrabold">1 · Session de caisse</span><span className={"mt-1 block text-xs " + (activeCashSection === "session" ? "text-slate-200" : "text-slate-600")}>Ouverture, sorties, clôture avec comptage</span>
-              </button>
-              <button type="button" aria-current={activeCashSection === "collections" ? "page" : undefined} onClick={() => setActiveCashSection("collections")} className={"min-h-16 w-full rounded-xl p-3 text-left transition-colors " + (activeCashSection === "collections" ? "bg-[#101d2d] text-white" : "bg-white text-[#101d2d] hover:bg-slate-50")}>
-                <span className="block text-sm font-extrabold">2 · Encaissements</span><span className={"mt-1 block text-xs " + (activeCashSection === "collections" ? "text-slate-200" : "text-slate-600")}>Journal des règlements, répartition par canal</span>
-              </button>
-              <button type="button" aria-current={activeCashSection === "control" ? "page" : undefined} onClick={() => setActiveCashSection("control")} className={"min-h-16 w-full rounded-xl p-3 text-left transition-colors " + (activeCashSection === "control" ? "bg-[#101d2d] text-white" : "bg-white text-[#101d2d] hover:bg-slate-50")}>
-                <span className="block text-sm font-extrabold">3 · Contrôle</span><span className={"mt-1 block text-xs " + (activeCashSection === "control" ? "text-slate-200" : "text-slate-600")}>Écarts, sessions clôturées (Z), rapports</span>
-              </button>
-            </nav>
-          </aside>
+        <div className="space-y-4">
+          <nav aria-label="Sous-sections Supervision et Caisse" className="flex w-full gap-2 overflow-x-auto rounded-2xl border border-[#dbe3ee] bg-white p-2 shadow-2xs">
+            <button type="button" aria-current={activeCashSection === "session" ? "page" : undefined} onClick={() => setActiveCashSection("session")} className={"min-h-14 min-w-[190px] flex-1 rounded-xl px-4 py-2.5 text-left transition-colors sm:min-w-0 " + (activeCashSection === "session" ? "bg-[#101d2d] text-white shadow-sm" : "bg-white text-[#101d2d] hover:bg-slate-50")}>
+              <span className="block text-sm font-extrabold">1 · Session de caisse</span>
+              <span className={"mt-1 block text-xs " + (activeCashSection === "session" ? "text-slate-200" : "text-slate-600")}>Ouverture, sorties et clôture</span>
+            </button>
+            <button type="button" aria-current={activeCashSection === "collections" ? "page" : undefined} onClick={() => setActiveCashSection("collections")} className={"min-h-14 min-w-[190px] flex-1 rounded-xl px-4 py-2.5 text-left transition-colors sm:min-w-0 " + (activeCashSection === "collections" ? "bg-[#101d2d] text-white shadow-sm" : "bg-white text-[#101d2d] hover:bg-slate-50")}>
+              <span className="block text-sm font-extrabold">2 · Encaissements</span>
+              <span className={"mt-1 block text-xs " + (activeCashSection === "collections" ? "text-slate-200" : "text-slate-600")}>Journal et modes de règlement</span>
+            </button>
+            <button type="button" aria-current={activeCashSection === "control" ? "page" : undefined} onClick={() => setActiveCashSection("control")} className={"min-h-14 min-w-[190px] flex-1 rounded-xl px-4 py-2.5 text-left transition-colors sm:min-w-0 " + (activeCashSection === "control" ? "bg-[#101d2d] text-white shadow-sm" : "bg-white text-[#101d2d] hover:bg-slate-50")}>
+              <span className="block text-sm font-extrabold">3 · Contrôle</span>
+              <span className={"mt-1 block text-xs " + (activeCashSection === "control" ? "text-slate-200" : "text-slate-600")}>Écarts, clôtures et rapports</span>
+            </button>
+          </nav>
         <main className="min-w-0 space-y-5">
             <div hidden={activeCashSection !== 'session'} aria-label="Session de caisse" className="space-y-5">
         <section id="cash-session" aria-labelledby="cash-session-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs">
