@@ -76,7 +76,7 @@ assert(managerView.includes("hidden={activeCashSection !== 'session'}") &&
   managerView.includes("hidden={activeCashSection !== 'control'}"),
   'the three cash supervision sections switch without removing their underlying data or permission checks');
 assert(managerView.includes('Écarts de comptage, clôtures journalières et rapports') &&
-  managerView.includes('Journal des Transactions Récentes') && managerView.includes('Clôture de la session'),
+  managerView.includes('Journal des Transactions Récentes') && managerView.includes('Clôturer la session et rapprocher'),
   'cash supervision groups session, collections and control content by purpose');
 assert(posView.includes('Tickets en attente de validation') && posView.includes("onCancelPendingOrder?.(order, 'cancel')") &&
   posView.includes("onCancelPendingOrder?.(order, 'remove')"), 'POS exposes cancel and logical removal actions for pending tickets');
