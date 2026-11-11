@@ -985,7 +985,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
           <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">Les 100 derniers encaissements au maximum sont affichés.</p>
         </div>
       <section id="paydunya-settings" aria-label="Paramètres du compte PayDunya" className="rounded-2xl border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 text-sm font-black text-slate-900">5. ⚙️ Paramètres PayDunya</h2>
+        <h2 className="mb-3 text-sm font-black text-slate-900">Paramètres PayDunya</h2>
         <PayDunyaAccountSettings restaurantSlug={restaurantSlug} isOwner={isOwner} />
       </section>
             </div>
@@ -995,10 +995,26 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
                 <div><h2 className="text-base font-black text-[#101d2d]">3 · Contrôle</h2><p className="mt-1 text-xs text-slate-500">Écarts de comptage, clôtures journalières et rapports.</p></div>
                 <button type="button" onClick={() => { sounds.playTap(); setShowZReportModal(true); }} className="rounded-xl bg-[#101d2d] px-4 py-2.5 text-xs font-bold text-white"><FileText size={15} className="mr-2 inline"/>Consulter le rapport</button>
               </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Écart session en cours</p><p className="mt-2 text-2xl font-extrabold text-[#101d2d]">{formatFCFA(closingCountInput === "" ? 0 : currentVariance)}</p></div>
+          <div className="rounded-2xl border border-[#dbe3ee] bg-white p-4"><p className="text-xs font-semibold text-slate-600">Sessions clôturées (3 jours)</p><p className="mt-2 text-2xl font-extrabold text-[#101d2d]">{recentClosedSessions.length}</p></div>
+          <div className="rounded-2xl border border-[#101d2d] bg-[#101d2d] p-4 text-white"><p className="text-xs font-semibold text-slate-200">Écarts à examiner</p><p className="mt-2 text-2xl font-extrabold">{recentVarianceCount + (cashSession && closingCountInput !== "" && currentVariance !== 0 ? 1 : 0)}</p></div>
+        </div>
+        <section aria-labelledby="cash-report-title" className="rounded-2xl border border-[#dbe3ee] bg-white p-5 shadow-2xs">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div><h3 id="cash-report-title" className="text-base font-extrabold text-[#101d2d]">Rapport des encaissements</h3><p className="mt-1 text-xs text-slate-600">Export CSV des opérations chargées sur la période sélectionnée.</p></div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-xs font-semibold text-slate-700">Du<input type="date" value={reportFrom} max={reportTo} onChange={(event) => setReportFrom(event.target.value)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm"/></label>
+              <label className="flex flex-col gap-1 text-xs font-semibold text-slate-700">Au<input type="date" value={reportTo} min={reportFrom} onChange={(event) => setReportTo(event.target.value)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm"/></label>
+              <button type="button" onClick={exportCollectionsCsv} className="min-h-11 rounded-lg bg-[#c2410c] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#9a3412]">Exporter en CSV</button>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">Le journal est limité aux 100 derniers encaissements chargés ; l’export respecte cette même limite.</p>
+        </section>
         <section id="revenue-calendar" aria-labelledby="revenue-calendar-title" className="rounded-2xl border border-orange-200 bg-white p-5 shadow-2xs">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 id="revenue-calendar-title" className="text-base font-black text-slate-900">2. 📅 Calendrier des recettes journalières</h2>
+              <h2 id="revenue-calendar-title" className="text-base font-black text-slate-900">Calendrier des recettes journalières</h2>
               <p className="mt-1 text-xs text-slate-500">Consultez la recette nette à une date précise et clôturez chaque journée terminée.</p>
             </div>
             <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
