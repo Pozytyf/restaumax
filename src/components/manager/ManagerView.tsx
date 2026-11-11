@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { CashDrawerState, PaymentRecord } from '../../types/pos';
 import { formatFCFA } from '../../utils/format';
 import { sounds } from '../../utils/audio';
 import { PayDunyaAccountSettings } from './PayDunyaAccountSettings';
 import { ClosedCashSessionsHistory } from './ClosedCashSessionsHistory';
-import { auth, listClosedCashSessionsWithServerValidation, type CashSessionApiRecord } from '../../lib/firebase';
+import { auth, db, listClosedCashSessionsWithServerValidation, type CashSessionApiRecord } from '../../lib/firebase';
+import type { RestauOrder } from '../../types/restaumax';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -66,6 +68,7 @@ interface ManagerViewProps {
   cashMovementActionLoading: boolean;
   canManageCash: boolean;
   canRefundPayments: boolean;
+  canCancelOrders: boolean;
   onOpenCashSession: (openingBalance: number) => Promise<void>;
   onCloseCashSession: (closingCount: number) => Promise<void>;
   onRecordCashMovement: (movementType: 'expense' | 'withdrawal', amount: number, category: string, note: string) => Promise<void>;
@@ -84,6 +87,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   cashMovementActionLoading,
   canManageCash,
   canRefundPayments,
+  canCancelOrders,
   onOpenCashSession,
   onCloseCashSession,
   onRecordCashMovement,
@@ -98,6 +102,8 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   const [movementCategoryInput, setMovementCategoryInput] = useState('achats');
   const [movementNoteInput, setMovementNoteInput] = useState('');
 
+  const [activeOrders, setActiveOrders] = useState<RestauOrder[]>([]);
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
   const [payDunyaIntents, setPayDunyaIntents] = useState<PayDunyaIntentSummary[]>([]);
   const [payDunyaLoading, setPayDunyaLoading] = useState(false);
   const [payDunyaActionId, setPayDunyaActionId] = useState<string | null>(null);
@@ -124,6 +130,44 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
       setClosedSessionsLoading(false);
     }
   }, [restaurantSlug]);
+
+  useEffect(() => {
+    if (!restaurantSlug) return;
+    const ordersQuery = query(
+      collection(db, 'restaurants', restaurantSlug, 'orders'),
+      orderBy('createdAt', 'desc'),
+      limit(100)
+    );
+    return onSnapshot(ordersQuery, snapshot => {
+      setActiveOrders(snapshot.docs.map(document => ({ ...document.data(), id: document.id } as RestauOrder))
+        .filter(order => ['pending', 'in_prep', 'ready'].includes(order.status)));
+    }, error => console.warn('Erreur chargement des commandes actives de caisse:', error));
+  }, [restaurantSlug]);
+
+  const cancelActiveOrder = async (order: RestauOrder) => {
+    const reason = window.prompt('Motif obligatoire de l’annulation (3 à 300 caractères) :');
+    if (reason === null) return;
+    if (reason.trim().length < 3) { window.alert('Veuillez saisir un motif de trois caractères minimum.'); return; }
+    if (!window.confirm('Confirmer l’annulation logique de cette commande ? Le journal et les stocks seront mis à jour.')) return;
+    const user = auth.currentUser;
+    if (!user) { window.alert('Connexion requise.'); return; }
+    setCancellingOrderId(order.id);
+    try {
+      const token = await user.getIdToken(true);
+      const response = await fetch('/api/order-status', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        credentials: 'same-origin', cache: 'no-store',
+        body: JSON.stringify({ restaurantSlug, orderId: order.id, status: 'cancelled', cancellationReason: reason.trim() })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) window.alert(data.error || 'Annulation refusée.');
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Impossible d’annuler cette commande.');
+    } finally {
+      setCancellingOrderId(null);
+    }
+  };
 
   const loadPayDunyaIntents = useCallback(async () => {
     const user = auth.currentUser;
@@ -412,6 +456,33 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
             </div>
           )}
         </section>
+
+        {canCancelOrders && (
+          <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-2xs">
+            <div className="mb-3">
+              <h2 className="text-sm font-black text-slate-900">Commandes actives · Annulation contrôlée</h2>
+              <p className="mt-1 text-xs text-slate-500">Annulation logique avec motif, journal d’audit et restitution transactionnelle des stocks si nécessaire. Les commandes réglées ou avec un paiement PayDunya en cours sont protégées.</p>
+            </div>
+            {activeOrders.filter(order => Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || '')) && !order.pendingPayDunyaIntentId).length === 0 ? (
+              <p className="text-xs text-slate-500">Aucune commande active et non réglée à annuler.</p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {activeOrders.filter(order => Number(order.paidAmount || 0) === 0 && !['partial', 'paid'].includes(String(order.paymentStatus || '')) && !order.pendingPayDunyaIntentId).map(order => (
+                  <div key={order.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-black text-slate-800">{order.orderNumber || order.id} · {formatFCFA(order.totalAmount)}</p>
+                      <p className="mt-1 text-[10px] text-slate-500">{order.status === 'pending' ? 'En attente' : order.status === 'in_prep' ? 'En préparation' : 'Prête'} · {order.itemsCount} article(s) · {new Date(order.createdAt).toLocaleString('fr-FR')}</p>
+                    </div>
+                    <button type="button" onClick={() => void cancelActiveOrder(order)} disabled={cancellingOrderId === order.id}
+                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-800 disabled:opacity-50">
+                      {cancellingOrderId === order.id ? 'Annulation…' : 'Annuler la commande'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* 4 Primary Operational KPIs */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
