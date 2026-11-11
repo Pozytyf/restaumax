@@ -30,6 +30,9 @@ assert(kds.includes("filterKitchenTicketItems(ticket.items, stationMode === 'bar
 assert(kds.includes("t.status === 'pending' || t.status === 'in_prep' || t.status === 'ready'"));
 assert(kds.includes("onUpdateTicketStatus(ticket.id, 'cancelled', reason.trim())"));
 assert(kds.includes("stationMode === 'bar' ? 'Écran Bar en Direct' : 'Écran KDS Cuisine en Direct'"));
+assert(kds.includes('Vider le ticket'));
+assert(kds.includes('Motif obligatoire pour annuler le ticket'));
+assert(kds.includes("stationMode === 'bar' ? [{ id: 'bar', label: 'Bar' }]"));
 assert(!kds.includes("e.key === 'Tab'"));
 assert(kds.includes("target?.closest('input, textarea, select, button, a, [role=\"button\"], [contenteditable=\"true\"]')"));
 assert(kds.includes('ticket.items.every(item => item.completed)'));
