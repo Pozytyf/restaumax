@@ -22,7 +22,7 @@ interface OrderConfirmationModalProps {
   onStartPayDunyaPayment?: (order: RestauOrder, channel: 'orange-money-ci' | 'wave-ci' | 'mtn-ci' | 'moov-ci' | 'djamo-ci', amount: number) => Promise<void>;
   onSelectCashPayment?: (order: RestauOrder) => Promise<{ success: boolean; error?: string }>;
   customerAccessToken?: string | null;
-  onCustomerOrderMutation?: (mutation: { action: 'get' | 'cancel' | 'edit'; reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }> }) => Promise<{ success: boolean; error?: string; totalAmount?: number; itemsCount?: number; order?: RestauOrder }>;
+  onCustomerOrderMutation?: (mutation: { action: 'get' | 'cancel' | 'edit'; reason?: string; items?: Array<{ id: string; quantity: number; prepNotes?: string }> }) => Promise<{ success: boolean; error?: string; subtotalAmount?: number; taxAmount?: number; totalAmount?: number; itemsCount?: number; order?: RestauOrder }>;
 }
 
 export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
@@ -107,7 +107,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
           </span>
 
           <h2 id="order-confirmed-title" className="text-xl sm:text-2xl font-black tracking-tight text-white mt-1">
-            Votre commande est en cuisine !
+            {order.status === 'cancelled' ? 'Commande annulée' : order.status === 'completed' ? 'Commande servie' : order.status === 'ready' ? 'Commande prête' : order.status === 'in_prep' ? 'Votre commande est en préparation' : 'Commande confirmée'}
           </h2>
 
           <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 border border-white/10 text-white font-mono text-sm sm:text-base font-black">
@@ -146,6 +146,7 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
               <div className="font-extrabold text-xs sm:text-sm text-amber-700 flex items-center gap-1.5">
                 <ChefHat size={15} className="text-amber-600" />
                 <span>{order.status === 'pending' ? 'En attente' : order.status === 'in_prep' ? 'En préparation' : order.status === 'ready' ? 'Prête' : order.status === 'completed' ? 'Servie' : 'Annulée'}</span>
+                {order.statusUpdatedAt && <span className="block text-[10px] font-semibold text-slate-500 mt-1">Mis à jour le {new Date(order.statusUpdatedAt).toLocaleString('fr-FR')}</span>}
               </div>
             </div>
           </div>
@@ -355,12 +356,12 @@ export const OrderConfirmationModal: React.FC<OrderConfirmationModalProps> = ({
           )}
 
           {/* Info callout */}
-          <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 flex items-start gap-2.5">
+          {order.status !== 'cancelled' && order.status !== 'completed' && <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 flex items-start gap-2.5">
             <Sparkles size={16} className="text-emerald-600 shrink-0 mt-0.5" />
             <div className="leading-relaxed">
               <span className="font-bold text-emerald-900">Préparation en cours :</span> L'équipe de {restaurantName} a reçu votre ticket. Installez-vous confortablement, le service sera assuré dès que vos plats seront prêts.
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Footer Actions */}
