@@ -321,4 +321,39 @@ assert(client.includes("fetch('/api/order-status'"), 'the browser uses the trust
 assert(rules.includes('allow update: if false;'), 'direct client order updates are disabled');
 assert(managerUi.includes('Commandes actives · Annulation contrôlée') && managerUi.includes("status: 'cancelled'") && managerUi.includes('cancellationReason'), 'The cash panel exposes reasoned logical cancellation for active orders.');
 assert(appSource.includes('canCancelOrders={isRestaurantOwner || userPermissions.includes(\'orders.cancel\')}'), 'The cancellation action is gated by the owner or the dedicated order permission.');
+
+const posPendingRemoveDb = base('pending', 10, false);
+const posPendingRemove = await transitionOrderStatusWithDb(posPendingRemoveDb, {
+  ...params, targetStatus: 'cancelled', cancellationReason: 'Ticket saisi par erreur',
+  pendingOnly: true, removalAction: true
+});
+assert.equal(posPendingRemove.success, true, 'The owner can logically remove an unvalidated POS ticket');
+const removedPosOrder = posPendingRemoveDb.documents.get('restaurants/chez-awa/orders/order-1');
+assert.equal(removedPosOrder.status, 'cancelled');
+assert.equal(removedPosOrder.removedFromPosBy, 'owner-1');
+assert.equal(removedPosOrder.removedFromPosReason, 'Ticket saisi par erreur');
+assert.ok([...posPendingRemoveDb.documents.entries()].some(([path, value]) =>
+  path.startsWith('restaurants/chez-awa/orderAudit/') && value.event === 'order.removed_from_pos'),
+  'Removing a POS ticket creates a dedicated audit event');
+assert.ok(posPendingRemoveDb.documents.has('restaurants/chez-awa/orders/order-1'),
+  'Removing a POS ticket never physically deletes the order');
+
+const posPreparedRemoveDb = base('in_prep', 10, false);
+const posPreparedRemove = await transitionOrderStatusWithDb(posPreparedRemoveDb, {
+  ...params, targetStatus: 'cancelled', cancellationReason: 'Retrait POS',
+  pendingOnly: true, removalAction: true
+});
+assert.equal(posPreparedRemove.success, false, 'POS-only removal is rejected after preparation has started');
+assert.equal(posPreparedRemoveDb.documents.get('restaurants/chez-awa/orders/order-1').status, 'in_prep');
+
+const posManagerRemoveDb = base('pending', 10, false);
+posManagerRemoveDb.documents.set('managers/manager-1', {
+  active: true, restaurantSlug: 'chez-awa', role: 'manager', permissions: ['orders.manage'], sessionVersion: 4
+});
+const posManagerRemove = await transitionOrderStatusWithDb(posManagerRemoveDb, {
+  ...params, actorUid: 'manager-1', targetStatus: 'cancelled', cancellationReason: 'Doublon de ticket',
+  pendingOnly: true, removalAction: false
+});
+assert.equal(posManagerRemove.success, true, 'A manager with orders.manage can cancel an unvalidated POS ticket');
+
 console.log('Order lifecycle stock consumption/restoration tests passed.');
