@@ -2094,8 +2094,8 @@ export default function App() {
                 restaurantSlug={activeRestaurantSlug}
                 restaurantName={restaurant.name || 'Chez Awa'}
                 onNavigateToRole={(role) => setCurrentRole(role)}
-                canAccessPos={isRestaurantOwner || userPermissions.includes('pos.access')}
-                canAccessKitchen={isRestaurantOwner || userPermissions.includes('kitchen.access')}
+                canAccessPos={userPermissions.includes('pos.access')}
+                canAccessKitchen={userPermissions.includes('kitchen.access')}
                 isOwner={isRestaurantOwner}
                 drawerState={drawerState}
                 transactions={transactions}
