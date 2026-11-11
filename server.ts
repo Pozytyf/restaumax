@@ -1908,8 +1908,10 @@ export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<
 
 export async function handleRestaurantReportsRequest(req?: any): Promise<{ statusCode: number; body: any }> {
   if (!adminDb || !adminAuth) return { statusCode: 503, body: { success: false, error: 'Service de rapports indisponible.' } };
-  if (String(req?.method || '').toUpperCase() !== 'GET') return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
+  const method = String(req?.method || '').toUpperCase();
+  if (!['GET', 'POST'].includes(method)) return { statusCode: 405, body: { success: false, error: 'Méthode non autorisée.' } };
   if (!req) return { statusCode: 400, body: { success: false, error: 'Requête invalide.' } };
+  if (method === 'POST' && !requestHasValidOrigin(req)) return { statusCode: 403, body: { success: false, error: 'Origine de requête non autorisée.' } };
   try {
     const authorization = String(req.headers?.authorization || '');
     const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
@@ -1938,6 +1940,48 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     const canViewReports = isOwner || permissions.includes('reports.view');
     if (!canViewReports) return { statusCode: 403, body: { success: false, error: 'Votre rôle ne permet pas de consulter les rapports.' } };
     const includeCashDetails = isOwner || permissions.includes('reports.cash.view');
+    const restaurantRef = adminDb.collection('restaurants').doc(restaurantSlug);
+    if (method === 'POST') {
+      const input = req.body && typeof req.body === 'object' ? req.body : {};
+      const date = String(input.date || '');
+      if (!(isOwner || member.role === 'manager')) {
+        return { statusCode: 403, body: { success: false, error: 'Seul le propriétaire ou le gérant peut clôturer la recette journalière.' } };
+      }
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) {
+        return { statusCode: 400, body: { success: false, error: 'Date de clôture invalide.' } };
+      }
+      const now = Date.now();
+      const today = new Date(now).toISOString().slice(0, 10);
+      if (date >= today) {
+        return { statusCode: 409, body: { success: false, error: 'La clôture officielle est réservée à une journée terminée.' } };
+      }
+      const { startAt, endAt } = resolveFinancialReportRange(now, 30, 'daily', date);
+      const activeSessions = await restaurantRef.collection('cashSessions')
+        .where('openedAt', '>=', startAt).where('openedAt', '<=', endAt)
+        .where('status', '==', 'active').limit(1).get();
+      if (!activeSessions.empty) {
+        return { statusCode: 409, body: { success: false, error: 'Clôture impossible : une session de caisse de cette journée est encore ouverte.' } };
+      }
+      const report = await getRestaurantFinancialReportWithDb(adminDb, restaurantSlug, {
+        reportType: 'daily', date, includeCashDetails
+      });
+      const closureRef = restaurantRef.collection('dailyRevenueClosures').doc(date);
+      const closure = {
+        restaurantSlug, date, status: 'closed', report,
+        reportHash: createHash('sha256').update(JSON.stringify(report)).digest('hex'),
+        closedAt: now, closedByUid: decoded.uid,
+        closedByName: String(decoded.name || decoded.email || decoded.uid),
+        closedByRole: String(member.role || '')
+      };
+      const created = await adminDb.runTransaction(async (tx: any) => {
+        const existing = await tx.get(closureRef);
+        if (existing.exists) return false;
+        tx.create(closureRef, closure);
+        return true;
+      });
+      if (!created) return { statusCode: 409, body: { success: false, error: 'Cette journée a déjà été clôturée. La clôture initiale est conservée.' } };
+      return { statusCode: 200, body: { success: true, closure } };
+    }
     const periodDays = Number(req.query?.periodDays || 30);
     const reportType = String(req.query?.reportType || 'period');
     if (!['period', 'daily'].includes(reportType)) {
@@ -1948,7 +1992,13 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
       periodDays, includeCashDetails, reportType: reportType as 'period' | 'daily',
       ...(selectedDate ? { date: selectedDate } : {})
     });
-    return { statusCode: 200, body: { success: true, report } };
+    const closureSnap = reportType === 'daily' && selectedDate
+      ? await restaurantRef.collection('dailyRevenueClosures').doc(selectedDate).get()
+      : null;
+    return { statusCode: 200, body: {
+      success: true, report,
+      closure: closureSnap?.exists ? { id: closureSnap.id, ...closureSnap.data() } : null
+    } };
   } catch (error: any) {
     const message = String(error?.message || '');
     if (/auth|token|revoked|expired/i.test(message)) return { statusCode: 401, body: { success: false, error: 'Session du personnel invalide. Reconnectez-vous.' } };
@@ -2239,6 +2289,14 @@ app.get('/api/subscriptions/billing-cycle', async (req, res) => {
 });
 
 app.get('/api/reports', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  const result = await handleRestaurantReportsRequest(req);
+  return res.status(result.statusCode).json(result.body);
+});
+
+app.post('/api/reports', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Content-Type-Options', 'nosniff');
