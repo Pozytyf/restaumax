@@ -29,6 +29,7 @@ interface CashSessionSummary {
   paymentCount: number;
   cashOut: number;
   cashRefunds?: number;
+  refundCount?: number;
   cashMovementCount: number;
   cashMovements?: Array<{
     id: string;
