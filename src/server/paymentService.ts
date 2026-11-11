@@ -827,3 +827,164 @@ export async function refundCashPaymentWithDb(db: any, input: RefundPaymentInput
     return { success: true, idempotentReplay: false, payment: refund };
   });
 }
+
+
+export interface ReclassifyCashPaymentInput {
+  restaurantSlug: string;
+  paymentId: string;
+  actorUid: string;
+  actorName?: string;
+  sessionVersion: number;
+  provider: 'orange_money' | 'wave' | 'mtn' | 'moov' | 'djamo';
+  transactionReference: string;
+  reason: string;
+  verificationNote: string;
+  idempotencyKey: string;
+}
+
+/**
+ * Reclassifies an already-recorded cash payment without creating a second
+ * payment or changing the order's paid amount. The cash drawer and Mobile
+ * Money totals are adjusted atomically and an immutable audit event is kept.
+ * A closed session can only be corrected by the verified owner or a manager
+ * explicitly granted payments.reclassify.
+ */
+export async function reclassifyCashPaymentWithDb(db: any, input: ReclassifyCashPaymentInput): Promise<CashPaymentResult> {
+  if (!db) return { success: false, error: 'Firestore indisponible.' };
+  const slug = String(input.restaurantSlug || '').trim();
+  const paymentId = String(input.paymentId || '').trim();
+  const actorUid = String(input.actorUid || '').trim();
+  const provider = input.provider;
+  const reference = String(input.transactionReference || '').trim();
+  const reason = String(input.reason || '').trim();
+  const verificationNote = String(input.verificationNote || '').trim();
+  const key = String(input.idempotencyKey || '').trim();
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) ||
+      !/^[a-zA-Z0-9_-]{1,128}$/.test(paymentId) || !actorUid ||
+      !['orange_money', 'wave', 'mtn', 'moov', 'djamo'].includes(provider) ||
+      !/^[A-Za-z0-9_-]{6,100}$/.test(reference) ||
+      reason.length < 8 || reason.length > 300 ||
+      verificationNote.length < 8 || verificationNote.length > 500 ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(key)) {
+    return { success: false, error: 'Opérateur, référence, motif, preuve de rapprochement ou clé de correction invalide.' };
+  }
+
+  const namespace = `${slug}::${paymentId}::${key}`;
+  const correctionId = `reclass_${sha256(namespace).slice(0, 32)}`;
+  const signature = sha256(JSON.stringify({ slug, paymentId, provider, reference, reason, verificationNote }));
+  const restaurantRef = db.collection('restaurants').doc(slug);
+  const memberRef = db.collection('managers').doc(actorUid);
+  const paymentRef = restaurantRef.collection('payments').doc(paymentId);
+  const correctionRef = restaurantRef.collection('paymentReclassifications').doc(correctionId);
+  const idempotencyRef = db.collection('payment_reclassification_idempotency').doc(correctionId);
+  const referenceQuery = restaurantRef.collection('payments')
+    .where('mobileMoneyProvider', '==', provider)
+    .where('mobileMoneyReference', '==', reference)
+    .limit(2);
+
+  return db.runTransaction(async (tx: any) => {
+    const [restaurantSnap, memberSnap, paymentSnap, correctionSnap, idempotencySnap, duplicateRefs] = await Promise.all([
+      tx.get(restaurantRef), tx.get(memberRef), tx.get(paymentRef),
+      tx.get(correctionRef), tx.get(idempotencyRef), tx.get(referenceQuery)
+    ]);
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
+    const member = memberSnap.exists ? memberSnap.data() : null;
+    const payment = paymentSnap.exists ? paymentSnap.data() : null;
+    const ownerUid = await getRestaurantOwnerUid(db, slug, tx, restaurant);
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt || restaurant.isActive === false ||
+        !member || member.active !== true || member.restaurantSlug !== slug ||
+        Number(input.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return { success: false, error: 'Compte inactif, session révoquée ou accès au restaurant refusé.' };
+    }
+    const isOwner = member.role === 'owner' && ownerUid === actorUid;
+    const hasReclassifyPermission = member.role === 'manager' &&
+      Array.isArray(member.permissions) && member.permissions.includes('payments.reclassify');
+    const hasCashPermission = ['manager', 'cashier'].includes(member.role) &&
+      Array.isArray(member.permissions) && member.permissions.includes('cash.manage');
+    if (!isOwner && !hasReclassifyPermission && !hasCashPermission) {
+      return { success: false, error: 'Permission de correction de paiement refusée.' };
+    }
+
+    if (idempotencySnap.exists || correctionSnap.exists) {
+      const previous = idempotencySnap.data() || correctionSnap.data();
+      if (previous.signature !== signature || previous.actorUid !== actorUid || previous.paymentId !== paymentId) {
+        return { success: false, conflict: true, error: 'Clé de correction déjà utilisée pour une autre opération.' };
+      }
+      if (!paymentSnap.exists) return { success: false, conflict: true, error: 'Paiement introuvable après correction.' };
+      return { success: true, idempotentReplay: true, payment: paymentSnap.data() };
+    }
+    if (!payment || payment.restaurantSlug !== slug || payment.id !== paymentId ||
+        !['cash', 'especes'].includes(String(payment.method || '').toLowerCase())) {
+      return { success: false, conflict: true, error: 'Seul un paiement espèces existant peut être reclassé.' };
+    }
+    if (duplicateRefs.docs.some((doc: any) => doc.id !== paymentId)) {
+      return { success: false, conflict: true, error: 'Cette référence Mobile Money est déjà rattachée à un autre paiement.' };
+    }
+    const amount = Number(payment.paidAmount || 0);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || payment.refundStatus || Number(payment.refundedAmount || 0) > 0) {
+      return { success: false, conflict: true, error: 'Paiement remboursé ou montant incohérent : correction refusée.' };
+    }
+    const sessionId = String(payment.cashSessionId || '');
+    if (!sessionId) return { success: false, conflict: true, error: 'Session de caisse d’origine introuvable.' };
+    const cashSessionRef = restaurantRef.collection('cashSessions').doc(sessionId);
+    const cashSessionSnap = await tx.get(cashSessionRef);
+    const cashSession = cashSessionSnap.exists ? cashSessionSnap.data() : null;
+    if (!cashSession || !['active', 'closed'].includes(String(cashSession.status || ''))) {
+      return { success: false, conflict: true, error: 'Session de caisse d’origine absente ou invalide.' };
+    }
+    if (cashSession.status === 'closed' && !isOwner && !hasReclassifyPermission) {
+      return { success: false, error: 'Une correction après clôture exige le propriétaire ou un manager autorisé (payments.reclassify).' };
+    }
+    if (cashSession.status === 'active' && !isOwner && !hasCashPermission) {
+      return { success: false, error: 'Permission cash.manage requise pour corriger une session ouverte.' };
+    }
+    const cashCollected = Number(cashSession.cashCollected || 0);
+    if (!Number.isSafeInteger(cashCollected) || cashCollected < amount) {
+      return { success: false, conflict: true, error: 'Le cumul espèces de la session ne permet pas cette correction.' };
+    }
+    const now = Date.now();
+    const correctedPayment = {
+      ...payment,
+      method: 'mobile_money',
+      mobileMoneyProvider: provider,
+      mobileMoneyReference: reference,
+      reclassifiedFrom: 'especes',
+      reclassifiedAt: now,
+      reclassifiedByUid: actorUid,
+      reclassifiedByName: String(input.actorName || actorUid),
+      reclassificationReason: reason,
+      reclassificationVerificationNote: verificationNote,
+      reclassificationId: correctionId
+    };
+    const updatedSession: Record<string, any> = {
+      cashCollected: cashCollected - amount,
+      mobileMoneyCollected: Number(cashSession.mobileMoneyCollected || 0) + amount,
+      paymentMethodCorrectionCount: Number(cashSession.paymentMethodCorrectionCount || 0) + 1,
+      lastPaymentCorrectionAt: now
+    };
+    if (cashSession.status === 'closed') {
+      const expectedCash = Number(cashSession.openingBalance || 0) +
+        updatedSession.cashCollected - Number(cashSession.cashOut || 0);
+      updatedSession.expectedCash = expectedCash;
+      updatedSession.variance = Number(cashSession.closingCount || 0) - expectedCash;
+    }
+    const correction = {
+      id: correctionId, restaurantSlug: slug, paymentId,
+      orderId: String(payment.orderId || ''),
+      amount, currency: payment.currency || 'FCFA',
+      fromMethod: 'especes', toMethod: 'mobile_money',
+      provider, transactionReference: reference,
+      reason, verificationNote,
+      actorUid, actorName: String(input.actorName || actorUid),
+      actorRole: member.role, cashSessionId: sessionId,
+      previousCashCollected: cashCollected,
+      newCashCollected: updatedSession.cashCollected,
+      createdAt: now, signature
+    };
+    tx.update(paymentRef, correctedPayment);
+    tx.update(cashSessionRef, updatedSession);
+    tx.create(correctionRef, correction);
+    tx.create(idempotencyRef, { signature, actorUid, paymentId, correctionId, createdAt: now });
+    return { success: true, payment: correctedPayment, idempotentReplay: false };
+  });
+}
