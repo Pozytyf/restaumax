@@ -230,7 +230,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     const member = existingMembership;
     const slug = String(member?.restaurantSlug || '').trim();
     if (!member || member.active !== true || !slug ||
-        !['owner', 'manager', 'cashier', 'server', 'kitchen'].includes(String(member.role || '')) ||
+        !['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(String(member.role || '')) ||
         Number(user.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
       return json(res, 403, { success: false, error: 'Compte restaurant actif requis pour accéder au support.' });
     }
