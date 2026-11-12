@@ -17,8 +17,8 @@ assert(rules.includes('return exists(restaurantPath) &&'),
   'Firestore denies access when the restaurant parent document is absent');
 assert(rules.includes("return plan == ''\n        ? feature == 'kitchenScreen'"),
   'Firestore applies the same limited legacy feature baseline');
-assert(rules.includes("featureMap.get(feature, plan == 'Pro' || (plan == 'Essentiel' && feature == 'kitchenScreen')) == true"),
-  'unknown Firestore plan names do not inherit Pro features');
+assert(rules.includes("featureMap.get(feature, plan == 'Pro' || feature == 'kitchenScreen') == true"),
+  'unmapped Firestore plans retain only the kitchen baseline and do not inherit premium features');
 
 const staffStart = admin.indexOf("if (action === 'staff_list' && ['full', 'support'].includes");
 const staffEnd = admin.indexOf('// Owner and authorized manager staff administration', staffStart);
