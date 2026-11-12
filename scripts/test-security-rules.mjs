@@ -321,6 +321,12 @@ try {
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-provisioning/table_sessions/session-1'),{status:'active'}), 'Un client ne peut pas créer une session QR dans un restaurant provisioning');
   await denies(getDoc(table(a('manager-a'),'rest-suspended')), 'Un restaurant suspendu ne permet aucun accès opérationnel');
 
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'restaurants/rest-a/menuItems/dish-1'), {
+      id: 'dish-1', restaurantSlug: 'rest-a', name: 'Plat A',
+      category: 'entrees', price: 1000, available: true
+    });
+  });
   await allows(updateDoc(doc(a('owner-a'),'restaurants/rest-a/menuItems/dish-1'), { price: 1050 }), 'Le propriétaire peut modifier son menu avant la maintenance');
   await env.withSecurityRulesDisabled(async context => {
     await setDoc(doc(context.firestore(), 'platform_config/global'), { maintenanceMode: true }, { merge: true });
