@@ -375,7 +375,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (['overview', 'billing_list', 'audit_list', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'support_list', 'support_messages', 'support_create', 'support_update', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
+    if (['overview', 'billing_list', 'audit_list', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_staff_status', 'platform_staff_revoke_sessions', 'support_list', 'support_messages', 'support_create', 'support_update', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
       const platformRole = await getPlatformAdminRole(db, user);
       if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
@@ -495,6 +495,82 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           actorUid: user.uid, createdAt: now
         });
         return json(res, 200, { success: true, uid, active, requiresReauthentication: true });
+      }
+
+      if (action === 'platform_staff_status' || action === 'platform_staff_revoke_sessions') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(body.slug || '').trim();
+        const uid = String(body.uid || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !uid || uid === user.uid) {
+          return json(res, 400, { success: false, error: 'Restaurant ou compte cible invalide.' });
+        }
+        const restaurantRef = db.collection('restaurants').doc(slug);
+        const memberRef = db.collection('managers').doc(uid);
+        const staffRef = restaurantRef.collection('staff').doc(uid);
+        const [restaurantSnap, memberSnap, staffSnap] = await Promise.all([
+          restaurantRef.get(), memberRef.get(), staffRef.get()
+        ]);
+        if (!restaurantSnap.exists || !memberSnap.exists || !staffSnap.exists) {
+          return json(res, 404, { success: false, error: 'Compte rattaché introuvable.' });
+        }
+        const member = memberSnap.data() || {};
+        const staff = staffSnap.data() || {};
+        if (member.restaurantSlug !== slug || staff.restaurantSlug !== slug ||
+            member.role !== staff.role || !['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(String(member.role))) {
+          return json(res, 409, { success: false, error: 'Les liens de compte ne concordent pas. Aucune modification appliquée.' });
+        }
+        const auth = getAuth();
+        const authUser = await auth.getUser(uid);
+        const nextVersion = Math.max(Number(member.sessionVersion || 0), Number(staff.sessionVersion || 0)) + 1;
+        const now = Date.now();
+        const nextActive = action === 'platform_staff_status' ? body.active === true : member.active === true;
+        const claims = { ...(authUser.customClaims || {}), role: String(member.role), restaurantSlug: slug, sessionVersion: nextVersion };
+        await auth.setCustomUserClaims(uid, claims);
+        if (action === 'platform_staff_status') await auth.updateUser(uid, { disabled: !nextActive });
+        await auth.revokeRefreshTokens(uid);
+
+        if (member.role === 'server' && !nextActive) {
+          const assigned = await restaurantRef.collection('tables').where('assignedWaiter', '==', uid).get();
+          for (let offset = 0; offset < assigned.docs.length; offset += 400) {
+            const batch = db.batch();
+            assigned.docs.slice(offset, offset + 400).forEach((doc: any) => batch.set(doc.ref, {
+              assignedWaiter: null, assignedWaiterName: null,
+              assignmentUpdatedAt: now, assignmentUpdatedBy: user.uid
+            }, { merge: true }));
+            await batch.commit();
+          }
+          for (const tableDoc of assigned.docs) {
+            const tableNumber = String(tableDoc.data()?.tableNumber || '').trim();
+            if (!tableNumber) continue;
+            const orders = await restaurantRef.collection('orders').where('tableNumber', '==', tableNumber).get();
+            const activeOrders = orders.docs.filter((doc: any) => ['pending', 'in_prep', 'ready'].includes(String(doc.data()?.status || '')));
+            for (let offset = 0; offset < activeOrders.length; offset += 400) {
+              const batch = db.batch();
+              activeOrders.slice(offset, offset + 400).forEach((doc: any) => batch.update(doc.ref, {
+                assignedWaiterUid: null, waiterAssignmentUpdatedAt: now, waiterAssignmentUpdatedBy: user.uid
+              }));
+              await batch.commit();
+            }
+          }
+        }
+
+        const batch = db.batch();
+        const patch = {
+          ...(action === 'platform_staff_status' ? { active: nextActive, status: nextActive ? 'active' : 'suspended' } : {}),
+          sessionVersion: nextVersion, updatedAt: now, updatedBy: user.uid
+        };
+        batch.set(memberRef, patch, { merge: true });
+        batch.set(staffRef, patch, { merge: true });
+        batch.create(db.collection('admin_audit_logs').doc(), {
+          action: action === 'platform_staff_status' ? (nextActive ? 'reactivate_restaurant_account' : 'suspend_restaurant_account') : 'revoke_restaurant_account_sessions',
+          restaurantSlug: slug, targetUid: uid, targetRole: String(member.role),
+          actorUid: user.uid, createdAt: now, serverAssignmentsReleased: member.role === 'server' && !nextActive
+        });
+        await batch.commit();
+        return json(res, 200, {
+          success: true, uid, active: nextActive, sessionVersion: nextVersion,
+          sessionsRevoked: true, requiresReauthentication: action === 'platform_staff_revoke_sessions' || nextActive
+        });
       }
 
       if (action === 'support_list') {
@@ -1166,8 +1242,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           sources: ['restaurants.owner'], emailValues: ownerEmail ? [ownerEmail] : []
         });
       }
-      const accounts = [...byUid.values()].map(({ emailValues, ...account }) => ({
-        ...account, readOnly: true
+      const accounts = await Promise.all([...byUid.values()].map(async ({ emailValues, ...account }) => {
+        try {
+          const authUser = await getAuth().getUser(account.uid);
+          const authActive = authUser.disabled !== true;
+          return { ...account, active: account.activeKnown ? account.active && authActive : authActive, activeKnown: true, accountLinked: true, readOnly: false };
+        } catch {
+          return { ...account, active: false, activeKnown: false, accountLinked: false, readOnly: true };
+        }
       }));
       return json(res, 200, {
         success: true, actorRole: 'super_admin', restaurant: {
