@@ -1,3 +1,4 @@
+# Temporary branch-scoped validation enablement for the dish form Preview
 name: RestauMax CI
 
 on:
