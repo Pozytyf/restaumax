@@ -1620,7 +1620,9 @@ export default function App() {
     setIsPaymentModalOpen(true);
   };
 
-  const activeTicketsCount = kitchenTickets.filter((t) => t.status === 'in_prep' || t.status === 'ready').length;
+  const activeTicketsCount = restauOrders.filter((order) =>
+    order.status === 'pending' || order.status === 'in_prep' || order.status === 'ready'
+  ).length;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f4f7fb] text-[#181c1f]">
