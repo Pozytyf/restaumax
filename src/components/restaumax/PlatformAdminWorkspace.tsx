@@ -69,14 +69,14 @@ type Props = {
 };
 
 const NAV = [
-  { id: 'overview', label: 'Vue d’ensemble', status: 'Partiel', icon: LayoutDashboard },
+  { id: 'overview', label: 'Vue d’ensemble', status: 'Existant', icon: LayoutDashboard },
   { id: 'restaurants', label: 'Restaurants', status: 'Existant', icon: Building2 },
-  { id: 'billing', label: 'Abonnements et factures', status: 'Partiel', icon: CreditCard },
+  { id: 'billing', label: 'Abonnements et factures', status: 'Existant', icon: CreditCard },
   { id: 'accounts', label: 'Comptes et accès', status: 'Existant', icon: Users },
   { id: 'support', label: 'Support', status: 'Existant', icon: CircleHelp },
-  { id: 'audit', label: 'Journal d’audit', status: 'Partiel', icon: ClipboardList },
-  { id: 'health', label: 'Santé de la plateforme', status: 'Partiel', icon: Activity },
-  { id: 'settings', label: 'Configuration', status: 'Partiel', icon: Settings },
+  { id: 'audit', label: 'Journal d’audit', status: 'Existant', icon: ClipboardList },
+  { id: 'health', label: 'Santé de la plateforme', status: 'Existant', icon: Activity },
+  { id: 'settings', label: 'Configuration', status: 'Existant', icon: Settings },
   { id: 'communication', label: 'Communication', status: 'Existant', icon: Bell }
 ] as const;
 type Screen = typeof NAV[number]['id'];
