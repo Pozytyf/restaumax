@@ -104,6 +104,12 @@ assert(source.includes("action === 'config_update'") && source.includes("collect
 assert(server.includes("config.data()?.maintenanceMode === true") && fs.readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8').includes("configSnap.data()?.maintenanceMode === true"), 'maintenance mode is enforced by both local and Vercel API routers');
 assert(source.includes("action === 'platform_admin_create'") && source.includes("action === 'platform_admin_status'") && source.includes("revokeRefreshTokens(uid)"), 'delegated administrator accounts can be created and revoked with session invalidation');
 assert(source.includes("platformAdminRole") && source.includes("canPlatformAdminPerform") && source.includes("PLATFORM_ADMIN_ROLE_PERMISSIONS"), 'delegated platform roles are authorized server-side');
+const roleGateStart = source.indexOf('export function canPlatformAdminPerform');
+const roleGateEnd = source.indexOf('export function canManageStaffMember', roleGateStart);
+const roleGate = source.slice(roleGateStart, roleGateEnd);
+assert(roleGate.includes("role === 'billing'") && roleGate.includes("'settle_subscription_invoice'") && !roleGate.includes("role === 'billing') return ['support_update'"), 'billing role is restricted to billing operations');
+assert(roleGate.includes("role === 'support'") && roleGate.includes("'support_update'") && roleGate.includes("'support_access_diagnostics'"), 'support role is restricted to support and consented diagnostics');
+assert(roleGate.includes("role === 'read_only'") && !roleGate.includes("'config_update'") && !roleGate.includes("'platform_admin_status'"), 'read-only role cannot mutate platform configuration or accounts');
 assert(source.includes("action === 'health_details'") && source.includes("platform_job_runs"), 'platform health reads real server probes and scheduled-job telemetry');
 assert(server.includes("isPlatformFeatureEnabled") && server.includes("'inventoryRecipes'") && server.includes("'loyalty'") && server.includes("'kitchenScreen'"), 'persisted plan entitlements guard inventory, loyalty and kitchen mutation APIs');
 assert(platformMessages.includes("support_submit") && platformMessages.includes("support_my_tickets") && platformMessages.includes("support_reply"), 'restaurant support center supports ticket lifecycle and replies');
