@@ -326,7 +326,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         });
         return json(res, 200, { success: true, status: 'revoked' });
       }
-      if (action === 'support_access_decision') {
+      if (action === 'support_access_decision' || action === 'support_access_revoke') {
         const ownerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurant);
         if (member.role !== 'owner' || ownerUid !== user.uid) {
           return json(res, 403, { success: false, error: 'Seul le propriétaire du restaurant peut consentir à un accès de diagnostic.' });
