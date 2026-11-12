@@ -104,7 +104,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       setLoading(true);
       nextUser.getIdTokenResult().then(async (token) => {
         if (!active) return;
-        if (token.claims.role !== 'super_admin') {
+        if (!['super_admin', 'platform_admin'].includes(String(token.claims.role || ''))) {
           setNeedsPlatformAdminLogin(true);
           return;
         }
@@ -116,7 +116,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       }).catch((e: any) => {
         if (!active) return;
         // Transient server/network errors keep the session pending and retryable;
-        // only a confirmed non-super-admin claim requires the login form.
+        // only a confirmed non-platform-admin claim requires the login form.
         setError(e?.message || 'Accès super-administrateur refusé.');
       }).finally(() => {
         if (active) setLoading(false);
@@ -265,7 +265,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
             <button type="button" onClick={cancelMfaLogin} className="min-h-11 w-full rounded-lg border border-slate-300 p-3 text-sm font-semibold text-slate-700">Annuler</button>
           </form> : <form onSubmit={login} className="space-y-4">
             <h2 className="text-lg font-bold text-[#101d2d]">Connexion super-administrateur</h2>
-            <p className="text-sm text-slate-600">Accès réservé aux comptes explicitement autorisés par la configuration sécurisée RestauMax.</p>
+            <p className="text-sm text-slate-600">Accès réservé aux super-administrateurs et aux comptes délégués explicitement autorisés par RestauMax.</p>
             <label className="block text-sm font-semibold text-slate-700">Adresse e-mail<input required type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3"/></label>
             <label className="block text-sm font-semibold text-slate-700">Mot de passe<div className="relative mt-1"><input required type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="min-h-11 w-full rounded-lg border border-slate-300 px-3 pr-12"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'} className="absolute right-1 top-1 flex min-h-10 min-w-10 items-center justify-center text-slate-600">{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div></label>
             <button disabled={loading} className="min-h-11 w-full rounded-lg bg-[#101d2d] p-3 font-bold text-white disabled:opacity-50">{loading ? 'Connexion…' : 'Se connecter'}</button>
