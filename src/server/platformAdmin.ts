@@ -226,7 +226,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const membershipRef = db.collection('managers').doc(user.uid);
   const membershipSnap = await membershipRef.get();
   const existingMembership = membershipSnap.exists ? (membershipSnap.data() || {}) : null;
-  if (['support_submit', 'support_my_tickets', 'support_reply', 'restaurant_announcements', 'support_access_requests', 'support_access_decision'].includes(action)) {
+  if (['support_submit', 'support_my_tickets', 'support_reply', 'restaurant_announcements', 'support_access_requests', 'support_access_decision', 'support_access_revoke'].includes(action)) {
     const member = existingMembership;
     const slug = String(member?.restaurantSlug || '').trim();
     if (!member || member.active !== true || !slug ||
@@ -308,7 +308,24 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       await batch.commit();
       return json(res, 200, { success: true });
     }
-    if (action === 'support_access_requests' || action === 'support_access_decision') {
+    if (action === 'support_access_requests' || action === 'support_access_decision' || action === 'support_access_revoke') {
+      if (action === 'support_access_revoke') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const requestId = String(body.requestId || '').trim();
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) return json(res, 400, { success: false, error: 'Demande invalide.' });
+        const requestRef = db.collection('platform_support_access_requests').doc(requestId);
+        const requestSnap = await requestRef.get();
+        const requestData = requestSnap.exists ? requestSnap.data() || {} : null;
+        if (!requestData || requestData.restaurantSlug !== slug || requestData.status !== 'approved' || Number(requestData.accessExpiresAt || 0) <= now) {
+          return json(res, 409, { success: false, error: 'Accès déjà expiré ou demande introuvable.' });
+        }
+        await requestRef.update({ status: 'revoked', accessExpiresAt: now, revokedAt: now, revokedBy: user.uid, updatedAt: now });
+        await db.collection('admin_audit_logs').add({
+          action: 'revoke_support_diagnostic_access', restaurantSlug: slug,
+          supportAccessRequestId: requestId, actorUid: user.uid, createdAt: now
+        });
+        return json(res, 200, { success: true, status: 'revoked' });
+      }
       if (action === 'support_access_decision') {
         const ownerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurant);
         if (member.role !== 'owner' || ownerUid !== user.uid) {
@@ -319,7 +336,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
         const snap = await db.collection('platform_support_access_requests').where('restaurantSlug', '==', slug).limit(30).get();
         const requests = snap.docs.map((doc: any) => doc.data()).filter((item: any) =>
-          item.status === 'pending' && Number(item.requestExpiresAt || 0) > now
+          (item.status === 'pending' && Number(item.requestExpiresAt || 0) > now) ||
+          (item.status === 'approved' && Number(item.accessExpiresAt || 0) > now)
         ).sort((a: any, b: any) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
         return json(res, 200, { success: true, requests });
       }
