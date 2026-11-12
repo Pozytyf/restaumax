@@ -10,7 +10,7 @@ type Subscription = {
   planName?: string; priceFcfa?: number; currency?: string;
   billingCycle?: 'monthly' | 'yearly' | 'custom';
   status?: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
-  startsAt?: number; endsAt?: number; nextBillingAt?: number;
+  startsAt?: number; endsAt?: number; nextBillingAt?: number; autoRenew?: boolean;
   gracePeriodDays?: number; currentInvoiceId?: string | null;
   currentInvoiceAmountFcfa?: number | null; pastDueAt?: number | null;
 };
