@@ -107,9 +107,12 @@ assert(source.includes("platformAdminRole") && source.includes("canPlatformAdmin
 const roleGateStart = source.indexOf('export function canPlatformAdminPerform');
 const roleGateEnd = source.indexOf('export function canManageStaffMember', roleGateStart);
 const roleGate = source.slice(roleGateStart, roleGateEnd);
-assert(roleGate.includes("role === 'billing'") && roleGate.includes("'settle_subscription_invoice'") && !roleGate.includes("role === 'billing') return ['support_update'"), 'billing role is restricted to billing operations');
-assert(roleGate.includes("role === 'support'") && roleGate.includes("'support_update'") && roleGate.includes("'support_access_diagnostics'"), 'support role is restricted to support and consented diagnostics');
-assert(roleGate.includes("role === 'read_only'") && !roleGate.includes("'config_update'") && !roleGate.includes("'platform_admin_status'"), 'read-only role cannot mutate platform configuration or accounts');
+const billingRoleLine = roleGate.split('\\n').find(line => line.includes("role === 'billing'")) || '';
+const supportRoleLine = roleGate.split('\\n').find(line => line.includes("role === 'support'")) || '';
+const readOnlyRoleLine = roleGate.split('\\n').find(line => line.includes("role === 'read_only'")) || '';
+assert(billingRoleLine.includes('billing_list') && billingRoleLine.includes('settle_subscription_invoice') && !billingRoleLine.includes('support_update'), 'billing role is restricted to billing operations');
+assert(supportRoleLine.includes('support_update') && supportRoleLine.includes('support_access_diagnostics') && !supportRoleLine.includes('billing_list'), 'support role is restricted to support and consented diagnostics');
+assert(readOnlyRoleLine.includes('health_details') && !readOnlyRoleLine.includes('config_update') && !readOnlyRoleLine.includes('platform_admin_status'), 'read-only role cannot mutate platform configuration or accounts');
 assert(source.includes("action === 'health_details'") && source.includes("platform_job_runs"), 'platform health reads real server probes and scheduled-job telemetry');
 assert(server.includes("isPlatformFeatureEnabled") && server.includes("'inventoryRecipes'") && server.includes("'loyalty'") && server.includes("'kitchenScreen'"), 'persisted plan entitlements guard inventory, loyalty and kitchen mutation APIs');
 assert(platformMessages.includes("support_submit") && platformMessages.includes("support_my_tickets") && platformMessages.includes("support_reply"), 'restaurant support center supports ticket lifecycle and replies');
