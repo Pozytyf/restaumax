@@ -126,7 +126,7 @@ const PLATFORM_ADMIN_ROLES: readonly PlatformAdminRole[] = ['full', 'billing', '
 const PLATFORM_ADMIN_ROLE_PERMISSIONS: Record<PlatformAdminRole, readonly string[]> = {
   full: ['platform.*'],
   billing: ['platform.overview', 'billing.read', 'billing.manage', 'audit.read'],
-  support: ['platform.overview', 'support.read', 'support.manage', 'accounts.read', 'health.read', 'audit.read'],
+  support: ['platform.overview', 'support.read', 'support.manage', 'support.access.request', 'accounts.read', 'health.read', 'audit.read'],
   read_only: ['platform.overview', 'support.read', 'health.read', 'audit.read']
 };
 
@@ -155,7 +155,7 @@ export function canPlatformAdminPerform(role: PlatformAdminRole, action: string)
   if (role === 'full') return true;
   if (['overview', 'audit_list'].includes(action)) return true;
   if (role === 'billing') return ['billing_list', 'update_subscription', 'settle_subscription_invoice'].includes(action);
-  if (role === 'support') return ['support_list', 'support_messages', 'support_create', 'support_update', 'staff_list', 'health_details', 'announcement_list'].includes(action);
+  if (role === 'support') return ['support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'staff_list', 'health_details', 'announcement_list'].includes(action);
   if (role === 'read_only') return ['support_list', 'support_messages', 'health_details', 'announcement_list'].includes(action);
   return false;
 }
@@ -226,7 +226,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const membershipRef = db.collection('managers').doc(user.uid);
   const membershipSnap = await membershipRef.get();
   const existingMembership = membershipSnap.exists ? (membershipSnap.data() || {}) : null;
-  if (['support_submit', 'support_my_tickets', 'support_reply', 'restaurant_announcements'].includes(action)) {
+  if (['support_submit', 'support_my_tickets', 'support_reply', 'restaurant_announcements', 'support_access_requests', 'support_access_decision'].includes(action)) {
     const member = existingMembership;
     const slug = String(member?.restaurantSlug || '').trim();
     if (!member || member.active !== true || !slug ||
@@ -307,6 +307,43 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       });
       await batch.commit();
       return json(res, 200, { success: true });
+    }
+    if (action === 'support_access_requests' || action === 'support_access_decision') {
+      const ownerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurant);
+      if (member.role !== 'owner' || ownerUid !== user.uid) {
+        return json(res, 403, { success: false, error: 'Seul le propriétaire du restaurant peut consentir à un accès de diagnostic.' });
+      }
+      if (action === 'support_access_requests') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_support_access_requests').where('restaurantSlug', '==', slug).limit(30).get();
+        const requests = snap.docs.map((doc: any) => doc.data()).filter((item: any) =>
+          item.status === 'pending' && Number(item.requestExpiresAt || 0) > now
+        ).sort((a: any, b: any) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+        return json(res, 200, { success: true, requests });
+      }
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const requestId = String(body.requestId || '').trim();
+      const approve = body.approve === true;
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId) || typeof body.approve !== 'boolean') {
+        return json(res, 400, { success: false, error: 'Décision de consentement invalide.' });
+      }
+      const requestRef = db.collection('platform_support_access_requests').doc(requestId);
+      const requestSnap = await requestRef.get();
+      const requestData = requestSnap.exists ? requestSnap.data() || {} : null;
+      if (!requestData || requestData.restaurantSlug !== slug || requestData.status !== 'pending' ||
+          Number(requestData.requestExpiresAt || 0) <= now) {
+        return json(res, 409, { success: false, error: 'Demande introuvable, expirée ou déjà traitée.' });
+      }
+      const patch = approve
+        ? { status: 'approved', approvedAt: now, approvedBy: user.uid, accessExpiresAt: now + 60 * 60 * 1000 }
+        : { status: 'denied', deniedAt: now, deniedBy: user.uid, accessExpiresAt: null };
+      await requestRef.update({ ...patch, updatedAt: now });
+      await db.collection('admin_audit_logs').add({
+        action: approve ? 'approve_support_diagnostic_access' : 'deny_support_diagnostic_access',
+        restaurantSlug: slug, supportAccessRequestId: requestId,
+        actorUid: user.uid, createdAt: now, accessDurationMinutes: approve ? 60 : 0
+      });
+      return json(res, 200, { success: true, status: approve ? 'approved' : 'denied', accessExpiresAt: approve ? now + 60 * 60 * 1000 : null });
     }
     if (action === 'restaurant_announcements') {
       if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
@@ -570,6 +607,84 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         return json(res, 200, {
           success: true, uid, active: nextActive, sessionVersion: nextVersion,
           sessionsRevoked: true, requiresReauthentication: action === 'platform_staff_revoke_sessions' || nextActive
+        });
+      }
+
+      if (action === 'support_access_request') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(body.restaurantSlug || '').trim();
+        const reason = String(body.reason || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || reason.length < 15 || reason.length > 1000) {
+          return json(res, 400, { success: false, error: 'Restaurant ou motif de diagnostic invalide (15 à 1 000 caractères).' });
+        }
+        const restaurantSnap = await db.collection('restaurants').doc(slug).get();
+        if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
+        const pending = await db.collection('platform_support_access_requests')
+          .where('restaurantSlug', '==', slug).limit(30).get();
+        const activeRequest = pending.docs.find((doc: any) =>
+          doc.data()?.status === 'pending' && Number(doc.data()?.requestExpiresAt || 0) > Date.now()
+        );
+        if (activeRequest) return json(res, 409, { success: false, error: 'Une demande de diagnostic attend déjà le consentement du propriétaire.' });
+        const ref = db.collection('platform_support_access_requests').doc();
+        const now = Date.now();
+        const requestRecord = {
+          id: ref.id, restaurantSlug: slug,
+          restaurantName: String(restaurantSnap.data()?.name || slug),
+          reason, requestedBy: user.uid,
+          requestedByEmail: typeof user.email === 'string' ? user.email : '',
+          status: 'pending', createdAt: now,
+          requestExpiresAt: now + 24 * 60 * 60 * 1000,
+          accessDurationMinutes: 60,
+          scope: ['restaurant.profile.read', 'tables.metadata.read', 'staff.count.read'],
+          excluded: ['orders', 'payments', 'cash', 'customer_personal_data']
+        };
+        await ref.create(requestRecord);
+        await db.collection('admin_audit_logs').add({
+          action: 'request_support_diagnostic_access', restaurantSlug: slug,
+          supportAccessRequestId: ref.id, actorUid: user.uid, createdAt: now
+        });
+        return json(res, 201, { success: true, request: requestRecord });
+      }
+
+      if (action === 'support_access_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(req.query?.slug || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) return json(res, 400, { success: false, error: 'Restaurant invalide.' });
+        const snap = await db.collection('platform_support_access_requests').where('restaurantSlug', '==', slug).limit(30).get();
+        const requests = snap.docs.map((doc: any) => doc.data()).sort((a: any, b: any) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+        return json(res, 200, { success: true, requests });
+      }
+
+      if (action === 'support_access_diagnostics') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const requestId = String(req.query?.requestId || '').trim();
+        const ref = db.collection('platform_support_access_requests').doc(requestId);
+        const accessSnap = await ref.get();
+        const access = accessSnap.exists ? accessSnap.data() || {} : null;
+        const now = Date.now();
+        if (!access || access.status !== 'approved' || access.requestedBy !== user.uid ||
+            Number(access.accessExpiresAt || 0) <= now) {
+          return json(res, 403, { success: false, error: 'Le consentement du propriétaire est absent ou expiré.' });
+        }
+        const restaurantRef = db.collection('restaurants').doc(String(access.restaurantSlug));
+        const [restaurantSnap, tablesSnap, staffSnap] = await Promise.all([
+          restaurantRef.get(), restaurantRef.collection('tables').get(),
+          restaurantRef.collection('staff').get()
+        ]);
+        if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
+        const restaurant = restaurantSnap.data() || {};
+        await db.collection('admin_audit_logs').add({
+          action: 'view_support_diagnostic_data', restaurantSlug: String(access.restaurantSlug),
+          supportAccessRequestId: requestId, actorUid: user.uid, createdAt: now,
+          dataScope: 'profile_and_counts_only'
+        });
+        return json(res, 200, {
+          success: true, expiresAt: Number(access.accessExpiresAt),
+          diagnostics: {
+            restaurant: { name: String(restaurant.name || ''), status: String(restaurant.status || 'unknown'), isOpen: restaurant.isOpen === true, createdAt: Number(restaurant.createdAt || 0) || null },
+            tables: { total: tablesSnap.size, active: tablesSnap.docs.filter((doc: any) => doc.data()?.isActive === true).length },
+            staff: { total: staffSnap.size, active: staffSnap.docs.filter((doc: any) => doc.data()?.active === true).length }
+          }
         });
       }
 
