@@ -118,6 +118,8 @@ assert(supportRoleLine.includes('support_update') && supportRoleLine.includes('s
 assert(readOnlyRoleLine.includes('health_details') && !readOnlyRoleLine.includes('config_update') && !readOnlyRoleLine.includes('platform_admin_status'), 'read-only role cannot mutate platform configuration or accounts');
 assert(source.includes("action === 'health_details'") && source.includes("platform_job_runs"), 'platform health reads real server probes and scheduled-job telemetry');
 assert(server.includes("isPlatformFeatureEnabled") && server.includes("'inventoryRecipes'") && server.includes("'loyalty'") && server.includes("'kitchenScreen'"), 'persisted plan entitlements guard inventory, loyalty and kitchen mutation APIs');
+const billingService = fs.readFileSync(new URL('../src/server/subscriptionBillingService.ts', import.meta.url), 'utf8');
+assert(billingService.includes("collection('platform_config').doc('global')") && billingService.includes('gracePeriodOverride'), 'global grace period and per-subscription overrides feed the recurring billing cycle');
 assert(platformMessages.includes("support_submit") && platformMessages.includes("support_my_tickets") && platformMessages.includes("support_reply"), 'restaurant support center supports ticket lifecycle and replies');
 assert(source.includes("action === 'support_access_request'") && source.includes("action === 'support_access_decision'"), 'temporary support access requires an explicit owner decision');
 assert(source.includes("accessDurationMinutes: 60") && source.includes("accessExpiresAt: now + 60 * 60 * 1000"), 'approved support diagnostics expire after one hour');
