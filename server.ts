@@ -952,7 +952,8 @@ async function isPlatformFeatureEnabled(db: any, restaurantSlug: string, feature
   const configured = configSnap.exists ? configSnap.data()?.planFeatures?.[planName]?.[feature] : undefined;
   if (typeof configured === 'boolean') return configured;
   const defaultValue = DEFAULT_PLAN_FEATURES[planName]?.[feature];
-  return typeof defaultValue === 'boolean' ? defaultValue : false;
+  // Unmapped plans retain the baseline kitchen screen only; premium features require an explicit grant.
+  return typeof defaultValue === 'boolean' ? defaultValue : feature === 'kitchenScreen';
 }
 
 export async function handleResolveTableQr(token: string, req?: any): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
