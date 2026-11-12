@@ -564,9 +564,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 404, { success: false, error: 'Restaurant introuvable ou supprimé.' });
         }
         const ownershipRef = restaurantRef.collection('private').doc('ownership');
-        const ownershipSnap = await ownershipRef.get();
-        const ownership = ownershipSnap.exists ? ownershipSnap.data() || {} : {};
-        if (String(ownership.ownerUid || '').trim()) {
+        const [ownershipSnap, ownership] = await Promise.all([
+          ownershipRef.get(),
+          getRestaurantOwnership(db, slug, undefined, restaurantSnap.data())
+        ]);
+        if (String(ownership.ownerUid || ownershipSnap.data()?.ownerUid || '').trim()) {
           return json(res, 409, { success: false, error: 'Un UID propriétaire est déjà lié. Utilisez la réinitialisation ou une procédure de rapprochement contrôlée.' });
         }
         const ownerEmail = String(ownership.ownerEmail || body.email || '').trim().toLowerCase();
