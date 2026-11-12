@@ -42,7 +42,19 @@ async function revokeActiveTableSessions(db: any, slug: string, now: number, rea
 
 export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now()) {
   if (!db) throw new Error('Firestore indisponible.');
-  const subscriptions = await db.collection('restaurantSubscriptions').get();
+  const [subscriptions, configSnap] = await Promise.all([
+    db.collection('restaurantSubscriptions').get(),
+    db.collection('platform_config').doc('global').get()
+  ]);
+  const configuredGrace = Number(configSnap.data()?.gracePeriodDays);
+  const globalGracePeriodDays = Number.isInteger(configuredGrace) && configuredGrace >= 0 && configuredGrace <= 60 ? configuredGrace : 7;
+  const resolveGracePeriod = (subscription: any, fallback = globalGracePeriodDays) => {
+    const value = Number(subscription?.gracePeriodDays);
+    const valid = Number.isInteger(value) && value >= 0 && value <= 60;
+    if (subscription?.gracePeriodOverride === false) return globalGracePeriodDays;
+    if (valid) return value; // Preserve existing per-subscription overrides for legacy records.
+    return fallback;
+  };
   let invoicesCreated = 0;
   let freePlansRenewed = 0;
   let restaurantsSuspended = 0;
@@ -110,8 +122,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
           });
           return 'free_renewed';
         }
-        const gracePeriodDays = Number.isSafeInteger(sub.gracePeriodDays) && sub.gracePeriodDays >= 0 && sub.gracePeriodDays <= 60
-          ? sub.gracePeriodDays : 7;
+        const gracePeriodDays = resolveGracePeriod(sub);
         const invoiceRef = subscriptionRef.collection('invoices').doc(invoiceId);
         tx.create(invoiceRef, {
           id: invoiceId, restaurantSlug: slug, planName: String(sub.planName || ''),
@@ -155,7 +166,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         if (sub.status !== 'past_due' || invoice.status === 'paid' ||
             restaurant.status === 'deleted' || restaurant.deletedAt ||
             (restaurant.status !== 'active' && restaurant.suspensionReason !== 'subscription_past_due')) return 'skip';
-        const grace = Number.isSafeInteger(sub.gracePeriodDays) ? sub.gracePeriodDays : 7;
+        const grace = resolveGracePeriod(sub, resolveGracePeriod(invoice));
         const pastDueAt = Number(sub.pastDueAt || invoice.dueAt || 0);
         if (now < pastDueAt + grace * DAY_MS) return 'skip';
         const nextVersion = Number(restaurant.tableSessionVersion || 0) + 1;
