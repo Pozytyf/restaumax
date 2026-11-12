@@ -126,8 +126,8 @@ const PLATFORM_ADMIN_ROLES: readonly PlatformAdminRole[] = ['full', 'billing', '
 const PLATFORM_ADMIN_ROLE_PERMISSIONS: Record<PlatformAdminRole, readonly string[]> = {
   full: ['platform.*'],
   billing: ['platform.overview', 'billing.read', 'billing.manage', 'audit.read'],
-  support: ['platform.overview', 'support.read', 'support.manage', 'support.access.request', 'accounts.read', 'health.read', 'audit.read'],
-  read_only: ['platform.overview', 'support.read', 'health.read', 'audit.read']
+  support: ['platform.overview', 'support.read', 'support.manage', 'support.access.request', 'support.access.diagnostics', 'accounts.read', 'health.read', 'audit.read', 'communication.read'],
+  read_only: ['platform.overview', 'support.read', 'health.read', 'audit.read', 'communication.read']
 };
 
 function platformAdminMfaSatisfied(user: DecodedIdToken): boolean {
