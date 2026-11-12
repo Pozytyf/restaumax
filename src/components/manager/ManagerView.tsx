@@ -419,7 +419,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   return (
     <div className="flex-1 flex flex-col h-[calc(100vh-60px)] overflow-y-auto bg-[#f4f7fb] p-4 lg:p-8">
       <div className="max-w-7xl mx-auto w-full space-y-6">
-        <PlatformMessagesCenter restaurantSlug={restaurantSlug}/>
+        <PlatformMessagesCenter restaurantSlug={restaurantSlug} isOwner={isOwner}/>
 
         {/* Supervision header */}
         <header className="flex flex-col gap-2">
