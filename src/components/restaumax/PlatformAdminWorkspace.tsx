@@ -254,7 +254,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const openAccounts = async (restaurant: Restaurant) => {
     setAccountRestaurant(restaurant.slug); setAccounts([]); setPageLoading(true); setPageError('');
     try {
-      const data = await read('staff_list', { slug: restaurant.slug });
+      const data = await read('platform_staff_list', { slug: restaurant.slug });
       setAccounts(data.staff || []);
     } catch (e: any) { setPageError(e.message || 'Chargement des comptes impossible.'); }
     finally { setPageLoading(false); }
