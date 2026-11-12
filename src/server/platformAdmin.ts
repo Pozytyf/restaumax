@@ -2010,7 +2010,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     const message = code === 'auth/email-already-exists'
       ? 'Cette adresse e-mail possède déjà un compte RestauMax.'
       : 'Une erreur est survenue pendant l’opération administrative.';
-    console.error('[RestauMax Admin]', code || error?.message || 'unknown');
+    const diagnostic = {
+      action: String(action || 'unknown').slice(0, 80),
+      code: String(code || 'unknown').slice(0, 80),
+      message: String(error?.message || 'unknown').replace(/[\\r\\n]+/g, ' ').slice(0, 500)
+    };
+    console.error('[RestauMax Admin]', diagnostic);
     return json(res, 500, { success: false, error: message });
   }
 }
