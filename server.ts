@@ -941,15 +941,18 @@ async function isPlatformFeatureEnabled(db: any, restaurantSlug: string, feature
     db.collection('restaurantSubscriptions').doc(restaurantSlug).get(),
     db.collection('restaurants').doc(restaurantSlug).get()
   ]);
+  if (!restaurantSnap.exists || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.status === 'deleted') return false;
   const subscription = subscriptionSnap.exists
     ? subscriptionSnap.data() || {}
     : restaurantSnap.data()?.subscription || {};
-  const planName = String(subscription.planName || '');
-  if (!planName) return true; // Preserve legacy restaurants until a plan is assigned.
+  const planName = String(subscription.planName || '').trim();
+  // Legacy records without a plan retain only the baseline kitchen screen.
+  // Unknown plan names must be explicitly configured; never grant premium features by default.
+  if (!planName) return feature === 'kitchenScreen';
   const configured = configSnap.exists ? configSnap.data()?.planFeatures?.[planName]?.[feature] : undefined;
   if (typeof configured === 'boolean') return configured;
   const defaultValue = DEFAULT_PLAN_FEATURES[planName]?.[feature];
-  return typeof defaultValue === 'boolean' ? defaultValue : true;
+  return typeof defaultValue === 'boolean' ? defaultValue : false;
 }
 
 export async function handleResolveTableQr(token: string, req?: any): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
