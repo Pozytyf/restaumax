@@ -501,7 +501,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
         const slug = String(body.slug || '').trim();
         const uid = String(body.uid || '').trim();
-        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !uid || uid === user.uid) {
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !uid || uid === user.uid || (action === 'platform_staff_status' && typeof body.active !== 'boolean')) {
           return json(res, 400, { success: false, error: 'Restaurant ou compte cible invalide.' });
         }
         const restaurantRef = db.collection('restaurants').doc(slug);
@@ -1246,7 +1246,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         try {
           const authUser = await getAuth().getUser(account.uid);
           const authActive = authUser.disabled !== true;
-          return { ...account, active: account.activeKnown ? account.active && authActive : authActive, activeKnown: true, accountLinked: true, readOnly: false };
+          return { ...account, active: account.activeKnown ? account.active && authActive : authActive, activeKnown: true, accountLinked: true, readOnly: true };
         } catch {
           return { ...account, active: false, activeKnown: false, accountLinked: false, readOnly: true };
         }
