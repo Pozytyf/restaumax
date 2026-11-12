@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: restaumax-demo-firestore-rules
@@ -28,6 +27,7 @@ jobs:
     env:
       FIREBASE_PROJECT_ID: restaumax-demo
       FIRESTORE_DATABASE_ID: (default)
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
 
     steps:
       - name: Validate immutable Demo target
@@ -37,6 +37,10 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/fix/firestore-restaurant-active-guard"
           test "$FIREBASE_PROJECT_ID" = "restaumax-demo"
           test "$FIRESTORE_DATABASE_ID" = "(default)"
+          if [[ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]]; then
+            echo "::error::The Demo environment service-account secret is unavailable."
+            exit 1
+          fi
           echo "Target fixed: restaumax-demo / (default). Production is excluded."
 
       - name: Checkout the reviewed security branch
@@ -58,14 +62,14 @@ jobs:
         with:
           node-version: 24
 
-      - name: Authenticate to Google Cloud using short-lived GitHub OIDC credentials
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
-        with:
-          project_id: gen-lang-client-0138815290
-          workload_identity_provider: projects/305138716873/locations/global/workloadIdentityPools/github-restaumax-pool/providers/github-restaumax-provider
-          service_account: restaumax-firestore-deployer@gen-lang-client-0138815290.iam.gserviceaccount.com
-          create_credentials_file: true
-          export_environment_variables: true
+      - name: Authenticate with the existing Demo service-account secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+          chmod 600 "$RUNNER_TEMP/firebase-sa.json"
+          jq -e '.type == "service_account" and (.client_email | type == "string")' "$RUNNER_TEMP/firebase-sa.json" > /dev/null
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-sa.json" >> "$GITHUB_ENV"
 
       - name: Install Firebase CLI
         run: npm install --global firebase-tools@15.34.2
