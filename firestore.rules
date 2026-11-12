@@ -75,6 +75,20 @@ service cloud.firestore {
           isBoundRestaurantOwner(targetSlug));
     }
 
+    // Plan entitlements are stored centrally and are enforced at the
+    // Firestore boundary for kitchen-role order reads. Missing legacy plan
+    // records preserve access; explicit false values always deny the feature.
+    function hasPlatformFeature(targetSlug, feature) {
+      let subscriptionPath = /databases/$(database)/documents/restaurantSubscriptions/$(targetSlug);
+      let configPath = /databases/$(database)/documents/platform_config/global;
+      let subscription = exists(subscriptionPath) ? get(subscriptionPath).data : {};
+      let config = exists(configPath) ? get(configPath).data : {};
+      let plan = subscription.get('planName', '');
+      let featureMap = config.get('planFeatures', {}).get(plan, {});
+      return plan == '' ||
+        featureMap.get(feature, plan == 'Pro' || feature == 'kitchenScreen') == true;
+    }
+
     // Maximum permission ceilings for the six restaurant roles.
     // Explicit grants can only select permissions inside the role's ceiling.
     function roleCanHavePermission(role, permission) {
@@ -368,7 +382,8 @@ service cloud.firestore {
       match /orders/{orderId} {
         allow create: if false;
         allow get: if false;
-        allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view')) &&
+        allow list: if (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('role', '') != 'kitchen' || hasPlatformFeature(restaurantSlug, 'kitchenScreen')) &&
+          (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view')) &&
           (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('role', '') != 'server' || resource.data.get('assignedWaiterUid', '') == request.auth.uid);
         // All order status transitions and KDS progress are server-managed so stock
         // consumption/restoration and the order state commit in one Admin SDK transaction.
