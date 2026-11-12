@@ -375,6 +375,374 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const platformRole = await getPlatformAdminRole(db, user);
       if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
+      if (action === 'platform_admin_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_admins').orderBy('createdAt', 'desc').limit(100).get();
+        const admins = await Promise.all(snap.docs.map(async (doc: any) => {
+          const raw = doc.data() || {};
+          let authUser: any = null;
+          try { authUser = await getAuth().getUser(doc.id); } catch { /* report a disabled/unavailable identity */ }
+          return {
+            uid: doc.id, email: String(raw.email || authUser?.email || ''),
+            displayName: String(raw.displayName || authUser?.displayName || ''),
+            role: String(raw.role || 'read_only'), active: raw.active === true,
+            createdAt: Number(raw.createdAt || 0), updatedAt: Number(raw.updatedAt || 0),
+            lastSignInAt: authUser?.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null,
+            mfaEnrolled: Array.isArray(authUser?.multiFactor?.enrolledFactors) && authUser.multiFactor.enrolledFactors.length > 0,
+            disabled: authUser?.disabled === true
+          };
+        }));
+        return json(res, 200, { success: true, admins });
+      }
+
+      if (action === 'platform_admin_create') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const email = String(body.email || '').trim().toLowerCase();
+        const displayName = String(body.displayName || '').trim();
+        const role = String(body.platformRole || '');
+        if (!validEmail(email) || displayName.length < 2 || displayName.length > 100 ||
+            !['billing', 'support', 'read_only'].includes(role)) {
+          return json(res, 400, { success: false, error: 'Nom, e-mail ou rôle délégué invalide. Le rôle Full ne peut être attribué que par la liste de confiance.' });
+        }
+        const auth = getAuth();
+        let created: any = null;
+        try {
+          created = await auth.createUser({ email, displayName, disabled: false, emailVerified: false });
+          const sessionVersion = 1;
+          await auth.setCustomUserClaims(created.uid, {
+            role: 'platform_admin', platformAdminRole: role,
+            platformAdminSessionVersion: sessionVersion,
+            platformAdminPermissions: PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole]
+          });
+          const now = Date.now();
+          const record = {
+            uid: created.uid, email, displayName, role, active: true,
+            sessionVersion, createdAt: now, updatedAt: now, createdBy: user.uid
+          };
+          const batch = db.batch();
+          batch.create(db.collection('platform_admins').doc(created.uid), record);
+          batch.create(db.collection('admin_audit_logs').doc(), {
+            action: 'create_platform_admin', targetUid: created.uid,
+            targetRole: role, actorUid: user.uid, createdAt: now
+          });
+          await batch.commit();
+          return json(res, 201, { success: true, admin: { uid: created.uid, email, displayName, role, active: true, mfaEnrolled: false } });
+        } catch (error: any) {
+          if (created?.uid) await auth.deleteUser(created.uid).catch(() => undefined);
+          if (error?.code === 'auth/email-already-exists') return json(res, 409, { success: false, error: 'Cette adresse e-mail possède déjà un compte Firebase.' });
+          throw error;
+        }
+      }
+
+      if (action === 'platform_admin_update') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const uid = String(body.uid || '').trim();
+        const role = String(body.platformRole || '');
+        if (!uid || uid === user.uid || !['billing', 'support', 'read_only'].includes(role)) {
+          return json(res, 400, { success: false, error: 'Compte cible ou rôle invalide. Vous ne pouvez pas modifier votre propre rôle.' });
+        }
+        const ref = db.collection('platform_admins').doc(uid);
+        const snap = await ref.get();
+        if (!snap.exists || snap.data()?.active !== true) return json(res, 404, { success: false, error: 'Compte délégué actif introuvable.' });
+        const tenantMembership = await db.collection('managers').doc(uid).get();
+        if (tenantMembership.exists && tenantMembership.data()?.active === true) return json(res, 409, { success: false, error: 'Ce compte possède une appartenance restaurant active et ne peut pas devenir administrateur de plateforme.' });
+        const auth = getAuth();
+        const authUser = await auth.getUser(uid);
+        const sessionVersion = Number(snap.data()?.sessionVersion || 0) + 1;
+        await auth.setCustomUserClaims(uid, {
+          ...(authUser.customClaims || {}), role: 'platform_admin',
+          platformAdminRole: role, platformAdminSessionVersion: sessionVersion,
+          platformAdminPermissions: PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole]
+        });
+        await auth.revokeRefreshTokens(uid);
+        const now = Date.now();
+        await ref.update({ role, sessionVersion, updatedAt: now, updatedBy: user.uid });
+        await db.collection('admin_audit_logs').add({
+          action: 'update_platform_admin_role', targetUid: uid, targetRole: role,
+          actorUid: user.uid, createdAt: now
+        });
+        return json(res, 200, { success: true, uid, role, requiresReauthentication: true });
+      }
+
+      if (action === 'platform_admin_status') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const uid = String(body.uid || '').trim();
+        const active = body.active === true;
+        if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Compte cible invalide. Vous ne pouvez pas suspendre votre propre session.' });
+        const ref = db.collection('platform_admins').doc(uid);
+        const snap = await ref.get();
+        if (!snap.exists) return json(res, 404, { success: false, error: 'Compte délégué introuvable.' });
+        const auth = getAuth();
+        const authUser = await auth.getUser(uid);
+        const sessionVersion = Number(snap.data()?.sessionVersion || 0) + 1;
+        await auth.setCustomUserClaims(uid, {
+          ...(authUser.customClaims || {}), role: 'platform_admin',
+          platformAdminRole: String(snap.data()?.role || 'read_only'),
+          platformAdminSessionVersion: sessionVersion,
+          platformAdminPermissions: PLATFORM_ADMIN_ROLE_PERMISSIONS[String(snap.data()?.role || 'read_only') as PlatformAdminRole]
+        });
+        await auth.updateUser(uid, { disabled: !active });
+        await auth.revokeRefreshTokens(uid);
+        const now = Date.now();
+        await ref.update({ active, sessionVersion, updatedAt: now, updatedBy: user.uid });
+        await db.collection('admin_audit_logs').add({
+          action: active ? 'reactivate_platform_admin' : 'suspend_platform_admin',
+          targetUid: uid, targetRole: String(snap.data()?.role || ''),
+          actorUid: user.uid, createdAt: now
+        });
+        return json(res, 200, { success: true, uid, active, requiresReauthentication: true });
+      }
+
+      if (action === 'support_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_support_tickets').limit(100).get();
+        const tickets = snap.docs.map((doc: any) => doc.data()).sort((a: any, b: any) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+        return json(res, 200, { success: true, tickets });
+      }
+
+      if (action === 'support_create') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(body.restaurantSlug || '').trim();
+        const subject = String(body.subject || '').trim();
+        const message = String(body.message || '').trim();
+        const priority = ['low', 'medium', 'high'].includes(String(body.priority)) ? String(body.priority) : 'medium';
+        if (!slug || subject.length < 5 || subject.length > 140 || message.length < 10 || message.length > 4000) {
+          return json(res, 400, { success: false, error: 'Restaurant, sujet ou message invalide.' });
+        }
+        const restaurantSnap = await db.collection('restaurants').doc(slug).get();
+        if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
+        const ticketRef = db.collection('platform_support_tickets').doc();
+        const now = Date.now();
+        const ticket = {
+          id: ticketRef.id, restaurantSlug: slug,
+          restaurantName: String(restaurantSnap.data()?.name || slug),
+          subject, priority, status: 'open', source: 'admin_console',
+          createdByUid: user.uid, createdByName: String(user.name || user.email || user.uid),
+          createdByEmail: typeof user.email === 'string' ? user.email : '',
+          createdAt: now, updatedAt: now, lastMessageAt: now, messageCount: 1
+        };
+        const batch = db.batch();
+        batch.create(ticketRef, ticket);
+        batch.create(ticketRef.collection('messages').doc(), {
+          authorUid: user.uid, authorRole: 'platform_admin', body: message,
+          visibility: 'public', createdAt: now
+        });
+        batch.create(db.collection('admin_audit_logs').doc(), {
+          action: 'support_ticket_created_by_admin', restaurantSlug: slug,
+          ticketId: ticketRef.id, actorUid: user.uid, createdAt: now
+        });
+        await batch.commit();
+        return json(res, 201, { success: true, ticket });
+      }
+
+      if (action === 'support_update') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const ticketId = String(body.ticketId || '').trim();
+        const status = String(body.status || '');
+        const priority = String(body.priority || '');
+        const reply = String(body.reply || '').trim();
+        const internalNote = String(body.internalNote || '').trim();
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(ticketId) ||
+            (status && !['open', 'in_progress', 'waiting_customer', 'waiting_support', 'resolved', 'closed'].includes(status)) ||
+            (priority && !['low', 'medium', 'high'].includes(priority)) ||
+            reply.length > 4000 || internalNote.length > 4000) {
+          return json(res, 400, { success: false, error: 'Mise à jour de ticket invalide.' });
+        }
+        const ref = db.collection('platform_support_tickets').doc(ticketId);
+        const snap = await ref.get();
+        if (!snap.exists) return json(res, 404, { success: false, error: 'Ticket introuvable.' });
+        const now = Date.now();
+        const patch: Record<string, unknown> = { updatedAt: now, updatedBy: user.uid };
+        if (status) patch.status = status;
+        if (priority) patch.priority = priority;
+        if (reply) { patch.lastMessageAt = now; patch.messageCount = Number(snap.data()?.messageCount || 0) + 1; }
+        const batch = db.batch();
+        batch.update(ref, patch);
+        if (reply) batch.create(ref.collection('messages').doc(), {
+          authorUid: user.uid, authorRole: 'platform_admin', body: reply,
+          visibility: 'public', createdAt: now
+        });
+        if (internalNote) batch.create(ref.collection('messages').doc(), {
+          authorUid: user.uid, authorRole: 'platform_admin', body: internalNote,
+          visibility: 'internal', createdAt: now
+        });
+        batch.create(db.collection('admin_audit_logs').doc(), {
+          action: 'support_ticket_updated', restaurantSlug: String(snap.data()?.restaurantSlug || ''),
+          ticketId, actorUid: user.uid, status: status || String(snap.data()?.status || ''),
+          priority: priority || String(snap.data()?.priority || ''), createdAt: now,
+          publicReplyAdded: Boolean(reply), internalNoteAdded: Boolean(internalNote)
+        });
+        await batch.commit();
+        return json(res, 200, { success: true, ticketId });
+      }
+
+      if (action === 'config_read') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_config').doc('global').get();
+        const config = snap.exists ? snap.data() : null;
+        return json(res, 200, { success: true, config: config || {
+          currency: 'XOF', gracePeriodDays: 7, maintenanceMode: false, version: 1,
+          planFeatures: {
+            Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false },
+            Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true }
+          },
+          emailTemplates: {
+            invitation: { subject: 'Bienvenue sur RestauMax', body: 'Votre compte RestauMax est prêt. Utilisez le lien sécurisé reçu par e-mail.' },
+            passwordReset: { subject: 'Réinitialisation de votre mot de passe', body: 'Suivez le lien sécurisé de Firebase Authentication pour choisir un nouveau mot de passe.' },
+            invoice: { subject: 'Votre facture RestauMax', body: 'Votre facture est disponible dans votre espace.' },
+            overdue: { subject: 'Rappel de paiement RestauMax', body: 'Une facture reste à régulariser dans votre espace.' }
+          }
+        } });
+      }
+
+      if (action === 'config_update') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const input = body.config && typeof body.config === 'object' ? body.config : {};
+        const gracePeriodDays = Number(input.gracePeriodDays);
+        if (input.currency !== 'XOF' || !Number.isInteger(gracePeriodDays) || gracePeriodDays < 0 || gracePeriodDays > 60 ||
+            typeof input.maintenanceMode !== 'boolean') {
+          return json(res, 400, { success: false, error: 'Devise, délai de grâce ou mode maintenance invalide.' });
+        }
+        const featureKeys = ['kitchenScreen', 'advancedReports', 'inventoryRecipes', 'loyalty'];
+        const plans = ['Essentiel', 'Pro'];
+        const planFeatures: Record<string, Record<string, boolean>> = {};
+        for (const plan of plans) {
+          const features = input.planFeatures?.[plan];
+          if (!features || featureKeys.some(key => typeof features[key] !== 'boolean')) {
+            return json(res, 400, { success: false, error: 'Les options des plans Essentiel et Pro doivent être renseignées.' });
+          }
+          planFeatures[plan] = Object.fromEntries(featureKeys.map(key => [key, features[key]]));
+        }
+        const emailTemplates = input.emailTemplates && typeof input.emailTemplates === 'object' ? input.emailTemplates : {};
+        const templateKeys = ['invitation', 'passwordReset', 'invoice', 'overdue'];
+        const normalizedTemplates: Record<string, { subject: string; body: string }> = {};
+        for (const key of templateKeys) {
+          const template = emailTemplates[key];
+          if (!template || typeof template.subject !== 'string' || typeof template.body !== 'string' ||
+              template.subject.length < 3 || template.subject.length > 160 ||
+              template.body.length < 10 || template.body.length > 3000) {
+            return json(res, 400, { success: false, error: 'Un modèle de message contient un contenu invalide.' });
+          }
+          normalizedTemplates[key] = { subject: template.subject.trim(), body: template.body.trim() };
+        }
+        const ref = db.collection('platform_config').doc('global');
+        const now = Date.now();
+        const saved = {
+          currency: 'XOF', gracePeriodDays, maintenanceMode: input.maintenanceMode,
+          planFeatures, emailTemplates, updatedAt: now, updatedBy: user.uid
+        };
+        await db.runTransaction(async (tx: any) => {
+          const snap = await tx.get(ref);
+          tx.set(ref, { ...saved, version: Number(snap.data()?.version || 0) + 1, createdAt: snap.data()?.createdAt || now });
+        });
+        await db.collection('admin_audit_logs').add({
+          action: 'update_platform_configuration', actorUid: user.uid, createdAt: now,
+          gracePeriodDays, maintenanceMode: input.maintenanceMode, currency: 'XOF'
+        });
+        return json(res, 200, { success: true, config: saved });
+      }
+
+      if (action === 'announcement_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_announcements').limit(100).get();
+        const announcements = snap.docs.map((doc: any) => doc.data()).sort((a: any, b: any) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+        return json(res, 200, { success: true, announcements });
+      }
+
+      if (action === 'announcement_save') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const title = String(body.title || '').trim();
+        const message = String(body.message || '').trim();
+        const targetType = String(body.targetType || 'all');
+        const planName = String(body.planName || '').trim();
+        const restaurantSlugs = Array.isArray(body.restaurantSlugs) ? [...new Set(body.restaurantSlugs.map((v: unknown) => String(v).trim()).filter(Boolean))] : [];
+        if (title.length < 3 || title.length > 100 || message.length < 10 || message.length > 3000 ||
+            !['all', 'plan', 'selected'].includes(targetType) ||
+            (targetType === 'plan' && !['Essentiel', 'Pro'].includes(planName)) ||
+            (targetType === 'selected' && (restaurantSlugs.length < 1 || restaurantSlugs.length > 200))) {
+          return json(res, 400, { success: false, error: 'Contenu ou ciblage de l’annonce invalide.' });
+        }
+        if (targetType === 'selected') {
+          const checks = await Promise.all(restaurantSlugs.map((slug: string) => db.collection('restaurants').doc(slug).get()));
+          if (checks.some((snap: any) => !snap.exists)) return json(res, 400, { success: false, error: 'Une sélection contient un restaurant introuvable.' });
+        }
+        const ref = db.collection('platform_announcements').doc();
+        const now = Date.now();
+        const announcement = {
+          id: ref.id, title, message, targetType, planName: targetType === 'plan' ? planName : '',
+          restaurantSlugs: targetType === 'selected' ? restaurantSlugs : [],
+          status: 'draft', scheduledAt: null, publishedAt: null,
+          createdAt: now, updatedAt: now, createdBy: user.uid
+        };
+        await ref.create(announcement);
+        await db.collection('admin_audit_logs').add({
+          action: 'create_platform_announcement', announcementId: ref.id,
+          actorUid: user.uid, targetType, createdAt: now
+        });
+        return json(res, 201, { success: true, announcement });
+      }
+
+      if (action === 'announcement_publish') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const id = String(body.id || '').trim();
+        const scheduledAt = body.scheduledAt ? Date.parse(String(body.scheduledAt)) : Date.now();
+        if (!id || !Number.isFinite(scheduledAt) || scheduledAt < Date.now() - 60000) {
+          return json(res, 400, { success: false, error: 'Date de publication invalide.' });
+        }
+        const ref = db.collection('platform_announcements').doc(id);
+        const snap = await ref.get();
+        if (!snap.exists || ['cancelled', 'published'].includes(String(snap.data()?.status))) {
+          return json(res, 409, { success: false, error: 'Annonce introuvable ou déjà traitée.' });
+        }
+        const now = Date.now();
+        await ref.update({ status: 'published', scheduledAt, publishedAt: scheduledAt, updatedAt: now, publishedBy: user.uid });
+        await db.collection('admin_audit_logs').add({
+          action: 'publish_platform_announcement', announcementId: id,
+          actorUid: user.uid, scheduledAt, createdAt: now
+        });
+        return json(res, 200, { success: true, status: scheduledAt > now ? 'scheduled' : 'published' });
+      }
+
+      if (action === 'announcement_cancel') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const id = String(body.id || '').trim();
+        if (!id) return json(res, 400, { success: false, error: 'Annonce manquante.' });
+        const ref = db.collection('platform_announcements').doc(id);
+        const snap = await ref.get();
+        if (!snap.exists || snap.data()?.status === 'cancelled') return json(res, 404, { success: false, error: 'Annonce introuvable.' });
+        const now = Date.now();
+        await ref.update({ status: 'cancelled', cancelledAt: now, cancelledBy: user.uid, updatedAt: now });
+        await db.collection('admin_audit_logs').add({ action: 'cancel_platform_announcement', announcementId: id, actorUid: user.uid, createdAt: now });
+        return json(res, 200, { success: true });
+      }
+
+      if (action === 'health_details') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const now = Date.now();
+        const services: any[] = [];
+        let databaseStatus = 'operational';
+        try {
+          await db.collection('platform_health').doc('probe').get();
+        } catch { databaseStatus = 'unavailable'; }
+        let authStatus = 'operational';
+        try { await getAuth().getUser(user.uid); } catch { authStatus = 'unavailable'; }
+        const [billingRunSnap, backupRunSnap] = await Promise.all([
+          db.collection('platform_job_runs').doc('subscription_billing').get().catch(() => null),
+          db.collection('platform_job_runs').doc('backup').get().catch(() => null)
+        ]);
+        const billingRun = billingRunSnap?.exists ? billingRunSnap.data() || {} : null;
+        const backupRun = backupRunSnap?.exists ? backupRunSnap.data() || {} : null;
+        const billingLastRunAt = Number(billingRun?.lastRunAt || 0) || null;
+        const billingFresh = Boolean(billingLastRunAt && now - billingLastRunAt <= 36 * 60 * 60 * 1000 && billingRun?.lastStatus === 'success');
+        services.push({ id: 'auth', label: 'Authentification Firebase', status: authStatus, detail: authStatus === 'operational' ? 'Compte administrateur vérifié.' : 'Lecture Firebase Authentication impossible.' });
+        services.push({ id: 'database', label: 'Firestore', status: databaseStatus, detail: databaseStatus === 'operational' ? 'Lecture de contrôle réussie.' : 'Firestore ne répond pas.' });
+        services.push({ id: 'payments', label: 'Paiements Mobile Money', status: process.env.PAYDUNYA_LIVE_ENABLED === 'true' ? 'operational' : 'degraded', detail: process.env.PAYDUNYA_LIVE_ENABLED === 'true' ? 'Mode de paiement réel autorisé par configuration.' : 'Mode test ou paiements réels désactivés.' });
+        services.push({ id: 'billing', label: 'Facturation planifiée', status: billingFresh ? 'operational' : (process.env.CRON_SECRET ? 'degraded' : 'unavailable'), detail: billingLastRunAt ? `Dernière exécution : ${new Date(billingLastRunAt).toISOString()} · ${String(billingRun?.lastStatus || 'inconnue')}` : (process.env.CRON_SECRET ? 'Aucune exécution enregistrée.' : 'CRON_SECRET absent : tâche planifiée non activable.') });
+        services.push({ id: 'deployment', label: 'Déploiement', status: process.env.VERCEL_ENV ? 'operational' : 'unknown', detail: process.env.VERCEL_ENV ? `${process.env.VERCEL_ENV} · ${String(process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || 'SHA non exposé'}` : 'Environnement Vercel non détecté.' });
+        services.push({ id: 'backup', label: 'Sauvegardes', status: backupRun?.lastStatus === 'success' ? 'operational' : 'unknown', detail: backupRun?.lastRunAt ? `Dernière sauvegarde enregistrée : ${new Date(Number(backupRun.lastRunAt)).toISOString()}` : 'Aucune télémétrie de sauvegarde connectée.' });
+        return json(res, 200, { success: true, checkedAt: now, services });
+      }
+
       if (action === 'billing_list') {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
         const subscriptionsSnap = await db.collection('restaurantSubscriptions').get();
