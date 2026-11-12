@@ -635,7 +635,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
       <div 
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden my-6 border border-slate-200 flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden my-6 border border-slate-200 flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-150"
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-dish-title"
@@ -667,22 +667,23 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
             disabled={isSaving}
             className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-40"
             title="Fermer la fenêtre"
+            aria-label="Fermer la fenêtre"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-6 grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
           {saveError && (
-            <div role="alert" className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-rose-800 text-xs font-semibold">
+            <div role="alert" className="xl:col-span-2 bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-rose-800 text-xs font-semibold">
               {saveError}
             </div>
           )}
 
           {/* Global error banner if submitted with errors */}
           {touched && Object.keys(errors).length > 0 && (
-            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-start gap-3 text-rose-800 text-xs">
+            <div className="xl:col-span-2 bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-start gap-3 text-rose-800 text-xs">
               <AlertCircle size={18} className="text-rose-600 shrink-0 mt-0.5" />
               <div>
                 <p className="font-bold">Veuillez corriger les champs invalides :</p>
@@ -699,9 +700,9 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           )}
 
           {/* Section 1: Informations Générales */}
-          <div className="space-y-4">
-            <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-2">
-              1. Informations Générales
+          <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+            <h3 className="text-sm font-black text-slate-900 border-b border-slate-100 pb-3">
+              Informations du plat
             </h3>
 
             {/* Nom & Catégorie */}
@@ -907,7 +908,8 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
           </div>
 
           {/* Section 2: Groupes d'Options */}
-          <div className="space-y-4 pt-2">
+          <div className="space-y-5">
+          <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <div>
                 <h3 className="text-xs font-black uppercase tracking-wider text-slate-500">
@@ -1090,8 +1092,9 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
             )}
           </div>
 
+          </section>
           {/* Section 3: Suppléments / Extras */}
-          <div className="space-y-4 pt-2">
+          <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <div>
                 <h3 className="text-xs font-black uppercase tracking-wider text-slate-500">
@@ -1177,6 +1180,7 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 ))}
               </div>
             )}
+          </section>
           </div>
         </form>
 
