@@ -331,13 +331,13 @@ service cloud.firestore {
 
       // Inventory catalog and immutable stock movement audit trail.
       match /inventoryItems/{itemId} {
-        allow get, list: if (hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage')) && resource.data.get('restaurantSlug', restaurantSlug) == restaurantSlug;
+        allow get, list: if hasPlatformFeature(restaurantSlug, 'inventoryRecipes') && (hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage')) && resource.data.get('restaurantSlug', restaurantSlug) == restaurantSlug;
         // Inventory mutations are Admin SDK only and must pass the transactional API.
         allow create, update, delete: if false;
       }
 
       match /menuRecipes/{menuItemId} {
-        allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
+        allow get, list: if hasPlatformFeature(restaurantSlug, 'inventoryRecipes') && (hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage'));
         // Recipe creation and edits remain backend-only. A linked recipe may be
         // deleted by a catalogue manager only in the same transaction that deletes
         // its menu item, preventing orphaned recipe records.
