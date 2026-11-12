@@ -171,7 +171,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                   Module n° 02
                 </span>
                 <h1 className="text-xl font-black text-white tracking-tight">
-                  Gestion du menu
+                  Menu et catalogue des plats
                 </h1>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -289,12 +289,10 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
         <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-4">
           <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
             {/* Search Input */}
-            <div className="relative flex-1 w-full">
-              <label htmlFor="menu-catalog-search" className="sr-only">Rechercher un plat par nom ou ingrédient</label>
-              <Search size={16} aria-hidden="true" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <div className="relative flex-1 max-w-md">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
-                id="menu-catalog-search"
-                type="search"
+                type="text"
                 placeholder="Rechercher un plat par nom ou ingrédient..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -365,7 +363,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
               </div>
               <span className="text-[11px] font-bold text-slate-500">{menuItems.length} articles au total</span>
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-2" role="group" aria-label="Catégories du menu">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {CATEGORIES.map(cat => {
                 const Icon = cat.icon;
                 const isSelected = selectedCategory === cat.id;
@@ -377,14 +375,21 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                     type="button"
                     aria-pressed={isSelected}
                     onClick={() => { sounds.playTap(); setSelectedCategory(cat.id); }}
-                    className={`min-h-[44px] shrink-0 rounded-full border px-4 py-2 text-xs font-bold whitespace-nowrap transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff6500] ${
+                    className={`min-h-[104px] rounded-2xl border p-3 sm:p-4 text-left flex flex-col justify-between transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-[#ff6500] ${
                       isSelected
-                        ? 'bg-[#101d2d] text-white border-[#101d2d]'
-                        : 'bg-white border-slate-200 text-slate-700 hover:border-slate-400'
+                        ? 'bg-[#101d2d] text-white border-[#101d2d] shadow-lg'
+                        : isDrinks
+                          ? 'bg-amber-50 border-amber-200 text-amber-950 hover:border-amber-400 hover:shadow-md'
+                          : 'bg-white border-slate-200 text-slate-800 hover:border-slate-400 hover:shadow-md'
                     }`}
                   >
-                    {cat.label}
-                    <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${isSelected ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-600'}`}>{countInCat}</span>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className={`w-9 h-9 rounded-xl flex items-center justify-center ${isSelected ? 'bg-white/10 text-amber-300' : isDrinks ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'}`}>
+                        <Icon size={19} />
+                      </span>
+                      <span className={`text-[11px] font-black rounded-full px-2 py-1 ${isSelected ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'}`}>{countInCat}</span>
+                    </div>
+                    <span className="text-xs sm:text-sm font-extrabold leading-snug">{cat.label}</span>
                   </button>
                 );
               })}
@@ -447,18 +452,14 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                   <div className="flex gap-4">
                     {/* Thumbnail Image */}
                     <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden shrink-0 bg-slate-100 border border-slate-200">
-                      {item.imageUrl ? (
-                        <img
-                          src={item.imageUrl}
-                          alt={item.name}
-                          referrerPolicy="no-referrer"
-                          className={`w-full h-full object-cover transition-opacity duration-200 ${
-                            isAvailable ? 'opacity-100' : 'opacity-40 grayscale'
-                          }`}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-[#f1dcc4] text-[#70543a] text-xs font-bold">Photo</div>
-                      )}
+                      <img
+                        src={item.imageUrl}
+                        alt={item.name}
+                        referrerPolicy="no-referrer"
+                        className={`w-full h-full object-cover transition-opacity duration-200 ${
+                          isAvailable ? 'opacity-100' : 'opacity-40 grayscale'
+                        }`}
+                      />
                       {!isAvailable && (
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center p-1 text-center">
                           <span className="text-[10px] font-black text-rose-200 bg-rose-950/80 px-1.5 py-0.5 rounded border border-rose-500/50 uppercase tracking-wider">
@@ -552,7 +553,7 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                       {canManageCatalog && <>
                       <button
                         onClick={() => handleOpenEditModal(item)}
-                        className="min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold text-white bg-[#101d2d] hover:bg-[#1b3048] transition-all flex items-center justify-center gap-1.5 active:scale-95 border border-[#101d2d] flex-1"
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-all flex items-center gap-1.5 active:scale-95 border border-slate-200"
                         title="Modifier ce plat, ses tarifs ou ses options"
                       >
                         <Edit3 size={13} className="text-slate-600" />
@@ -570,10 +571,10 @@ export const MenuManagementView: React.FC<MenuManagementViewProps> = ({
                       </button>
                       <button
                         onClick={() => handleToggle(item.id)}
-                        className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 flex-1 ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95 ${
                           isAvailable
-                            ? 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-300'
-                            : 'bg-white text-[#c2410c] hover:bg-orange-50 border border-[#c2410c]'
+                            ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800 border border-rose-200/80 shadow-2xs'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-xs'
                         }`}
                         title={isAvailable ? 'Marquer le plat comme indisponible' : 'Rendre le plat à nouveau disponible'}
                       >
