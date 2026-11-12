@@ -26,7 +26,7 @@ assert(overview.includes('monthlyRecurringRevenueFcfa'), 'overview reports norma
 assert(overview.includes("billingCycle === 'yearly'"), 'yearly subscriptions are normalized over twelve months');
 console.log('Platform overview minimization and aggregate checks passed.');
 
-const accountsStart = source.indexOf("if (action === 'staff_list' && isSuperAdmin(user)) {");
+const accountsStart = source.indexOf("if (action === 'staff_list' && ['full', 'support'].includes(String(await getPlatformAdminRole(db, user) || ''))) {");
 const accountsEnd = source.indexOf("// Owner and authorized manager staff administration", accountsStart);
 assert(accountsStart >= 0 && accountsEnd > accountsStart, 'super-admin account audit exists before tenant staff authorization');
 const accountAudit = source.slice(accountsStart, accountsEnd);
