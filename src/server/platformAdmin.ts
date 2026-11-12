@@ -1124,7 +1124,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       if (action === 'billing_list') {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
-        const subscriptionsSnap = await db.collection('restaurantSubscriptions').get();
+        const [subscriptionsSnap, configSnap] = await Promise.all([
+          db.collection('restaurantSubscriptions').get(),
+          db.collection('platform_config').doc('global').get()
+        ]);
+        const configuredGrace = Number(configSnap.data()?.gracePeriodDays);
+        const gracePeriodDays = Number.isInteger(configuredGrace) && configuredGrace >= 0 && configuredGrace <= 60 ? configuredGrace : 7;
         const invoices: any[] = [];
         for (const subscriptionDoc of subscriptionsSnap.docs) {
           if (invoices.length >= 100) break;
@@ -1147,7 +1152,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           }
         }
         invoices.sort((a, b) => Number(b.issuedAt || 0) - Number(a.issuedAt || 0));
-        return json(res, 200, { success: true, invoices, truncated: invoices.length >= 100 });
+        return json(res, 200, { success: true, invoices, truncated: invoices.length >= 100, gracePeriodDays });
       }
 
       if (action === 'audit_list') {
