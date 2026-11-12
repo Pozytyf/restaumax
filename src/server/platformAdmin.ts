@@ -1124,35 +1124,51 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       if (action === 'billing_list') {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
-        const [subscriptionsSnap, configSnap] = await Promise.all([
-          db.collection('restaurantSubscriptions').get(),
-          db.collection('platform_config').doc('global').get()
-        ]);
+        const configSnap = await db.collection('platform_config').doc('global').get();
         const configuredGrace = Number(configSnap.data()?.gracePeriodDays);
         const gracePeriodDays = Number.isInteger(configuredGrace) && configuredGrace >= 0 && configuredGrace <= 60 ? configuredGrace : 7;
-        const invoices: any[] = [];
-        for (const subscriptionDoc of subscriptionsSnap.docs) {
-          if (invoices.length >= 100) break;
-          const invoiceSnap = await subscriptionDoc.ref.collection('invoices').orderBy('issuedAt', 'desc').limit(30).get();
-          for (const invoiceDoc of invoiceSnap.docs) {
-            const invoice = invoiceDoc.data() || {};
-            invoices.push({
-              id: invoiceDoc.id,
-              restaurantSlug: subscriptionDoc.id,
-              planName: typeof invoice.planName === 'string' ? invoice.planName : '',
-              amountFcfa: Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0,
-              currency: 'FCFA',
-              status: ['open', 'paid', 'void', 'overdue'].includes(String(invoice.status)) ? invoice.status : 'unknown',
-              issuedAt: Number.isFinite(invoice.issuedAt) ? invoice.issuedAt : null,
-              dueAt: Number.isFinite(invoice.dueAt) ? invoice.dueAt : null,
-              paidAt: Number.isFinite(invoice.paidAt) ? invoice.paidAt : null,
-              paymentReference: typeof invoice.paymentReference === 'string' ? invoice.paymentReference.slice(0, 80) : null
-            });
-            if (invoices.length >= 100) break;
-          }
+        const requestedLimit = Number(req.query?.limit || 100);
+        if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 200) {
+          return json(res, 400, { success: false, error: 'Taille de page de factures invalide (1 à 200).' });
         }
-        invoices.sort((a, b) => Number(b.issuedAt || 0) - Number(a.issuedAt || 0));
-        return json(res, 200, { success: true, invoices, truncated: invoices.length >= 100, gracePeriodDays });
+        let query = db.collectionGroup('invoices').orderBy('issuedAt', 'desc').limit(requestedLimit + 1);
+        const cursor = String(req.query?.cursor || '').trim();
+        if (cursor) {
+          let parsed: any = null;
+          try { parsed = JSON.parse(cursor); } catch { /* invalid cursor handled below */ }
+          const slug = String(parsed?.slug || '');
+          const invoiceId = String(parsed?.id || '');
+          if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(invoiceId)) {
+            return json(res, 400, { success: false, error: 'Curseur de facturation invalide.' });
+          }
+          const cursorSnap = await db.collection('restaurantSubscriptions').doc(slug).collection('invoices').doc(invoiceId).get();
+          if (!cursorSnap.exists) return json(res, 400, { success: false, error: 'Curseur de facturation expiré.' });
+          query = query.startAfter(cursorSnap);
+        }
+        const invoiceSnap = await query.get();
+        const hasMore = invoiceSnap.docs.length > requestedLimit;
+        const pageDocs = hasMore ? invoiceSnap.docs.slice(0, requestedLimit) : invoiceSnap.docs;
+        const invoices = pageDocs.map((invoiceDoc: any) => {
+          const invoice = invoiceDoc.data() || {};
+          const restaurantSlug = invoiceDoc.ref.parent.parent?.id || String(invoice.restaurantSlug || '');
+          return {
+            id: invoiceDoc.id, restaurantSlug,
+            planName: typeof invoice.planName === 'string' ? invoice.planName : '',
+            amountFcfa: Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0,
+            currency: 'FCFA',
+            status: ['open', 'paid', 'void', 'overdue'].includes(String(invoice.status)) ? invoice.status : 'unknown',
+            issuedAt: Number.isFinite(invoice.issuedAt) ? invoice.issuedAt : null,
+            dueAt: Number.isFinite(invoice.dueAt) ? invoice.dueAt : null,
+            paidAt: Number.isFinite(invoice.paidAt) ? invoice.paidAt : null,
+            paymentReference: typeof invoice.paymentReference === 'string' ? invoice.paymentReference.slice(0, 80) : null
+          };
+        });
+        const lastDoc = pageDocs.length ? pageDocs[pageDocs.length - 1] : null;
+        const lastSlug = lastDoc?.ref.parent.parent?.id || '';
+        return json(res, 200, {
+          success: true, invoices, gracePeriodDays, hasMore,
+          nextCursor: hasMore && lastDoc ? JSON.stringify({ slug: lastSlug, id: lastDoc.id }) : null
+        });
       }
 
       if (action === 'audit_list') {
