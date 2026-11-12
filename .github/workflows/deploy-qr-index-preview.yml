@@ -65,15 +65,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 24
+          node-version: 22
 
       - name: Deploy Firestore indexes to Preview only
         shell: bash
         run: |
           set -euo pipefail
-          test -f firebase.json
           test -f firestore.indexes.json
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-sa.json"
           chmod 600 "$RUNNER_TEMP/firebase-sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
-          npx --yes firebase-tools@14.22.0 deploy --only firestore:indexes --project "$FIREBASE_PROJECT_ID" --non-interactive
+          printf '%s\n' '{"firestore":{"indexes":"firestore.indexes.json"}}' > .firebase-indexes-only.json
+          trap 'rm -f .firebase-indexes-only.json "$RUNNER_TEMP/firebase-sa.json"' EXIT
+          npx --yes firebase-tools@14.22.0 deploy --config .firebase-indexes-only.json --only firestore:indexes --project "$FIREBASE_PROJECT_ID" --non-interactive
