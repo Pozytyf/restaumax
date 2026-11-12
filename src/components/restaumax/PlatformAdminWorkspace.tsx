@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { auth, requestManagerPasswordReset } from '../../lib/firebase';
 import {
-  Activity, Bell, Building2, CheckCircle2, ChevronRight, CircleHelp, ClipboardList,
-  CreditCard, FileText, LayoutDashboard, LogOut, Plus, RefreshCw, Search, Settings,
-  ShieldCheck, Users, X, AlertTriangle, Eye, EyeOff
+  Activity, Bell, Building2, ChevronRight, CircleHelp, ClipboardList,
+  CreditCard, LayoutDashboard, LogOut, Plus, RefreshCw, Search, Settings,
+  Users, X, AlertTriangle
 } from 'lucide-react';
 
 type Subscription = {
@@ -60,22 +60,10 @@ const NAV = [
 ] as const;
 type Screen = typeof NAV[number]['id'];
 
-const demoRestaurants = [
-  ['Chez Awa', 'Pro', 'Actif', '01/12/2026'],
-  ['Maquis du Plateau', 'Essentiel', 'Essai', '20/11/2026'],
-  ['Le Palmier', 'Pro', 'Délai de grâce', '15/11/2026'],
-  ['Saveurs d’Abidjan', 'Essentiel', 'Suspendu', '—'],
-  ['Café Lagune', 'Pro', 'Actif', '05/12/2026']
-];
 const demoTickets = [
   ['T-101', 'Le Palmier', 'Problème d’impression', 'Moyen', 'Ouvert', 'Hier'],
   ['T-102', 'Café Lagune', 'QR code illisible', 'Élevé', 'En cours', 'Aujourd’hui'],
   ['T-103', 'Chez Awa', 'Question sur une facture', 'Faible', 'Résolu', '09/11']
-];
-const demoAudit = [
-  ['12/11/2026 10:42', 'Admin principal', 'Suspension restaurant', 'Saveurs d’Abidjan'],
-  ['12/11/2026 09:15', 'Admin facturation', 'Mise à jour abonnement', 'Le Palmier'],
-  ['11/11/2026 17:28', 'Admin principal', 'Connexion MFA', 'Plateforme']
 ];
 
 const money = (value: number) => `${Math.round(value || 0).toLocaleString('fr-FR')} FCFA`;
@@ -145,7 +133,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
 
   useEffect(() => {
     let active = true;
-    if (screen === 'billing') {
+    if (screen === 'billing' || screen === 'overview') {
       setPageLoading(true); setPageError('');
       void read('billing_list').then(data => { if (active) setInvoices(data.invoices || []); })
         .catch(e => { if (active) setPageError(e.message); })
@@ -235,7 +223,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     const next = restaurant.status === 'suspended' ? 'active' : 'suspended';
     if (!window.confirm(`${next === 'active' ? 'Réactiver' : 'Suspendre'} ${restaurant.name} ?`)) return;
     setPageLoading(true); setPageError('');
-    try { await request({ action: 'set_restaurant_status', slug: restaurant.slug, status: next }); await onRefresh(); setNotice(`${restaurant.name} : ${statusLabel(next)}.`); }
+    try { await request({ action: 'set_restaurant_status', slug: restaurant.slug, status: next }); await onRefresh(); setSelected({...restaurant,status:next}); setNotice(`${restaurant.name} : ${statusLabel(next)}.`); }
     catch (e: any) { setPageError(e.message || 'Action impossible.'); }
     finally { setPageLoading(false); }
   };
@@ -266,10 +254,17 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const unpaidTotal = unpaidInvoices.reduce((sum, invoice) => sum + invoice.amountFcfa, 0);
   const mockupOnly = screen === 'support' || screen === 'settings' || screen === 'communication';
 
+  const refreshCurrentScreen = async () => {
+    setPageError(''); setNotice('');
+    await onRefresh();
+    if (screen === 'billing' || screen === 'overview') { try { const data = await read('billing_list'); setInvoices(data.invoices || []); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'audit') { try { const data = await read('audit_list'); setAudit(data.logs || []); } catch (e: any) { setPageError(e.message); } }
+  };
+
   const pageHeader = <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
     <div><p className="text-xs font-semibold text-slate-500">Plateforme <span className="px-1">›</span> {title}</p><h2 className="mt-1 text-2xl font-extrabold tracking-tight text-[#101d2d]">{title}</h2></div>
     <div className="flex flex-wrap items-center gap-2"><span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600">{mockupOnly ? 'Maquette · valeurs d’exemple' : 'Vue plateforme sécurisée'}</span>
-      <button type="button" onClick={() => { setPageError(''); setNotice(''); void onRefresh(); if (screen === 'billing' || screen === 'audit') setScreen(screen); }} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={loading || pageLoading}><RefreshCw size={15}/> Actualiser</button>
+      <button type="button" onClick={() => { void refreshCurrentScreen(); }} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={loading || pageLoading}><RefreshCw size={15}/> Actualiser</button>
     </div>
   </div>;
 
@@ -317,7 +312,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
           {screen === 'restaurants' && <>
             <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div className="flex flex-wrap gap-2"><Field label="Rechercher"><span className="relative"><Search className="absolute left-3 top-3 text-slate-400" size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Nom ou identifiant" className={`${inputClass} pl-9`}/></span></Field><Field label="Statut"><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className={inputClass}><option value="all">Tous</option><option value="active">Actif</option><option value="suspended">Suspendu</option><option value="deleted">Archivé</option></select></Field></div><button type="button" onClick={() => setCreateOpen(v=>!v)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#c2410c] px-4 text-sm font-bold text-white"><Plus size={16}/> Créer un restaurant</button></div>
             {createOpen && <Panel className="mb-4"><div className="mb-4 flex items-center justify-between"><h3 className="font-extrabold">Créer un restaurant</h3><button type="button" aria-label="Fermer" onClick={() => setCreateOpen(false)} className="min-h-11 min-w-11 rounded-lg hover:bg-slate-100"><X size={17}/></button></div><form onSubmit={createRestaurant} className="grid gap-3 md:grid-cols-3"><Field label="Nom du restaurant"><input required maxLength={100} value={createForm.name} onChange={e=>setCreateForm({...createForm,name:e.target.value})} className={inputClass}/></Field><Field label="Nom du propriétaire"><input required maxLength={100} value={createForm.ownerName} onChange={e=>setCreateForm({...createForm,ownerName:e.target.value})} className={inputClass}/></Field><Field label="E-mail du propriétaire"><input required type="email" value={createForm.ownerEmail} onChange={e=>setCreateForm({...createForm,ownerEmail:e.target.value})} className={inputClass}/></Field><div className="md:col-span-3 flex flex-wrap gap-2"><button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-5 text-sm font-bold text-white">{pageLoading?'Création…':'Créer et inviter'}</button><p className="self-center text-xs text-slate-500">Le propriétaire définit son mot de passe via un e-mail sécurisé.</p></div></form></Panel>}
-            <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]"><Panel><div className="mb-3 font-extrabold">Établissements ({filteredRestaurants.length})</div><div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Échéance</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredRestaurants.map(r=><tr key={r.slug} onClick={()=>setSelected(r)} className={`cursor-pointer hover:bg-slate-50 ${selected?.slug===r.slug?'bg-orange-50':''}`}><td className="px-3 py-3 font-semibold">{r.name}<span className="block text-xs font-normal text-slate-500">{r.slug}</span></td><td className="px-3 py-3">{r.subscription?.planName || '—'}</td><td className="px-3 py-3"><Badge value={r.status}/></td><td className="px-3 py-3">{date(r.subscription?.nextBillingAt || r.subscription?.endsAt)}</td></tr>)}</tbody></table></div></Panel>
+            <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]"><Panel><div className="mb-3 font-extrabold">Établissements ({filteredRestaurants.length})</div><div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Échéance</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredRestaurants.map(r=><tr key={r.slug} className={`hover:bg-slate-50 ${selected?.slug===r.slug?'bg-orange-50':''}><td className="px-3 py-3 font-semibold"><button type="button" onClick={()=>setSelected(r)} className="min-h-11 text-left underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#c2410c]">{r.name}<span className="block text-xs font-normal text-slate-500">{r.slug}</span></button></td><td className="px-3 py-3">{r.subscription?.planName || '—'}</td><td className="px-3 py-3"><Badge value={r.status}/></td><td className="px-3 py-3">{date(r.subscription?.nextBillingAt || r.subscription?.endsAt)}</td></tr>)}</tbody></table></div></Panel>
               <Panel>{selected ? <><div className="mb-3 flex items-start justify-between"><div><h3 className="font-extrabold">{selected.name}</h3><p className="text-xs text-slate-500">{selected.slug}</p></div><Badge value={selected.status}/></div><dl className="grid grid-cols-2 gap-3 text-sm"><div><dt className="text-slate-500">Plan</dt><dd className="font-bold">{selected.subscription?.planName || 'Non configuré'}</dd></div><div><dt className="text-slate-500">Tarif</dt><dd className="font-bold">{money(selected.subscription?.priceFcfa || 0)}</dd></div><div><dt className="text-slate-500">Échéance</dt><dd className="font-bold">{date(selected.subscription?.endsAt)}</dd></div><div><dt className="text-slate-500">Ouverture</dt><dd className="font-bold">{selected.isOpen?'Ouvert':'Fermé'}</dd></div></dl><div className="mt-5 flex flex-wrap gap-2"><button type="button" onClick={()=>startSubscriptionEdit(selected)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Abonnement</button><button type="button" disabled={pageLoading || selected.status==='deleted'} onClick={()=>void setRestaurantStatus(selected)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">{selected.status==='suspended'?'Réactiver':'Suspendre'}</button><button type="button" onClick={()=>void openAccounts(selected)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Comptes liés</button><button type="button" disabled={pageLoading || selected.status==='deleted'} onClick={()=>void archiveRestaurant(selected)} className="min-h-11 rounded-lg border border-rose-300 px-3 text-xs font-bold text-rose-800">Archiver</button></div><p className="mt-4 text-xs text-slate-500">L’archivage coupe les accès mais conserve l’historique métier. Les données de commandes et de caisse ne sont pas affichées.</p></> : <p className="py-10 text-center text-sm text-slate-500">Sélectionnez un restaurant pour consulter ses informations de plateforme.</p>}</Panel></div>
             {subscriptionTarget && <Panel className="mt-4"><h3 className="mb-4 font-extrabold">Abonnement · {subscriptionTarget.name}</h3><form onSubmit={saveSubscription} className="grid gap-3 md:grid-cols-3"><Field label="Plan"><input required value={subscriptionForm.planName} onChange={e=>setSubscriptionForm({...subscriptionForm,planName:e.target.value})} className={inputClass}/></Field><Field label="Tarif FCFA"><input required type="number" min="0" step="1" value={subscriptionForm.priceFcfa} onChange={e=>setSubscriptionForm({...subscriptionForm,priceFcfa:e.target.value})} className={inputClass}/></Field><Field label="Périodicité"><select value={subscriptionForm.billingCycle} onChange={e=>setSubscriptionForm({...subscriptionForm,billingCycle:e.target.value})} className={inputClass}><option value="monthly">Mensuelle</option><option value="yearly">Annuelle</option><option value="custom">Personnalisée</option></select></Field><Field label="Statut"><select value={subscriptionForm.status} onChange={e=>setSubscriptionForm({...subscriptionForm,status:e.target.value})} className={inputClass}><option value="trial">Essai</option><option value="active">Actif</option><option value="past_due">En retard</option><option value="suspended">Suspendu</option><option value="cancelled">Résilié</option></select></Field><Field label="Début"><input required type="date" value={subscriptionForm.startsOn} onChange={e=>setSubscriptionForm({...subscriptionForm,startsOn:e.target.value})} className={inputClass}/></Field><Field label="Fin"><input required type="date" value={subscriptionForm.endsOn} onChange={e=>setSubscriptionForm({...subscriptionForm,endsOn:e.target.value})} className={inputClass}/></Field><Field label="Délai de grâce (jours)"><input type="number" min="0" max="60" value={subscriptionForm.gracePeriodDays} onChange={e=>setSubscriptionForm({...subscriptionForm,gracePeriodDays:e.target.value})} className={inputClass}/></Field><label className="flex min-h-11 items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={subscriptionForm.autoRenew} disabled={subscriptionForm.billingCycle==='custom'} onChange={e=>setSubscriptionForm({...subscriptionForm,autoRenew:e.target.checked})}/> Renouvellement automatique</label><div className="flex items-end gap-2"><button disabled={pageLoading} className="min-h-11 rounded-lg bg-[#101d2d] px-4 text-sm font-bold text-white">Enregistrer</button><button type="button" onClick={()=>setSubscriptionTarget(null)} className="min-h-11 rounded-lg border px-4 text-sm">Annuler</button></div></form></Panel>}
             {accountRestaurant && <Panel className="mt-4"><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Comptes rattachés · {accountRestaurant}</h3><button type="button" onClick={()=>setAccountRestaurant('')} className="min-h-11 min-w-11 rounded-lg hover:bg-slate-100" aria-label="Fermer"><X size={17}/></button></div>{pageLoading?'Chargement…':accounts.length===0?'Aucun compte lié trouvé.':<div className="overflow-x-auto"><table className={tableShell}><thead><tr><th className="px-3 py-2">Compte</th><th className="px-3 py-2">Rôle</th><th className="px-3 py-2">État</th></tr></thead><tbody>{accounts.map(a=><tr key={a.uid} className="border-t"><td className="px-3 py-2">{a.displayName}<span className="block text-xs text-slate-500">{a.email}</span></td><td className="px-3 py-2">{a.role}</td><td className="px-3 py-2">{a.accountLinked===false?'Non lié':a.activeKnown?(a.active?'Actif':'Inactif'):'À vérifier'}</td></tr>)}</tbody></table></div>}<p className="mt-3 text-xs text-slate-500">Lecture seule. Aucune commande ni donnée financière du restaurant n’est exposée.</p></Panel>}
