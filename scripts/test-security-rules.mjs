@@ -34,20 +34,22 @@ const table = (db, slug, id='table-1') => doc(db, 'restaurants', slug, 'tables',
 try {
   await env.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
-    for (const slug of ['rest-a', 'rest-b', 'rest-suspended', 'rest-provisioning', 'rest-essentiel']) {
+    for (const slug of ['rest-a', 'rest-b', 'rest-suspended', 'rest-provisioning', 'rest-essentiel', 'rest-legacy']) {
       await setDoc(doc(db, 'restaurants', slug), {
         slug, name: slug, isOpen: true,
         status: slug === 'rest-suspended' ? 'suspended' : slug === 'rest-provisioning' ? 'provisioning' : 'active',
       });
       await setDoc(doc(db, 'restaurants', slug, 'private', 'ownership'), {
-        ownerUid: slug === 'rest-b' ? 'owner-b' : slug === 'rest-essentiel' ? 'owner-essentiel' : 'owner-a',
-        ownerEmail: slug === 'rest-b' ? 'owner-b@example.test' : slug === 'rest-essentiel' ? 'owner-essentiel@example.test' : 'owner@example.test'
+        ownerUid: slug === 'rest-b' ? 'owner-b' : slug === 'rest-essentiel' ? 'owner-essentiel' : slug === 'rest-legacy' ? 'owner-legacy' : 'owner-a',
+        ownerEmail: slug === 'rest-b' ? 'owner-b@example.test' : slug === 'rest-essentiel' ? 'owner-essentiel@example.test' : slug === 'rest-legacy' ? 'owner-legacy@example.test' : 'owner@example.test'
       });
     }
     const members = [
       ['owner-a','rest-a','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage','inventory.view','inventory.manage']],
       ['owner-b','rest-b','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage','inventory.view','inventory.manage']],
       ['owner-essentiel','rest-essentiel','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage','inventory.view','inventory.manage']],
+      ['owner-legacy','rest-legacy','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage','inventory.view','inventory.manage']],
+      ['owner-orphan','rest-orphan','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage','inventory.view','inventory.manage']],
       ['kitchen-essentiel','rest-essentiel','kitchen',['orders.view','kitchen.access']],
       ['manager-b','rest-b','manager',['menu.manage','orders.manage','orders.view','tables.view','tables.manage','pos.access','cash.view','cash.manage','reports.view','staff.manage','settings.view','inventory.view','inventory.manage']],
       ['manager-a','rest-a','manager',['menu.manage','orders.manage','orders.view','tables.view','tables.manage','pos.access','cash.view','cash.manage','reports.view','staff.manage','settings.view','inventory.view','inventory.manage']],
@@ -101,6 +103,13 @@ try {
     await setDoc(doc(db,'restaurants/rest-b/inventoryItems/rice'),{
       id:'rice',name:'Riz B',unit:'kg',quantity:7,minQuantity:1,unitCost:900,active:true
     });
+    await setDoc(doc(db,'restaurants/rest-legacy/inventoryItems/rice'),{
+      id:'rice',name:'Riz historique',unit:'kg',quantity:5,minQuantity:1,unitCost:700,active:true
+    });
+    // Deliberately create an orphaned subcollection document without its restaurant parent.
+    await setDoc(doc(db,'restaurants/rest-orphan/inventoryItems/rice'),{
+      id:'rice',name:'Stock orphelin',unit:'kg',quantity:3,minQuantity:1,unitCost:500,active:true
+    });
     await setDoc(doc(db,'restaurants/rest-b/menuRecipes/dish-1'),{
       menuItemId:'dish-1',menuItemName:'Plat B',lines:[{inventoryItemId:'rice',itemName:'Riz B',unit:'kg',quantityPerDish:0.3}]
     });
@@ -127,6 +136,11 @@ try {
       }
     });
     await setDoc(doc(db, 'restaurantSubscriptions/rest-a'), {
+      planName: 'Pro', priceFcfa: 15000, currency: 'XOF',
+      billingCycle: 'monthly', status: 'active',
+      startsAt: 1793836800000, endsAt: 1795046400000
+    });
+    await setDoc(doc(db, 'restaurantSubscriptions/rest-b'), {
       planName: 'Pro', priceFcfa: 15000, currency: 'XOF',
       billingCycle: 'monthly', status: 'active',
       startsAt: 1793836800000, endsAt: 1795046400000
@@ -167,7 +181,9 @@ try {
   await denies(getDocs(collection(a('kitchen-essentiel'),'restaurants/rest-essentiel/orders')), 'Le rôle cuisine ne peut pas lire les commandes si l’écran cuisine est désactivé par la formule');
   await allows(getDocs(collection(a('owner-a'),'restaurants/rest-a/inventoryItems')), 'Le propriétaire peut consulter le catalogue de stock');
   await allows(getDocs(collection(a('manager-a'),'restaurants/rest-a/inventoryItems')), 'Le manager avec inventory.view peut consulter le stock');
-  await allows(getDocs(collection(a('owner-b'),'restaurants/rest-b/inventoryItems')), 'Le propriétaire B consulte uniquement son stock');
+  await allows(getDocs(collection(a('owner-b'),'restaurants/rest-b/inventoryItems')), 'Le propriétaire B consulte uniquement son stock avec sa formule Pro explicite');
+  await denies(getDocs(collection(a('owner-legacy'),'restaurants/rest-legacy/inventoryItems')), 'Un restaurant historique sans formule ne reçoit pas le stock premium par défaut');
+  await denies(getDocs(collection(a('owner-orphan'),'restaurants/rest-orphan/inventoryItems')), 'Une sous-collection orpheline reste inaccessible lorsque le document parent du restaurant est absent');
   await denies(getDocs(collection(a('owner-a'),'restaurants/rest-b/inventoryItems')), 'Le propriétaire A ne peut pas lister le stock B');
   await denies(getDocs(collection(a('manager-a'),'restaurants/rest-b/inventoryItems')), 'Le manager A ne peut pas lister le stock B');
   await allows(getDoc(doc(a('owner-a'),'restaurants/rest-a/menuRecipes/dish-1')), 'Le propriétaire A consulte sa fiche technique privée');
