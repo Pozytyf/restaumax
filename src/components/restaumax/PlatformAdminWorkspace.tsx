@@ -137,6 +137,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const [statusFilter, setStatusFilter] = useState('all');
   const [selected, setSelected] = useState<Restaurant | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [globalGracePeriodDays, setGlobalGracePeriodDays] = useState(7);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [auditCursor, setAuditCursor] = useState<string | null>(null);
   const [auditHasMore, setAuditHasMore] = useState(false);
@@ -209,7 +210,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     let active = true;
     if ((screen === 'billing' || screen === 'overview') && allowedActions.includes('billing_list')) {
       setPageLoading(true); setPageError('');
-      void read('billing_list').then(data => { if (active) setInvoices(data.invoices || []); })
+      void read('billing_list').then(data => { if (active) { setInvoices(data.invoices || []); setGlobalGracePeriodDays(Number.isInteger(data.gracePeriodDays) ? data.gracePeriodDays : 7); } })
         .catch(e => { if (active) setPageError(e.message); })
         .finally(() => { if (active) setPageLoading(false); });
     }
@@ -555,7 +556,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     try {
       await request({ action: 'settle_subscription_invoice', slug: selectedInvoice.restaurantSlug, invoiceId: selectedInvoice.id, amountFcfa: selectedInvoice.amountFcfa, paymentReference: paymentReference.trim() });
       setNotice('Paiement de facture confirmé et journalisé.'); setSelectedInvoice(null); setPaymentReference('');
-      const data = await read('billing_list'); setInvoices(data.invoices || []); await onRefresh();
+      const data = await read('billing_list'); setInvoices(data.invoices || []); setGlobalGracePeriodDays(Number.isInteger(data.gracePeriodDays) ? data.gracePeriodDays : 7); await onRefresh();
     } catch (e: any) { setPageError(e.message || 'Règlement impossible.'); }
     finally { setPageLoading(false); }
   };
@@ -650,7 +651,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
           </>}
 
           {screen === 'billing' && <>
-            <div className="mb-5 grid gap-4 sm:grid-cols-3"><Panel><p className="text-sm text-slate-500">Montant des factures ouvertes</p><p className="mt-2 text-2xl font-extrabold">{money(unpaidTotal)}</p></Panel><Panel><p className="text-sm text-slate-500">Factures à régulariser</p><p className="mt-2 text-2xl font-extrabold">{unpaidInvoices.length}</p></Panel><Panel><p className="text-sm text-slate-500">Délai de grâce standard</p><p className="mt-2 text-2xl font-extrabold">7 jours</p></Panel></div>
+            <div className="mb-5 grid gap-4 sm:grid-cols-3"><Panel><p className="text-sm text-slate-500">Montant des factures ouvertes</p><p className="mt-2 text-2xl font-extrabold">{money(unpaidTotal)}</p></Panel><Panel><p className="text-sm text-slate-500">Factures à régulariser</p><p className="mt-2 text-2xl font-extrabold">{unpaidInvoices.length}</p></Panel><Panel><p className="text-sm text-slate-500">Délai de grâce standard</p><p className="mt-2 text-2xl font-extrabold">{globalGracePeriodDays} jours</p></Panel></div>
             <Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Factures d’abonnement</h3><span className="text-xs text-slate-500">100 dernières au maximum</span></div><div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Facture</th><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Montant</th><th className="px-3 py-3">Émise</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{invoices.map(i=><tr key={i.id}><td className="px-3 py-3 font-semibold">{i.id.slice(0,14)}</td><td className="px-3 py-3">{restaurants.find(r=>r.slug===i.restaurantSlug)?.name || i.restaurantSlug}</td><td className="px-3 py-3">{i.planName}</td><td className="px-3 py-3 font-bold">{money(i.amountFcfa)}</td><td className="px-3 py-3">{date(i.issuedAt)}</td><td className="px-3 py-3"><Badge value={i.status}/></td><td className="px-3 py-3">{i.status==='open'?<button type="button" onClick={()=>setSelectedInvoice(i)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Enregistrer paiement</button>:<span className="text-xs text-slate-500">—</span>}</td></tr>)}</tbody></table></div>{pageLoading&&<p className="mt-3 text-sm text-slate-500">Chargement des factures…</p>}{invoices.length===0&&!pageLoading&&<p className="py-8 text-center text-sm text-slate-500">Aucune facture d’abonnement trouvée.</p>}</Panel>
             {selectedInvoice&&<Panel className="mt-4"><h3 className="mb-2 font-extrabold">Confirmer le règlement · {selectedInvoice.id}</h3><p className="mb-3 text-sm text-slate-600">Montant exact attendu : <strong>{money(selectedInvoice.amountFcfa)}</strong>. Confirmez uniquement un paiement effectivement reçu.</p><form onSubmit={settleInvoice} className="flex flex-wrap gap-2"><Field label="Référence du paiement"><input required minLength={4} maxLength={128} value={paymentReference} onChange={e=>setPaymentReference(e.target.value)} className={inputClass}/></Field><button disabled={pageLoading} className="min-h-11 self-end rounded-lg bg-[#101d2d] px-4 text-sm font-bold text-white">Confirmer le paiement</button><button type="button" onClick={()=>setSelectedInvoice(null)} className="min-h-11 self-end rounded-lg border px-4 text-sm">Annuler</button></form></Panel>}
           </>}
