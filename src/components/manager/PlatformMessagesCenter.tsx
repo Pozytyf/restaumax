@@ -7,7 +7,7 @@ type Ticket = {
   createdAt: number; updatedAt: number; messages: Message[];
 };
 type Announcement = { id: string; title: string; message: string; publishedAt: number; targetType: string };
-type AccessRequest = { id: string; reason: string; requestedByEmail: string; createdAt: number; requestExpiresAt: number };
+type AccessRequest = { id: string; reason: string; requestedByEmail: string; status: string; createdAt: number; requestExpiresAt: number; accessExpiresAt?: number | null };
 
 const inputClass = 'min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900';
 
@@ -77,6 +77,16 @@ export const PlatformMessagesCenter: React.FC<{ restaurantSlug: string; isOwner:
     finally { setLoading(false); }
   };
 
+  const revokeSupportAccess = async (requestId: string) => {
+    setLoading(true); setError(''); setNotice('');
+    try {
+      await call('support_access_revoke', { requestId });
+      setNotice('Accès de diagnostic révoqué immédiatement.');
+      await refresh();
+    } catch (e: any) { setError(e.message || 'Révocation impossible.'); }
+    finally { setLoading(false); }
+  };
+
   const submitReply = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedTicket || !reply.trim()) return;
@@ -96,7 +106,7 @@ export const PlatformMessagesCenter: React.FC<{ restaurantSlug: string; isOwner:
       <p className="mt-2 whitespace-pre-wrap text-sm">{item.message}</p>
       <p className="mt-2 text-xs text-blue-800">{item.publishedAt ? new Date(item.publishedAt).toLocaleString('fr-FR') : ''}</p>
     </article>)}
-    {accessRequests.length>0&&<section className="rounded-xl border border-amber-300 bg-amber-50 p-4"><h2 className="font-extrabold text-amber-950">Consentement à un diagnostic RestauMax</h2><p className="mt-1 text-sm text-amber-900">Un membre de l’équipe support demande un accès de diagnostic temporaire. Sans votre accord, aucun accès n’est accordé.</p>{accessRequests.map(item=><div key={item.id} className="mt-3 rounded-lg border border-amber-200 bg-white p-3"><p className="text-sm font-bold">Demande de {item.requestedByEmail}</p><p className="mt-1 whitespace-pre-wrap text-sm">{item.reason}</p><p className="mt-2 text-xs text-slate-500">Demande expirant le {new Date(item.requestExpiresAt).toLocaleString('fr-FR')} · accès maximal : 1 heure</p>{isOwner?<div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={loading} onClick={()=>void decideSupportAccess(item.id,true)} className="min-h-11 rounded-lg bg-[#101d2d] px-3 text-xs font-bold text-white">Autoriser le diagnostic</button><button type="button" disabled={loading} onClick={()=>void decideSupportAccess(item.id,false)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Refuser</button></div>:<p className="mt-2 text-xs font-semibold text-amber-900">Seul le propriétaire peut accepter ou refuser.</p>}</div>)}</section>}
+    {accessRequests.length>0&&<section className="rounded-xl border border-amber-300 bg-amber-50 p-4"><h2 className="font-extrabold text-amber-950">Consentement à un diagnostic RestauMax</h2><p className="mt-1 text-sm text-amber-900">Un membre de l’équipe support demande un accès de diagnostic temporaire. Sans votre accord, aucun accès n’est accordé.</p>{accessRequests.map(item=><div key={item.id} className="mt-3 rounded-lg border border-amber-200 bg-white p-3"><p className="text-sm font-bold">Demande de {item.requestedByEmail}</p><p className="mt-1 whitespace-pre-wrap text-sm">{item.reason}</p><p className="mt-2 text-xs text-slate-500">Demande expirant le {new Date(item.requestExpiresAt).toLocaleString('fr-FR')} · accès maximal : 1 heure</p>{isOwner&&item.status==='pending'?<div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={loading} onClick={()=>void decideSupportAccess(item.id,true)} className="min-h-11 rounded-lg bg-[#101d2d] px-3 text-xs font-bold text-white">Autoriser le diagnostic</button><button type="button" disabled={loading} onClick={()=>void decideSupportAccess(item.id,false)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Refuser</button></div>:isOwner&&item.status==='approved'?<div className="mt-3 flex items-center justify-between gap-2"><span className="text-xs font-semibold text-emerald-800">Accès actif jusqu’au {item.accessExpiresAt?new Date(item.accessExpiresAt).toLocaleString('fr-FR'):'—'}</span><button type="button" disabled={loading} onClick={()=>void revokeSupportAccess(item.id)} className="min-h-11 rounded-lg border border-rose-300 px-3 text-xs font-bold text-rose-800">Révoquer l’accès</button></div>:<p className="mt-2 text-xs font-semibold text-amber-900">Seul le propriétaire peut gérer le consentement.</p>}</div>)}</section>}
     <div className="grid gap-4 xl:grid-cols-2">
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
         <h2 className="font-extrabold text-[#101d2d]">Contacter l’assistance</h2>
