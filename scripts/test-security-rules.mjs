@@ -89,13 +89,13 @@ try {
       itemId:'rice',itemName:'Riz',unit:'kg',quantityBefore:0,delta:10,quantityAfter:10,reason:'Stock initial'
     });
     await setDoc(doc(db,'restaurants/rest-a/menuItems/dish-1'),{
-      id:'dish-1',restaurantSlug:'rest-a',name:'Plat A',category:'plats',price:1000,available:true
+      id:'dish-1',restaurantSlug:'rest-a',name:'Plat A',category:'entrees',price:1000,available:true
     });
     await setDoc(doc(db,'restaurants/rest-a/menuRecipes/dish-1'),{
       menuItemId:'dish-1', ingredients:[{itemId:'rice',quantityPerDish:0.2,unit:'kg'}]
     });
     await setDoc(doc(db,'restaurants/rest-b/menuItems/dish-1'),{
-      id:'dish-1',restaurantSlug:'rest-b',name:'Plat B',category:'plats',price:1200,available:true
+      id:'dish-1',restaurantSlug:'rest-b',name:'Plat B',category:'entrees',price:1200,available:true
     });
     await setDoc(doc(db,'restaurants/rest-a/customers/customer-1'), { name: 'Client A', phone: '+2250700000000', loyaltyPoints: 0, createdAt: 1 });
     await setDoc(doc(db,'restaurants/rest-b/inventoryItems/rice'),{
@@ -214,23 +214,23 @@ try {
   const managerDish = doc(a('manager-a'), 'restaurants/rest-a/menuItems/dish-manager-created');
   await allows(setDoc(managerDish, {
     id:'dish-manager-created', restaurantSlug:'rest-a', name:'Plat manager',
-    category:'plats', price:2500, available:true, description:'Test', imageUrl:'',
+    category:'entrees', price:2500, available:true, description:'Test', imageUrl:'',
     prepTimeMinutes:15, lowStockThreshold:4, allergens:['arachides','lait'], spiceLevel:2,
     pairings:['attiéké','alloco'], translations:{en:{name:'Manager dish',description:'Test description'},pt:{name:'Prato do gerente'}}
   }), 'Un manager autorisé peut créer un plat avec allergènes, piquant, accompagnements et traductions');
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-spice'),{
-    id:'dish-invalid-spice',restaurantSlug:'rest-a',name:'Piment invalide',category:'plats',price:2500,available:true,spiceLevel:4
+    id:'dish-invalid-spice',restaurantSlug:'rest-a',name:'Piment invalide',category:'entrees',price:2500,available:true,spiceLevel:4
   }), 'Le catalogue refuse un niveau de piquant hors plage');
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-translation'),{
-    id:'dish-invalid-translation',restaurantSlug:'rest-a',name:'Traduction invalide',category:'plats',price:2500,available:true,
+    id:'dish-invalid-translation',restaurantSlug:'rest-a',name:'Traduction invalide',category:'entrees',price:2500,available:true,
     translations:{en:{name:'x'.repeat(201)}}
   }), 'Le catalogue refuse une traduction trop longue');
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-b/menuItems/dish-cross-tenant'),{
-    id:'dish-cross-tenant',restaurantSlug:'rest-b',name:'Plat croisé',category:'plats',price:2500,available:true
+    id:'dish-cross-tenant',restaurantSlug:'rest-b',name:'Plat croisé',category:'entrees',price:2500,available:true
   }), 'Le manager A ne peut pas créer un plat dans le catalogue B');
   await allows(updateDoc(doc(a('owner-b'),'restaurants/rest-b/menuItems/dish-1'),{price:1300}), 'Le propriétaire B peut modifier le prix de son propre menu');
   await denies(updateDoc(doc(a('owner-a'),'restaurants/rest-b/menuItems/dish-1'),{price:1}), 'Le propriétaire A ne peut pas modifier le prix du menu B');
-  const invalidMenuBase = { restaurantSlug:'rest-a', name:'Plat invalide', category:'plats', price:2500, available:true };
+  const invalidMenuBase = { restaurantSlug:'rest-a', name:'Plat invalide', category:'entrees', price:2500, available:true };
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-float-price'),{
     ...invalidMenuBase, id:'dish-float-price', price:2500.5
   }), 'Le catalogue refuse un prix FCFA non entier');
