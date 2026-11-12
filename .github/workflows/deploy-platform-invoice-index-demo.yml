@@ -1,0 +1,79 @@
+name: Deploy platform invoice index — Firebase Demo only
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Saisir APPLY_PLATFORM_INVOICE_INDEX_TO_RESTAUMAX_DEMO pour publier les index dans le projet de démonstration uniquement"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restaumax-demo-platform-invoice-index
+  cancel-in-progress: false
+
+jobs:
+  deploy-platform-invoice-index:
+    if: github.ref == 'refs/heads/feat/super-admin-nine-screen-workspace'
+    environment: demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FIREBASE_PROJECT_ID: restaumax-demo
+      FIRESTORE_DATABASE_ID: (default)
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate immutable Demo target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/feat/super-admin-nine-screen-workspace"
+          test "$FIREBASE_PROJECT_ID" = "restaumax-demo"
+          test "$FIRESTORE_DATABASE_ID" = "(default)"
+          test "$CONFIRMATION" = "APPLY_PLATFORM_INVOICE_INDEX_TO_RESTAUMAX_DEMO"
+          if [[ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]]; then
+            echo "::error::Le secret FIREBASE_SERVICE_ACCOUNT_JSON est absent de l'environnement GitHub demo."
+            exit 1
+          fi
+          echo "Cible immuable validée : restaumax-demo / (default)."
+
+      - name: Checkout the audited super-admin branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/super-admin-nine-screen-workspace
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+
+      - name: Validate invoice collection-group index
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const config = JSON.parse(fs.readFileSync('firestore.indexes.json', 'utf8'));
+          const index = (config.fieldOverrides || []).find(entry =>
+            entry.collectionGroup === 'invoices' && entry.fieldPath === 'issuedAt'
+          );
+          if (!index?.indexes?.some(item =>
+            item.queryScope === 'COLLECTION_GROUP' && item.order === 'DESCENDING'
+          )) throw new Error('Missing invoices.issuedAt descending collection-group index.');
+          console.log('Invoice pagination index validated.');
+          NODE
+
+      - name: Deploy Firestore indexes to Demo only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f firebase.json
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+          chmod 600 "$RUNNER_TEMP/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          npx --yes firebase-tools@14.22.0 deploy --only firestore:indexes --project "$FIREBASE_PROJECT_ID" --non-interactive
