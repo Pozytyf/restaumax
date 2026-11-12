@@ -75,6 +75,14 @@ service cloud.firestore {
           isBoundRestaurantOwner(targetSlug));
     }
 
+    // Maintenance mode blocks direct client writes as well as API writes.
+    // Admin SDK server operations (payments callbacks, support and health)
+    // bypass these rules and are separately allow-listed by the API router.
+    function isPlatformMaintenanceMode() {
+      let configPath = /databases/$(database)/documents/platform_config/global;
+      return exists(configPath) && get(configPath).data.get('maintenanceMode', false) == true;
+    }
+
     // Plan entitlements are stored centrally and are enforced at the
     // Firestore boundary for kitchen-role order reads. Missing legacy plan
     // records preserve access; explicit false values always deny the feature.
