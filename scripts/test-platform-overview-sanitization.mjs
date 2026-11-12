@@ -112,6 +112,10 @@ assert(source.includes("accessDurationMinutes: 60") && source.includes("accessEx
 assert(source.includes("access.requestedBy !== user.uid") && source.includes("dataScope: 'profile_and_counts_only'"), 'diagnostics are bound to the requesting support agent and minimized');
 assert(source.includes("excluded: ['orders', 'payments', 'cash', 'customer_personal_data']"), 'temporary support diagnostics explicitly exclude sensitive restaurant operations');
 assert(source.includes("action === 'platform_staff_status'") && source.includes("action === 'platform_staff_revoke_sessions'"), 'super-admin can suspend restaurant accounts and revoke sessions');
+assert(source.includes("action === 'platform_owner_invite'") && source.includes("action: 'invite_restaurant_owner'"), 'unlinked restaurant owners can be invited and bound to a single tenant');
+assert(source.includes("action === 'support_access_revoke'") && source.includes("revokedBy: user.uid"), 'restaurant owners can revoke active diagnostic access immediately');
+assert(source.includes("id: 'mfa'") && source.includes("RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA"), 'platform health reports the server-side MFA enforcement policy');
+assert(firestoreRules.includes('function hasPlatformFeature') && firestoreRules.includes("hasPlatformFeature(restaurantSlug, 'kitchenScreen')"), 'Firestore order reads enforce the kitchen plan entitlement');
 assert(source.includes("serverAssignmentsReleased: member.role === 'server' && !nextActive"), 'server suspension releases assigned tables and active order assignments');
 assert(platformMessages.includes('support_access_decision') && platformMessages.includes('Seul le propriétaire'), 'restaurant portal exposes consent only to the owner');
 assert(!workspace.includes('Tickets de support · exemple') && !workspace.includes('Annonces · exemples') && !workspace.includes('aperçu non modifiable'), 'operational support and communication screens no longer display fake records');
