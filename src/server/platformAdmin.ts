@@ -309,9 +309,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       return json(res, 200, { success: true });
     }
     if (action === 'support_access_requests' || action === 'support_access_decision') {
-      const ownerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurant);
-      if (member.role !== 'owner' || ownerUid !== user.uid) {
-        return json(res, 403, { success: false, error: 'Seul le propriétaire du restaurant peut consentir à un accès de diagnostic.' });
+      if (action === 'support_access_decision') {
+        const ownerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurant);
+        if (member.role !== 'owner' || ownerUid !== user.uid) {
+          return json(res, 403, { success: false, error: 'Seul le propriétaire du restaurant peut consentir à un accès de diagnostic.' });
+        }
       }
       if (action === 'support_access_requests') {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
