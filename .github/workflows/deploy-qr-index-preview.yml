@@ -28,6 +28,20 @@ jobs:
       CONFIRMATION: ${{ inputs.confirmation }}
     steps:
       - name: Validate immutable Preview target
+      - name: Identify Firebase service account
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+
+          credentials = json.loads(os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"])
+          email = credentials.get("client_email", "")
+          if not email:
+              raise SystemExit("client_email absent du secret Firebase")
+          print("Compte Firebase utilisé :", email)
+          PY
         shell: bash
         run: |
           set -euo pipefail
