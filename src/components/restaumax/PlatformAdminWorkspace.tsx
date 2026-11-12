@@ -222,6 +222,140 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     finally { setPageLoading(false); }
   };
 
+  const resetAccountPassword = async (account: Account) => {
+    if (!account.email || account.accountLinked === false) return;
+    setPageLoading(true); setPageError(''); setNotice('');
+    try {
+      const result = await requestManagerPasswordReset(account.email);
+      if (!result.success) throw new Error(result.error || 'Envoi du lien impossible.');
+      setNotice(`E-mail de réinitialisation envoyé à ${account.email}.`);
+    } catch (e: any) { setPageError(e.message || 'Envoi du lien impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const createPlatformAdmin = async (event: React.FormEvent) => {
+    event.preventDefault(); setPageLoading(true); setPageError(''); setNotice('');
+    try {
+      const result = await request({ action: 'platform_admin_create', ...platformAdminForm });
+      const reset = await requestManagerPasswordReset(platformAdminForm.email);
+      setNotice(reset.success
+        ? `Compte ${platformAdminForm.email} créé. Le lien de définition du mot de passe a été envoyé.`
+        : `Compte créé, mais l’e-mail n’a pas été envoyé : ${reset.error || 'utilisez « Mot de passe oublié ».'}`);
+      setPlatformAdminForm({ displayName: '', email: '', platformRole: 'support' });
+      const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []);
+      if (!result.success) throw new Error('Création du compte non confirmée.');
+    } catch (e: any) { setPageError(e.message || 'Création du compte impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const changePlatformAdminRole = async (admin: PlatformAdmin, platformRole: string) => {
+    if (platformRole === admin.role || !window.confirm(`Modifier le rôle de ${admin.email} ? Sa session actuelle sera révoquée.`)) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'platform_admin_update', uid: admin.uid, platformRole });
+      const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []);
+      setNotice(`Rôle mis à jour pour ${admin.email}. Reconnexion obligatoire.`);
+    } catch (e: any) { setPageError(e.message || 'Modification du rôle impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const changePlatformAdminStatus = async (admin: PlatformAdmin) => {
+    const active = !admin.active;
+    if (!window.confirm(`${active ? 'Réactiver' : 'Suspendre'} le compte ${admin.email} ? Toutes ses sessions seront révoquées.`)) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'platform_admin_status', uid: admin.uid, active });
+      const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []);
+      setNotice(`Compte ${admin.email} ${active ? 'réactivé' : 'suspendu'}.`);
+    } catch (e: any) { setPageError(e.message || 'Changement de statut impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const createSupportTicket = async (event: React.FormEvent) => {
+    event.preventDefault(); setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'support_create', ...supportDraft });
+      setSupportDraft({ restaurantSlug: '', subject: '', message: '', priority: 'medium' });
+      const data = await read('support_list'); setSupportTickets(data.tickets || []);
+      setNotice('Ticket enregistré dans la file de support.');
+    } catch (e: any) { setPageError(e.message || 'Création du ticket impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const openSupportTicket = async (ticket: SupportTicket) => {
+    setSelectedTicket(ticket); setTicketMessages([]); setTicketReply(''); setTicketInternalNote('');
+    setTicketStatus(ticket.status); setTicketPriority(ticket.priority); setPageLoading(true); setPageError('');
+    try {
+      const data = await read('support_messages', { ticketId: ticket.id });
+      setTicketMessages(data.messages || []);
+    } catch (e: any) { setPageError(e.message || 'Conversation indisponible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const updateSupportTicket = async (event: React.FormEvent) => {
+    event.preventDefault(); if (!selectedTicket) return;
+    if (!ticketReply.trim() && !ticketInternalNote.trim() && ticketStatus === selectedTicket.status && ticketPriority === selectedTicket.priority) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({
+        action: 'support_update', ticketId: selectedTicket.id,
+        status: ticketStatus, priority: ticketPriority,
+        reply: ticketReply.trim(), internalNote: ticketInternalNote.trim()
+      });
+      setTicketReply(''); setTicketInternalNote('');
+      const [list, messages] = await Promise.all([
+        read('support_list'), read('support_messages', { ticketId: selectedTicket.id })
+      ]);
+      setSupportTickets(list.tickets || []); setTicketMessages(messages.messages || []);
+      const updated = (list.tickets || []).find((item: SupportTicket) => item.id === selectedTicket.id);
+      if (updated) setSelectedTicket(updated);
+      setNotice('Ticket mis à jour et action journalisée.');
+    } catch (e: any) { setPageError(e.message || 'Mise à jour du ticket impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const savePlatformConfiguration = async (event: React.FormEvent) => {
+    event.preventDefault(); setPageLoading(true); setPageError('');
+    try {
+      const data = await request({ action: 'config_update', config: platformConfig });
+      setPlatformConfig(current => ({ ...current, ...data.config }));
+      setNotice('Configuration plateforme enregistrée.');
+    } catch (e: any) { setPageError(e.message || 'Enregistrement de la configuration impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const saveAnnouncement = async (publish: boolean) => {
+    const scheduledAt = announcement.schedule ? Date.parse(announcement.schedule) : Date.now();
+    if (publish && (!Number.isFinite(scheduledAt) || scheduledAt < Date.now() - 60000)) {
+      setPageError('Choisissez une date de publication valide.'); return;
+    }
+    setPageLoading(true); setPageError(''); setNotice('');
+    try {
+      const result = await request({
+        action: 'announcement_save', title: announcement.title, message: announcement.message,
+        targetType: announcement.targetType, planName: announcement.planName,
+        restaurantSlugs: announcement.restaurantSlugs
+      });
+      if (publish) await request({ action: 'announcement_publish', id: result.announcement.id, scheduledAt: new Date(scheduledAt).toISOString() });
+      const data = await read('announcement_list'); setAnnouncements(data.announcements || []);
+      setAnnouncement({ title: '', message: '', targetType: 'all', planName: 'Essentiel', restaurantSlugs: [], schedule: '' });
+      setAnnouncementPreview(false);
+      setNotice(publish ? (scheduledAt > Date.now() ? 'Annonce programmée. Elle sera visible à la date prévue.' : 'Annonce publiée et disponible dans les espaces de gestion ciblés.') : 'Brouillon enregistré.');
+    } catch (e: any) { setPageError(e.message || 'Enregistrement de l’annonce impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const cancelAnnouncement = async (item: PlatformAnnouncement) => {
+    if (!window.confirm(`Annuler l’annonce « ${item.title} » ?`)) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'announcement_cancel', id: item.id });
+      const data = await read('announcement_list'); setAnnouncements(data.announcements || []);
+      setNotice('Annonce annulée.');
+    } catch (e: any) { setPageError(e.message || 'Annulation impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
   const createRestaurant = async (event: React.FormEvent) => {
     event.preventDefault(); setPageLoading(true); setPageError(''); setNotice('');
     try {
