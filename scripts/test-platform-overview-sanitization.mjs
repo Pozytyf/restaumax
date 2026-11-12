@@ -120,6 +120,7 @@ const platformStaffListEnd = source.indexOf("if (action === 'platform_admin_crea
 const platformStaffList = source.slice(platformStaffListStart, platformStaffListEnd);
 assert(platformStaffList.includes("collection('restaurants').doc(slug).collection('staff')") && platformStaffList.includes('canSeeFullAccountDetails') && platformStaffList.includes('maskedEmail'), 'delegated support receives only a tenant-scoped, masked, read-only staff directory');
 assert(workspace.includes("read('platform_staff_list', { slug: restaurant.slug })"), 'the account screen uses the platform-scoped directory endpoint');
+assert(workspace.includes("can('platform_staff_list') ? 'platform_staff_list'") && workspace.includes("accounts: can('platform_admin_list')"), 'support role can open the read-only restaurant account directory');
 const platformStaffListEnd = source.indexOf("if (action === 'platform_admin_create')", platformStaffListStart);
 const platformStaffList = source.slice(platformStaffListStart, platformStaffListEnd);
 assert(platformStaffList.includes("collection('managers').where('restaurantSlug', '==', slug)") && platformStaffList.includes('getRestaurantOwnership'), 'the account screen reconciles staff, manager and canonical owner records');
@@ -138,6 +139,7 @@ assert(billingRoleLine.includes('billing_list') && billingRoleLine.includes('set
 assert(supportRoleLine.includes('support_update') && supportRoleLine.includes('support_access_diagnostics') && supportRoleLine.includes('platform_staff_list') && !supportRoleLine.includes("'staff_list'") && !supportRoleLine.includes('billing_list'), 'support role is restricted to support and consented diagnostics');
 assert(readOnlyRoleLine.includes('health_details') && !readOnlyRoleLine.includes('config_update') && !readOnlyRoleLine.includes('platform_admin_status'), 'read-only role cannot mutate platform configuration or accounts');
 assert(source.includes("action === 'health_details'") && source.includes("platform_job_runs"), 'platform health reads real server probes and scheduled-job telemetry');
+assert(source.includes("process.env.VERCEL_ENV === 'preview'") && source.includes('Vercel déclenche les tâches Cron sur les déploiements Production uniquement'), 'Preview health does not report the Production-only cron as unavailable');
 assert(server.includes("isPlatformFeatureEnabled") && server.includes("'inventoryRecipes'") && server.includes("'loyalty'") && server.includes("'kitchenScreen'"), 'persisted plan entitlements guard inventory, loyalty and kitchen mutation APIs');
 const billingService = fs.readFileSync(new URL('../src/server/subscriptionBillingService.ts', import.meta.url), 'utf8');
 assert(billingService.includes("collection('platform_config').doc('global')") && billingService.includes('gracePeriodOverride'), 'global grace period and per-subscription overrides feed the recurring billing cycle');
