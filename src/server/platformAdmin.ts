@@ -236,8 +236,56 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (action === 'overview' || action === 'create_restaurant' || action === 'set_restaurant_status' || action === 'update_subscription' || action === 'settle_subscription_invoice' || action === 'delete_restaurant') {
+    if (action === 'overview' || action === 'billing_list' || action === 'audit_list' || action === 'create_restaurant' || action === 'set_restaurant_status' || action === 'update_subscription' || action === 'settle_subscription_invoice' || action === 'delete_restaurant') {
       if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
+
+      if (action === 'billing_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const subscriptionsSnap = await db.collection('restaurantSubscriptions').get();
+        const invoices: any[] = [];
+        for (const subscriptionDoc of subscriptionsSnap.docs) {
+          if (invoices.length >= 100) break;
+          const invoiceSnap = await subscriptionDoc.ref.collection('invoices').orderBy('issuedAt', 'desc').limit(30).get();
+          for (const invoiceDoc of invoiceSnap.docs) {
+            const invoice = invoiceDoc.data() || {};
+            invoices.push({
+              id: invoiceDoc.id,
+              restaurantSlug: subscriptionDoc.id,
+              planName: typeof invoice.planName === 'string' ? invoice.planName : '',
+              amountFcfa: Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0,
+              currency: 'FCFA',
+              status: ['open', 'paid', 'void', 'overdue'].includes(String(invoice.status)) ? invoice.status : 'unknown',
+              issuedAt: Number.isFinite(invoice.issuedAt) ? invoice.issuedAt : null,
+              dueAt: Number.isFinite(invoice.dueAt) ? invoice.dueAt : null,
+              paidAt: Number.isFinite(invoice.paidAt) ? invoice.paidAt : null,
+              paymentReference: typeof invoice.paymentReference === 'string' ? invoice.paymentReference.slice(0, 80) : null
+            });
+            if (invoices.length >= 100) break;
+          }
+        }
+        invoices.sort((a, b) => Number(b.issuedAt || 0) - Number(a.issuedAt || 0));
+        return json(res, 200, { success: true, invoices, truncated: invoices.length >= 100 });
+      }
+
+      if (action === 'audit_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const auditSnap = await db.collection('admin_audit_logs').orderBy('createdAt', 'desc').limit(100).get();
+        const logs = auditSnap.docs.map((doc: any) => {
+          const raw = doc.data() || {};
+          return {
+            id: doc.id,
+            action: typeof raw.action === 'string' ? raw.action : 'unknown',
+            actorUid: typeof raw.actorUid === 'string' ? raw.actorUid : '',
+            restaurantSlug: typeof raw.restaurantSlug === 'string' ? raw.restaurantSlug : '',
+            targetRole: typeof raw.targetRole === 'string' ? raw.targetRole : '',
+            invoiceId: typeof raw.invoiceId === 'string' ? raw.invoiceId : '',
+            amountFcfa: Number.isSafeInteger(raw.amountFcfa) ? raw.amountFcfa : null,
+            createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : null,
+            preservedBusinessData: raw.preservedBusinessData === true || raw.businessHistoryPreserved === true
+          };
+        });
+        return json(res, 200, { success: true, logs, readOnly: true });
+      }
 
       if (action === 'overview') {
         const snap = await db.collection('restaurants').get();
