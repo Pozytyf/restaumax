@@ -97,7 +97,7 @@ service cloud.firestore {
       let featureMap = config.get('planFeatures', {}).get(plan, {});
       return plan == ''
         ? feature == 'kitchenScreen'
-        : featureMap.get(feature, plan == 'Pro' || (plan == 'Essentiel' && feature == 'kitchenScreen')) == true;
+        : featureMap.get(feature, plan == 'Pro' || feature == 'kitchenScreen') == true;
     }
 
     // Maximum permission ceilings for the six restaurant roles.
