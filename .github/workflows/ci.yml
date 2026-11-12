@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   quality:
-    name: Typecheck, Firestore Emulator tests and production build
+    name: Typecheck, Firebase Emulator tests and production build
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --trace-deprecation
@@ -46,6 +46,12 @@ jobs:
         env:
           FIRESTORE_EMULATOR_STRICT: "true"
         run: npx --yes firebase-tools@14.22.0 emulators:exec --project demo-restaumax --only firestore --config firebase.json "npm test"
+
+      - name: Install pinned Firebase Storage Rules test dependency
+        run: npm install --no-save --package-lock=false @firebase/rules-unit-testing@6.0.0
+
+      - name: Start Storage Emulator and verify client write denial
+        run: npx --yes firebase-tools@14.22.0 emulators:exec --project demo-restaumax --only storage --config firebase.json "npm run test:storage-rules"
 
       - name: Build production frontend
         run: npm run build
