@@ -120,6 +120,46 @@ export function isSuperAdmin(user: DecodedIdToken) {
   return true;
 }
 
+
+type PlatformAdminRole = 'full' | 'billing' | 'support' | 'read_only';
+const PLATFORM_ADMIN_ROLES: readonly PlatformAdminRole[] = ['full', 'billing', 'support', 'read_only'];
+const PLATFORM_ADMIN_ROLE_PERMISSIONS: Record<PlatformAdminRole, readonly string[]> = {
+  full: ['platform.*'],
+  billing: ['platform.overview', 'billing.read', 'billing.manage', 'audit.read'],
+  support: ['platform.overview', 'support.read', 'support.manage', 'accounts.read', 'health.read', 'audit.read'],
+  read_only: ['platform.overview', 'support.read', 'health.read', 'audit.read']
+};
+
+function platformAdminMfaSatisfied(user: DecodedIdToken): boolean {
+  if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA !== 'true') return true;
+  const secondFactor = (user as any).firebase?.sign_in_second_factor;
+  return typeof secondFactor === 'string' && secondFactor.length > 0;
+}
+
+export async function getPlatformAdminRole(db: any, user: DecodedIdToken): Promise<PlatformAdminRole | null> {
+  if (isSuperAdmin(user)) return 'full';
+  if (user.role !== 'platform_admin' || !platformAdminMfaSatisfied(user)) return null;
+  const role = String((user as any).platformAdminRole || '');
+  if (!PLATFORM_ADMIN_ROLES.includes(role as PlatformAdminRole) || role === 'full') return null;
+  const snap = await db.collection('platform_admins').doc(user.uid).get();
+  if (!snap.exists) return null;
+  const record = snap.data() || {};
+  const tokenVersion = Number((user as any).platformAdminSessionVersion || 0);
+  if (record.active !== true || record.role !== role ||
+      !Number.isSafeInteger(tokenVersion) || tokenVersion < 1 ||
+      tokenVersion !== Number(record.sessionVersion || 0)) return null;
+  return role as PlatformAdminRole;
+}
+
+export function canPlatformAdminPerform(role: PlatformAdminRole, action: string): boolean {
+  if (role === 'full') return true;
+  if (['overview', 'audit_list'].includes(action)) return true;
+  if (role === 'billing') return ['billing_list', 'update_subscription', 'settle_subscription_invoice'].includes(action);
+  if (role === 'support') return ['support_list', 'support_create', 'support_update', 'staff_list', 'health_details', 'announcement_list'].includes(action);
+  if (role === 'read_only') return ['support_list', 'health_details', 'announcement_list'].includes(action);
+  return false;
+}
+
 export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole: string): boolean {
   if (targetRole === 'owner') return false;
   if (actorRole === 'owner') return ['manager', 'cashier', 'server', 'kitchen', 'staff'].includes(targetRole);
@@ -236,8 +276,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (action === 'overview' || action === 'billing_list' || action === 'audit_list' || action === 'create_restaurant' || action === 'set_restaurant_status' || action === 'update_subscription' || action === 'settle_subscription_invoice' || action === 'delete_restaurant') {
-      if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
+    if (['overview', 'billing_list', 'audit_list', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'support_list', 'support_create', 'support_update', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
+      const platformRole = await getPlatformAdminRole(db, user);
+      if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
       if (action === 'billing_list') {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
@@ -603,7 +644,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }
 
     // Super-admin account audit is deliberately read-only and limited to identity/linkage fields.
-    if (action === 'staff_list' && isSuperAdmin(user)) {
+    if (action === 'staff_list' && ['full', 'support'].includes(String(await getPlatformAdminRole(db, user) || ''))) {
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '').trim();
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
       const restaurantSnap = await db.collection('restaurants').doc(slug).get();
