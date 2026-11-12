@@ -1964,10 +1964,30 @@ export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<
   if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
     return { statusCode: 401, body: { success: false, error: 'Authentification de la tâche planifiée refusée.' } };
   }
+  const runRef = adminDb.collection('platform_job_runs').doc('subscription_billing');
+  const startedAt = Date.now();
   try {
-    const result = await runSubscriptionBillingCycleWithDb(adminDb, Date.now());
+    const result = await runSubscriptionBillingCycleWithDb(adminDb, startedAt);
+    const completedAt = Date.now();
+    await runRef.set({
+      job: 'subscription_billing', lastStatus: 'success', lastRunAt: completedAt,
+      startedAt, durationMs: completedAt - startedAt,
+      summary: {
+        invoicesCreated: Number(result.invoicesCreated || 0),
+        freePlansRenewed: Number(result.freePlansRenewed || 0),
+        restaurantsSuspended: Number(result.restaurantsSuspended || 0),
+        skipped: Number(result.skipped || 0)
+      }, updatedAt: completedAt
+    }, { merge: true });
     return { statusCode: 200, body: result };
   } catch (error: any) {
+    const failedAt = Date.now();
+    await runRef.set({
+      job: 'subscription_billing', lastStatus: 'failed', lastRunAt: failedAt,
+      startedAt, durationMs: failedAt - startedAt,
+      errorCode: String(error?.code || 'billing_cycle_failed').slice(0, 80),
+      updatedAt: failedAt
+    }, { merge: true }).catch(() => undefined);
     console.error('[RestauMax subscription billing] Error:', error?.message || String(error));
     return { statusCode: 500, body: { success: false, error: 'Le cycle de facturation des abonnements a échoué.' } };
   }
@@ -2314,6 +2334,31 @@ export async function handleKitchenItemRequest(payload: unknown, req?: any): Pro
     return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la mise à jour cuisine.' } };
   }
 }
+
+// Enforce the persisted platform maintenance switch on business APIs while
+// preserving health, platform administration and payment settlement callbacks.
+app.use('/api', async (req: any, res: any, next: any) => {
+  const path = String(req.path || '').replace(/^\/+|\/+$/g, '');
+  const alwaysAvailable = new Set([
+    'health', 'platform-admin', 'payments/paydunya-callback',
+    'payments/paydunya-disbursement-callback', 'subscriptions/billing-cycle',
+    'payments/customer-paydunya-reconcile'
+  ]);
+  if (alwaysAvailable.has(path) || !adminDb) return next();
+  try {
+    const config = await adminDb.collection('platform_config').doc('global').get();
+    if (config.exists && config.data()?.maintenanceMode === true) {
+      return res.status(503).json({
+        success: false, maintenance: true,
+        error: 'RestauMax est temporairement en maintenance. Les opérations métier sont momentanément suspendues.'
+      });
+    }
+    return next();
+  } catch {
+    // A failed config read must not create a false maintenance lockout.
+    return next();
+  }
+});
 
 // Shared platform administration handler used by Express and Vercel.
 export async function handlePlatformAdmin(req: any, res: any, db: any = adminDb) {
