@@ -10,8 +10,8 @@ assert(server.includes("if (!restaurantSnap.exists || restaurantSnap.data()?.del
   'feature entitlements deny deleted or missing restaurants');
 assert(server.includes("if (!planName) return feature === 'kitchenScreen';"),
   'legacy subscriptions receive only the explicit kitchen baseline');
-assert(server.includes("return typeof defaultValue === 'boolean' ? defaultValue : false;"),
-  'unknown plan names fail closed for premium features');
+assert(server.includes("return typeof defaultValue === 'boolean' ? defaultValue : feature === 'kitchenScreen';"),
+  'unmapped plan names retain only the baseline kitchen feature and fail closed for premium features');
 
 assert(rules.includes('return exists(restaurantPath) &&'),
   'Firestore denies access when the restaurant parent document is absent');
