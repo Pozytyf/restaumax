@@ -155,7 +155,7 @@ export function canPlatformAdminPerform(role: PlatformAdminRole, action: string)
   if (role === 'full') return true;
   if (['overview', 'audit_list', 'platform_capabilities'].includes(action)) return true;
   if (role === 'billing') return ['billing_list', 'update_subscription', 'settle_subscription_invoice'].includes(action);
-  if (role === 'support') return ['support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'staff_list', 'health_details', 'announcement_list'].includes(action);
+  if (role === 'support') return ['support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'platform_staff_list', 'health_details', 'announcement_list'].includes(action);
   if (role === 'read_only') return ['support_list', 'support_messages', 'health_details', 'announcement_list'].includes(action);
   return false;
 }
@@ -432,7 +432,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (['overview', 'billing_list', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
+    if (['overview', 'billing_list', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
       const platformRole = await getPlatformAdminRole(db, user);
       if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
@@ -443,7 +443,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           'update_subscription', 'settle_subscription_invoice', 'delete_restaurant',
           'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status',
           'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions',
-          'staff_list', 'support_list', 'support_messages', 'support_create', 'support_update',
+          'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update',
           'support_access_request', 'support_access_list', 'support_access_diagnostics',
           'config_read', 'config_update', 'announcement_list', 'announcement_save',
           'announcement_publish', 'announcement_cancel', 'health_details'
@@ -472,6 +472,31 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           };
         }));
         return json(res, 200, { success: true, admins });
+      }
+
+      if (action === 'platform_staff_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(req.query?.slug || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) return json(res, 400, { success: false, error: 'Restaurant invalide.' });
+        const restaurantSnap = await db.collection('restaurants').doc(slug).get();
+        if (!restaurantSnap.exists || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.status === 'deleted') {
+          return json(res, 404, { success: false, error: 'Restaurant introuvable ou supprimé.' });
+        }
+        const staffSnap = await db.collection('restaurants').doc(slug).collection('staff').orderBy('createdAt', 'desc').limit(100).get();
+        const canSeeFullAccountDetails = platformRole === 'full';
+        const staff = staffSnap.docs.map((doc: any) => {
+          const raw = doc.data() || {};
+          const email = String(raw.email || '');
+          const maskedEmail = email.includes('@') ? email.replace(/^(.).+(@.+)$/, '$1•••$2') : '';
+          return {
+            uid: doc.id, displayName: String(raw.displayName || ''),
+            email: canSeeFullAccountDetails ? email : maskedEmail,
+            role: String(raw.role || 'staff'), active: raw.active === true,
+            activeKnown: true, accountLinked: true,
+            createdAt: Number(raw.createdAt || 0) || null
+          };
+        });
+        return json(res, 200, { success: true, staff, readOnly: !canSeeFullAccountDetails });
       }
 
       if (action === 'platform_admin_create') {
