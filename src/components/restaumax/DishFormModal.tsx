@@ -876,12 +876,12 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 onChange={(event) => setImageFile(event.target.files?.[0] || null)}
                 className="block w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-orange-100 file:px-3 file:py-2 file:text-xs file:font-bold file:text-orange-800"
               />
-              <p className="text-[11px] text-slate-500">JPEG, PNG ou WebP · 3 Mo maximum. La photo est hébergée dans le bucket Firebase du restaurant.</p>
+              <p className="text-[11px] text-slate-500">JPEG, PNG ou WebP · 3 Mo maximum. La photo est hébergée sur le service média sécurisé de RestauMax.</p>
               {imageFile && <p className="text-[11px] font-semibold text-emerald-700">Fichier sélectionné : {imageFile.name}</p>}
               {!imageFile && imageUrl && <img src={imageUrl} alt="Photo actuelle du plat" className="h-24 w-24 rounded-lg border border-slate-200 object-cover" />}
             </div>
             ) : (
-              <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">L’ajout de photos sera activé après la publication et la vérification des règles Firebase Storage.</p>
+              <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">L’ajout de photos sera activé après la configuration sécurisée du service ImageKit.</p>
             )}
 
             {/* Tags / Badges */}
