@@ -1180,7 +1180,6 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
               </div>
             )}
           </section>
-          </div>
         </form>
 
         {/* Modal Footer */}
