@@ -34,9 +34,10 @@ const table = (db, slug, id='table-1') => doc(db, 'restaurants', slug, 'tables',
 try {
   await env.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
-    for (const slug of ['rest-a', 'rest-b', 'rest-suspended', 'rest-provisioning']) {
+    for (const slug of ['rest-a', 'rest-b', 'rest-suspended', 'rest-provisioning', 'rest-inactive', 'rest-deleted']) {
       await setDoc(doc(db, 'restaurants', slug), {
         slug, name: slug, isOpen: true,
+        isActive: slug !== 'rest-inactive',
         status: slug === 'rest-suspended' ? 'suspended' : slug === 'rest-provisioning' ? 'provisioning' : 'active',
       });
       await setDoc(doc(db, 'restaurants', slug, 'private', 'ownership'), {
@@ -55,7 +56,9 @@ try {
       ['cashier-escalated','rest-a','cashier',['menu.manage','orders.view','pos.access']],
       ['cashier-cancel','rest-a','cashier',['orders.view','pos.access','cash.view','cash.manage','orders.cancel']],
       ['old-token','rest-a','server',['orders.view','tables.view','pos.access','orders.serve']],
-      ['stale-token','rest-a','server',['orders.view','tables.view','pos.access','orders.serve']]
+      ['stale-token','rest-a','server',['orders.view','tables.view','pos.access','orders.serve']],
+      ['manager-inactive','rest-inactive','manager',['orders.view','tables.view','menu.manage','pos.access','inventory.view']],
+      ['manager-deleted','rest-deleted','manager',['orders.view','tables.view','menu.manage','pos.access','inventory.view']]
     ];
     for (const [uid, restaurantSlug, role, permissions] of members) {
       await setDoc(doc(db, 'managers', uid), {
@@ -66,6 +69,11 @@ try {
     const tableData = { id:'table-1', tableNumber:'1', capacity:4, isActive:true };
     await setDoc(doc(db,'restaurants/rest-a/tables/table-1'),tableData);
     await setDoc(doc(db,'restaurants/rest-b/tables/table-1'),tableData);
+    await setDoc(doc(db,'restaurants/rest-inactive/tables/table-1'),tableData);
+    await setDoc(doc(db,'restaurants/rest-deleted/tables/table-1'),tableData);
+    // Simule une suppression logique du document parent sans suppression en cascade
+    // des sous-collections Firestore : l'ancien membre ne doit plus lire la table orpheline.
+    await deleteDoc(doc(db, 'restaurants/rest-deleted'));
     const orderData = {
       id:'order-1', orderNumber:'#CMD-001', restaurantSlug:'rest-a',
       orderMode:'sur_place', tableNumber:'1',
@@ -292,10 +300,16 @@ try {
   await denies(getDoc(doc(a('owner-a'),'restaurants/rest-a/private/ownership')), 'Le propriétaire ne peut pas lire directement ses métadonnées privées');
   await denies(updateDoc(order(a('owner-a'),'rest-a'),{totalAmount:1}), 'Le montant d’une commande est immuable depuis le SDK client');
 
-  // 10. Non-active restaurants cannot expose operational data or create QR sessions.
+  // 10. Deleted, inactive, suspended and provisioning restaurants fail closed.
   await denies(getDoc(table(a('manager-a'),'rest-provisioning')), 'Un restaurant provisioning ne permet aucun accès opérationnel');
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-provisioning/table_sessions/session-1'),{status:'active'}), 'Un client ne peut pas créer une session QR dans un restaurant provisioning');
   await denies(getDoc(table(a('manager-a'),'rest-suspended')), 'Un restaurant suspendu ne permet aucun accès opérationnel');
+  await denies(getDoc(doc(anonymous,'restaurants/rest-inactive')), 'Un profil public isActive=false est inaccessible');
+  await denies(getDoc(table(a('manager-inactive'),'rest-inactive')), 'Un membre ne peut plus lire les données opérationnelles si isActive=false');
+  await denies(getDoc(doc(anonymous,'restaurants/rest-deleted')), 'Le profil public est inaccessible après suppression du document parent');
+  await denies(getDoc(table(a('manager-deleted'),'rest-deleted')), 'Une sous-collection orpheline reste inaccessible après suppression du restaurant parent');
+  await allows(getDoc(doc(anonymous,'restaurants/rest-a')), 'Un restaurant actif conserve son profil public');
+  await allows(getDoc(table(a('manager-a'),'rest-a')), 'Un restaurant actif conserve ses accès opérationnels');
 
   console.log('\nRésultat tests règles Firestore : ' + passed + ' réussis / ' + failed + ' échoués.');
   if (failed) process.exitCode = 1;
