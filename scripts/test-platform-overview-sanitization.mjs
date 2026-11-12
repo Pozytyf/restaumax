@@ -126,6 +126,10 @@ assert(source.includes("excluded: ['orders', 'payments', 'cash', 'customer_perso
 assert(source.includes("action === 'platform_staff_status'") && source.includes("action === 'platform_staff_revoke_sessions'"), 'super-admin can suspend restaurant accounts and revoke sessions');
 assert(source.includes("action === 'platform_owner_invite'") && source.includes("action: 'invite_restaurant_owner'"), 'unlinked restaurant owners can be invited and bound to a single tenant');
 assert(source.includes("action === 'support_access_revoke'") && source.includes("revokedBy: user.uid"), 'restaurant owners can revoke active diagnostic access immediately');
+const consentBlockStart = source.indexOf("if (action === 'support_access_requests' || action === 'support_access_decision' || action === 'support_access_revoke')");
+const consentBlockEnd = source.indexOf("if (action === 'restaurant_announcements')", consentBlockStart);
+const consentBlock = source.slice(consentBlockStart, consentBlockEnd);
+assert(consentBlock.indexOf("getRestaurantOwnerUid") >= 0 && consentBlock.indexOf("getRestaurantOwnerUid") < consentBlock.indexOf("if (action === 'support_access_revoke')"), 'owner identity is checked before a diagnostic access can be revoked');
 assert(source.includes("id: 'mfa'") && source.includes("RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA"), 'platform health reports the server-side MFA enforcement policy');
 assert(firestoreRules.includes('function hasPlatformFeature') && firestoreRules.includes("hasPlatformFeature(restaurantSlug, 'kitchenScreen')"), 'Firestore order reads enforce the kitchen plan entitlement');
 assert(source.includes("serverAssignmentsReleased: member.role === 'server' && !nextActive"), 'server suspension releases assigned tables and active order assignments');
