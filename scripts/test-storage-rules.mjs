@@ -47,7 +47,7 @@ try {
   await assertFails(deleteObject(ref(ownerA, 'restaurants/rest-a/menu/seed-dish.jpg')));
   await assertFails(upload(ownerA, 'other/rest-a/menu/outside.jpg'));
 
-  console.log('Firebase Storage rules: 12 emulator assertions passed; clients cannot write directly.');
+  console.log('Firebase Storage rules: 13 emulator assertions passed; clients cannot write directly.');
 } finally {
   await env.cleanup();
 }
