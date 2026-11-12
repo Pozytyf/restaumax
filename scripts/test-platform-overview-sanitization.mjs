@@ -121,8 +121,6 @@ const platformStaffList = source.slice(platformStaffListStart, platformStaffList
 assert(platformStaffList.includes("collection('restaurants').doc(slug).collection('staff')") && platformStaffList.includes('canSeeFullAccountDetails') && platformStaffList.includes('maskedEmail'), 'delegated support receives only a tenant-scoped, masked, read-only staff directory');
 assert(workspace.includes("read('platform_staff_list', { slug: restaurant.slug })"), 'the account screen uses the platform-scoped directory endpoint');
 assert(workspace.includes("can('platform_staff_list') ? 'platform_staff_list'") && workspace.includes("accounts: can('platform_admin_list')"), 'support role can open the read-only restaurant account directory');
-const platformStaffListEnd = source.indexOf("if (action === 'platform_admin_create')", platformStaffListStart);
-const platformStaffList = source.slice(platformStaffListStart, platformStaffListEnd);
 assert(platformStaffList.includes("collection('managers').where('restaurantSlug', '==', slug)") && platformStaffList.includes('getRestaurantOwnership'), 'the account screen reconciles staff, manager and canonical owner records');
 assert(platformStaffList.includes("collection('restaurants').doc(slug).collection('staff').get()") && platformStaffList.includes('accountLinked: false'), 'the account screen detects both linked and unlinked identities');
 assert(source.includes("platformAdminRole") && source.includes("canPlatformAdminPerform") && source.includes("PLATFORM_ADMIN_ROLE_PERMISSIONS"), 'delegated platform roles are authorized server-side');
