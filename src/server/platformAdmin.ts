@@ -1152,8 +1152,21 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
       if (action === 'audit_list') {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
-        const auditSnap = await db.collection('admin_audit_logs').orderBy('createdAt', 'desc').limit(100).get();
-        const logs = auditSnap.docs.map((doc: any) => {
+        const requestedLimit = Number(req.query?.limit || 100);
+        if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 200) {
+          return json(res, 400, { success: false, error: 'Taille de page invalide (1 à 200 événements).' });
+        }
+        const cursor = String(req.query?.cursor || '').trim();
+        let query = db.collection('admin_audit_logs').orderBy('createdAt', 'desc').limit(requestedLimit + 1);
+        if (cursor) {
+          const cursorSnap = await db.collection('admin_audit_logs').doc(cursor).get();
+          if (!cursorSnap.exists) return json(res, 400, { success: false, error: 'Curseur d’audit invalide ou expiré.' });
+          query = db.collection('admin_audit_logs').orderBy('createdAt', 'desc').startAfter(cursorSnap).limit(requestedLimit + 1);
+        }
+        const auditSnap = await query.get();
+        const hasMore = auditSnap.docs.length > requestedLimit;
+        const pageDocs = hasMore ? auditSnap.docs.slice(0, requestedLimit) : auditSnap.docs;
+        const logs = pageDocs.map((doc: any) => {
           const raw = doc.data() || {};
           return {
             id: doc.id,
@@ -1167,7 +1180,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             preservedBusinessData: raw.preservedBusinessData === true || raw.businessHistoryPreserved === true
           };
         });
-        return json(res, 200, { success: true, logs, readOnly: true });
+        return json(res, 200, {
+          success: true, logs, readOnly: true, hasMore,
+          nextCursor: hasMore && pageDocs.length ? pageDocs[pageDocs.length - 1].id : null
+        });
       }
 
       if (action === 'overview') {
