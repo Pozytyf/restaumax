@@ -150,5 +150,5 @@ assert(ticketProjectionSource.includes("completed: order.kitchenItemCompletion?.
 assert(ticketProjectionSource.includes('Options :') && ticketProjectionSource.includes('Suppléments :'), 'KDS projection preserves configured options and extras');
 assert(kdsView.includes("if (!['pending', 'in_prep'].includes(ticket.status)) return;"), 'KDS line progress is locked after the ticket leaves pending/preparation');
 assert(kdsView.includes('if (!ticket.items.every(item => item.completed))'), 'KDS cannot dispatch a ticket with unfinished lines');
-assert(rulesSource.includes('allow update: if false;'), 'Firestore prevents client-side status and KDS writes; the server validates completed lines');
+assert(rulesSource.includes('allow update: if !isPlatformMaintenanceMode() && false;'), 'Firestore prevents client-side status and KDS writes; the server validates completed lines');
 console.log('KDS item progress service, API and transition checks passed.');
