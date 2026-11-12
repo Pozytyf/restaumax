@@ -621,7 +621,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const refreshCurrentScreen = async () => {
     setPageError(''); setNotice('');
     await onRefresh();
-    if ((screen === 'billing' || screen === 'overview') && allowedActions.includes('billing_list')) { try { const data = await read('billing_list'); setInvoices(data.invoices || []); } catch (e: any) { setPageError(e.message); } }
+    if ((screen === 'billing' || screen === 'overview') && allowedActions.includes('billing_list')) { try { const data = await read('billing_list'); setInvoices(data.invoices || []); setGlobalGracePeriodDays(Number.isInteger(data.gracePeriodDays) ? data.gracePeriodDays : 7); } catch (e: any) { setPageError(e.message); } }
     if (screen === 'audit' || screen === 'overview') { try {
       const data = await read('audit_list', { limit: '100' });
       setAudit(data.logs || []); setAuditCursor(data.nextCursor || null); setAuditHasMore(data.hasMore === true);
