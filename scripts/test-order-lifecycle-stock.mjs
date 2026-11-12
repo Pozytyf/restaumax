@@ -318,7 +318,7 @@ assert(source.includes("app.post('/api/order-status'"), 'Express exposes the tra
 assert(source.includes('/Transition refusée|règlement effectué|paiement Mobile Money en cours/'), 'Payment-protected cancellation conflicts are returned as HTTP 409.');
 assert(api.includes("case 'order-status'") && api.includes('handleOrderStatusRequest(req.body, req)'), 'Central Vercel function exposes the transactional lifecycle API');
 assert(client.includes("fetch('/api/order-status'"), 'the browser uses the trusted lifecycle API');
-assert(rules.includes('allow update: if false;'), 'direct client order updates are disabled');
+assert(rules.includes('allow update: if !isPlatformMaintenanceMode() && false;'), 'direct client order updates are disabled');
 assert(managerUi.includes('Commandes actives · Annulation contrôlée') && managerUi.includes("status: 'cancelled'") && managerUi.includes('cancellationReason'), 'The cash panel exposes reasoned logical cancellation for active orders.');
 assert(managerUi.includes('Retirer de la caisse') && managerUi.includes('pendingOnly: true') && managerUi.includes('removalAction: true'), 'The PayDunya follow-up list allows an unpaid pending order to be removed from cash without deleting its intent.');
 assert(appSource.includes('canCancelOrders={isRestaurantOwner || userPermissions.includes(\'orders.cancel\') || userPermissions.includes(\'orders.manage\')}'), 'The cancellation action is gated by the owner or a dedicated order permission.');
