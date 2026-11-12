@@ -432,7 +432,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (['overview', 'billing_list', 'audit_list', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_staff_status', 'platform_staff_revoke_sessions', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
+    if (['overview', 'billing_list', 'audit_list', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
       const platformRole = await getPlatformAdminRole(db, user);
       if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
@@ -552,6 +552,87 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           actorUid: user.uid, createdAt: now
         });
         return json(res, 200, { success: true, uid, active, requiresReauthentication: true });
+      }
+
+      if (action === 'platform_owner_invite') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(body.slug || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) return json(res, 400, { success: false, error: 'Restaurant invalide.' });
+        const restaurantRef = db.collection('restaurants').doc(slug);
+        const restaurantSnap = await restaurantRef.get();
+        if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) {
+          return json(res, 404, { success: false, error: 'Restaurant introuvable ou supprimé.' });
+        }
+        const ownershipRef = restaurantRef.collection('private').doc('ownership');
+        const ownershipSnap = await ownershipRef.get();
+        const ownership = ownershipSnap.exists ? ownershipSnap.data() || {} : {};
+        if (String(ownership.ownerUid || '').trim()) {
+          return json(res, 409, { success: false, error: 'Un UID propriétaire est déjà lié. Utilisez la réinitialisation ou une procédure de rapprochement contrôlée.' });
+        }
+        const ownerEmail = String(ownership.ownerEmail || body.email || '').trim().toLowerCase();
+        const ownerName = String(ownership.ownerName || body.displayName || '').trim();
+        if (!validEmail(ownerEmail) || ownerName.length < 2 || ownerName.length > 100) {
+          return json(res, 400, { success: false, error: 'Les coordonnées du propriétaire doivent être complétées avant l’invitation.' });
+        }
+        const auth = getAuth();
+        let ownerUser: any = null;
+        let created = false;
+        let previousClaims: Record<string, any> = {};
+        let claimsUpdated = false;
+        try {
+          try { ownerUser = await auth.getUserByEmail(ownerEmail); }
+          catch (lookupError: any) { if (lookupError?.code !== 'auth/user-not-found') throw lookupError; }
+          if (ownerUser) {
+            previousClaims = { ...(ownerUser.customClaims || {}) };
+            if (ownerUser.disabled || previousClaims.role === 'super_admin' || previousClaims.role === 'admin' || previousClaims.role === 'platform_admin') {
+              return json(res, 409, { success: false, error: 'Le compte existant est désactivé ou réservé à une autre fonction.' });
+            }
+            const [membership, staffLink, ownershipLink] = await Promise.all([
+              db.collection('managers').doc(ownerUser.uid).get(),
+              db.collectionGroup('staff').where('uid', '==', ownerUser.uid).limit(1).get(),
+              db.collectionGroup('private').where('ownerUid', '==', ownerUser.uid).limit(1).get()
+            ]);
+            if (membership.exists || !staffLink.empty || !ownershipLink.empty ||
+                (typeof previousClaims.restaurantSlug === 'string' && previousClaims.restaurantSlug.trim())) {
+              return json(res, 409, { success: false, error: 'Cette identité est déjà rattachée à un restaurant. Rapprochement manuel requis.' });
+            }
+          } else {
+            ownerUser = await auth.createUser({ email: ownerEmail, displayName: ownerName, disabled: false, emailVerified: false });
+            created = true;
+          }
+          const sessionVersion = 1;
+          await auth.setCustomUserClaims(ownerUser.uid, {
+            ...previousClaims, role: 'owner', restaurantSlug: slug, sessionVersion
+          });
+          claimsUpdated = true;
+          const now = Date.now();
+          const batch = db.batch();
+          batch.set(ownershipRef, {
+            ownerUid: ownerUser.uid, ownerName, ownerEmail,
+            updatedAt: now, ownerLinkedBy: user.uid
+          }, { merge: true });
+          batch.set(db.collection('managers').doc(ownerUser.uid), {
+            uid: ownerUser.uid, email: ownerEmail, displayName: ownerName,
+            role: 'owner', restaurantSlug: slug, permissions: PERMISSIONS,
+            active: true, sessionVersion, createdAt: now, createdBy: user.uid
+          });
+          batch.set(restaurantRef.collection('staff').doc(ownerUser.uid), {
+            uid: ownerUser.uid, email: ownerEmail, displayName: ownerName,
+            role: 'owner', permissions: PERMISSIONS, active: true, sessionVersion,
+            createdAt: now, createdBy: user.uid
+          });
+          batch.create(db.collection('admin_audit_logs').doc(), {
+            action: 'invite_restaurant_owner', restaurantSlug: slug,
+            targetUid: ownerUser.uid, targetEmail: ownerEmail,
+            existingAccountReused: !created, actorUid: user.uid, createdAt: now
+          });
+          await batch.commit();
+          return json(res, 201, { success: true, owner: { uid: ownerUser.uid, email: ownerEmail, displayName: ownerName, existingAccount: !created } });
+        } catch (error: any) {
+          if (ownerUser?.uid && claimsUpdated) await auth.setCustomUserClaims(ownerUser.uid, previousClaims).catch(() => undefined);
+          if (created && ownerUser?.uid) await auth.deleteUser(ownerUser.uid).catch(() => undefined);
+          throw error;
+        }
       }
 
       if (action === 'platform_staff_status' || action === 'platform_staff_revoke_sessions') {
