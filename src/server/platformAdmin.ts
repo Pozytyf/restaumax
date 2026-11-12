@@ -155,8 +155,8 @@ export function canPlatformAdminPerform(role: PlatformAdminRole, action: string)
   if (role === 'full') return true;
   if (['overview', 'audit_list'].includes(action)) return true;
   if (role === 'billing') return ['billing_list', 'update_subscription', 'settle_subscription_invoice'].includes(action);
-  if (role === 'support') return ['support_list', 'support_create', 'support_update', 'staff_list', 'health_details', 'announcement_list'].includes(action);
-  if (role === 'read_only') return ['support_list', 'health_details', 'announcement_list'].includes(action);
+  if (role === 'support') return ['support_list', 'support_messages', 'support_create', 'support_update', 'staff_list', 'health_details', 'announcement_list'].includes(action);
+  if (role === 'read_only') return ['support_list', 'support_messages', 'health_details', 'announcement_list'].includes(action);
   return false;
 }
 
@@ -273,8 +273,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     if (action === 'support_my_tickets') {
       if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
       const snap = await db.collection('platform_support_tickets').where('restaurantSlug', '==', slug).limit(100).get();
-      const tickets = snap.docs.map((doc: any) => doc.data()).sort((a: any, b: any) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)).slice(0, 30);
-      return json(res, 200, { success: true, tickets });
+      const tickets = await Promise.all(snap.docs.map(async (doc: any) => {
+        const messages = await doc.ref.collection('messages').orderBy('createdAt', 'asc').limit(50).get();
+        return { ...doc.data(), messages: messages.docs.map((message: any) => ({ id: message.id, ...message.data() })).filter((message: any) => message.visibility !== 'internal') };
+      }));
+      tickets.sort((a: any, b: any) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+      return json(res, 200, { success: true, tickets: tickets.slice(0, 30) });
     }
     if (action === 'support_reply') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
@@ -371,7 +375,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (['overview', 'billing_list', 'audit_list', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'support_list', 'support_create', 'support_update', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
+    if (['overview', 'billing_list', 'audit_list', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'support_list', 'support_messages', 'support_create', 'support_update', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
       const platformRole = await getPlatformAdminRole(db, user);
       if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
@@ -498,6 +502,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const snap = await db.collection('platform_support_tickets').limit(100).get();
         const tickets = snap.docs.map((doc: any) => doc.data()).sort((a: any, b: any) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
         return json(res, 200, { success: true, tickets });
+      }
+
+      if (action === 'support_messages') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const ticketId = String(req.query?.ticketId || '').trim();
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(ticketId)) return json(res, 400, { success: false, error: 'Ticket invalide.' });
+        const ref = db.collection('platform_support_tickets').doc(ticketId);
+        const snap = await ref.get();
+        if (!snap.exists) return json(res, 404, { success: false, error: 'Ticket introuvable.' });
+        const messagesSnap = await ref.collection('messages').orderBy('createdAt', 'asc').limit(100).get();
+        return json(res, 200, { success: true, messages: messagesSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() })) });
       }
 
       if (action === 'support_create') {
