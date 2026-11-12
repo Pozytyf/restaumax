@@ -33,6 +33,26 @@ type Account = {
   uid: string; email: string; displayName: string; role: string;
   active: boolean; activeKnown: boolean; accountLinked: boolean; emailConflict: boolean;
 };
+type PlatformAdmin = {
+  uid: string; email: string; displayName: string; role: 'billing' | 'support' | 'read_only';
+  active: boolean; mfaEnrolled: boolean; disabled: boolean; lastSignInAt?: number | null;
+};
+type SupportMessage = { id: string; body: string; authorRole: string; authorUid: string; visibility: string; createdAt: number };
+type SupportTicket = {
+  id: string; restaurantSlug: string; restaurantName: string; subject: string;
+  priority: 'low' | 'medium' | 'high'; status: string; createdAt: number; updatedAt: number;
+  messageCount: number; source: string;
+};
+type PlatformConfig = {
+  currency: 'XOF'; gracePeriodDays: number; maintenanceMode: boolean; version: number;
+  planFeatures: Record<'Essentiel' | 'Pro', Record<'kitchenScreen' | 'advancedReports' | 'inventoryRecipes' | 'loyalty', boolean>>;
+  emailTemplates: Record<'invitation' | 'passwordReset' | 'invoice' | 'overdue', { subject: string; body: string }>;
+};
+type HealthService = { id: string; label: string; status: string; detail: string };
+type PlatformAnnouncement = {
+  id: string; title: string; message: string; targetType: string; planName: string;
+  restaurantSlugs: string[]; status: string; createdAt: number; publishedAt?: number | null; scheduledAt?: number | null;
+};
 type Props = {
   restaurants: Restaurant[];
   summary: {
@@ -51,12 +71,12 @@ const NAV = [
   { id: 'overview', label: 'Vue d’ensemble', status: 'Partiel', icon: LayoutDashboard },
   { id: 'restaurants', label: 'Restaurants', status: 'Existant', icon: Building2 },
   { id: 'billing', label: 'Abonnements et factures', status: 'Partiel', icon: CreditCard },
-  { id: 'accounts', label: 'Comptes et accès', status: 'À créer', icon: Users },
-  { id: 'support', label: 'Support', status: 'À créer', icon: CircleHelp },
+  { id: 'accounts', label: 'Comptes et accès', status: 'Existant', icon: Users },
+  { id: 'support', label: 'Support', status: 'Existant', icon: CircleHelp },
   { id: 'audit', label: 'Journal d’audit', status: 'Partiel', icon: ClipboardList },
-  { id: 'health', label: 'Santé de la plateforme', status: 'À créer', icon: Activity },
-  { id: 'settings', label: 'Configuration', status: 'À créer', icon: Settings },
-  { id: 'communication', label: 'Communication', status: 'À créer', icon: Bell }
+  { id: 'health', label: 'Santé de la plateforme', status: 'Partiel', icon: Activity },
+  { id: 'settings', label: 'Configuration', status: 'Partiel', icon: Settings },
+  { id: 'communication', label: 'Communication', status: 'Existant', icon: Bell }
 ] as const;
 type Screen = typeof NAV[number]['id'];
 
@@ -114,10 +134,33 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const [subscriptionForm, setSubscriptionForm] = useState({ planName: '', priceFcfa: '0', billingCycle: 'monthly', status: 'trial', startsOn: '', endsOn: '', gracePeriodDays: '7', autoRenew: true });
   const [paymentReference, setPaymentReference] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
-  const [health, setHealth] = useState<{ status: string; serverTime?: number } | null>(null);
-  const [announcement, setAnnouncement] = useState({ title: '', message: '', target: 'all', schedule: '' });
+  const [health, setHealth] = useState<{ checkedAt: number; services: HealthService[] } | null>(null);
+  const [platformAdmins, setPlatformAdmins] = useState<PlatformAdmin[]>([]);
+  const [platformAdminForm, setPlatformAdminForm] = useState({ displayName: '', email: '', platformRole: 'support' });
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
+  const [ticketMessages, setTicketMessages] = useState<SupportMessage[]>([]);
+  const [ticketReply, setTicketReply] = useState('');
+  const [ticketInternalNote, setTicketInternalNote] = useState('');
+  const [ticketStatus, setTicketStatus] = useState('in_progress');
+  const [ticketPriority, setTicketPriority] = useState('medium');
+  const [supportDraft, setSupportDraft] = useState({ restaurantSlug: '', subject: '', message: '', priority: 'medium' });
+  const [platformConfig, setPlatformConfig] = useState<PlatformConfig>({
+    currency: 'XOF', gracePeriodDays: 7, maintenanceMode: false, version: 1,
+    planFeatures: {
+      Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false },
+      Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true }
+    },
+    emailTemplates: {
+      invitation: { subject: 'Bienvenue sur RestauMax', body: 'Votre compte RestauMax est prêt. Utilisez le lien sécurisé reçu par e-mail.' },
+      passwordReset: { subject: 'Réinitialisation de votre mot de passe', body: 'Suivez le lien sécurisé de Firebase Authentication pour choisir un nouveau mot de passe.' },
+      invoice: { subject: 'Votre facture RestauMax', body: 'Votre facture est disponible dans votre espace.' },
+      overdue: { subject: 'Rappel de paiement RestauMax', body: 'Une facture reste à régulariser dans votre espace.' }
+    }
+  });
+  const [announcements, setAnnouncements] = useState<PlatformAnnouncement[]>([]);
+  const [announcement, setAnnouncement] = useState({ title: '', message: '', targetType: 'all', planName: 'Essentiel', restaurantSlugs: [] as string[], schedule: '' });
   const [announcementPreview, setAnnouncementPreview] = useState(false);
-  const [configPreview, setConfigPreview] = useState(false);
 
   const read = async (action: string, params: Record<string, string> = {}) => {
     const currentUser = auth.currentUser;
@@ -149,15 +192,17 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     if (screen === 'overview') {
       void read('audit_list').then(data => { if (active) setAudit(data.logs || []); }).catch(() => undefined);
     }
-    if (screen === 'health') {
+    const load = async (action: string, apply: (data: any) => void) => {
       setPageLoading(true); setPageError('');
-      void fetch('/api/health', { cache: 'no-store' }).then(async response => {
-        if (!response.ok) throw new Error('Le service de santé est indisponible.');
-        return response.json();
-      }).then(data => { if (active) setHealth(data); })
-        .catch(e => { if (active) setPageError(e.message); })
-        .finally(() => { if (active) setPageLoading(false); });
-    }
+      try { const data = await read(action); if (active) apply(data); }
+      catch (e: any) { if (active) setPageError(e.message || 'Chargement impossible.'); }
+      finally { if (active) setPageLoading(false); }
+    };
+    if (screen === 'accounts') void load('platform_admin_list', data => setPlatformAdmins(data.admins || []));
+    if (screen === 'support') void load('support_list', data => setSupportTickets(data.tickets || []));
+    if (screen === 'health') void load('health_details', data => setHealth({ checkedAt: data.checkedAt, services: data.services || [] }));
+    if (screen === 'settings') void load('config_read', data => { if (data.config) setPlatformConfig(current => ({ ...current, ...data.config })); });
+    if (screen === 'communication') void load('announcement_list', data => setAnnouncements(data.announcements || []));
     return () => { active = false; };
   }, [screen]);
 
@@ -268,13 +313,18 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
       timestamp >= from && timestamp <= to;
   });
   const unpaidTotal = unpaidInvoices.reduce((sum, invoice) => sum + invoice.amountFcfa, 0);
-  const mockupOnly = screen === 'support' || screen === 'settings' || screen === 'communication';
+  const mockupOnly = false;
 
   const refreshCurrentScreen = async () => {
     setPageError(''); setNotice('');
     await onRefresh();
     if (screen === 'billing' || screen === 'overview') { try { const data = await read('billing_list'); setInvoices(data.invoices || []); } catch (e: any) { setPageError(e.message); } }
     if (screen === 'audit' || screen === 'overview') { try { const data = await read('audit_list'); setAudit(data.logs || []); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'accounts') { try { const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'support') { try { const data = await read('support_list'); setSupportTickets(data.tickets || []); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'health') { try { const data = await read('health_details'); setHealth({ checkedAt: data.checkedAt, services: data.services || [] }); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'settings') { try { const data = await read('config_read'); if (data.config) setPlatformConfig(current => ({...current,...data.config})); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'communication') { try { const data = await read('announcement_list'); setAnnouncements(data.announcements || []); } catch (e: any) { setPageError(e.message); } }
   };
 
   const pageHeader = <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
