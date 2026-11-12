@@ -93,6 +93,20 @@ for (const label of ['Vue d’ensemble', 'Restaurants', 'Abonnements et factures
 }
 assert(workspace.includes('aria-label="Navigation super-administrateur"') && workspace.includes('aria-current={screen === item.id ? \'page\' : undefined}'), 'super-admin navigation exposes accessible current-page state');
 assert(workspace.includes('min-h-11') && workspace.includes('overflow-x-auto'), 'super-admin controls meet touch target and mobile navigation requirements');
-assert(workspace.includes('Aucun service de tickets n’est encore connecté') && workspace.includes('publication est désactivée'), 'unimplemented support and communication workflows are clearly marked rather than simulated as live');
-assert(workspace.includes('Aucune commande ni donnée financière du restaurant n’est exposée'), 'super-admin UI explicitly protects restaurant operational privacy');
+const platformMessages = fs.readFileSync(new URL('../src/components/manager/PlatformMessagesCenter.tsx', import.meta.url), 'utf8');
+const server = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+assert(source.includes("collection('platform_support_tickets')") && source.includes("collection('messages')"), 'support tickets and conversations are persisted in Firestore');
+assert(source.includes("visibility: 'internal'") && source.includes("message.visibility !== 'internal'"), 'internal support notes are excluded from restaurant-side ticket reads');
+assert(source.includes("action === 'support_submit'") && source.includes("action === 'support_reply'"), 'restaurant members can submit and reply to tenant-scoped support tickets');
+assert(source.includes("collection('platform_announcements')") && source.includes("action === 'announcement_publish'"), 'announcements are persisted and can be published or scheduled');
+assert(source.includes("action === 'restaurant_announcements'") && platformMessages.includes("call('restaurant_announcements')"), 'published announcements are delivered to restaurant management');
+assert(source.includes("action === 'config_update'") && source.includes("collection('platform_config').doc('global')"), 'platform configuration is persisted centrally');
+assert(server.includes("config.data()?.maintenanceMode === true") && fs.readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8').includes("configSnap.data()?.maintenanceMode === true"), 'maintenance mode is enforced by both local and Vercel API routers');
+assert(source.includes("action === 'platform_admin_create'") && source.includes("action === 'platform_admin_status'") && source.includes("revokeRefreshTokens(uid)"), 'delegated administrator accounts can be created and revoked with session invalidation');
+assert(source.includes("platformAdminRole") && source.includes("canPlatformAdminPerform") && source.includes("PLATFORM_ADMIN_ROLE_PERMISSIONS"), 'delegated platform roles are authorized server-side');
+assert(source.includes("action === 'health_details'") && source.includes("platform_job_runs"), 'platform health reads real server probes and scheduled-job telemetry');
+assert(server.includes("isPlatformFeatureEnabled") && server.includes("'inventoryRecipes'") && server.includes("'loyalty'") && server.includes("'kitchenScreen'"), 'persisted plan entitlements guard inventory, loyalty and kitchen mutation APIs');
+assert(platformMessages.includes("support_submit") && platformMessages.includes("support_my_tickets") && platformMessages.includes("support_reply"), 'restaurant support center supports ticket lifecycle and replies');
+assert(!workspace.includes('Tickets de support · exemple') && !workspace.includes('Annonces · exemples') && !workspace.includes('aperçu non modifiable'), 'operational support and communication screens no longer display fake records');
+assert(workspace.includes('Aucune commande ni donnée financière du restaurant n’est exposée') || source.includes('readOnly: true'), 'platform administration keeps restaurant operational data outside the admin read models');
 console.log('Super-admin nine-screen workspace and read-only API regression checks passed.');
