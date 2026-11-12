@@ -218,12 +218,110 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const user = await authenticate(req);
   if (!user) return json(res, 401, { success: false, error: 'Authentification requise.' });
 
-  // One Firebase identity cannot simultaneously be a restaurant member
-  // and a platform administrator. This check applies even to an already
-  // promoted super-admin, so a stale/legacy tenant membership cannot coexist.
+  const body = req.body || {};
+  const action = req.method === 'GET' ? String(req.query?.action || 'overview') : String(body.action || '');
+
+  // Restaurant-side support and announcement reads are tenant-scoped. They
+  // intentionally run before the platform-admin membership exclusion below.
   const membershipRef = db.collection('managers').doc(user.uid);
   const membershipSnap = await membershipRef.get();
   const existingMembership = membershipSnap.exists ? (membershipSnap.data() || {}) : null;
+  if (['support_submit', 'support_my_tickets', 'support_reply', 'restaurant_announcements'].includes(action)) {
+    const member = existingMembership;
+    const slug = String(member?.restaurantSlug || '').trim();
+    if (!member || member.active !== true || !slug ||
+        !['owner', 'manager', 'cashier', 'server', 'kitchen'].includes(String(member.role || '')) ||
+        Number(user.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return json(res, 403, { success: false, error: 'Compte restaurant actif requis pour accéder au support.' });
+    }
+    const restaurantRef = db.collection('restaurants').doc(slug);
+    const restaurantSnap = await restaurantRef.get();
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() || {} : null;
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt) {
+      return json(res, 403, { success: false, error: 'Ce restaurant ne peut pas accéder aux services de la plateforme.' });
+    }
+    const now = Date.now();
+    if (action === 'support_submit') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const subject = String(body.subject || '').trim();
+      const message = String(body.message || '').trim();
+      const priority = ['low', 'medium', 'high'].includes(String(body.priority)) ? String(body.priority) : 'medium';
+      if (subject.length < 5 || subject.length > 140 || message.length < 10 || message.length > 4000) {
+        return json(res, 400, { success: false, error: 'Le sujet doit contenir 5 à 140 caractères et le message 10 à 4 000 caractères.' });
+      }
+      const ticketRef = db.collection('platform_support_tickets').doc();
+      const ticket = {
+        id: ticketRef.id, restaurantSlug: slug, restaurantName: String(restaurant.name || slug),
+        subject, priority, status: 'open', source: 'restaurant_portal',
+        createdByUid: user.uid, createdByName: String(user.name || user.email || user.uid),
+        createdByEmail: typeof user.email === 'string' ? user.email : '',
+        createdAt: now, updatedAt: now, lastMessageAt: now, messageCount: 1
+      };
+      const batch = db.batch();
+      batch.create(ticketRef, ticket);
+      batch.create(ticketRef.collection('messages').doc(), {
+        authorUid: user.uid, authorRole: String(member.role), body: message,
+        visibility: 'public', createdAt: now
+      });
+      batch.create(db.collection('admin_audit_logs').doc(), {
+        action: 'support_ticket_created', restaurantSlug: slug, ticketId: ticketRef.id,
+        actorUid: user.uid, actorRole: String(member.role), createdAt: now
+      });
+      await batch.commit();
+      return json(res, 201, { success: true, ticket });
+    }
+    if (action === 'support_my_tickets') {
+      if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const snap = await db.collection('platform_support_tickets').where('restaurantSlug', '==', slug).limit(100).get();
+      const tickets = snap.docs.map((doc: any) => doc.data()).sort((a: any, b: any) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)).slice(0, 30);
+      return json(res, 200, { success: true, tickets });
+    }
+    if (action === 'support_reply') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const ticketId = String(body.ticketId || '').trim();
+      const message = String(body.message || '').trim();
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(ticketId) || message.length < 2 || message.length > 4000) {
+        return json(res, 400, { success: false, error: 'Réponse invalide.' });
+      }
+      const ticketRef = db.collection('platform_support_tickets').doc(ticketId);
+      const ticketSnap = await ticketRef.get();
+      if (!ticketSnap.exists || ticketSnap.data()?.restaurantSlug !== slug || ['closed'].includes(String(ticketSnap.data()?.status))) {
+        return json(res, 404, { success: false, error: 'Ticket introuvable ou fermé.' });
+      }
+      const batch = db.batch();
+      batch.create(ticketRef.collection('messages').doc(), {
+        authorUid: user.uid, authorRole: String(member.role), body: message,
+        visibility: 'public', createdAt: now
+      });
+      batch.update(ticketRef, {
+        updatedAt: now, lastMessageAt: now, messageCount: Number(ticketSnap.data()?.messageCount || 0) + 1,
+        status: 'waiting_support'
+      });
+      batch.create(db.collection('admin_audit_logs').doc(), {
+        action: 'support_ticket_customer_reply', restaurantSlug: slug, ticketId,
+        actorUid: user.uid, actorRole: String(member.role), createdAt: now
+      });
+      await batch.commit();
+      return json(res, 200, { success: true });
+    }
+    if (action === 'restaurant_announcements') {
+      if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const [announcementsSnap, subscriptionSnap] = await Promise.all([
+        db.collection('platform_announcements').where('status', '==', 'published').limit(100).get(),
+        db.collection('restaurantSubscriptions').doc(slug).get()
+      ]);
+      const planName = String(subscriptionSnap.data()?.planName || restaurant.subscription?.planName || '');
+      const announcements = announcementsSnap.docs.map((doc: any) => doc.data()).filter((item: any) => {
+        const publishedAt = Number(item.publishedAt || item.scheduledAt || 0);
+        if (publishedAt > now) return false;
+        if (item.targetType === 'selected') return Array.isArray(item.restaurantSlugs) && item.restaurantSlugs.includes(slug);
+        if (item.targetType === 'plan') return String(item.planName || '') === planName;
+        return item.targetType === 'all';
+      }).sort((a: any, b: any) => Number(b.publishedAt || 0) - Number(a.publishedAt || 0)).slice(0, 10);
+      return json(res, 200, { success: true, announcements });
+    }
+  }
+
   if (
     existingMembership?.active === true &&
     ['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(String(existingMembership.role || '')) &&
@@ -270,9 +368,6 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       sessionVersion: nextSessionVersion
     });
   }
-
-  const body = req.body || {};
-  const action = req.method === 'GET' ? String(req.query?.action || 'overview') : String(body.action || '');
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
