@@ -108,6 +108,24 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 const inputClass = 'min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#c2410c] focus:ring-2 focus:ring-orange-100';
 
+function mergePlatformConfig(current: PlatformConfig, incoming: any): PlatformConfig {
+  const plans = ['Essentiel', 'Pro'] as const;
+  const features = ['kitchenScreen', 'advancedReports', 'inventoryRecipes', 'loyalty'] as const;
+  const templates = ['invitation', 'passwordReset', 'invoice', 'overdue'] as const;
+  return {
+    ...current, ...incoming, currency: 'XOF',
+    planFeatures: Object.fromEntries(plans.map(plan => [plan, Object.fromEntries(features.map(feature => [
+      feature, typeof incoming?.planFeatures?.[plan]?.[feature] === 'boolean'
+        ? incoming.planFeatures[plan][feature] : current.planFeatures[plan][feature]
+    ]))])) as PlatformConfig['planFeatures'],
+    emailTemplates: Object.fromEntries(templates.map(key => [key, {
+      subject: typeof incoming?.emailTemplates?.[key]?.subject === 'string' ? incoming.emailTemplates[key].subject : current.emailTemplates[key].subject,
+      body: typeof incoming?.emailTemplates?.[key]?.body === 'string' ? incoming.emailTemplates[key].body : current.emailTemplates[key].body
+    }])) as PlatformConfig['emailTemplates']
+  };
+}
+
+
 export const PlatformAdminWorkspace: React.FC<Props> = ({
   restaurants, summary, userEmail, loading, request, onRefresh, onBack, onSignOut
 }) => {
@@ -211,7 +229,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     if (screen === 'accounts' && allowedActions.includes('platform_admin_list')) void load('platform_admin_list', data => setPlatformAdmins(data.admins || []));
     if (screen === 'support') void load('support_list', data => setSupportTickets(data.tickets || []));
     if (screen === 'health') void load('health_details', data => setHealth({ checkedAt: data.checkedAt, services: data.services || [] }));
-    if (screen === 'settings') void load('config_read', data => { if (data.config) setPlatformConfig(current => ({ ...current, ...data.config })); });
+    if (screen === 'settings') void load('config_read', data => { if (data.config) setPlatformConfig(current => mergePlatformConfig(current, data.config)); });
     if (screen === 'communication') void load('announcement_list', data => setAnnouncements(data.announcements || []));
     return () => { active = false; };
   }, [screen, allowedActions]);
@@ -547,10 +565,10 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     await onRefresh();
     if ((screen === 'billing' || screen === 'overview') && allowedActions.includes('billing_list')) { try { const data = await read('billing_list'); setInvoices(data.invoices || []); } catch (e: any) { setPageError(e.message); } }
     if (screen === 'audit' || screen === 'overview') { try { const data = await read('audit_list'); setAudit(data.logs || []); } catch (e: any) { setPageError(e.message); } }
-    if (screen === 'accounts') { try { const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'accounts' && allowedActions.includes('platform_admin_list')) { try { const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []); } catch (e: any) { setPageError(e.message); } }
     if (screen === 'support') { try { const data = await read('support_list'); setSupportTickets(data.tickets || []); } catch (e: any) { setPageError(e.message); } }
     if (screen === 'health') { try { const data = await read('health_details'); setHealth({ checkedAt: data.checkedAt, services: data.services || [] }); } catch (e: any) { setPageError(e.message); } }
-    if (screen === 'settings') { try { const data = await read('config_read'); if (data.config) setPlatformConfig(current => ({...current,...data.config})); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'settings') { try { const data = await read('config_read'); if (data.config) setPlatformConfig(current => mergePlatformConfig(current, data.config)); } catch (e: any) { setPageError(e.message); } }
     if (screen === 'communication') { try { const data = await read('announcement_list'); setAnnouncements(data.announcements || []); } catch (e: any) { setPageError(e.message); } }
   };
 
