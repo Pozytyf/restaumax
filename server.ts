@@ -930,6 +930,28 @@ export function getServerHealth() {
   return { status: 'ok', serverTime: Date.now() };
 }
 
+const DEFAULT_PLAN_FEATURES: Record<string, Record<string, boolean>> = {
+  Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false },
+  Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true }
+};
+
+async function isPlatformFeatureEnabled(db: any, restaurantSlug: string, feature: string): Promise<boolean> {
+  const [configSnap, subscriptionSnap, restaurantSnap] = await Promise.all([
+    db.collection('platform_config').doc('global').get(),
+    db.collection('restaurantSubscriptions').doc(restaurantSlug).get(),
+    db.collection('restaurants').doc(restaurantSlug).get()
+  ]);
+  const subscription = subscriptionSnap.exists
+    ? subscriptionSnap.data() || {}
+    : restaurantSnap.data()?.subscription || {};
+  const planName = String(subscription.planName || '');
+  if (!planName) return true; // Preserve legacy restaurants until a plan is assigned.
+  const configured = configSnap.exists ? configSnap.data()?.planFeatures?.[planName]?.[feature] : undefined;
+  if (typeof configured === 'boolean') return configured;
+  const defaultValue = DEFAULT_PLAN_FEATURES[planName]?.[feature];
+  return typeof defaultValue === 'boolean' ? defaultValue : true;
+}
+
 export async function handleResolveTableQr(token: string, req?: any): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
   if (req && !isTrustedQrNavigation(req)) {
     console.warn('[RestauMax QR] Navigation rejetée par la politique de confiance.', {
@@ -2151,6 +2173,7 @@ export async function handleInventoryRequest(payload: unknown, req?: any): Promi
     const input = payload && typeof payload === 'object' ? { ...(payload as any) } : {};
     const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+    if (!(await isPlatformFeatureEnabled(adminDb, restaurantSlug, 'inventoryRecipes'))) return { statusCode: 403, body: { success: false, error: 'La gestion des stocks et recettes n’est pas incluse dans la formule de ce restaurant.' } };
     const result = await manageInventoryWithDb(adminDb, {
       ...input, restaurantSlug, actorUid: decoded.uid,
       sessionVersion: Number(decoded.sessionVersion || 0)
@@ -2211,6 +2234,7 @@ export async function handleCustomerLoyaltyAdjustmentRequest(payload: unknown, r
         !/^[a-zA-Z0-9_-]{1,128}$/.test(customerId)) {
       return { statusCode: 400, body: { success: false, error: 'Restaurant ou fiche client invalide.' } };
     }
+    if (!(await isPlatformFeatureEnabled(adminDb, restaurantSlug, 'loyalty'))) return { statusCode: 403, body: { success: false, error: 'Le programme de fidélité n’est pas inclus dans la formule de ce restaurant.' } };
     const result = await adjustCustomerLoyaltyPointsWithDb(adminDb, {
       restaurantSlug, customerId, delta: input.delta,
       reason: input.reason, idempotencyKey: input.idempotencyKey,
@@ -2317,6 +2341,7 @@ export async function handleKitchenItemRequest(payload: unknown, req?: any): Pro
       return { statusCode: 400, body: { success: false, error: 'Données de préparation invalides.' } };
     }
 
+    if (!(await isPlatformFeatureEnabled(adminDb, restaurantSlug, 'kitchenScreen'))) return { statusCode: 403, body: { success: false, error: 'L’écran cuisine n’est pas inclus dans la formule de ce restaurant.' } };
     const result = await updateKitchenItemCompletionWithDb(adminDb, {
       restaurantSlug,
       orderId,
