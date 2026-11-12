@@ -2128,6 +2128,9 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     if (!['period', 'daily'].includes(reportType)) {
       return { statusCode: 400, body: { success: false, error: 'Type de rapport invalide.' } };
     }
+    if (reportType === 'period' && periodDays > 7 && !(await isPlatformFeatureEnabled(adminDb, restaurantSlug, 'advancedReports'))) {
+      return { statusCode: 403, body: { success: false, error: 'Les rapports avancés sur période longue ne sont pas inclus dans la formule de ce restaurant.' } };
+    }
     const selectedDate = typeof req.query?.date === 'string' ? req.query.date : undefined;
     const closureSnap = reportType === 'daily' && selectedDate
       ? await restaurantRef.collection('dailyRevenueClosures').doc(selectedDate).get()
