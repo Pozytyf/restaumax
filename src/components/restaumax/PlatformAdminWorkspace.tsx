@@ -276,7 +276,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const visibleNav = useMemo(() => !capabilitiesReady ? NAV.filter(item => item.id === 'overview') : NAV.filter(item => {
     const actionByScreen: Record<Screen, string> = {
       overview: 'overview', restaurants: 'overview', billing: 'billing_list',
-      accounts: can('platform_admin_list') || can('staff_list') ? (can('platform_admin_list') ? 'platform_admin_list' : 'staff_list') : 'accounts.read',
+      accounts: can('platform_admin_list') ? 'platform_admin_list' : can('platform_staff_list') ? 'platform_staff_list' : 'accounts.read',
       support: 'support_list', audit: 'audit_list', health: 'health_details',
       settings: 'config_read', communication: 'announcement_list'
     };
