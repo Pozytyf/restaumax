@@ -981,7 +981,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const now = Date.now();
         const saved = {
           currency: 'XOF', gracePeriodDays, maintenanceMode: input.maintenanceMode,
-          planFeatures, emailTemplates, updatedAt: now, updatedBy: user.uid
+          planFeatures, emailTemplates: normalizedTemplates, updatedAt: now, updatedBy: user.uid
         };
         await db.runTransaction(async (tx: any) => {
           const snap = await tx.get(ref);
