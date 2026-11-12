@@ -15,6 +15,7 @@ const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
 const restaurantRef = db.collection('restaurants').doc(slug);
 
 try {
+  await db.collection('platform_config').doc('global').set({ gracePeriodDays: 4 }, { merge: true });
   await Promise.all([
     restaurantRef.set({ slug, status: 'active', isOpen: true, ownerUid: 'owner-subscription-test', tableSessionVersion: 3 }),
     restaurantRef.collection('table_sessions').doc('active-session').set({ status: 'active', sessionHash: 'active-session' }),
@@ -105,7 +106,40 @@ try {
   assert.equal((await freeRef.get()).data().status, 'active');
   assert.equal((await freeRef.collection('invoices').get()).size, 0);
 
-  console.log('Subscription billing Firestore Emulator tests passed: 27 assertions.');
+  const globalGraceSlug = 'subscription-global-grace-emulator';
+  const globalGraceRef = db.collection('restaurantSubscriptions').doc(globalGraceSlug);
+  const globalGraceRestaurant = db.collection('restaurants').doc(globalGraceSlug);
+  const overrideGraceSlug = 'subscription-override-grace-emulator';
+  const overrideGraceRef = db.collection('restaurantSubscriptions').doc(overrideGraceSlug);
+  const overrideGraceRestaurant = db.collection('restaurants').doc(overrideGraceSlug);
+  await Promise.all([
+    globalGraceRestaurant.set({ slug: globalGraceSlug, status: 'active', isOpen: true }),
+    globalGraceRef.set({
+      planName: 'Pro', priceFcfa: 12000, billingCycle: 'monthly', status: 'active',
+      startsAt: now, endsAt: now + 9 * 86400000, nextBillingAt: now + 9 * 86400000,
+      autoRenew: true, gracePeriodDays: 7, gracePeriodOverride: false
+    }),
+    overrideGraceRestaurant.set({ slug: overrideGraceSlug, status: 'active', isOpen: true }),
+    overrideGraceRef.set({
+      planName: 'Pro', priceFcfa: 12000, billingCycle: 'monthly', status: 'active',
+      startsAt: now, endsAt: now + 9 * 86400000, nextBillingAt: now + 9 * 86400000,
+      autoRenew: true, gracePeriodDays: 2, gracePeriodOverride: true
+    })
+  ]);
+  await runSubscriptionBillingCycleWithDb(db, now + 9 * 86400000);
+  assert.equal((await globalGraceRef.collection('invoices').get()).docs[0].data().gracePeriodDays, 4,
+    'La configuration globale du délai de grâce est appliquée aux abonnements sans dérogation');
+  assert.equal((await overrideGraceRef.collection('invoices').get()).docs[0].data().gracePeriodDays, 2,
+    'Une dérogation de délai propre à un abonnement est conservée');
+  const mixedGrace = await runSubscriptionBillingCycleWithDb(db, now + 12 * 86400000);
+  assert.equal(mixedGrace.restaurantsSuspended, 1, 'Seul l’abonnement dont le délai personnalisé est écoulé est suspendu');
+  assert.equal((await globalGraceRestaurant.get()).data().status, 'active');
+  assert.equal((await overrideGraceRestaurant.get()).data().status, 'suspended');
+  await runSubscriptionBillingCycleWithDb(db, now + 14 * 86400000);
+  assert.equal((await globalGraceRestaurant.get()).data().status, 'suspended',
+    'Le délai global est respecté avant suspension');
+
+  console.log('Subscription billing Firestore Emulator tests passed: 32 assertions.');
 } finally {
   await app.delete();
 }
