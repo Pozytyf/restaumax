@@ -1,0 +1,80 @@
+name: Deploy QR token index — Firebase Preview only
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Saisir APPLY_QR_INDEX_TO_RESTAUMAX_DEMO pour créer l'index dans le projet de démonstration uniquement"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: restaumax-demo-qr-index
+  cancel-in-progress: false
+
+jobs:
+  deploy-qr-index:
+    if: github.ref == 'refs/heads/fix/qr-firestore-index-preview'
+    environment: demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FIREBASE_PROJECT_ID: restaumax-demo
+      FIRESTORE_DATABASE_ID: (default)
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate immutable Preview target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/fix/qr-firestore-index-preview"
+          test "$FIREBASE_PROJECT_ID" = "restaumax-demo"
+          test "$FIRESTORE_DATABASE_ID" = "(default)"
+          test "$CONFIRMATION" = "APPLY_QR_INDEX_TO_RESTAUMAX_DEMO"
+          if [[ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]]; then
+            echo "::error::Le secret FIREBASE_SERVICE_ACCOUNT_JSON est absent de l'environnement GitHub demo."
+            exit 1
+          fi
+          echo "Cible immuable validée : restaumax-demo / (default)."
+
+      - name: Identify Firebase service account
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+
+          credentials = json.loads(os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"])
+          email = credentials.get("client_email", "")
+          if not email:
+              raise SystemExit("client_email absent du secret Firebase")
+          print("Compte Firebase utilisé :", email)
+          PY
+
+      - name: Checkout index configuration
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: fix/qr-firestore-index-preview
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Deploy Firestore indexes to Preview only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f firestore.indexes.json
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+          chmod 600 "$RUNNER_TEMP/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-sa.json"
+          printf '%s\n' '{"firestore":{"indexes":"firestore.indexes.json"}}' > .firebase-indexes-only.json
+          trap 'rm -f .firebase-indexes-only.json "$RUNNER_TEMP/firebase-sa.json"' EXIT
+          npx --yes firebase-tools@14.22.0 deploy --config .firebase-indexes-only.json --only firestore:indexes --project "$FIREBASE_PROJECT_ID" --non-interactive
