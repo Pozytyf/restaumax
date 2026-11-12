@@ -1,12 +1,9 @@
 name: Deploy platform invoice index — Firebase Demo only
 
 on:
-  workflow_dispatch:
-    inputs:
-      confirmation:
-        description: "Saisir APPLY_PLATFORM_INVOICE_INDEX_TO_RESTAUMAX_DEMO pour publier les index dans le projet de démonstration uniquement"
-        required: true
-        type: string
+  push:
+    branches:
+      - feat/super-admin-nine-screen-workspace
 
 permissions:
   contents: read
@@ -25,7 +22,6 @@ jobs:
       FIREBASE_PROJECT_ID: restaumax-demo
       FIRESTORE_DATABASE_ID: (default)
       FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-      CONFIRMATION: ${{ inputs.confirmation }}
     steps:
       - name: Validate immutable Demo target
         shell: bash
@@ -34,7 +30,6 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/feat/super-admin-nine-screen-workspace"
           test "$FIREBASE_PROJECT_ID" = "restaumax-demo"
           test "$FIRESTORE_DATABASE_ID" = "(default)"
-          test "$CONFIRMATION" = "APPLY_PLATFORM_INVOICE_INDEX_TO_RESTAUMAX_DEMO"
           if [[ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]]; then
             echo "::error::Le secret FIREBASE_SERVICE_ACCOUNT_JSON est absent de l'environnement GitHub demo."
             exit 1
