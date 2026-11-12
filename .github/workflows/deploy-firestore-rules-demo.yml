@@ -37,8 +37,6 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/fix/firestore-restaurant-active-guard"
           test "$FIREBASE_PROJECT_ID" = "restaumax-demo"
           test "$FIRESTORE_DATABASE_ID" = "(default)"
-          test -f firebase.demo.json
-          test -f firestore.rules
           echo "Target fixed: restaumax-demo / (default). Production is excluded."
 
       - name: Checkout the reviewed security branch
