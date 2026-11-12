@@ -104,6 +104,9 @@ assert(source.includes("action === 'config_update'") && source.includes("collect
 assert(server.includes("config.data()?.maintenanceMode === true") && fs.readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8').includes("configSnap.data()?.maintenanceMode === true"), 'maintenance mode is enforced by both local and Vercel API routers');
 assert(source.includes("action === 'platform_admin_create'") && source.includes("action === 'platform_admin_status'") && source.includes("revokeRefreshTokens(uid)"), 'delegated administrator accounts can be created and revoked with session invalidation');
 assert(source.includes("platformAdminRole") && source.includes("canPlatformAdminPerform") && source.includes("PLATFORM_ADMIN_ROLE_PERMISSIONS"), 'delegated platform roles are authorized server-side');
+assert(source.includes("action === 'platform_capabilities'") && source.includes("allowedActions: knownActions.filter"), 'the server returns the current administrator role capabilities');
+const adminView = fs.readFileSync(new URL('../src/components/restaumax/PlatformAdminView.tsx', import.meta.url), 'utf8');
+assert(adminView.includes("['super_admin', 'platform_admin'].includes(String(token.claims.role || ''))"), 'delegated administrator sessions are restored through server authorization');
 const roleGateStart = source.indexOf('export function canPlatformAdminPerform');
 const roleGateEnd = source.indexOf('export function canManageStaffMember', roleGateStart);
 const roleGate = source.slice(roleGateStart, roleGateEnd);
