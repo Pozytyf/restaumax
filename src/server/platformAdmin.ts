@@ -613,7 +613,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         await ref.update({ role, sessionVersion, updatedAt: now, updatedBy: user.uid });
         await db.collection('admin_audit_logs').add({
           action: 'update_platform_admin_role', targetUid: uid, targetRole: role,
-          actorUid: user.uid, createdAt: now
+          previousRole: String(snap.data()?.role || ''), newRole: role,
+          outcome: 'success', actorUid: user.uid, createdAt: now
         });
         return json(res, 200, { success: true, uid, role, requiresReauthentication: true });
       }
@@ -642,7 +643,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         await db.collection('admin_audit_logs').add({
           action: active ? 'reactivate_platform_admin' : 'suspend_platform_admin',
           targetUid: uid, targetRole: String(snap.data()?.role || ''),
-          actorUid: user.uid, createdAt: now
+          previousStatus: snap.data()?.active === true ? 'active' : 'suspended',
+          newStatus: active ? 'active' : 'suspended',
+          outcome: 'success', actorUid: user.uid, createdAt: now
         });
         return json(res, 200, { success: true, uid, active, requiresReauthentication: true });
       }
@@ -1159,10 +1162,23 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         ]);
         const billingRun = billingRunSnap?.exists ? billingRunSnap.data() || {} : null;
         const backupRun = backupRunSnap?.exists ? backupRunSnap.data() || {} : null;
+        const backupLastRunAt = Number(backupRun?.lastRunAt || 0) || null;
+        const backupFresh = Boolean(
+          backupRun?.lastStatus === 'success' && backupLastRunAt &&
+          backupLastRunAt <= now && now - backupLastRunAt <= 48 * 60 * 60 * 1000
+        );
+        const backupStatus = backupRun?.lastStatus === 'failed' || backupRun?.lastStatus === 'error'
+          ? 'unavailable' : backupFresh ? 'operational' : backupLastRunAt ? 'degraded' : 'unknown';
         const billingLastRunAt = Number(billingRun?.lastRunAt || 0) || null;
         const billingFresh = Boolean(billingLastRunAt && now - billingLastRunAt <= 36 * 60 * 60 * 1000 && billingRun?.lastStatus === 'success');
-        services.push({ id: 'auth', label: 'Authentification Firebase', status: authStatus, detail: authStatus === 'operational' ? 'Compte administrateur vérifié.' : 'Lecture Firebase Authentication impossible.' });
-        services.push({ id: 'mfa', label: 'Protection MFA des administrateurs', status: process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true' ? 'operational' : 'degraded', detail: process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true' ? 'Le serveur exige un second facteur pour chaque session plateforme.' : 'La politique MFA obligatoire n’est pas activée par configuration serveur.' });
+        services.push({ id: 'auth', label: 'Authentification Firebase', status: authStatus, detail: authStatus === 'operational' ? 'Le compte administrateur courant est accessible dans Firebase Authentication.' : 'Lecture Firebase Authentication impossible.' });
+        services.push({
+          id: 'mfa', label: 'Protection MFA des administrateurs',
+          status: process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true' ? 'unknown' : 'degraded',
+          detail: process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true'
+            ? 'La politique MFA est activée. Cette sonde ne vérifie pas l’enrôlement individuel de chaque administrateur.'
+            : 'La politique MFA obligatoire n’est pas activée par configuration serveur.'
+        });
         services.push({ id: 'email', label: 'Distribution des e-mails', status: 'unknown', detail: 'Les e-mails de réinitialisation sont gérés par Firebase Authentication. La livraison et les rebonds ne sont pas télémétrés par RestauMax.' });
         services.push({ id: 'database', label: 'Firestore', status: databaseStatus, detail: databaseStatus === 'operational' ? 'Lecture de contrôle réussie.' : 'Firestore ne répond pas.' });
         services.push({ id: 'payments', label: 'Paiements Mobile Money', status: 'unknown', detail: process.env.PAYDUNYA_LIVE_ENABLED === 'true' ? 'Production autorisée, mais aucun appel fournisseur ni paiement réel n’est lancé par cette sonde.' : 'Mode test / Production désactivée. La sonde ne déclenche aucune transaction et les identifiants restent propres à chaque restaurant.' });
@@ -1177,8 +1193,18 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
               ? 'Secret CRON_SECRET présent, mais aucune exécution réussie récente n’est enregistrée.'
               : 'CRON_SECRET absent sur cet environnement : tâche planifiée non activable.';
         services.push({ id: 'billing', label: 'Facturation planifiée', status: billingStatus, detail: billingDetail });
-        services.push({ id: 'deployment', label: 'Déploiement', status: process.env.VERCEL_ENV ? 'operational' : 'unknown', detail: process.env.VERCEL_ENV ? `${process.env.VERCEL_ENV} · ${String(process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || 'SHA non exposé'}` : 'Environnement Vercel non détecté.' });
-        services.push({ id: 'backup', label: 'Sauvegardes', status: backupRun?.lastStatus === 'success' ? 'operational' : 'unknown', detail: backupRun?.lastRunAt ? `Dernière sauvegarde enregistrée : ${new Date(Number(backupRun.lastRunAt)).toISOString()}` : 'Aucune télémétrie de sauvegarde connectée.' });
+        services.push({
+          id: 'deployment', label: 'Déploiement', status: 'unknown',
+          detail: process.env.VERCEL_ENV
+            ? `Métadonnées : ${process.env.VERCEL_ENV} · ${String(process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || 'SHA non exposé'}. Le statut Ready n’est pas vérifié par cette sonde.`
+            : 'Environnement Vercel non détecté.'
+        });
+        services.push({
+          id: 'backup', label: 'Sauvegardes', status: backupStatus,
+          detail: backupLastRunAt
+            ? `Dernière exécution enregistrée : ${new Date(backupLastRunAt).toISOString()} · ${backupFresh ? 'succès récent (moins de 48 h)' : backupStatus === 'unavailable' ? 'échec signalé' : 'résultat ancien ou non confirmé'}.`
+            : 'Aucune télémétrie de sauvegarde connectée.'
+        });
         return json(res, 200, { success: true, checkedAt: now, services });
       }
 
@@ -1254,9 +1280,20 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             action: typeof raw.action === 'string' ? raw.action : 'unknown',
             actorUid: typeof raw.actorUid === 'string' ? raw.actorUid : '',
             restaurantSlug: typeof raw.restaurantSlug === 'string' ? raw.restaurantSlug : '',
-            targetRole: typeof raw.targetRole === 'string' ? raw.targetRole : '',
-            invoiceId: typeof raw.invoiceId === 'string' ? raw.invoiceId : '',
+            targetUid: typeof raw.targetUid === 'string' ? raw.targetUid.slice(0, 128) : '',
+            targetRole: typeof raw.targetRole === 'string' ? raw.targetRole.slice(0, 40) : '',
+            invoiceId: typeof raw.invoiceId === 'string' ? raw.invoiceId.slice(0, 128) : '',
             amountFcfa: Number.isSafeInteger(raw.amountFcfa) ? raw.amountFcfa : null,
+            planName: typeof raw.planName === 'string' ? raw.planName.slice(0, 80) : '',
+            subscriptionStatus: typeof raw.subscriptionStatus === 'string' ? raw.subscriptionStatus.slice(0, 40) : '',
+            previousRole: typeof raw.previousRole === 'string' ? raw.previousRole.slice(0, 40) : '',
+            newRole: typeof raw.newRole === 'string' ? raw.newRole.slice(0, 40) : '',
+            previousStatus: typeof raw.previousStatus === 'string' ? raw.previousStatus.slice(0, 40) : '',
+            newStatus: typeof raw.newStatus === 'string' ? raw.newStatus.slice(0, 40) : '',
+            previousPlanName: typeof raw.previousPlanName === 'string' ? raw.previousPlanName.slice(0, 80) : '',
+            newPlanName: typeof raw.newPlanName === 'string' ? raw.newPlanName.slice(0, 80) : '',
+            outcome: ['success', 'denied', 'failed'].includes(String(raw.outcome || '')) ? String(raw.outcome) : '',
+            reasonCode: typeof raw.reasonCode === 'string' && /^[a-z0-9_.-]{1,80}$/i.test(raw.reasonCode) ? raw.reasonCode : '',
             createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : null,
             preservedBusinessData: raw.preservedBusinessData === true || raw.businessHistoryPreserved === true
           };
@@ -1483,7 +1520,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             await batch.commit();
           }
         }
-        await db.collection('admin_audit_logs').add({ action: body.status === 'suspended' ? 'suspend_restaurant' : 'reactivate_restaurant', restaurantSlug: slug, actorUid: user.uid, createdAt: now });
+        await db.collection('admin_audit_logs').add({
+          action: body.status === 'suspended' ? 'suspend_restaurant' : 'reactivate_restaurant',
+          restaurantSlug: slug, previousStatus: String(restaurantSnap.data()?.status || 'unknown'),
+          newStatus: String(body.status), outcome: 'success', actorUid: user.uid, createdAt: now
+        });
         return json(res, 200, { success: true, status: body.status });
       }
 
@@ -1516,11 +1557,15 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
         await db.collection('admin_audit_logs').add({
           action: 'update_restaurant_subscription', restaurantSlug: slug, actorUid: user.uid,
+          previousPlanName: String(currentSubscriptionSnap.data()?.planName || ''),
+          newPlanName: validation.subscription.planName,
           planName: validation.subscription.planName,
+          previousStatus: String(currentSubscriptionSnap.data()?.status || 'unknown'),
+          newStatus: validation.subscription.status,
           priceFcfa: validation.subscription.priceFcfa,
           billingCycle: validation.subscription.billingCycle,
           subscriptionStatus: validation.subscription.status,
-          endsAt: validation.subscription.endsAt,
+          outcome: 'success', endsAt: validation.subscription.endsAt,
           createdAt: now
         });
         return json(res, 200, { success: true, subscription: updatedSubscription });
@@ -1586,6 +1631,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
     // Super-admin account audit is deliberately read-only and limited to identity/linkage fields.
     if (action === 'staff_list' && ['full', 'support'].includes(String(await getPlatformAdminRole(db, user) || ''))) {
+      const canSeeFullAccountDetails = await getPlatformAdminRole(db, user) === 'full';
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '').trim();
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
       const restaurantSnap = await db.collection('restaurants').doc(slug).get();
@@ -1630,12 +1676,21 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         });
       }
       const accounts = await Promise.all([...byUid.values()].map(async ({ emailValues, ...account }) => {
+        const email = String(account.email || '');
+        const maskedEmail = email.includes('@') ? email.replace(/^(.).+(@.+)$/, '$1•••$2') : '';
         try {
           const authUser = await getAuth().getUser(account.uid);
           const authActive = authUser.disabled !== true;
-          return { ...account, active: account.activeKnown ? account.active && authActive : authActive, activeKnown: true, accountLinked: true, readOnly: true };
+          return {
+            ...account, email: canSeeFullAccountDetails ? email : maskedEmail,
+            active: account.activeKnown ? account.active && authActive : authActive,
+            activeKnown: true, accountLinked: true, readOnly: true
+          };
         } catch {
-          return { ...account, active: false, activeKnown: false, accountLinked: false, readOnly: true };
+          return {
+            ...account, email: canSeeFullAccountDetails ? email : maskedEmail,
+            active: false, activeKnown: false, accountLinked: false, readOnly: true
+          };
         }
       }));
       return json(res, 200, {
