@@ -38,8 +38,8 @@ assert.match(adminView, /useState<User \| null>\(auth\.currentUser\)/,
   'an already-open Firebase session is evaluated when /admin mounts');
 assert.match(adminView, /onAuthStateChanged\(auth, \(nextUser\)/,
   'a restored or changed Firebase session is revalidated on /admin');
-assert.match(adminView, /token\.claims\.role !== 'super_admin'/,
-  'an existing owner/staff session must not be silently promoted by the admin allowlist');
+assert.match(adminView, /!\['super_admin', 'platform_admin'\]\.includes\(String\(token\.claims\.role \|\| ''\)\)/,
+  'only super-admin and delegated platform-admin claims can restore the platform console session');
 assert.match(adminView, /adminLoginInProgress\.current = true[\s\S]*?const data = await request\(\)/,
   'the dedicated admin login explicitly authenticates before requesting platform access');
 assert.match(adminView, /\(!user \|\| needsPlatformAdminLogin\) \? \([\s\S]*?mfaResolver \?/,
