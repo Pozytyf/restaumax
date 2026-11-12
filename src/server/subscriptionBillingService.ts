@@ -166,7 +166,8 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         if (sub.status !== 'past_due' || invoice.status === 'paid' ||
             restaurant.status === 'deleted' || restaurant.deletedAt ||
             (restaurant.status !== 'active' && restaurant.suspensionReason !== 'subscription_past_due')) return 'skip';
-        const grace = resolveGracePeriod(sub, resolveGracePeriod(invoice));
+        const invoiceGrace = Number(invoice.gracePeriodDays);
+        const grace = Number.isInteger(invoiceGrace) && invoiceGrace >= 0 && invoiceGrace <= 60 ? invoiceGrace : resolveGracePeriod(sub);
         const pastDueAt = Number(sub.pastDueAt || invoice.dueAt || 0);
         if (now < pastDueAt + grace * DAY_MS) return 'skip';
         const nextVersion = Number(restaurant.tableSessionVersion || 0) + 1;
