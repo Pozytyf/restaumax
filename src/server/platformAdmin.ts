@@ -309,6 +309,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       return json(res, 200, { success: true });
     }
     if (action === 'support_access_requests' || action === 'support_access_decision' || action === 'support_access_revoke') {
+      if (action === 'support_access_decision' || action === 'support_access_revoke') {
+        const ownerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurant);
+        if (member.role !== 'owner' || ownerUid !== user.uid) {
+          return json(res, 403, { success: false, error: 'Seul le propriétaire du restaurant peut gérer le consentement au diagnostic.' });
+        }
+      }
       if (action === 'support_access_revoke') {
         if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
         const requestId = String(body.requestId || '').trim();
@@ -325,12 +331,6 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           supportAccessRequestId: requestId, actorUid: user.uid, createdAt: now
         });
         return json(res, 200, { success: true, status: 'revoked' });
-      }
-      if (action === 'support_access_decision' || action === 'support_access_revoke') {
-        const ownerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurant);
-        if (member.role !== 'owner' || ownerUid !== user.uid) {
-          return json(res, 403, { success: false, error: 'Seul le propriétaire du restaurant peut consentir à un accès de diagnostic.' });
-        }
       }
       if (action === 'support_access_requests') {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
