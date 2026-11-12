@@ -28,6 +28,19 @@ jobs:
       CONFIRMATION: ${{ inputs.confirmation }}
     steps:
       - name: Validate immutable Preview target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/fix/qr-firestore-index-preview"
+          test "$FIREBASE_PROJECT_ID" = "restaumax-demo"
+          test "$FIRESTORE_DATABASE_ID" = "(default)"
+          test "$CONFIRMATION" = "APPLY_QR_INDEX_TO_RESTAUMAX_DEMO"
+          if [[ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]]; then
+            echo "::error::Le secret FIREBASE_SERVICE_ACCOUNT_JSON est absent de l'environnement GitHub demo."
+            exit 1
+          fi
+          echo "Cible immuable validée : restaumax-demo / (default)."
+
       - name: Identify Firebase service account
         shell: bash
         run: |
@@ -42,18 +55,6 @@ jobs:
               raise SystemExit("client_email absent du secret Firebase")
           print("Compte Firebase utilisé :", email)
           PY
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REF" = "refs/heads/fix/qr-firestore-index-preview"
-          test "$FIREBASE_PROJECT_ID" = "restaumax-demo"
-          test "$FIRESTORE_DATABASE_ID" = "(default)"
-          test "$CONFIRMATION" = "APPLY_QR_INDEX_TO_RESTAUMAX_DEMO"
-          if [[ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]]; then
-            echo "::error::Le secret FIREBASE_SERVICE_ACCOUNT_JSON est absent de l'environnement GitHub demo."
-            exit 1
-          fi
-          echo "Cible immuable validée : restaumax-demo / (default)."
 
       - name: Checkout index configuration
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
