@@ -234,7 +234,7 @@ service cloud.firestore {
     match /managers/{userId} {
       allow get: if isSignedIn() && request.auth.uid == userId;
       allow list: if false;
-      allow write: if false;
+      allow write: if !isPlatformMaintenanceMode() && false;
     }
 
     // Restaurant profile and service status
@@ -252,15 +252,15 @@ service cloud.firestore {
           )
         );
       allow list: if false;
-      allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming()) && isPublicRestaurant(incoming());
-      allow update: if hasRestaurantPermission(restaurantSlug, 'settings.manage') &&
+      allow create: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming()) && isPublicRestaurant(incoming());
+      allow update: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'settings.manage') &&
         isValidId(restaurantSlug) && isValidRestaurant(incoming()) &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'tagline', 'address', 'city', 'phone', 'bannerUrl', 'logoUrl',
           'openingHours', 'currency', 'country', 'isOpen', 'taxRatePercent', 'taxMode',
           'loyaltyFcfaPerPoint', 'receiptFooter', 'receiptPaperWidth'
         ]);
-      allow delete: if false;
+      allow delete: if !isPlatformMaintenanceMode() && false;
 
       // Ownership and audit identity metadata is private and server-only.
       match /private/{privateDoc} {
@@ -277,17 +277,17 @@ service cloud.firestore {
         allow get, list: if isValidId(dishId) && isRestaurantActive(restaurantSlug) &&
           (hasRestaurantPermission(restaurantSlug, 'menu.manage') ||
            hasRestaurantPermission(restaurantSlug, 'pos.access'));
-        allow create: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
+        allow create: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
           isValidId(dishId) && isValidMenuItem(incoming()) &&
           incoming().restaurantSlug == restaurantSlug && incoming().id == dishId;
-        allow update: if hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
+        allow update: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'menu.manage') &&
           isValidId(dishId) && isValidMenuItem(incoming()) &&
           incoming().restaurantSlug == restaurantSlug && incoming().id == dishId && existing().get('restaurantSlug', '') == restaurantSlug && existing().get('id', '') == dishId &&
           incoming().diff(existing()).affectedKeys().hasOnly([
             'name', 'category', 'price', 'available', 'description', 'imageUrl',
             'prepTimeMinutes', 'optionGroups', 'availableExtras', 'tags', 'trackStock', 'stockQuantity', 'lowStockThreshold', 'allergens', 'spiceLevel', 'pairings', 'translations'
           ]);
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId) && resource.data.get('restaurantSlug', '') == restaurantSlug &&
+        allow delete: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(dishId) && resource.data.get('restaurantSlug', '') == restaurantSlug &&
           !existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuRecipes/$(dishId));
       }
 
@@ -298,14 +298,14 @@ service cloud.firestore {
         allow get, list: if (hasRestaurantPermission(restaurantSlug, 'tables.view') || hasRestaurantPermission(restaurantSlug, 'tables.manage')) &&
           (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('role', '') != 'server' || resource.data.get('assignedWaiter', '') == request.auth.uid);
         // Table creation and number reservation are atomic in the trusted API.
-        allow create: if false;
-        allow update: if hasRestaurantPermission(restaurantSlug, 'tables.manage') &&
+        allow create: if !isPlatformMaintenanceMode() && false;
+        allow update: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'tables.manage') &&
           isValidId(tableId) && isValidTable(incoming()) && incoming().id == tableId &&
           incoming().diff(existing()).affectedKeys().hasOnly([
             'section', 'capacity', 'isActive', 'status', 'covers',
             'seatedAt', 'assignedWaiter', 'currentOrderId', 'currentTotal'
           ]);
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'tables.manage') && isValidId(tableId);
+        allow delete: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'tables.manage') && isValidId(tableId);
       }
 
       // Unique table-number reservations are server-only and transactionally managed.
@@ -326,22 +326,22 @@ service cloud.firestore {
       match /customers/{customerId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'customers.view') || hasRestaurantPermission(restaurantSlug, 'customers.manage');
         // Customer creation is server-only so normalized phone uniqueness is transactional.
-        allow create: if false;
-        allow update: if hasRestaurantPermission(restaurantSlug, 'customers.manage')
+        allow create: if !isPlatformMaintenanceMode() && false;
+        allow update: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'customers.manage')
           && isValidId(customerId)
           && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'notes', 'updatedAt', 'archivedAt', 'archivedByUid'])
           && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 160
           && incoming().phone is string && incoming().phone.size() > 0 && incoming().phone.size() <= 40
           && (!incoming().diff(existing()).affectedKeys().hasAny(['archivedAt', 'archivedByUid']) ||
               (incoming().archivedAt is int && incoming().archivedByUid == request.auth.uid));
-        allow delete: if false;
+        allow delete: if !isPlatformMaintenanceMode() && false;
       }
 
       // Inventory catalog and immutable stock movement audit trail.
       match /inventoryItems/{itemId} {
         allow get, list: if hasPlatformFeature(restaurantSlug, 'inventoryRecipes') && (hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage')) && resource.data.get('restaurantSlug', restaurantSlug) == restaurantSlug;
         // Inventory mutations are Admin SDK only and must pass the transactional API.
-        allow create, update, delete: if false;
+        allow create, update, delete: if !isPlatformMaintenanceMode() && false;
       }
 
       match /menuRecipes/{menuItemId} {
@@ -349,30 +349,30 @@ service cloud.firestore {
         // Recipe creation and edits remain backend-only. A linked recipe may be
         // deleted by a catalogue manager only in the same transaction that deletes
         // its menu item, preventing orphaned recipe records.
-        allow create, update: if false;
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(menuItemId) &&
+        allow create, update: if !isPlatformMaintenanceMode() && false;
+        allow delete: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(menuItemId) &&
           !existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuItems/$(menuItemId));
       }
 
       match /menuCustomizationRecipes/{recipeId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
         // Customization recipes are written only through the trusted inventory API.
-        allow create, update: if false;
-        allow delete: if hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(recipeId) &&
+        allow create, update: if !isPlatformMaintenanceMode() && false;
+        allow delete: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'menu.manage') && isValidId(recipeId) &&
           !existsAfter(/databases/$(database)/documents/restaurants/$(restaurantSlug)/menuItems/$(resource.data.menuItemId));
       }
 
       match /stockMovements/{movementId} {
         allow get, list: if hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage');
         // Append-only from the trusted Admin SDK transaction; no client writes.
-        allow create, update, delete: if false;
+        allow create, update, delete: if !isPlatformMaintenanceMode() && false;
       }
 
       // Menu stock movements are an immutable audit trail for sellable portions.
       match /menuStockMovements/{movementId} {
         allow get, list: if (hasRestaurantPermission(restaurantSlug, 'inventory.view') || hasRestaurantPermission(restaurantSlug, 'inventory.manage')) &&
           resource.data.get('restaurantSlug', '') == restaurantSlug;
-        allow create, update, delete: if false;
+        allow create, update, delete: if !isPlatformMaintenanceMode() && false;
       }
 
       // Orders subcollection
@@ -388,15 +388,15 @@ service cloud.firestore {
       }
 
       match /orders/{orderId} {
-        allow create: if false;
+        allow create: if !isPlatformMaintenanceMode() && false;
         allow get: if false;
         allow list: if (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('role', '') != 'kitchen' || hasPlatformFeature(restaurantSlug, 'kitchenScreen')) &&
           (hasRestaurantPermission(restaurantSlug, 'orders.view') || hasRestaurantPermission(restaurantSlug, 'orders.manage') || hasRestaurantPermission(restaurantSlug, 'kitchen.access') || hasRestaurantPermission(restaurantSlug, 'reports.view')) &&
           (get(/databases/$(database)/documents/managers/$(request.auth.uid)).data.get('role', '') != 'server' || resource.data.get('assignedWaiterUid', '') == request.auth.uid);
         // All order status transitions and KDS progress are server-managed so stock
         // consumption/restoration and the order state commit in one Admin SDK transaction.
-        allow update: if false;
-        allow delete: if false;
+        allow update: if !isPlatformMaintenanceMode() && false;
+        allow delete: if !isPlatformMaintenanceMode() && false;
       }
     }
   }
