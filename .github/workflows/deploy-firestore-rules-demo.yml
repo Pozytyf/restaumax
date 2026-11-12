@@ -47,6 +47,14 @@ jobs:
           ref: fix/firestore-restaurant-active-guard
           persist-credentials: false
 
+      - name: Verify checked-out Demo deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f firebase.demo.json
+          test -f firestore.rules
+          echo "Demo configuration and Firestore rules are present."
+
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
