@@ -670,7 +670,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const message = String(body.message || '').trim();
         const targetType = String(body.targetType || 'all');
         const planName = String(body.planName || '').trim();
-        const restaurantSlugs = Array.isArray(body.restaurantSlugs) ? [...new Set(body.restaurantSlugs.map((v: unknown) => String(v).trim()).filter(Boolean))] : [];
+        const restaurantSlugs: string[] = Array.isArray(body.restaurantSlugs) ? [...new Set<string>(body.restaurantSlugs.map((v: unknown) => String(v).trim()).filter((v: string) => Boolean(v)))] : [];
         if (title.length < 3 || title.length > 100 || message.length < 10 || message.length > 3000 ||
             !['all', 'plan', 'selected'].includes(targetType) ||
             (targetType === 'plan' && !['Essentiel', 'Pro'].includes(planName)) ||
