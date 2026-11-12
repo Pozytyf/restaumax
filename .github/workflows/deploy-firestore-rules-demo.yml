@@ -1,0 +1,97 @@
+name: Deploy Firestore Rules — RestauMax Demo only
+
+on:
+  push:
+    branches:
+      - fix/firestore-restaurant-active-guard
+    paths:
+      - "firestore.rules"
+      - "firebase.demo.json"
+      - ".github/workflows/deploy-firestore-rules-demo.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: restaumax-demo-firestore-rules
+  cancel-in-progress: false
+
+jobs:
+  deploy-demo-rules:
+    name: Publish Firestore rules to restaumax-demo only
+    if: github.ref == 'refs/heads/fix/firestore-restaurant-active-guard'
+    environment:
+      name: demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FIREBASE_PROJECT_ID: restaumax-demo
+      FIRESTORE_DATABASE_ID: (default)
+
+    steps:
+      - name: Validate immutable Demo target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/fix/firestore-restaurant-active-guard"
+          test "$FIREBASE_PROJECT_ID" = "restaumax-demo"
+          test "$FIRESTORE_DATABASE_ID" = "(default)"
+          test -f firebase.demo.json
+          test -f firestore.rules
+          echo "Target fixed: restaumax-demo / (default). Production is excluded."
+
+      - name: Checkout the reviewed security branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/firestore-restaurant-active-guard
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+
+      - name: Authenticate to Google Cloud using short-lived GitHub OIDC credentials
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
+        with:
+          project_id: gen-lang-client-0138815290
+          workload_identity_provider: projects/305138716873/locations/global/workloadIdentityPools/github-restaumax-pool/providers/github-restaumax-provider
+          service_account: restaumax-firestore-deployer@gen-lang-client-0138815290.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools@15.34.2
+
+      - name: Verify the existing Demo database before deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          firebase firestore:databases:get "$FIRESTORE_DATABASE_ID" \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+          echo "Existing Demo database verified."
+
+      - name: Deploy Firestore Security Rules to Demo only
+        shell: bash
+        run: |
+          set -euo pipefail
+          firebase deploy \
+            --config firebase.demo.json \
+            --only firestore:rules \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+
+      - name: Deployment summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "### Firestore rules published to Demo"
+            echo "- Firebase project: `$FIREBASE_PROJECT_ID`"
+            echo "- Firestore database: `$FIRESTORE_DATABASE_ID`"
+            echo "- Source: `firestore.rules`"
+            echo "- Commit: `$GITHUB_SHA`"
+            echo "- Production: untouched"
+          } >> "$GITHUB_STEP_SUMMARY"
