@@ -79,6 +79,9 @@ const billingEnd = source.indexOf("if (action === 'audit_list') {", billingStart
 assert(billingStart >= 0 && billingEnd > billingStart, 'billing read endpoint exists');
 const billingRead = source.slice(billingStart, billingEnd);
 assert(billingRead.includes("collectionGroup('invoices')") && billingRead.includes("restaurantSubscriptions"), 'billing view reads only subscription invoice collections');
+const firestoreIndexes = JSON.parse(fs.readFileSync(new URL('../firestore.indexes.json', import.meta.url), 'utf8'));
+const invoiceIssuedAtIndex = firestoreIndexes.fieldOverrides.find(entry => entry.collectionGroup === 'invoices' && entry.fieldPath === 'issuedAt');
+assert(invoiceIssuedAtIndex?.indexes?.some(index => index.queryScope === 'COLLECTION_GROUP' && index.order === 'DESCENDING'), 'collection-group invoice pagination has a descending issuedAt index');
 assert(billingRead.includes("requestedLimit + 1") && billingRead.includes("requestedLimit > 200") && billingRead.includes("nextCursor"), 'billing view provides bounded cursor pagination across all subscriptions');
 assert(!billingRead.includes("collection('orders')") && !billingRead.includes("collection('payments')"), 'billing view never exposes restaurant order or payment operations');
 const auditStart = source.indexOf("if (action === 'audit_list') {");
@@ -117,6 +120,10 @@ const platformStaffListEnd = source.indexOf("if (action === 'platform_admin_crea
 const platformStaffList = source.slice(platformStaffListStart, platformStaffListEnd);
 assert(platformStaffList.includes("collection('restaurants').doc(slug).collection('staff')") && platformStaffList.includes('canSeeFullAccountDetails') && platformStaffList.includes('maskedEmail'), 'delegated support receives only a tenant-scoped, masked, read-only staff directory');
 assert(workspace.includes("read('platform_staff_list', { slug: restaurant.slug })"), 'the account screen uses the platform-scoped directory endpoint');
+const platformStaffListEnd = source.indexOf("if (action === 'platform_admin_create')", platformStaffListStart);
+const platformStaffList = source.slice(platformStaffListStart, platformStaffListEnd);
+assert(platformStaffList.includes("collection('managers').where('restaurantSlug', '==', slug)") && platformStaffList.includes('getRestaurantOwnership'), 'the account screen reconciles staff, manager and canonical owner records');
+assert(platformStaffList.includes("collection('restaurants').doc(slug).collection('staff').get()") && platformStaffList.includes('accountLinked: false'), 'the account screen detects both linked and unlinked identities');
 assert(source.includes("platformAdminRole") && source.includes("canPlatformAdminPerform") && source.includes("PLATFORM_ADMIN_ROLE_PERMISSIONS"), 'delegated platform roles are authorized server-side');
 assert(source.includes("action === 'platform_capabilities'") && source.includes("allowedActions: knownActions.filter"), 'the server returns the current administrator role capabilities');
 const adminView = fs.readFileSync(new URL('../src/components/restaumax/PlatformAdminView.tsx', import.meta.url), 'utf8');
