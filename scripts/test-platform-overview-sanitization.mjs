@@ -73,3 +73,26 @@ assert(appSource.includes("authRestaurantRole === 'server' ? authUser?.uid : und
 assert(orderService.includes("assignedWaiterUid = typeof matched.assignedWaiter === 'string'"), 'new table orders inherit the current table assignment');
 assert(orderTypes.includes('assignedWaiterUid?: string | null'), 'orders expose the assigned server field');
 console.log('Assigned server table/order isolation regression checks passed.');
+
+const billingStart = source.indexOf("if (action === 'billing_list') {");
+const billingEnd = source.indexOf("if (action === 'audit_list') {", billingStart);
+assert(billingStart >= 0 && billingEnd > billingStart, 'billing read endpoint exists');
+const billingRead = source.slice(billingStart, billingEnd);
+assert(billingRead.includes("collection('restaurantSubscriptions')") && billingRead.includes("collection('invoices')"), 'billing view reads only subscription invoices');
+assert(billingRead.includes(".limit(30)") && billingRead.includes("invoices.length >= 100"), 'billing view bounds the amount of invoice data returned');
+assert(!billingRead.includes("collection('orders')") && !billingRead.includes("collection('payments')"), 'billing view never exposes restaurant order or payment operations');
+const auditStart = source.indexOf("if (action === 'audit_list') {");
+const auditEnd = source.indexOf("if (action === 'overview') {", auditStart);
+assert(auditStart >= 0 && auditEnd > auditStart, 'read-only audit endpoint exists');
+const auditRead = source.slice(auditStart, auditEnd);
+assert(auditRead.includes("collection('admin_audit_logs')") && auditRead.includes(".limit(100)"), 'audit view is bounded and reads platform audit logs');
+assert(auditRead.includes("readOnly: true") && !auditRead.includes(".delete(") && !auditRead.includes(".update("), 'audit endpoint remains read-only');
+const workspace = fs.readFileSync(new URL('../src/components/restaumax/PlatformAdminWorkspace.tsx', import.meta.url), 'utf8');
+for (const label of ['Vue d’ensemble', 'Restaurants', 'Abonnements et factures', 'Comptes et accès', 'Support', 'Journal d’audit', 'Santé de la plateforme', 'Configuration', 'Communication']) {
+  assert(workspace.includes(label), 'super-admin workspace includes the ' + label + ' screen');
+}
+assert(workspace.includes('aria-label="Navigation super-administrateur"') && workspace.includes('aria-current={screen === item.id ? \'page\' : undefined}'), 'super-admin navigation exposes accessible current-page state');
+assert(workspace.includes('min-h-11') && workspace.includes('overflow-x-auto'), 'super-admin controls meet touch target and mobile navigation requirements');
+assert(workspace.includes('Aucun service de tickets n’est encore connecté') && workspace.includes('publication est désactivée'), 'unimplemented support and communication workflows are clearly marked rather than simulated as live');
+assert(workspace.includes('Aucune commande ni donnée financière du restaurant n’est exposée'), 'super-admin UI explicitly protects restaurant operational privacy');
+console.log('Super-admin nine-screen workspace and read-only API regression checks passed.');
