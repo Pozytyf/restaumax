@@ -107,9 +107,9 @@ assert(source.includes("platformAdminRole") && source.includes("canPlatformAdmin
 const roleGateStart = source.indexOf('export function canPlatformAdminPerform');
 const roleGateEnd = source.indexOf('export function canManageStaffMember', roleGateStart);
 const roleGate = source.slice(roleGateStart, roleGateEnd);
-const billingRoleLine = roleGate.split('\\n').find(line => line.includes("role === 'billing'")) || '';
-const supportRoleLine = roleGate.split('\\n').find(line => line.includes("role === 'support'")) || '';
-const readOnlyRoleLine = roleGate.split('\\n').find(line => line.includes("role === 'read_only'")) || '';
+const billingRoleLine = roleGate.split('\n').find(line => line.includes("role === 'billing'")) || '';
+const supportRoleLine = roleGate.split('\n').find(line => line.includes("role === 'support'")) || '';
+const readOnlyRoleLine = roleGate.split('\n').find(line => line.includes("role === 'read_only'")) || '';
 assert(billingRoleLine.includes('billing_list') && billingRoleLine.includes('settle_subscription_invoice') && !billingRoleLine.includes('support_update'), 'billing role is restricted to billing operations');
 assert(supportRoleLine.includes('support_update') && supportRoleLine.includes('support_access_diagnostics') && !supportRoleLine.includes('billing_list'), 'support role is restricted to support and consented diagnostics');
 assert(readOnlyRoleLine.includes('health_details') && !readOnlyRoleLine.includes('config_update') && !readOnlyRoleLine.includes('platform_admin_status'), 'read-only role cannot mutate platform configuration or accounts');
