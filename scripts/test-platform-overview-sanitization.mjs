@@ -107,6 +107,13 @@ assert(source.includes("platformAdminRole") && source.includes("canPlatformAdmin
 assert(source.includes("action === 'health_details'") && source.includes("platform_job_runs"), 'platform health reads real server probes and scheduled-job telemetry');
 assert(server.includes("isPlatformFeatureEnabled") && server.includes("'inventoryRecipes'") && server.includes("'loyalty'") && server.includes("'kitchenScreen'"), 'persisted plan entitlements guard inventory, loyalty and kitchen mutation APIs');
 assert(platformMessages.includes("support_submit") && platformMessages.includes("support_my_tickets") && platformMessages.includes("support_reply"), 'restaurant support center supports ticket lifecycle and replies');
+assert(source.includes("action === 'support_access_request'") && source.includes("action === 'support_access_decision'"), 'temporary support access requires an explicit owner decision');
+assert(source.includes("accessDurationMinutes: 60") && source.includes("accessExpiresAt: now + 60 * 60 * 1000"), 'approved support diagnostics expire after one hour');
+assert(source.includes("access.requestedBy !== user.uid") && source.includes("dataScope: 'profile_and_counts_only'"), 'diagnostics are bound to the requesting support agent and minimized');
+assert(source.includes("excluded: ['orders', 'payments', 'cash', 'customer_personal_data']"), 'temporary support diagnostics explicitly exclude sensitive restaurant operations');
+assert(source.includes("action === 'platform_staff_status'") && source.includes("action === 'platform_staff_revoke_sessions'"), 'super-admin can suspend restaurant accounts and revoke sessions');
+assert(source.includes("serverAssignmentsReleased: member.role === 'server' && !nextActive"), 'server suspension releases assigned tables and active order assignments');
+assert(platformMessages.includes('support_access_decision') && platformMessages.includes('Seul le propriétaire'), 'restaurant portal exposes consent only to the owner');
 assert(!workspace.includes('Tickets de support · exemple') && !workspace.includes('Annonces · exemples') && !workspace.includes('aperçu non modifiable'), 'operational support and communication screens no longer display fake records');
 assert(workspace.includes('Aucune commande ni donnée financière du restaurant n’est exposée') || source.includes('readOnly: true'), 'platform administration keeps restaurant operational data outside the admin read models');
 console.log('Super-admin nine-screen workspace and read-only API regression checks passed.');
