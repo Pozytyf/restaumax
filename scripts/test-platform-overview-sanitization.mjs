@@ -85,13 +85,18 @@ const auditStart = source.indexOf("if (action === 'audit_list') {");
 const auditEnd = source.indexOf("if (action === 'overview') {", auditStart);
 assert(auditStart >= 0 && auditEnd > auditStart, 'read-only audit endpoint exists');
 const auditRead = source.slice(auditStart, auditEnd);
-assert(auditRead.includes("collection('admin_audit_logs')") && auditRead.includes(".limit(100)"), 'audit view is bounded and reads platform audit logs');
+assert(auditRead.includes("collection('admin_audit_logs')") && auditRead.includes("requestedLimit + 1") && auditRead.includes("requestedLimit > 200"), 'audit view is bounded, paginated and reads platform audit logs');
+assert(auditRead.includes("startAfter(cursorSnap)") && auditRead.includes("nextCursor") && auditRead.includes("hasMore"), 'audit pagination uses a validated Firestore document cursor');
 assert(auditRead.includes("readOnly: true") && !auditRead.includes(".delete(") && !auditRead.includes(".update("), 'audit endpoint remains read-only');
 const workspace = fs.readFileSync(new URL('../src/components/restaumax/PlatformAdminWorkspace.tsx', import.meta.url), 'utf8');
 for (const label of ['Vue d’ensemble', 'Restaurants', 'Abonnements et factures', 'Comptes et accès', 'Support', 'Journal d’audit', 'Santé de la plateforme', 'Configuration', 'Communication']) {
   assert(workspace.includes(label), 'super-admin workspace includes the ' + label + ' screen');
 }
 assert(workspace.includes('aria-label="Navigation super-administrateur"') && workspace.includes('aria-current={screen === item.id ? \'page\' : undefined}'), 'super-admin navigation exposes accessible current-page state');
+assert(workspace.includes('auditHasMore') && workspace.includes('Charger les événements suivants'), 'audit workspace can browse beyond the first page');
+assert(workspace.includes('exportAudit') && workspace.includes('restaumax-audit-complet.csv'), 'audit CSV export loads the complete bounded log stream before applying filters');
+assert(workspace.includes('globalGracePeriodDays') && workspace.includes('Revenu récurrent mensuel'), 'billing displays the configured grace period and overview shows normalized MRR');
+assert(workspace.includes('fournisseur d’envoi configuré'), 'configuration discloses that email delivery needs a configured provider');
 assert(workspace.includes('min-h-11') && workspace.includes('overflow-x-auto'), 'super-admin controls meet touch target and mobile navigation requirements');
 const platformMessages = fs.readFileSync(new URL('../src/components/manager/PlatformMessagesCenter.tsx', import.meta.url), 'utf8');
 const server = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
