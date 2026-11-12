@@ -46,11 +46,11 @@ service cloud.firestore {
     // Restaurant data is public to anonymous QR customers, but authenticated
     // users must belong to the restaurant before reading its profile or menu.
     function isRestaurantActive(targetSlug) {
-      return !exists(/databases/$(database)/documents/restaurants/$(targetSlug)) ||
-        (
-          get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.get('status', 'active') == 'active' &&
-          !get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.keys().hasAny(['deletedAt'])
-        );
+      let restaurantPath = /databases/$(database)/documents/restaurants/$(targetSlug);
+      return exists(restaurantPath) &&
+        get(restaurantPath).data.get('isActive', true) == true &&
+        get(restaurantPath).data.get('status', 'active') == 'active' &&
+        !get(restaurantPath).data.keys().hasAny(['deletedAt']);
     }
 
 
@@ -133,16 +133,17 @@ service cloud.firestore {
         'currency', 'bannerUrl', 'logoUrl', 'openingHours', 'taxRatePercent',
         'taxMode', 'loyaltyFcfaPerPoint', 'receiptFooter', 'receiptPaperWidth',
         'status', 'createdAt', 'updatedAt', 'country', 'serviceStatusUpdatedAt',
-        'tableSessionVersion', 'isOpenBeforeSuspension', 'suspendedAt', 'deletedAt'
+        'tableSessionVersion', 'isOpenBeforeSuspension', 'suspendedAt', 'deletedAt', 'isActive'
       ]);
     }
 
     function isValidRestaurant(data) {
-      return data.keys().hasOnly(['slug', 'name', 'isOpen', 'tagline', 'address', 'city', 'phone', 'currency', 'bannerUrl', 'logoUrl', 'openingHours', 'taxRatePercent', 'taxMode', 'loyaltyFcfaPerPoint', 'receiptFooter', 'receiptPaperWidth', 'status', 'createdAt', 'updatedAt', 'country', 'serviceStatusUpdatedAt', 'tableSessionVersion', 'isOpenBeforeSuspension', 'suspendedAt', 'deletedAt', 'ownerUid', 'ownerName', 'ownerEmail', 'createdBy', 'updatedBy', 'deletedBy', 'suspendedBy', 'subscription'])
+      return data.keys().hasOnly(['slug', 'name', 'isOpen', 'tagline', 'address', 'city', 'phone', 'currency', 'bannerUrl', 'logoUrl', 'openingHours', 'taxRatePercent', 'taxMode', 'loyaltyFcfaPerPoint', 'receiptFooter', 'receiptPaperWidth', 'status', 'createdAt', 'updatedAt', 'country', 'serviceStatusUpdatedAt', 'tableSessionVersion', 'isOpenBeforeSuspension', 'suspendedAt', 'deletedAt', 'isActive', 'ownerUid', 'ownerName', 'ownerEmail', 'createdBy', 'updatedBy', 'deletedBy', 'suspendedBy', 'subscription'])
         && data.keys().hasAll(['slug', 'name', 'isOpen'])
         && data.slug is string && data.slug.size() > 0 && data.slug.size() <= 100
         && data.name is string && data.name.size() > 0 && data.name.size() <= 200
         && data.isOpen is bool
+        && (!data.keys().hasAny(['isActive']) || data.isActive is bool)
         && (!data.keys().hasAny(['taxRatePercent']) || (data.taxRatePercent is number && data.taxRatePercent >= 0 && data.taxRatePercent <= 100))
         && (!data.keys().hasAny(['taxMode']) || data.taxMode in ['exclusive', 'inclusive'])
         && (!data.keys().hasAny(['loyaltyFcfaPerPoint']) || (data.loyaltyFcfaPerPoint is int && data.loyaltyFcfaPerPoint >= 1 && data.loyaltyFcfaPerPoint <= 100000000))
@@ -221,14 +222,8 @@ service cloud.firestore {
     // Create/update restricted strictly to verified managers of this restaurant
     match /restaurants/{restaurantSlug} {
       allow get: if isValidId(restaurantSlug) &&
-        (
-          resource == null ||
-          (
-            resource.data.get('status', 'active') == 'active' &&
-            !resource.data.keys().hasAny(['deletedAt']) &&
-            isPublicRestaurant(resource.data)
-          )
-        );
+        isRestaurantActive(restaurantSlug) &&
+        isPublicRestaurant(resource.data);
       allow list: if false;
       allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage') && isValidId(restaurantSlug) && isValidRestaurant(incoming()) && isPublicRestaurant(incoming());
       allow update: if hasRestaurantPermission(restaurantSlug, 'settings.manage') &&
