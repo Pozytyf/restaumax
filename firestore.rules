@@ -46,19 +46,21 @@ service cloud.firestore {
     // Restaurant data is public to anonymous QR customers, but authenticated
     // users must belong to the restaurant before reading its profile or menu.
     function isRestaurantActive(targetSlug) {
-      return !exists(/databases/$(database)/documents/restaurants/$(targetSlug)) ||
-        (
-          get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.get('status', 'active') == 'active' &&
-          !get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.keys().hasAny(['deletedAt'])
-        );
+      let restaurantPath = /databases/$(database)/documents/restaurants/$(targetSlug);
+      return exists(restaurantPath) &&
+        get(restaurantPath).data.get('status', 'active') == 'active' &&
+        !get(restaurantPath).data.keys().hasAny(['deletedAt']);
     }
 
 
     function isBoundRestaurantOwner(targetSlug) {
+      let restaurantPath = /databases/$(database)/documents/restaurants/$(targetSlug);
       let ownershipPath = /databases/$(database)/documents/restaurants/$(targetSlug)/private/ownership;
-      return exists(ownershipPath)
-        ? get(ownershipPath).data.get('ownerUid', '') == request.auth.uid
-        : get(/databases/$(database)/documents/restaurants/$(targetSlug)).data.get('ownerUid', '') == request.auth.uid;
+      return exists(restaurantPath) && (
+        exists(ownershipPath)
+          ? get(ownershipPath).data.get('ownerUid', '') == request.auth.uid
+          : get(restaurantPath).data.get('ownerUid', '') == request.auth.uid
+      );
     }
 
     function isRestaurantMember(targetSlug) {
@@ -93,8 +95,9 @@ service cloud.firestore {
       let config = exists(configPath) ? get(configPath).data : {};
       let plan = subscription.get('planName', '');
       let featureMap = config.get('planFeatures', {}).get(plan, {});
-      return plan == '' ||
-        featureMap.get(feature, plan == 'Pro' || feature == 'kitchenScreen') == true;
+      return plan == ''
+        ? feature == 'kitchenScreen'
+        : featureMap.get(feature, plan == 'Pro' || (plan == 'Essentiel' && feature == 'kitchenScreen')) == true;
     }
 
     // Maximum permission ceilings for the six restaurant roles.
