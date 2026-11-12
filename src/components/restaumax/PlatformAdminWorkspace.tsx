@@ -112,6 +112,9 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   restaurants, summary, userEmail, loading, request, onRefresh, onBack, onSignOut
 }) => {
   const [screen, setScreen] = useState<Screen>('overview');
+  const [platformRole, setPlatformRole] = useState<'full' | 'billing' | 'support' | 'read_only' | null>(null);
+  const [allowedActions, setAllowedActions] = useState<string[]>([]);
+  const [capabilitiesReady, setCapabilitiesReady] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selected, setSelected] = useState<Restaurant | null>(null);
@@ -175,6 +178,15 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
 
   useEffect(() => {
     let active = true;
+    void read('platform_capabilities').then(data => {
+      if (active) { setPlatformRole(data.role || null); setAllowedActions(data.allowedActions || []); }
+    }).catch((e: any) => { if (active) setPageError(e.message || 'Permissions plateforme indisponibles.'); })
+      .finally(() => { if (active) setCapabilitiesReady(true); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
     if (screen === 'billing' || screen === 'overview') {
       setPageLoading(true); setPageError('');
       void read('billing_list').then(data => { if (active) setInvoices(data.invoices || []); })
@@ -196,14 +208,24 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
       catch (e: any) { if (active) setPageError(e.message || 'Chargement impossible.'); }
       finally { if (active) setPageLoading(false); }
     };
-    if (screen === 'accounts') void load('platform_admin_list', data => setPlatformAdmins(data.admins || []));
+    if (screen === 'accounts' && allowedActions.includes('platform_admin_list')) void load('platform_admin_list', data => setPlatformAdmins(data.admins || []));
     if (screen === 'support') void load('support_list', data => setSupportTickets(data.tickets || []));
     if (screen === 'health') void load('health_details', data => setHealth({ checkedAt: data.checkedAt, services: data.services || [] }));
     if (screen === 'settings') void load('config_read', data => { if (data.config) setPlatformConfig(current => ({ ...current, ...data.config })); });
     if (screen === 'communication') void load('announcement_list', data => setAnnouncements(data.announcements || []));
     return () => { active = false; };
-  }, [screen]);
+  }, [screen, allowedActions]);
 
+  const can = (action: string) => allowedActions.includes(action);
+  const visibleNav = useMemo(() => NAV.filter(item => {
+    const actionByScreen: Record<Screen, string> = {
+      overview: 'overview', restaurants: 'overview', billing: 'billing_list',
+      accounts: can('platform_admin_list') || can('staff_list') ? (can('platform_admin_list') ? 'platform_admin_list' : 'staff_list') : 'accounts.read',
+      support: 'support_list', audit: 'audit_list', health: 'health_details',
+      settings: 'config_read', communication: 'announcement_list'
+    };
+    return can(actionByScreen[item.id]);
+  }), [allowedActions]);
   const filteredRestaurants = useMemo(() => restaurants.filter(r => {
     const term = search.trim().toLowerCase();
     const matchesText = !term || r.name.toLowerCase().includes(term) || r.slug.toLowerCase().includes(term);
@@ -545,7 +567,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
           <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#c2410c] text-lg font-black">RM</div><div><p className="text-lg font-extrabold">RestauMax</p><p className="text-xs text-slate-300">Super-administration</p></div></div>
         </div>
         <nav aria-label="Navigation super-administrateur" className="flex-1 space-y-1 px-3 py-4">
-          {NAV.map(item => { const Icon = item.icon; return <button key={item.id} type="button" onClick={() => { setScreen(item.id); setPageError(''); setNotice(''); }} aria-current={screen === item.id ? 'page' : undefined} className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors ${screen === item.id ? 'bg-white/15 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+          {visibleNav.map(item => { const Icon = item.icon; return <button key={item.id} type="button" onClick={() => { setScreen(item.id); setPageError(''); setNotice(''); }} aria-current={screen === item.id ? 'page' : undefined} className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors ${screen === item.id ? 'bg-white/15 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
             <Icon size={17}/><span className="min-w-0 flex-1">{item.label}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${item.status === 'Existant' ? 'bg-emerald-200 text-emerald-950' : item.status === 'Partiel' ? 'bg-amber-200 text-amber-950' : 'bg-slate-600 text-slate-100'}`}>{item.status}</span>
           </button>; })}
         </nav>
