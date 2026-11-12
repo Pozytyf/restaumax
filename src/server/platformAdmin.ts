@@ -1384,7 +1384,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           ? body.subscription.notes.trim().slice(0, 500) : '';
         const preservedNotes = requestedNotes || String(currentSubscriptionSnap.data()?.notes || '');
         const updatedSubscription = {
-          ...validation.subscription, notes: preservedNotes, updatedAt: now, updatedBy: user.uid
+          ...validation.subscription,
+          gracePeriodOverride: body.subscription?.gracePeriodOverride === false ? false : true,
+          notes: preservedNotes, updatedAt: now, updatedBy: user.uid
         };
         await subscriptionRef.set(updatedSubscription, { merge: true });
         if (restaurantSnap.data()?.subscription !== undefined) {
