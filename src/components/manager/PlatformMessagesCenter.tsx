@@ -7,12 +7,14 @@ type Ticket = {
   createdAt: number; updatedAt: number; messages: Message[];
 };
 type Announcement = { id: string; title: string; message: string; publishedAt: number; targetType: string };
+type AccessRequest = { id: string; reason: string; requestedByEmail: string; createdAt: number; requestExpiresAt: number };
 
 const inputClass = 'min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900';
 
-export const PlatformMessagesCenter: React.FC<{ restaurantSlug: string }> = ({ restaurantSlug }) => {
+export const PlatformMessagesCenter: React.FC<{ restaurantSlug: string; isOwner: boolean }> = ({ restaurantSlug, isOwner }) => {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [priority, setPriority] = useState('medium');
@@ -40,11 +42,12 @@ export const PlatformMessagesCenter: React.FC<{ restaurantSlug: string }> = ({ r
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [ticketData, announcementData] = await Promise.all([
-        call('support_my_tickets'), call('restaurant_announcements')
+      const [ticketData, announcementData, accessData] = await Promise.all([
+        call('support_my_tickets'), call('restaurant_announcements'), call('support_access_requests')
       ]);
       setTickets(ticketData.tickets || []);
       setAnnouncements(announcementData.announcements || []);
+      setAccessRequests(accessData.requests || []);
     } catch (e: any) { setError(e.message || 'Chargement impossible.'); }
     finally { setLoading(false); }
   }, [call]);
@@ -59,6 +62,18 @@ export const PlatformMessagesCenter: React.FC<{ restaurantSlug: string }> = ({ r
       setNotice('Votre demande a été transmise à l’équipe RestauMax.');
       await refresh();
     } catch (e: any) { setError(e.message || 'Envoi impossible.'); }
+    finally { setLoading(false); }
+  };
+
+  const decideSupportAccess = async (requestId: string, approve: boolean) => {
+    setLoading(true); setError(''); setNotice('');
+    try {
+      await call('support_access_decision', { requestId, approve });
+      setNotice(approve
+        ? 'Accès de diagnostic accordé pour une heure. Les actions de support restent journalisées.'
+        : 'Demande d’accès refusée.');
+      await refresh();
+    } catch (e: any) { setError(e.message || 'Décision impossible.'); }
     finally { setLoading(false); }
   };
 
@@ -81,6 +96,7 @@ export const PlatformMessagesCenter: React.FC<{ restaurantSlug: string }> = ({ r
       <p className="mt-2 whitespace-pre-wrap text-sm">{item.message}</p>
       <p className="mt-2 text-xs text-blue-800">{item.publishedAt ? new Date(item.publishedAt).toLocaleString('fr-FR') : ''}</p>
     </article>)}
+    {accessRequests.length>0&&<section className="rounded-xl border border-amber-300 bg-amber-50 p-4"><h2 className="font-extrabold text-amber-950">Consentement à un diagnostic RestauMax</h2><p className="mt-1 text-sm text-amber-900">Un membre de l’équipe support demande un accès de diagnostic temporaire. Sans votre accord, aucun accès n’est accordé.</p>{accessRequests.map(item=><div key={item.id} className="mt-3 rounded-lg border border-amber-200 bg-white p-3"><p className="text-sm font-bold">Demande de {item.requestedByEmail}</p><p className="mt-1 whitespace-pre-wrap text-sm">{item.reason}</p><p className="mt-2 text-xs text-slate-500">Demande expirant le {new Date(item.requestExpiresAt).toLocaleString('fr-FR')} · accès maximal : 1 heure</p>{isOwner?<div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={loading} onClick={()=>void decideSupportAccess(item.id,true)} className="min-h-11 rounded-lg bg-[#101d2d] px-3 text-xs font-bold text-white">Autoriser le diagnostic</button><button type="button" disabled={loading} onClick={()=>void decideSupportAccess(item.id,false)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Refuser</button></div>:<p className="mt-2 text-xs font-semibold text-amber-900">Seul le propriétaire peut accepter ou refuser.</p>}</div>)}</section>}
     <div className="grid gap-4 xl:grid-cols-2">
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
         <h2 className="font-extrabold text-[#101d2d]">Contacter l’assistance</h2>
