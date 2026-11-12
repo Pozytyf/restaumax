@@ -482,21 +482,71 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!restaurantSnap.exists || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.status === 'deleted') {
           return json(res, 404, { success: false, error: 'Restaurant introuvable ou supprimé.' });
         }
-        const staffSnap = await db.collection('restaurants').doc(slug).collection('staff').orderBy('createdAt', 'desc').limit(100).get();
+        const [staffSnap, managersSnap] = await Promise.all([
+          db.collection('restaurants').doc(slug).collection('staff').get(),
+          db.collection('managers').where('restaurantSlug', '==', slug).get()
+        ]);
         const canSeeFullAccountDetails = platformRole === 'full';
-        const staff = staffSnap.docs.map((doc: any) => {
-          const raw = doc.data() || {};
-          const email = String(raw.email || '');
-          const maskedEmail = email.includes('@') ? email.replace(/^(.).+(@.+)$/, '$1•••$2') : '';
-          return {
-            uid: doc.id, displayName: String(raw.displayName || ''),
-            email: canSeeFullAccountDetails ? email : maskedEmail,
-            role: String(raw.role || 'staff'), active: raw.active === true,
-            activeKnown: true, accountLinked: true,
-            createdAt: Number(raw.createdAt || 0) || null
+        const byUid = new Map<string, any>();
+        const addAccount = (raw: any) => {
+          const uid = String(raw?.uid || raw?.id || '').trim();
+          if (!uid) return;
+          const previous = byUid.get(uid) || {
+            uid, email: '', displayName: '', role: raw?.role || 'staff',
+            active: raw?.active === true, activeKnown: typeof raw?.active === 'boolean',
+            accountLinked: true, emailConflict: false, emailValues: []
           };
+          const email = typeof raw?.email === 'string' ? raw.email.trim().toLowerCase() : '';
+          if (email && !previous.emailValues.includes(email)) previous.emailValues.push(email);
+          previous.emailConflict = previous.emailValues.length > 1;
+          previous.email = email || previous.email;
+          previous.displayName = String(raw?.displayName || raw?.ownerName || previous.displayName || '');
+          previous.role = raw?.role === 'owner' || previous.role === 'owner' ? 'owner' : (raw?.role || previous.role);
+          if (typeof raw?.active === 'boolean') { previous.active = raw.active; previous.activeKnown = true; }
+          byUid.set(uid, previous);
+        };
+        staffSnap.docs.forEach((doc: any) => addAccount({ ...doc.data(), uid: doc.id }));
+        managersSnap.docs.forEach((doc: any) => addAccount({ ...doc.data(), uid: doc.id }));
+        const ownership = await getRestaurantOwnership(db, slug, undefined, restaurantSnap.data() || {});
+        const ownerUid = String(ownership.ownerUid || '').trim();
+        const ownerEmail = typeof ownership.ownerEmail === 'string' ? ownership.ownerEmail.trim().toLowerCase() : '';
+        const ownerName = String(ownership.ownerName || '').trim();
+        if (ownerUid) {
+          addAccount({ uid: ownerUid, email: ownerEmail, displayName: ownerName, role: 'owner' });
+        } else if (ownerEmail || ownerName) {
+          byUid.set('unlinked-owner', {
+            uid: 'unlinked-owner', email: ownerEmail, displayName: ownerName,
+            role: 'owner', active: false, activeKnown: false, accountLinked: false,
+            emailConflict: false, emailValues: []
+          });
+        }
+        const staff = await Promise.all([...byUid.values()].map(async ({ emailValues, ...account }) => {
+          try {
+            const authUser = await getAuth().getUser(account.uid);
+            const authActive = authUser.disabled !== true;
+            const email = String(account.email || authUser.email || '');
+            const maskedEmail = email.includes('@') ? email.replace(/^(.).+(@.+)$/, '$1•••$2') : '';
+            return {
+              ...account,
+              email: canSeeFullAccountDetails ? email : maskedEmail,
+              displayName: String(account.displayName || authUser.displayName || ''),
+              active: account.activeKnown ? account.active && authActive : authActive,
+              activeKnown: true, accountLinked: true, readOnly: true
+            };
+          } catch {
+            const email = String(account.email || '');
+            const maskedEmail = email.includes('@') ? email.replace(/^(.).+(@.+)$/, '$1•••$2') : '';
+            return {
+              ...account,
+              email: canSeeFullAccountDetails ? email : maskedEmail,
+              active: false, activeKnown: false, accountLinked: false, readOnly: true
+            };
+          }
+        }));
+        return json(res, 200, {
+          success: true, staff, readOnly: !canSeeFullAccountDetails,
+          sources: ['restaurants/{slug}/staff', 'managers', 'restaurants.private.ownership']
         });
-        return json(res, 200, { success: true, staff, readOnly: !canSeeFullAccountDetails });
       }
 
       if (action === 'platform_admin_create') {
@@ -1116,7 +1166,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         services.push({ id: 'email', label: 'Distribution des e-mails', status: 'unknown', detail: 'Les e-mails de réinitialisation sont gérés par Firebase Authentication. La livraison et les rebonds ne sont pas télémétrés par RestauMax.' });
         services.push({ id: 'database', label: 'Firestore', status: databaseStatus, detail: databaseStatus === 'operational' ? 'Lecture de contrôle réussie.' : 'Firestore ne répond pas.' });
         services.push({ id: 'payments', label: 'Paiements Mobile Money', status: 'unknown', detail: process.env.PAYDUNYA_LIVE_ENABLED === 'true' ? 'Production autorisée, mais aucun appel fournisseur ni paiement réel n’est lancé par cette sonde.' : 'Mode test / Production désactivée. La sonde ne déclenche aucune transaction et les identifiants restent propres à chaque restaurant.' });
-        services.push({ id: 'billing', label: 'Facturation planifiée', status: billingFresh ? 'operational' : (process.env.CRON_SECRET ? 'degraded' : 'unavailable'), detail: billingLastRunAt ? `Dernière exécution : ${new Date(billingLastRunAt).toISOString()} · ${String(billingRun?.lastStatus || 'inconnue')}` : (process.env.CRON_SECRET ? 'Aucune exécution enregistrée.' : 'CRON_SECRET absent : tâche planifiée non activable.') });
+        const previewDeployment = process.env.VERCEL_ENV === 'preview';
+        const billingSecretConfigured = Boolean(process.env.CRON_SECRET);
+        const billingStatus = billingFresh ? 'operational' : previewDeployment ? 'unknown' : billingSecretConfigured ? 'degraded' : 'unavailable';
+        const billingDetail = billingFresh
+          ? `Dernière exécution : ${new Date(billingLastRunAt as number).toISOString()} · ${String(billingRun?.lastStatus || 'inconnue')}`
+          : previewDeployment
+            ? 'Contrôle Production non exécutable depuis une Preview : Vercel déclenche les tâches Cron sur les déploiements Production uniquement. Le secret Production reste isolé.'
+            : billingSecretConfigured
+              ? 'Secret CRON_SECRET présent, mais aucune exécution réussie récente n’est enregistrée.'
+              : 'CRON_SECRET absent sur cet environnement : tâche planifiée non activable.';
+        services.push({ id: 'billing', label: 'Facturation planifiée', status: billingStatus, detail: billingDetail });
         services.push({ id: 'deployment', label: 'Déploiement', status: process.env.VERCEL_ENV ? 'operational' : 'unknown', detail: process.env.VERCEL_ENV ? `${process.env.VERCEL_ENV} · ${String(process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || 'SHA non exposé'}` : 'Environnement Vercel non détecté.' });
         services.push({ id: 'backup', label: 'Sauvegardes', status: backupRun?.lastStatus === 'success' ? 'operational' : 'unknown', detail: backupRun?.lastRunAt ? `Dernière sauvegarde enregistrée : ${new Date(Number(backupRun.lastRunAt)).toISOString()}` : 'Aucune télémétrie de sauvegarde connectée.' });
         return json(res, 200, { success: true, checkedAt: now, services });
