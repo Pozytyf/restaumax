@@ -432,7 +432,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (['overview', 'billing_list', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
+    if (['overview', 'billing_list', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
       const platformRole = await getPlatformAdminRole(db, user);
       if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
@@ -570,6 +570,31 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           actorUid: user.uid, createdAt: now
         });
         return json(res, 200, { success: true, uid, active, requiresReauthentication: true });
+      }
+
+      if (action === 'platform_account_password_reset') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const uid = String(body.uid || '').trim();
+        const slug = String(body.slug || '').trim();
+        if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Compte cible invalide.' });
+        if (slug) {
+          const [memberSnap, staffSnap] = await Promise.all([
+            db.collection('managers').doc(uid).get(),
+            db.collection('restaurants').doc(slug).collection('staff').doc(uid).get()
+          ]);
+          if (!memberSnap.exists || !staffSnap.exists || memberSnap.data()?.restaurantSlug !== slug || staffSnap.data()?.restaurantSlug !== slug) {
+            return json(res, 404, { success: false, error: 'Compte restaurant introuvable ou non concordant.' });
+          }
+        } else {
+          const adminSnap = await db.collection('platform_admins').doc(uid).get();
+          if (!adminSnap.exists) return json(res, 404, { success: false, error: 'Compte administrateur délégué introuvable.' });
+        }
+        const now = Date.now();
+        await db.collection('admin_audit_logs').add({
+          action: 'request_account_password_reset', targetUid: uid,
+          restaurantSlug: slug || '', actorUid: user.uid, createdAt: now
+        });
+        return json(res, 200, { success: true, audited: true });
       }
 
       if (action === 'platform_owner_invite') {
