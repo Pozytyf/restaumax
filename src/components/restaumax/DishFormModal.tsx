@@ -1090,9 +1090,8 @@ export const DishFormModal: React.FC<DishFormModalProps> = ({
                 ))}
               </div>
             )}
-          </div>
-
           </section>
+          </div>
           {/* Section 3: Suppléments / Extras */}
           <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
