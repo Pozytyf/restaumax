@@ -101,6 +101,10 @@ assert(source.includes("action === 'support_submit'") && source.includes("action
 assert(source.includes("collection('platform_announcements')") && source.includes("action === 'announcement_publish'"), 'announcements are persisted and can be published or scheduled');
 assert(source.includes("action === 'restaurant_announcements'") && platformMessages.includes("call('restaurant_announcements')"), 'published announcements are delivered to restaurant management');
 assert(source.includes("action === 'config_update'") && source.includes("collection('platform_config').doc('global')"), 'platform configuration is persisted centrally');
+const configBlockStart = source.indexOf("if (action === 'config_update')");
+const configBlockEnd = source.indexOf("if (action === 'announcement_list')", configBlockStart);
+const configBlock = source.slice(configBlockStart, configBlockEnd);
+assert(configBlock.includes('emailTemplates: normalizedTemplates'), 'only validated and normalized email templates are persisted');
 assert(server.includes("config.data()?.maintenanceMode === true") && fs.readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8').includes("configSnap.data()?.maintenanceMode === true"), 'maintenance mode is enforced by both local and Vercel API routers');
 assert(source.includes("action === 'platform_admin_create'") && source.includes("action === 'platform_admin_status'") && source.includes("revokeRefreshTokens(uid)"), 'delegated administrator accounts can be created and revoked with session invalidation');
 assert(source.includes("platformAdminRole") && source.includes("canPlatformAdminPerform") && source.includes("PLATFORM_ADMIN_ROLE_PERMISSIONS"), 'delegated platform roles are authorized server-side');
