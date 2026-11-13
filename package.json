@@ -56,7 +56,7 @@
     "test:app-check": "node scripts/test-app-check-guard.mjs",
     "test:qr-cash": "node scripts/test-qr-cash-payment-choice.mjs",
     "test:table-create": "tsx scripts/test-table-create-transaction.mjs",
-    "test:super-admin-mfa": "tsx scripts/test-super-admin-mfa.mjs",
+    "test:super-admin-mfa": "tsx scripts/test-super-admin-mfa.mjs && tsx scripts/test-platform-admin-mfa-crypto.mjs",
     "test:customer-order-mutation": "tsx scripts/test-customer-order-mutation.mjs",
     "test:platform-admin-hardening": "node scripts/test-platform-admin-hardening.mjs"
   },
