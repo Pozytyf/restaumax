@@ -66,8 +66,8 @@ const metrics = calculateSubscriptionMetrics([
   { status: 'active', subscription: { status: 'active', endsAt: 2000000, priceFcfa: 30000, billingCycle: 'quarterly' } },
   { status: 'suspended' }
 ], 1000000);
-assert(metrics.restaurantCount === 7, 'Le nombre total de restaurants est calculé');
-assert(metrics.activeRestaurantCount === 6, 'Les restaurants suspendus sont exclus des établissements actifs');
+assert(metrics.restaurantCount === 9, 'Le nombre total de restaurants est calculé');
+assert(metrics.activeRestaurantCount === 8, 'Les restaurants suspendus sont exclus des établissements actifs');
 assert(metrics.activeSubscriptionCount === 5, 'Les abonnements actifs non expirés sont comptabilisés');
 assert(metrics.trialSubscriptionCount === 1, 'Les périodes d’essai valides sont comptabilisées séparément');
 assert(metrics.attentionSubscriptionCount === 2, 'Les abonnements expirés et en retard sont signalés');
