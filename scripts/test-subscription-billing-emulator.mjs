@@ -76,7 +76,7 @@ try {
     'Le renouvellement trimestriel ajoute exactement trois mois');
 
   await db.collection('platform_config').doc('global').set({
-    plans: [{ name: 'Pro', description: 'Pro', active: true, priceMonthlyFcfa: 12000,
+    plans: [{ name: 'Pro', description: 'Pro', active: true, priceMonthlyFcfa: 20000,
       features: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true } }]
   }, { merge: true });
   const promotionRef = db.collection('platform_promotions').doc('promotion-single-use');
@@ -85,6 +85,20 @@ try {
     startsAt: now - 1000, endsAt: now + 86400000, eligiblePlans: ['Pro'],
     maxUses: 1, usedCount: 0, active: true, createdAt: now - 1000
   });
+  const futureSlug = 'subscription-future-no-retroactive';
+  const futureRef = db.collection('restaurantSubscriptions').doc(futureSlug);
+  await Promise.all([
+    db.collection('restaurants').doc(futureSlug).set({ slug: futureSlug, status: 'active', isOpen: true }),
+    futureRef.set({
+      planId: 'pro', planName: 'Pro', priceFcfa: 12000, planPriceMonthlyFcfa: 12000,
+      billingCycle: 'monthly', status: 'active', startsAt: now, endsAt: now + 7 * 86400000,
+      nextBillingAt: now + 7 * 86400000, autoRenew: true
+    })
+  ]);
+  const futureRun = await runSubscriptionBillingCycleWithDb(db, now);
+  assert.equal(futureRun.invoicesCreated, 0, 'Une échéance future ne génère aucune facture avant sa date');
+  assert.equal((await futureRef.collection('invoices').get()).size, 0, 'Aucune facture anticipée n’est créée pour un abonnement futur');
+
   const promoSlugs = ['subscription-promo-a', 'subscription-promo-b'];
   const promoRefs = promoSlugs.map(value => db.collection('restaurantSubscriptions').doc(value));
   await Promise.all(promoRefs.map((ref, index) => Promise.all([
@@ -120,6 +134,15 @@ try {
     assert.equal(payment.success, true, 'Les factures avec ou sans promotion restent réglables');
   }
 
+  for (let index = 0; index < promoRefs.length; index++) {
+    const ownPayments = await promoRefs[index].collection('payments').get();
+    assert.equal(ownPayments.size, 1, 'Chaque restaurant possède uniquement son propre règlement d’abonnement');
+    assert.equal(ownPayments.docs[0].data().restaurantSlug, promoSlugs[index], 'Le paiement reste lié au bon restaurant');
+    const otherIndex = index === 0 ? 1 : 0;
+    assert.equal((await promoRefs[otherIndex].collection('payments').get()).docs.some(doc => doc.data().restaurantSlug === promoSlugs[index]), false,
+      'Aucun paiement ne traverse la frontière entre deux restaurants');
+  }
+
   const beforeGrace = await runSubscriptionBillingCycleWithDb(db, now + 6 * 86400000);
   assert.equal(beforeGrace.restaurantsSuspended, 0, 'Le restaurant reste accessible pendant le délai de grâce');
   assert.equal((await restaurantRef.get()).data().status, 'active');
@@ -135,6 +158,7 @@ try {
   assert.equal((await restaurantRef.collection('table_qr_tokens').doc('active-token').get()).data().status, 'revoked',
     'Les anciens QR sont révoqués pour empêcher leur réutilisation après réactivation');
 
+  await invoiceRef.update({ status: 'overdue' });
   const settled = await settleSubscriptionInvoiceWithDb(db, {
     restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
     amountFcfa: 25000, paymentReference: 'TRANSFER-RECEIPT-2026-001',
