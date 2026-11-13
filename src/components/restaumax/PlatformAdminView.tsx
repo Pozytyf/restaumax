@@ -73,7 +73,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     }
     // The first allowlisted request may have just received the super-admin custom claim.
     await auth.currentUser?.getIdToken(true);
-    if (!['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_logout'].includes(String(body?.action || ''))) {
+    if (!['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_accept_firebase', 'mfa_logout'].includes(String(body?.action || ''))) {
       setIsPlatformAdminAuthorized(true);
     }
     return data;
@@ -95,6 +95,30 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const continueAfterAuthentication = useCallback(async () => {
     const status = await request({ action: 'mfa_status' });
     setNeedsPlatformAdminLogin(false);
+    if (status.sessionValid === true) {
+      setCustomMfaRequired(false); setCustomMfaSetup(false); setTotpSecret(null);
+      const data = await request();
+      setRestaurants(data.restaurants || []); setSummary(data.summary || null);
+      return;
+    }
+    const tokenResult = await auth.currentUser?.getIdTokenResult();
+    const firebaseSecondFactor = (tokenResult?.claims?.firebase as any)?.sign_in_second_factor;
+    if (typeof firebaseSecondFactor === 'string' && firebaseSecondFactor) {
+      try {
+        await request({ action: 'mfa_accept_firebase' });
+        const data = await request();
+        setRestaurants(data.restaurants || []); setSummary(data.summary || null);
+        setCustomMfaRequired(false); setCustomMfaSetup(false); setTotpSecret(null);
+        return;
+      } catch (error: any) {
+        if (String(error?.message || '').includes('authentification Firebase')) {
+          await signOut(auth).catch(() => undefined);
+          setUser(null); setNeedsPlatformAdminLogin(true);
+          return;
+        }
+        throw error;
+      }
+    }
     if (status.enrolled === true) {
       setCustomMfaRequired(true);
       setCustomMfaCode('');

@@ -165,6 +165,16 @@ export async function confirmPlatformAdminMfaEnrollment(db: any, uid: string, co
   return recoveryCodes;
 }
 
+export async function createPlatformAdminMfaSession(db: any, uid: string, sessionVersion: number) {
+  const token = randomBytes(32).toString('base64url');
+  const now = Date.now();
+  const expiresAt = now + SESSION_TTL_MS;
+  await db.collection(SESSION_COLLECTION).doc(hashMfaToken(token)).create({
+    uid, sessionVersion, createdAt: now, expiresAt, revokedAt: null, factorSource: 'firebase'
+  });
+  return { token, expiresAt };
+}
+
 export async function verifyPlatformAdminMfaAndCreateSession(db: any, uid: string, code: string, sessionVersion: number) {
   if (!await consumeAttempt(db, uid)) return null;
   const ref = db.collection(MFA_COLLECTION).doc(uid);

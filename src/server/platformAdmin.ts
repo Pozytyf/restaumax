@@ -5,7 +5,7 @@ import { settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js
 import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.ts';
 import {
   beginPlatformAdminMfaEnrollment, confirmPlatformAdminMfaEnrollment,
-  getPlatformAdminMfaStatus, hasValidPlatformAdminMfaSession,
+  createPlatformAdminMfaSession, getPlatformAdminMfaStatus, hasValidPlatformAdminMfaSession,
   revokePlatformAdminMfaSessions, verifyPlatformAdminMfaAndCreateSession
 } from './platformAdminMfa.js';
 
@@ -131,13 +131,9 @@ function isSuperAdminIdentity(user: DecodedIdToken): boolean {
 }
 
 export function isSuperAdmin(user: DecodedIdToken) {
-  // Preserve the legacy Firebase-token predicate for existing callers and regression tests.
-  if (!isSuperAdminIdentity(user)) return false;
-  if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true') {
-    const secondFactor = (user as any).firebase?.sign_in_second_factor;
-    return typeof secondFactor === 'string' && secondFactor.length > 0;
-  }
-  return true;
+  // Identity recognition is separate from MFA proof. Protected actions require
+  // a server-validated RestauMax MFA session at the API boundary.
+  return isSuperAdminIdentity(user);
 }
 
 
@@ -249,7 +245,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       : (user as any).sessionVersion || 1
   );
 
-  const mfaActions = ['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify', 'mfa_logout'];
+  const mfaActions = ['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify', 'mfa_accept_firebase', 'mfa_logout'];
   if (mfaActions.includes(action)) {
     const delegatedIdentity = user.role === 'platform_admin' &&
       await getPlatformAdminRole(db, user, true) !== null;
@@ -258,7 +254,24 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }
     if (action === 'mfa_status') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
-      return json(res, 200, { success: true, ...(await getPlatformAdminMfaStatus(db, user.uid)) });
+      const status = await getPlatformAdminMfaStatus(db, user.uid);
+      const sessionValid = await hasValidPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, mfaCookie);
+      return json(res, 200, { success: true, ...status, sessionValid });
+    }
+    if (action === 'mfa_accept_firebase') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const secondFactor = (user as any).firebase?.sign_in_second_factor;
+      const authTime = Number(user.auth_time || 0);
+      if (typeof secondFactor !== 'string' || !secondFactor || authTime < Math.floor(Date.now() / 1000) - 5 * 60) {
+        return json(res, 401, { success: false, error: 'Une authentification Firebase avec second facteur récente est requise.' });
+      }
+      const session = await createPlatformAdminMfaSession(db, user.uid, mfaSessionVersion);
+      res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=14400`);
+      await db.collection('admin_audit_logs').add({
+        action: 'platform_admin_mfa_verified_firebase', actorUid: user.uid,
+        actorEmail: String(user.email || ''), factorId: secondFactor, expiresAt: session.expiresAt, createdAt: Date.now()
+      }).catch(() => undefined);
+      return json(res, 200, { success: true, sessionExpiresAt: session.expiresAt });
     }
     if (action === 'mfa_enroll_start') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
