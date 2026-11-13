@@ -3,6 +3,11 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { validateSubscriptionInput } from './subscriptionService.js';
 import { settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
 import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.ts';
+import {
+  beginPlatformAdminMfaEnrollment, confirmPlatformAdminMfaEnrollment,
+  getPlatformAdminMfaStatus, hasValidPlatformAdminMfaSession,
+  revokePlatformAdminMfaSessions, verifyPlatformAdminMfaAndCreateSession
+} from './platformAdminMfa.js';
 
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
@@ -122,10 +127,6 @@ export function isSuperAdmin(user: DecodedIdToken) {
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase());
   if (!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail) return false;
-  if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true') {
-    const secondFactor = (user as any).firebase?.sign_in_second_factor;
-    return typeof secondFactor === 'string' && secondFactor.length > 0;
-  }
   return true;
 }
 
@@ -139,15 +140,13 @@ const PLATFORM_ADMIN_ROLE_PERMISSIONS: Record<PlatformAdminRole, readonly string
   read_only: ['platform.overview', 'support.read', 'health.read', 'audit.read', 'communication.read']
 };
 
-function platformAdminMfaSatisfied(user: DecodedIdToken): boolean {
-  if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA !== 'true') return true;
-  const secondFactor = (user as any).firebase?.sign_in_second_factor;
-  return typeof secondFactor === 'string' && secondFactor.length > 0;
+function platformAdminMfaSatisfied(_user: DecodedIdToken, mfaSessionValid: boolean): boolean {
+  return process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA !== 'true' || mfaSessionValid;
 }
 
-export async function getPlatformAdminRole(db: any, user: DecodedIdToken): Promise<PlatformAdminRole | null> {
-  if (isSuperAdmin(user)) return 'full';
-  if (user.role !== 'platform_admin' || !platformAdminMfaSatisfied(user)) return null;
+export async function getPlatformAdminRole(db: any, user: DecodedIdToken, mfaSessionValid = false): Promise<PlatformAdminRole | null> {
+  if (isSuperAdmin(user)) return platformAdminMfaSatisfied(user, mfaSessionValid) ? 'full' : null;
+  if (user.role !== 'platform_admin' || !platformAdminMfaSatisfied(user, mfaSessionValid)) return null;
   const role = String((user as any).platformAdminRole || '');
   if (!PLATFORM_ADMIN_ROLES.includes(role as PlatformAdminRole) || role === 'full') return null;
   const snap = await db.collection('platform_admins').doc(user.uid).get();
@@ -229,6 +228,63 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   const body = req.body || {};
   const action = req.method === 'GET' ? String(req.query?.action || 'overview') : String(body.action || '');
+  const cookieHeader = String(req.headers?.cookie || '');
+  const mfaCookie = cookieHeader.split(';').map((part: string) => part.trim())
+    .find((part: string) => part.startsWith('restaumax_platform_mfa='))?.slice('restaumax_platform_mfa='.length) || '';
+  const mfaSessionVersion = Number((user as any).sessionVersion || (user as any).platformAdminSessionVersion || 1);
+
+  const mfaActions = ['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify', 'mfa_logout'];
+  if (mfaActions.includes(action)) {
+    const delegatedIdentity = user.role === 'platform_admin' &&
+      await getPlatformAdminRole(db, user, true) !== null;
+    if (!isSuperAdmin(user) && !delegatedIdentity) {
+      return json(res, 403, { success: false, error: 'Compte administrateur plateforme requis.' });
+    }
+    if (action === 'mfa_status') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      return json(res, 200, { success: true, ...(await getPlatformAdminMfaStatus(db, user.uid)) });
+    }
+    if (action === 'mfa_enroll_start') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
+        return json(res, 401, { success: false, error: 'Reconnectez-vous avant de configurer le MFA.' });
+      }
+      const status = await getPlatformAdminMfaStatus(db, user.uid);
+      if (status.enrolled) return json(res, 409, { success: false, error: 'Un facteur MFA est déjà enrôlé.' });
+      try {
+        const setup = await beginPlatformAdminMfaEnrollment(db, user.uid, String(user.email || user.uid));
+        return json(res, 200, { success: true, ...setup });
+      } catch {
+        return json(res, 503, { success: false, error: 'Configuration de chiffrement MFA indisponible.' });
+      }
+    }
+    if (action === 'mfa_enroll_confirm') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const confirmed = await confirmPlatformAdminMfaEnrollment(db, user.uid, String(body.code || ''));
+      if (!confirmed) return json(res, 400, { success: false, error: 'Code invalide, déjà utilisé ou enrôlement expiré.' });
+      return json(res, 200, { success: true, enrolled: true, reauthenticationRequired: true });
+    }
+    if (action === 'mfa_verify') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      try {
+        const session = await verifyPlatformAdminMfaAndCreateSession(db, user.uid, String(body.code || ''), mfaSessionVersion);
+        if (!session) return json(res, 401, { success: false, error: 'Code MFA invalide, déjà utilisé ou temporairement bloqué.' });
+        res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=14400`);
+        return json(res, 200, { success: true, expiresAt: session.expiresAt });
+      } catch {
+        return json(res, 503, { success: false, error: 'Service MFA temporairement indisponible.' });
+      }
+    }
+    if (action === 'mfa_logout') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      await revokePlatformAdminMfaSessions(db, user.uid);
+      res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=0');
+      return json(res, 200, { success: true });
+    }
+  }
+
+  const mfaSessionValid = process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA !== 'true' ||
+    await hasValidPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, mfaCookie);
 
   // Restaurant-side support and announcement reads are tenant-scoped. They
   // intentionally run before the platform-admin membership exclusion below.
@@ -442,7 +498,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
     if (['overview', 'billing_list', 'billing_catalog_read', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'promotion_list', 'promotion_save', 'promotion_toggle', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
-      const platformRole = await getPlatformAdminRole(db, user);
+      const platformRole = await getPlatformAdminRole(db, user, mfaSessionValid);
       if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
       if (action === 'platform_capabilities') {
@@ -1581,7 +1637,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           }
           return sum;
         }, 0);
-        const canReadFinancials = ['full', 'billing'].includes(String(await getPlatformAdminRole(db, user) || ''));
+        const canReadFinancials = ['full', 'billing'].includes(String(await getPlatformAdminRole(db, user, mfaSessionValid) || ''));
         let financialSummary: any = null;
         if (canReadFinancials) {
           const [invoiceFinancialSnap, paymentFinancialSnap] = await Promise.all([
@@ -1957,7 +2013,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
     // Super-admin account audit is deliberately read-only and limited to identity/linkage fields.
     if (action === 'staff_list' && ['full', 'support'].includes(String(await getPlatformAdminRole(db, user) || ''))) {
-      const canSeeFullAccountDetails = await getPlatformAdminRole(db, user) === 'full';
+      const canSeeFullAccountDetails = await getPlatformAdminRole(db, user, mfaSessionValid) === 'full';
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '').trim();
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
       const restaurantSnap = await db.collection('restaurants').doc(slug).get();
