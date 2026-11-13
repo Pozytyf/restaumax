@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   beginPlatformAdminMfaEnrollment, buildTotpUri, confirmPlatformAdminMfaEnrollment,
-  decryptTotpSecret, encryptTotpSecret, generateTotpSecret, getPlatformAdminMfaSessionDetails,
+  decryptTotpSecret, encryptTotpSecret, generateTotpSecret, getPlatformAdminMfaSessionDetails, regeneratePlatformAdminRecoveryCodes,
   totpAt, verifyPlatformAdminMfaAndCreateSession, verifyTotp
 } from '../src/server/platformAdminMfa.ts';
 
@@ -59,6 +59,11 @@ try {
   assert.equal(sessionDetails?.factorSource, 'recovery', 'recovery session is explicitly distinguished from TOTP sessions');
   assert.equal(await verifyPlatformAdminMfaAndCreateSession(db, uid, firstRecoverySet[0], 1), null,
     'a consumed recovery code cannot be replayed');
+  const rotationTime = enrollmentTime + 30_000;
+  const rotatedCodes = await regeneratePlatformAdminRecoveryCodes(db, uid, totpAt(enrollment.secret, rotationTime).code, rotationTime);
+  assert.equal(rotatedCodes?.length, 10, 'a fresh TOTP proof rotates all ten recovery codes');
+  assert.equal(await verifyPlatformAdminMfaAndCreateSession(db, uid, firstRecoverySet[1], 1), null,
+    'rotation invalidates every previously issued recovery code');
   const replacement = await beginPlatformAdminMfaEnrollment(db, uid, 'admin@example.test', true);
   const replacementTime = Date.now();
   const replacementCodes = await confirmPlatformAdminMfaEnrollment(db, uid, totpAt(replacement.secret, replacementTime).code, replacementTime);
@@ -71,7 +76,7 @@ try {
     process.env.RESTAUMAX_MFA_ENCRYPTION_KEY = 'invalid';
     encryptTotpSecret(secret);
   }, /clé de chiffrement MFA/);
-  console.log('Platform-admin TOTP cryptography and recovery lifecycle tests passed (13 assertions).');
+  console.log('Platform-admin TOTP cryptography and recovery lifecycle tests passed (15 assertions).');
 } finally {
   if (previousKey === undefined) delete process.env.RESTAUMAX_MFA_ENCRYPTION_KEY;
   else process.env.RESTAUMAX_MFA_ENCRYPTION_KEY = previousKey;
