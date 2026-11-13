@@ -103,7 +103,7 @@ assert(admin.includes('subscriptionRef.collection(\'history\').doc()') &&
 assert(admin.includes('batch.set(subscriptionRef, updatedSubscription)') &&
   admin.includes('batch.create(historyRef') && admin.includes('batch.commit()'),
   'canonical subscription, history and audit are persisted atomically');
-assert(admin.includes('if (subscriptionSnap.exists') && admin.includes("'legacy_unmigrated'"),
+assert(admin.includes('subscriptionSnap.exists\n            ?') && admin.includes("'legacy_unmigrated'"),
   'the canonical subscription document takes precedence and legacy data is marked explicitly');
 assert(admin.includes("billingCycle === 'quarterly'" ) && admin.includes('amount / 3'),
   'quarterly contracts contribute one third of their cycle price to MRR');
@@ -120,7 +120,7 @@ assert(ui.includes("screen === 'settings' || screen === 'restaurants'") &&
 assert(ui.includes('planId: selectedPlan?.id') && ui.includes('summary?.financialSummary?.overdueInvoicesCount') &&
   ui.includes('{date(i.dueAt)}'),
   'subscription UI sends the offer ID and displays overdue counts and invoice due dates');
-assert(billing.includes('Number(sub.priceFcfa)') && billing.includes('catalog edits must not'),
+assert(billing.includes('Number(sub.priceFcfa)') && billing.includes('Catalog edits must not'),
   'recurring invoices use the saved contractual price snapshot instead of silently repricing existing subscriptions');
 assert(billing.includes("!['open', 'overdue'].includes(String(invoice.status))"),
   'overdue invoices remain payable through the same settlement transaction');
