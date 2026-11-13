@@ -1575,6 +1575,26 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const now = Date.now();
         const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
         const currentSubscriptionSnap = await subscriptionRef.get();
+        const platformConfigSnap = await db.collection('platform_config').doc('global').get();
+        const configuredPlans = Array.isArray(platformConfigSnap.data()?.plans) ? platformConfigSnap.data().plans : [];
+        if (configuredPlans.length) {
+          const selectedPlan = configuredPlans.find((plan: any) => String(plan?.name || '') === validation.subscription.planName);
+          const existingPlanName = String(currentSubscriptionSnap.data()?.planName || '');
+          if (!selectedPlan && validation.subscription.planName !== existingPlanName) {
+            return json(res, 400, { success: false, error: 'Choisissez une formule existante dans le catalogue. Une formule historique peut être conservée, mais ne peut pas être réattribuée.' });
+          }
+          if (selectedPlan) {
+            if (selectedPlan.active !== true) return json(res, 400, { success: false, error: 'Cette formule est désactivée et ne peut plus être attribuée.' });
+            const monthlyPrice = Number(selectedPlan.priceMonthlyFcfa || 0);
+            if (monthlyPrice > 0 && validation.subscription.billingCycle !== 'custom') {
+              const multiplier = validation.subscription.billingCycle === 'quarterly' ? 3 :
+                validation.subscription.billingCycle === 'yearly' ? 12 : 1;
+              if (validation.subscription.priceFcfa !== monthlyPrice * multiplier) {
+                return json(res, 400, { success: false, error: 'Le tarif ne correspond pas au prix mensuel configuré pour cette formule et sa périodicité.' });
+              }
+            }
+          }
+        }
         const requestedNotes = typeof body.subscription?.notes === 'string'
           ? body.subscription.notes.trim().slice(0, 500) : '';
         const preservedNotes = requestedNotes || String(currentSubscriptionSnap.data()?.notes || '');
