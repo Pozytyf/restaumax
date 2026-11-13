@@ -1478,12 +1478,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           const subscriptionSnap = await db.collection('restaurantSubscriptions').doc(d.id).get();
           const raw = subscriptionSnap.exists
             ? (subscriptionSnap.data() || {})
-            : (data.subscription && typeof data.subscription === 'object' ? { ...data.subscription, source: 'legacy_unmigrated' } : {});
+            : (data.subscription && typeof data.subscription === 'object' ? data.subscription : {});
           const subscription = {
             planId: typeof raw.planId === 'string' ? raw.planId : null,
             planFeatures: raw.planFeatures && typeof raw.planFeatures === 'object' ? raw.planFeatures : {},
             planPriceMonthlyFcfa: Number.isSafeInteger(raw.planPriceMonthlyFcfa) ? raw.planPriceMonthlyFcfa : null,
-            source: subscriptionSnap.exists ? 'canonical' : (raw.source || 'none'),
+            source: subscriptionSnap.exists ? 'canonical' : (data.subscription && typeof data.subscription === 'object' ? 'legacy_unmigrated' : 'none'),
             planName: typeof raw.planName === 'string' ? raw.planName : null,
             status: typeof raw.status === 'string' ? raw.status : 'unknown',
             billingCycle: typeof raw.billingCycle === 'string' ? raw.billingCycle : null,
