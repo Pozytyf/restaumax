@@ -1013,12 +1013,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         return json(res, 200, { success: true, config: config || {
           currency: 'XOF', gracePeriodDays: 7, quarterlyDiscountPercent: 0, maintenanceMode: false, version: 1,
           plans: [
-            { name: 'Essentiel', description: 'Formule essentielle', active: true, priceMonthlyFcfa: 0, features: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false } },
-            { name: 'Pro', description: 'Formule complète', active: true, priceMonthlyFcfa: 0, features: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true } }
+            { name: 'Essentiel', description: 'Formule essentielle', active: true, priceMonthlyFcfa: 0, features: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false, dishImages: false } },
+            { name: 'Pro', description: 'Formule complète', active: true, priceMonthlyFcfa: 0, features: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true } }
           ],
           planFeatures: {
-            Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false },
-            Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true }
+            Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false, dishImages: false },
+            Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true }
           },
           emailTemplates: {
             invitation: { subject: 'Bienvenue sur RestauMax', body: 'Votre compte RestauMax est prêt. Utilisez le lien sécurisé reçu par e-mail.' },
@@ -1039,7 +1039,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             typeof input.maintenanceMode !== 'boolean') {
           return json(res, 400, { success: false, error: 'Devise, délai de grâce ou mode maintenance invalide.' });
         }
-        const featureKeys = ['kitchenScreen', 'advancedReports', 'inventoryRecipes', 'loyalty'];
+        const featureKeys = ['kitchenScreen', 'advancedReports', 'inventoryRecipes', 'loyalty', 'dishImages'];
         const legacyPlanNames = ['Essentiel', 'Pro'];
         const planInput = Array.isArray(input.plans) ? input.plans :
           legacyPlanNames.map(name => ({
