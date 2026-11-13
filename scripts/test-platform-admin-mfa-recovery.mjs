@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   startPlatformAdminEmailRecovery,
-  verifyPlatformAdminEmailRecovery
+  verifyPlatformAdminEmailRecovery,
+  getPlatformAdminRecoveryContact,
+  startPlatformAdminRecoveryContactVerification,
+  verifyPlatformAdminRecoveryContact
 } from '../src/server/platformAdminMfaRecoveryEmail.ts';
 import {
   beginPlatformAdminPasskeyAuthentication,
@@ -83,8 +86,23 @@ try {
     return { ok: true, status: 200 };
   };
 
-  await startPlatformAdminEmailRecovery(db, uid, 'admin@example.test');
-  assert.equal(sentBody.to[0], 'admin@example.test', 'Resend targets the verified account address');
+  await startPlatformAdminRecoveryContactVerification(db, uid, 'stephaneolivierbali@gmail.com');
+  assert.equal(sentBody.to[0], 'stephaneolivierbali@gmail.com', 'recovery contact verification sends to the independently supplied address');
+  assert.equal(sentBody.subject, 'Vérification de votre adresse de récupération RestauMax', 'contact verification has a distinct email subject');
+  const contactCode = sentBody.text.match(/\\b\\d{8}\\b/)?.[0];
+  assert.match(contactCode || '', /^\\d{8}$/, 'contact verification email contains an eight-digit code');
+  assert.equal(await verifyPlatformAdminRecoveryContact(db, uid, '00000000'), null, 'an incorrect recovery-contact code is rejected');
+  const verifiedContact = await verifyPlatformAdminRecoveryContact(db, uid, contactCode);
+  assert.equal(verifiedContact, 'stephaneolivierbali@gmail.com', 'correct code verifies and stores the recovery contact');
+  assert.equal(await getPlatformAdminRecoveryContact(db, uid), 'stephaneolivierbali@gmail.com', 'only a verified recovery contact is returned');
+  await assert.rejects(
+    startPlatformAdminRecoveryContactVerification(db, 'another-admin', 'stephaneolivierbali@gmail.com'),
+    /déjà associée/,
+    'a recovery email already claimed by another admin cannot be reused'
+  );
+
+  await startPlatformAdminEmailRecovery(db, uid, 'stephaneolivierbali@gmail.com');
+  assert.equal(sentBody.to[0], 'stephaneolivierbali@gmail.com', 'Resend targets the verified recovery contact');
   assert.equal(sentBody.from, 'RestauMax <security@example.test>', 'Resend uses the configured sender');
   const code = sentBody.text.match(/\b\d{8}\b/)?.[0];
   assert.match(code || '', /^\d{8}$/, 'recovery email contains a one-time eight-digit code');
