@@ -46,6 +46,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const [totpEnrollmentBusy, setTotpEnrollmentBusy] = useState(false);
   const [currentAccountMfaEnrolled, setCurrentAccountMfaEnrolled] = useState(false);
   const [customMfaRequired, setCustomMfaRequired] = useState(false);
+  const [customMfaSetup, setCustomMfaSetup] = useState(false);
   const [customMfaCode, setCustomMfaCode] = useState('');
   const [customMfaQrCode, setCustomMfaQrCode] = useState('');
   const mfaRecaptchaVerifier = useRef<RecaptchaVerifier | null>(null);
@@ -74,7 +75,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     }
     // The first allowlisted request may have just received the super-admin custom claim.
     await auth.currentUser?.getIdToken(true);
-    if (!['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm'].includes(String(body?.action || ''))) {
+    if (!['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_logout'].includes(String(body?.action || ''))) {
       setIsPlatformAdminAuthorized(true);
     }
     return data;
@@ -277,6 +278,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     try {
       const setup = await request({ action: 'mfa_enroll_start' });
       setTotpSecret({ secretKey: setup.secret, otpauthUri: setup.otpauthUri });
+      setCustomMfaSetup(true);
       setTotpEnrollmentCode('');
     } catch (enrollmentError: any) {
       setError(enrollmentError?.message || 'Impossible de préparer l’enrôlement MFA.');
@@ -362,10 +364,23 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       </div>
     ) : !isPlatformAdminAuthorized ? (
       <div className="flex min-h-screen items-center justify-center p-5"><section className="w-full max-w-md space-y-4 rounded-2xl border border-[#dbe3ee] bg-white p-7 shadow-sm">
-        <h2 className="text-xl font-bold text-[#101d2d]">Vérification des droits super-administrateur</h2>
+        <h2 className="text-xl font-bold text-[#101d2d]">{customMfaSetup ? 'Configurer votre authentificateur' : customMfaRequired ? 'Vérification MFA obligatoire' : 'Vérification des droits super-administrateur'}</h2>
         {error && <div role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{error}</div>}
-        <p className="text-sm text-slate-600">{loading ? 'Vérification de votre identité et de vos autorisations côté serveur…' : 'Aucune donnée de plateforme ne sera affichée tant que le serveur n’aura pas confirmé vos droits.'}</p>
-        {!loading && <button type="button" onClick={() => void refresh()} className="min-h-11 w-full rounded-lg bg-[#101d2d] p-3 font-bold text-white">Vérifier à nouveau</button>}
+        {customMfaSetup && totpSecret ? <form onSubmit={confirmTotpEnrollment} className="space-y-3">
+          <p className="text-sm text-slate-600">Scannez ce QR code avec Google Authenticator, Microsoft Authenticator ou une application compatible TOTP. Vous pouvez aussi saisir la clé manuellement.</p>
+          {customMfaQrCode && <img src={customMfaQrCode} alt="QR code de configuration MFA RestauMax" className="mx-auto h-56 w-56 rounded-lg border p-2"/>}
+          <code className="block break-all rounded-lg bg-slate-100 p-3 text-xs font-bold">{totpSecret.secretKey}</code>
+          <label className="block text-sm font-semibold text-slate-700">Code à 6 chiffres<input required inputMode="numeric" pattern="[0-9]{6}" autoComplete="one-time-code" value={totpEnrollmentCode} onChange={e=>setTotpEnrollmentCode(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 tracking-widest"/></label>
+          <button disabled={loading || totpEnrollmentBusy} className="min-h-11 w-full rounded-lg bg-[#101d2d] p-3 font-bold text-white disabled:opacity-50">{totpEnrollmentBusy ? 'Validation…' : 'Valider mon enrôlement'}</button>
+        </form> : customMfaRequired ? <form onSubmit={verifyCustomMfa} className="space-y-3">
+          <p className="text-sm text-slate-600">Saisissez le code courant de votre application d’authentification. Les API de plateforme resteront bloquées jusqu’à validation côté serveur.</p>
+          <label className="block text-sm font-semibold text-slate-700">Code MFA<input required inputMode="numeric" pattern="[0-9]{6}" autoComplete="one-time-code" value={customMfaCode} onChange={e=>setCustomMfaCode(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 tracking-widest"/></label>
+          <button disabled={loading} className="min-h-11 w-full rounded-lg bg-[#101d2d] p-3 font-bold text-white disabled:opacity-50">{loading ? 'Vérification…' : 'Vérifier et accéder à la plateforme'}</button>
+          <button type="button" onClick={() => { void signOut(auth); }} className="min-h-11 w-full rounded-lg border p-3 text-sm font-semibold">Se déconnecter</button>
+        </form> : <>
+          <p className="text-sm text-slate-600">{loading ? 'Vérification de votre identité et de vos autorisations côté serveur…' : 'Aucune donnée de plateforme ne sera affichée tant que le serveur n’aura pas confirmé vos droits.'}</p>
+          {!loading && <button type="button" onClick={() => void refresh()} className="min-h-11 w-full rounded-lg bg-[#101d2d] p-3 font-bold text-white">Vérifier à nouveau</button>}
+        </>}
       </section></div>
     ) : <>
       {isPlatformAdminAuthorized && <section className="mx-auto mt-5 w-[min(96%,1100px)] rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -375,13 +390,14 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         </div>
         {!currentAccountMfaEnrolled && !totpSecret && <button type="button" disabled={totpEnrollmentBusy} onClick={()=>void beginTotpEnrollment()} className="mt-4 min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white disabled:opacity-50">{totpEnrollmentBusy?'Préparation…':'Configurer une application d’authentification'}</button>}
         {totpSecret && <form onSubmit={confirmTotpEnrollment} className="mt-4 max-w-xl space-y-3">
-          <p className="text-sm text-slate-700">Ajoutez un nouveau compte dans Google Authenticator, Microsoft Authenticator ou une application TOTP compatible. Saisissez manuellement cette clé secrète :</p>
+          <p className="text-sm text-slate-700">Scannez le QR code avec Google Authenticator, Microsoft Authenticator ou une application TOTP compatible, ou saisissez manuellement la clé :</p>
+          {customMfaQrCode && <img src={customMfaQrCode} alt="QR code de configuration MFA RestauMax" className="h-56 w-56 rounded-lg border p-2"/>}
           <code className="block break-all rounded-lg bg-slate-100 p-3 text-sm font-bold tracking-wider">{totpSecret.secretKey}</code>
           <p className="text-xs text-slate-500">Cette clé donne accès à la génération de codes MFA. Ne la partagez avec personne et ne la copiez pas dans un ticket ou un e-mail.</p>
           <label className="block text-sm font-semibold text-slate-700">Code à 6 chiffres de l’application<input required inputMode="numeric" pattern="[0-9]{6}" autoComplete="one-time-code" value={totpEnrollmentCode} onChange={e=>setTotpEnrollmentCode(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 tracking-widest"/></label>
           <div className="flex flex-wrap gap-2"><button disabled={totpEnrollmentBusy} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white disabled:opacity-50">{totpEnrollmentBusy?'Validation…':'Valider et activer MFA'}</button><button type="button" onClick={()=>{setTotpSecret(null);setTotpEnrollmentCode('');}} className="min-h-11 rounded-xl border px-4 text-sm font-semibold">Annuler</button></div>
         </form>}
-        {currentAccountMfaEnrolled && <p className="mt-3 text-sm text-emerald-800">Un facteur MFA est enregistré dans Firebase Authentication. L’obligation serveur reste désactivée jusqu’à la vérification finale de l’accès.</p>}
+        {currentAccountMfaEnrolled && <p className="mt-3 text-sm text-emerald-800">Un facteur TOTP chiffré est enregistré côté serveur RestauMax. La politique obligatoire reste désactivée jusqu’à la reconnexion testée des deux administrateurs.</p>}
         {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
       </section>}
       <PlatformAdminWorkspace
