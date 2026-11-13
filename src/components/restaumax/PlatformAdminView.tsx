@@ -59,6 +59,11 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const [emailRecoveryRequested, setEmailRecoveryRequested] = useState(false);
   const [emailRecoveryCode, setEmailRecoveryCode] = useState('');
   const [emailRecoveryBusy, setEmailRecoveryBusy] = useState(false);
+  const [recoveryContactEmail, setRecoveryContactEmail] = useState('');
+  const [recoveryContactInput, setRecoveryContactInput] = useState('');
+  const [recoveryContactCode, setRecoveryContactCode] = useState('');
+  const [recoveryContactPending, setRecoveryContactPending] = useState(false);
+  const [recoveryContactBusy, setRecoveryContactBusy] = useState(false);
   const [mfaNotice, setMfaNotice] = useState('');
   const mfaRecaptchaVerifier = useRef<RecaptchaVerifier | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -77,7 +82,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       // remain authenticated after the platform API rejects it.
       if ((response.status === 401 || response.status === 403) && ![
         'mfa_verify', 'mfa_status', 'mfa_accept_firebase', 'mfa_recovery_enroll_start',
-        'mfa_recovery_regenerate', 'mfa_recovery_email_start', 'mfa_recovery_email_verify',
+        'mfa_recovery_regenerate', 'mfa_recovery_contact_start', 'mfa_recovery_contact_verify',
+        'mfa_recovery_email_start', 'mfa_recovery_email_verify',
         'mfa_passkey_register_options', 'mfa_passkey_register_verify',
         'mfa_passkey_auth_options', 'mfa_passkey_auth_verify'
       ].includes(String(body?.action || ''))) {
@@ -93,7 +99,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     await auth.currentUser?.getIdToken(true);
     if (![
       'mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_accept_firebase',
-      'mfa_recovery_enroll_start', 'mfa_recovery_regenerate', 'mfa_recovery_email_start',
+      'mfa_recovery_enroll_start', 'mfa_recovery_regenerate', 'mfa_recovery_contact_start',
+      'mfa_recovery_contact_verify', 'mfa_recovery_email_start',
       'mfa_recovery_email_verify', 'mfa_passkey_register_options', 'mfa_passkey_register_verify',
       'mfa_passkey_auth_options', 'mfa_passkey_auth_verify', 'mfa_logout'
     ].includes(String(body?.action || ''))) {
@@ -135,6 +142,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     setMfaEnrolled(status.enrolled === true);
     setRecoveryCodesRemaining(Number(status.recoveryCodesRemaining || 0));
     setPasskeyCount(Number(status.passkeyCount || 0));
+    setRecoveryContactEmail(String(status.recoveryContactEmail || ''));
 
     if (status.recoverySession === true) {
       const setup = await request({ action: 'mfa_recovery_enroll_start' });
@@ -444,8 +452,45 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     }
   };
 
+  const startRecoveryContactVerification = async () => {
+    setError('');
+    setRecoveryContactBusy(true);
+    try {
+      await request({ action: 'mfa_recovery_contact_start', email: recoveryContactInput.trim() });
+      setRecoveryContactPending(true);
+      setRecoveryContactCode('');
+      setMfaNotice('Un code de vérification a été envoyé à la nouvelle adresse. Il expire dans 10 minutes.');
+    } catch (contactError: any) {
+      setError(contactError?.message || 'Impossible d’envoyer le code de vérification.');
+    } finally {
+      setRecoveryContactBusy(false);
+    }
+  };
+
+  const verifyRecoveryContact = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    setRecoveryContactBusy(true);
+    try {
+      const result = await request({ action: 'mfa_recovery_contact_verify', code: recoveryContactCode.trim() });
+      setRecoveryContactEmail(String(result.recoveryContactEmail || ''));
+      setRecoveryContactInput('');
+      setRecoveryContactCode('');
+      setRecoveryContactPending(false);
+      setMfaNotice('Adresse de récupération vérifiée et enregistrée.');
+    } catch (contactError: any) {
+      setError(contactError?.message || 'Code de vérification invalide ou expiré.');
+    } finally {
+      setRecoveryContactBusy(false);
+    }
+  };
+
   const startEmailRecovery = async () => {
-    if (!window.confirm('Envoyer un code de récupération MFA à votre adresse e-mail administrateur vérifiée ? Ce code permettra de remplacer votre facteur après vérification.')) return;
+    if (!recoveryContactEmail) {
+      setError('Configurez et vérifiez d’abord une adresse de récupération dans le panneau Sécurité du compte.');
+      return;
+    }
+    if (!window.confirm('Envoyer un code de récupération MFA à ' + recoveryContactEmail + ' ? Ce code permettra de remplacer votre facteur après vérification.')) return;
     setError('');
     setEmailRecoveryBusy(true);
     try {
@@ -564,12 +609,28 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       {mfaEnrolled && <div className="mx-auto w-full max-w-7xl px-4 pt-4">
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div><strong>Sécurité du compte · Protection MFA RestauMax</strong><p className="mt-1">Google Authenticator : enrôlé · {passkeyCount} passkey(s) enregistrée(s) · {recoveryCodesRemaining} code(s) de secours disponible(s).</p><p className="mt-1 text-xs text-amber-800">La récupération par e-mail exige une adresse administrateur vérifiée et une confirmation explicite.</p></div>
+            <div className="min-w-64 flex-1"><strong>Sécurité du compte · Protection MFA RestauMax</strong><p className="mt-1">Google Authenticator : enrôlé · {passkeyCount} passkey(s) enregistrée(s) · {recoveryCodesRemaining} code(s) de secours disponible(s).</p><p className="mt-1 text-xs text-amber-800">Adresse de récupération : <strong>{recoveryContactEmail || "non configurée"}</strong>. Elle est indépendante de l’adresse de connexion Firebase.</p></div>
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={passkeyBusy} onClick={() => void registerPasskey()} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold disabled:opacity-50">{passkeyBusy ? 'Passkey…' : 'Ajouter une passkey'}</button>
               <button type="button" onClick={() => { setRecoveryRotationOpen(value => !value); setRecoveryRotationCodes([]); setError(''); }} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold">Renouveler les 10 codes de secours</button>
               <button type="button" disabled={emailRecoveryBusy || emailRecoveryRequested} onClick={() => void startEmailRecovery()} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold disabled:opacity-50">{emailRecoveryBusy ? 'Envoi…' : 'Récupération MFA par e-mail'}</button>
             </div>
+          </div>
+          <div className="mt-3 rounded-lg border border-amber-300 bg-white p-3">
+            <p className="font-semibold">Adresse e-mail de récupération indépendante</p>
+            <p className="mt-1 text-xs text-slate-600">Cette adresse ne change pas votre identifiant Firebase. Elle sera utilisée uniquement pour récupérer le MFA après vérification de sa propriété.</p>
+            {!recoveryContactPending ? <form onSubmit={event => { event.preventDefault(); void startRecoveryContactVerification(); }} className="mt-2 flex flex-wrap items-end gap-2">
+              <label className="min-w-56 flex-1 font-semibold">Nouvelle adresse de récupération
+                <input required type="email" maxLength={254} autoComplete="email" value={recoveryContactInput} onChange={event => setRecoveryContactInput(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 px-3"/>
+              </label>
+              <button disabled={recoveryContactBusy || !recoveryContactInput.trim()} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{recoveryContactBusy ? 'Envoi…' : 'Vérifier cette adresse'}</button>
+            </form> : <form onSubmit={verifyRecoveryContact} className="mt-2 flex flex-wrap items-end gap-2">
+              <label className="min-w-56 flex-1 font-semibold">Code à 8 chiffres envoyé à {recoveryContactInput}
+                <input required inputMode="numeric" pattern="[0-9]{8}" maxLength={8} autoComplete="one-time-code" value={recoveryContactCode} onChange={event => setRecoveryContactCode(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 px-3 tracking-widest"/>
+              </label>
+              <button disabled={recoveryContactBusy} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{recoveryContactBusy ? 'Vérification…' : 'Confirmer l’adresse'}</button>
+              <button type="button" disabled={recoveryContactBusy} onClick={() => { setRecoveryContactPending(false); setRecoveryContactCode(''); }} className="min-h-10 rounded-lg border px-3 font-semibold">Annuler</button>
+            </form>}
           </div>
           {emailRecoveryRequested && <form onSubmit={completeEmailRecovery} className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-amber-300 bg-white p-3">
             <label className="min-w-56 flex-1 font-semibold">Code à 8 chiffres reçu par e-mail
