@@ -1504,12 +1504,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const billingLastRunAt = Number(billingRun?.lastRunAt || 0) || null;
         const billingFresh = Boolean(billingLastRunAt && billingLastRunAt <= now && now - billingLastRunAt >= 0 && now - billingLastRunAt <= 36 * 60 * 60 * 1000 && billingRun?.lastStatus === 'success');
         services.push({ id: 'auth', label: 'Authentification Firebase', status: authStatus, detail: authStatus === 'operational' ? 'Le compte administrateur courant est accessible dans Firebase Authentication.' : 'Lecture Firebase Authentication impossible.' });
+        const mfaPolicyEnabled = process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true';
+        const mfaOperational = mfaPolicyEnabled && mfaSessionValid;
         services.push({
-          id: 'mfa', label: 'Protection MFA des administrateurs',
-          status: process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true' ? 'unknown' : 'degraded',
-          detail: process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true'
-            ? 'La politique MFA est activée. Cette sonde ne vérifie pas l’enrôlement individuel de chaque administrateur.'
-            : 'La politique MFA obligatoire n’est pas activée par configuration serveur.'
+          id: 'mfa', label: 'Protection des accès administrateur',
+          status: mfaOperational ? 'operational' : 'degraded',
+          detail: mfaOperational
+            ? 'La politique obligatoire est active et la session MFA courante a été validée côté serveur. Chaque compte est contrôlé à sa connexion.'
+            : 'La politique MFA obligatoire ou la validation de la session courante n’est pas confirmée sur cet environnement.'
         });
         services.push({ id: 'email', label: 'Distribution des e-mails', status: 'unknown', detail: 'Les e-mails de réinitialisation sont gérés par Firebase Authentication. La livraison et les rebonds ne sont pas télémétrés par RestauMax.' });
         services.push({ id: 'database', label: 'Firestore', status: databaseStatus, detail: databaseStatus === 'operational' ? 'Lecture de contrôle réussie.' : 'Firestore ne répond pas.' });
