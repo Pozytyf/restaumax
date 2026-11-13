@@ -175,4 +175,8 @@ assert(ui.includes('<option value="full">Super-admin complet') &&
   ui.includes('Révoquer sessions') && ui.includes('Supprimer'),
   'the administrator workspace exposes full-admin invitation, session revocation and deletion controls');
 
+assert(admin.includes("if (db && typeof db.collection === 'function')") &&
+  admin.includes("managedFull.data()?.active !== true"),
+  'full-admin suspension state is checked when Firestore is available without breaking isolated role unit tests');
+
 console.log('Platform admin hardening regression tests passed.');
