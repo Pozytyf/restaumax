@@ -209,8 +209,10 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         const gracePeriodDays = resolveGracePeriod(sub);
         const invoiceRef = subscriptionRef.collection('invoices').doc(invoiceId);
         tx.create(invoiceRef, {
-          id: invoiceId, restaurantSlug: slug, planName: String(sub.planName || ''),
-          billingCycle: cycle, baseAmountFcfa: baseAmount, discountPercent, discountAmountFcfa: discountAmount,
+          id: invoiceId, restaurantSlug: slug, planId: String(sub.planId || ''),
+          planName: String(sub.planName || ''), planPriceMonthlyFcfa: Number(sub.planPriceMonthlyFcfa || 0),
+          contractPriceFcfa: baseAmount, billingCycle: cycle,
+          baseAmountFcfa: baseAmount, discountPercent, discountAmountFcfa: discountAmount,
           discountSource, discountType, discountValue,
           promotionId: appliedPromotion?.id || null, promotionCode: appliedPromotion?.code || null,
           promotionName: appliedPromotion?.name || null, amountFcfa: amount, currency: 'XOF',

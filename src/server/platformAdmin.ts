@@ -1599,6 +1599,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           const restaurantSlug = invoiceDoc.ref.parent.parent?.id || String(invoice.restaurantSlug || '');
           return {
             id: invoiceDoc.id, restaurantSlug,
+            planId: typeof invoice.planId === 'string' ? invoice.planId : '',
             planName: typeof invoice.planName === 'string' ? invoice.planName : '',
             amountFcfa: Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0,
             baseAmountFcfa: Number.isSafeInteger(invoice.baseAmountFcfa) ? invoice.baseAmountFcfa : Number(invoice.amountFcfa || 0),
