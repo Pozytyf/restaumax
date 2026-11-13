@@ -5,7 +5,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 function planIdentifier(name: string) {
   return String(name || '').toLowerCase().normalize('NFD')
-    .replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '_')
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_')
     .replace(/^_|_$/g, '').slice(0, 60) || 'plan';
 }
 
