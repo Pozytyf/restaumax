@@ -845,6 +845,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const refreshCurrentScreen = async () => {
     setPageError(''); setNotice('');
     await onRefresh();
+    if (screen === 'security') await onRefreshSecurity();
     if ((screen === 'billing' || screen === 'overview') && allowedActions.includes('billing_list')) { try { const data = await read('billing_list', { limit: '100' }); setInvoices(data.invoices || []); setInvoiceCursor(data.nextCursor || null); setInvoiceHasMore(data.hasMore === true); setGlobalGracePeriodDays(Number.isInteger(data.gracePeriodDays) ? data.gracePeriodDays : 7); } catch (e: any) { setPageError(e.message); } }
     if (screen === 'audit' || screen === 'overview') { try {
       const data = await read('audit_list', { limit: '100' });
