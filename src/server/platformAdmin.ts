@@ -1074,18 +1074,21 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Compte cible invalide. Vous ne pouvez pas suspendre votre propre session.' });
         const ref = db.collection('platform_admins').doc(uid);
         const snap = await ref.get();
-        if (!snap.exists) return json(res, 404, { success: false, error: 'Compte délégué introuvable.' });
-        if (snap.data()?.deleted === true) return json(res, 409, { success: false, error: 'Ce compte a déjà été supprimé.' });
+        if (snap.exists && snap.data()?.deleted === true) return json(res, 409, { success: false, error: 'Ce compte a déjà été supprimé.' });
         const auth = getAuth();
-        const authUser = await auth.getUser(uid);
-        if (snap.data()?.role === 'full' || authUser.customClaims?.role === 'super_admin') {
+        let authUser: any;
+        try { authUser = await auth.getUser(uid); } catch { return json(res, 404, { success: false, error: 'Identité Firebase introuvable.' }); }
+        const isFullAccount = snap.data()?.role === 'full' || isProtectedSuperAdminAccount(authUser);
+        if (!snap.exists && !isFullAccount) return json(res, 404, { success: false, error: 'Compte délégué introuvable.' });
+        if (isFullAccount) {
           const activeSuperAdmins = await countActivePlatformSuperAdmins(auth);
           if (!active && authUser.disabled !== true && activeSuperAdmins <= 1) return json(res, 409, { success: false, error: 'Impossible de suspendre le dernier Super-admin actif.' });
           const sessionVersion = Math.max(Number(snap.data()?.sessionVersion || 0), Number(authUser.customClaims?.sessionVersion || 0)) + 1;
           await auth.setCustomUserClaims(uid, { ...(authUser.customClaims || {}), role: 'super_admin', sessionVersion });
           await auth.updateUser(uid, { disabled: !active });
           await auth.revokeRefreshTokens(uid);
-          await ref.update({ active, sessionVersion, updatedAt: Date.now(), updatedBy: user.uid });
+          if (snap.exists) await ref.update({ active, sessionVersion, updatedAt: Date.now(), updatedBy: user.uid });
+          else await ref.create({ uid, email: String(authUser.email || ''), displayName: String(authUser.displayName || ''), role: 'full', active, sessionVersion, createdAt: Date.now(), updatedAt: Date.now(), migratedFromTrustedIdentity: true });
           await revokePlatformAdminMfaSessions(db, uid);
           await db.collection('admin_audit_logs').add({ action: active ? 'reactivate_full_super_admin' : 'suspend_full_super_admin', targetUid: uid, targetRole: 'full', previousStatus: snap.data()?.active === true ? 'active' : 'suspended', newStatus: active ? 'active' : 'suspended', actorUid: user.uid, actorEmail: String(user.email || ''), outcome: 'success', createdAt: Date.now() });
           return json(res, 200, { success: true, uid, active, requiresReauthentication: true });
@@ -1118,17 +1121,21 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Un autre administrateur doit révoquer cette session.' });
         const ref = db.collection('platform_admins').doc(uid);
         const snap = await ref.get();
-        if (!snap.exists || snap.data()?.active !== true) return json(res, 404, { success: false, error: 'Administrateur actif introuvable.' });
         const auth = getAuth();
-        const target = await auth.getUser(uid);
-        const full = snap.data()?.role === 'full' || target.customClaims?.role === 'super_admin';
+        let target: any;
+        try { target = await auth.getUser(uid); } catch { return json(res, 404, { success: false, error: 'Identité Firebase introuvable.' }); }
+        const full = snap.data()?.role === 'full' || isProtectedSuperAdminAccount(target);
+        if ((!snap.exists && !full) || (snap.exists && snap.data()?.active !== true) || target.disabled === true) {
+          return json(res, 404, { success: false, error: 'Administrateur actif introuvable.' });
+        }
         const version = Math.max(Number(snap.data()?.sessionVersion || 0), Number(target.customClaims?.sessionVersion || 0), Number(target.customClaims?.platformAdminSessionVersion || 0)) + 1;
         const claims = { ...(target.customClaims || {}) };
         if (full) { claims.role = 'super_admin'; claims.sessionVersion = version; }
         else { claims.platformAdminSessionVersion = version; }
         await auth.setCustomUserClaims(uid, claims);
         await auth.revokeRefreshTokens(uid);
-        await ref.update({ sessionVersion: version, updatedAt: Date.now(), updatedBy: user.uid });
+        if (snap.exists) await ref.update({ sessionVersion: version, updatedAt: Date.now(), updatedBy: user.uid });
+        else await ref.create({ uid, email: String(target.email || ''), displayName: String(target.displayName || ''), role: 'full', active: true, sessionVersion: version, createdAt: Date.now(), updatedAt: Date.now(), migratedFromTrustedIdentity: true });
         await revokePlatformAdminMfaSessions(db, uid);
         await db.collection('admin_audit_logs').add({ action: 'revoke_platform_admin_sessions', targetUid: uid, targetRole: full ? 'full' : String(snap.data()?.role || ''), actorUid: user.uid, actorEmail: String(user.email || ''), outcome: 'success', createdAt: Date.now() });
         return json(res, 200, { success: true, uid, requiresReauthentication: true });
@@ -1140,11 +1147,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Vous ne pouvez pas supprimer votre propre compte.' });
         const ref = db.collection('platform_admins').doc(uid);
         const snap = await ref.get();
-        if (!snap.exists) return json(res, 404, { success: false, error: 'Administrateur introuvable.' });
-        if (snap.data()?.deleted === true) return json(res, 409, { success: false, error: 'Ce compte a déjà été supprimé.' });
+        if (snap.exists && snap.data()?.deleted === true) return json(res, 409, { success: false, error: 'Ce compte a déjà été supprimé.' });
         const auth = getAuth();
-        const target = await auth.getUser(uid);
-        const full = snap.data()?.role === 'full' || target.customClaims?.role === 'super_admin';
+        let target: any;
+        try { target = await auth.getUser(uid); } catch { return json(res, 404, { success: false, error: 'Identité Firebase introuvable.' }); }
+        const full = snap.data()?.role === 'full' || isProtectedSuperAdminAccount(target);
+        if (!snap.exists && !full) return json(res, 404, { success: false, error: 'Administrateur introuvable.' });
         if (full) {
           const activeSuperAdmins = await countActivePlatformSuperAdmins(auth);
           if (snap.data()?.active === true && target.disabled !== true && activeSuperAdmins <= 1) return json(res, 409, { success: false, error: 'Impossible de supprimer le dernier Super-admin actif.' });
@@ -1161,7 +1169,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           db.collection('platform_admin_mfa_email_recovery').doc(uid).delete().catch(() => undefined),
           db.collection('platform_admin_mfa_webauthn_challenges').doc(uid).delete().catch(() => undefined)
         ]);
-        await ref.update({ active: false, deleted: true, deletedAt: now, deletedBy: user.uid, sessionVersion: version, updatedAt: now });
+        if (snap.exists) await ref.update({ active: false, deleted: true, deletedAt: now, deletedBy: user.uid, sessionVersion: version, updatedAt: now });
+        else await ref.create({ uid, email: String(target.email || ''), displayName: String(target.displayName || ''), role: 'full', active: false, deleted: true, deletedAt: now, deletedBy: user.uid, sessionVersion: version, createdAt: now, updatedAt: now, migratedFromTrustedIdentity: true });
         await db.collection('admin_audit_logs').add({ action: 'delete_platform_admin', targetUid: uid, targetRole: full ? 'full' : String(snap.data()?.role || ''), actorUid: user.uid, actorEmail: String(user.email || ''), outcome: 'success', createdAt: now });
         await auth.deleteUser(uid);
         return json(res, 200, { success: true, uid, deleted: true, auditRecordPreserved: true });
