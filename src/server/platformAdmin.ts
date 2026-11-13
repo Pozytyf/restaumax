@@ -1290,7 +1290,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const backupStatus = backupRun?.lastStatus === 'failed' || backupRun?.lastStatus === 'error'
           ? 'unavailable' : backupFresh ? 'operational' : backupLastRunAt ? 'degraded' : 'unknown';
         const billingLastRunAt = Number(billingRun?.lastRunAt || 0) || null;
-        const billingFresh = Boolean(billingLastRunAt && now - billingLastRunAt <= 36 * 60 * 60 * 1000 && billingRun?.lastStatus === 'success');
+        const billingFresh = Boolean(billingLastRunAt && billingLastRunAt <= now && now - billingLastRunAt >= 0 && now - billingLastRunAt <= 36 * 60 * 60 * 1000 && billingRun?.lastStatus === 'success');
         services.push({ id: 'auth', label: 'Authentification Firebase', status: authStatus, detail: authStatus === 'operational' ? 'Le compte administrateur courant est accessible dans Firebase Authentication.' : 'Lecture Firebase Authentication impossible.' });
         services.push({
           id: 'mfa', label: 'Protection MFA des administrateurs',
