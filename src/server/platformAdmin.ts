@@ -1754,9 +1754,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const configuredPlans = Array.isArray(platformConfigSnap.data()?.plans) ? platformConfigSnap.data().plans : [];
         if (configuredPlans.length) {
           const requestedPlanId = String(body.subscription?.planId || '').trim();
-          const selectedPlan = configuredPlans.find((plan: any) =>
-            (requestedPlanId && String(plan?.id || planIdentifier(String(plan?.name || ''))) === requestedPlanId) ||
-            String(plan?.name || '') === validation.subscription.planName
+          const selectedPlan = configuredPlans.find((plan: any) => requestedPlanId
+            ? String(plan?.id || planIdentifier(String(plan?.name || ''))) === requestedPlanId && String(plan?.name || '') === validation.subscription.planName
+            : String(plan?.name || '') === validation.subscription.planName
           );
           const existingPlanName = String(currentSubscriptionSnap.data()?.planName || '');
           if (!selectedPlan && validation.subscription.planName !== existingPlanName) {
@@ -1777,9 +1777,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const requestedNotes = typeof body.subscription?.notes === 'string'
           ? body.subscription.notes.trim().slice(0, 500) : '';
         const preservedNotes = requestedNotes || String(currentSubscriptionSnap.data()?.notes || '');
-        const selectedPlan = configuredPlans.find((plan: any) =>
-          (String(body.subscription?.planId || '').trim() && String(plan?.id || planIdentifier(String(plan?.name || ''))) === String(body.subscription?.planId || '').trim()) ||
-          String(plan?.name || '') === validation.subscription.planName
+        const requestedPlanId = String(body.subscription?.planId || '').trim();
+        const selectedPlan = configuredPlans.find((plan: any) => requestedPlanId
+          ? String(plan?.id || planIdentifier(String(plan?.name || ''))) === requestedPlanId && String(plan?.name || '') === validation.subscription.planName
+          : String(plan?.name || '') === validation.subscription.planName
         );
         const currentSubscription = currentSubscriptionSnap.exists ? currentSubscriptionSnap.data() || {} : {};
         const cycleMultiplier = validation.subscription.billingCycle === 'quarterly' ? 3 :
