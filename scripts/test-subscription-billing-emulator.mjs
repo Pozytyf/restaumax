@@ -90,7 +90,7 @@ try {
   await Promise.all(promoRefs.map((ref, index) => Promise.all([
     db.collection('restaurants').doc(promoSlugs[index]).set({ slug: promoSlugs[index], status: 'active', isOpen: true }),
     ref.set({
-      planName: 'Pro', priceFcfa: 10000, billingCycle: index === 0 ? 'quarterly' : 'monthly',
+      planId: 'pro', planName: 'Pro', priceFcfa: index === 0 ? 36000 : 12000, planPriceMonthlyFcfa: 12000, billingCycle: index === 0 ? 'quarterly' : 'monthly',
       status: 'active', startsAt: now - 90000000, endsAt: now - 1000, nextBillingAt: now - 1000,
       autoRenew: true, gracePeriodDays: 60
     })
@@ -107,7 +107,7 @@ try {
   for (let index = 0; index < promoRefs.length; index++) {
     const invoice = promoInvoices[index];
     const expectedBaseAmount = invoice.billingCycle === 'quarterly' ? 36000 : 12000;
-    assert.equal(invoice.baseAmountFcfa, expectedBaseAmount, 'Le tarif de renouvellement suit automatiquement le prix actuel de la formule');
+    assert.equal(invoice.baseAmountFcfa, expectedBaseAmount, 'La facture respecte le tarif contractuel figé dans l’abonnement, sans repricing silencieux du catalogue');
     const expectedAmount = invoice.discountSource === 'promotion' ? Math.round(expectedBaseAmount * 0.8) :
       (invoice.billingCycle === 'quarterly' ? Math.round(expectedBaseAmount * 0.9) : expectedBaseAmount);
     assert.equal(invoice.amountFcfa, expectedAmount, 'Une promotion et la réduction trimestrielle ne se cumulent jamais');
