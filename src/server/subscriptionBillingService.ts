@@ -50,6 +50,8 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
   ]);
   const configuredGrace = Number(configSnap.data()?.gracePeriodDays);
   const globalGracePeriodDays = Number.isInteger(configuredGrace) && configuredGrace >= 0 && configuredGrace <= 60 ? configuredGrace : 7;
+  const configuredQuarterlyDiscount = Number(configSnap.data()?.quarterlyDiscountPercent);
+  const quarterlyDiscountPercent = Number.isInteger(configuredQuarterlyDiscount) && configuredQuarterlyDiscount >= 0 && configuredQuarterlyDiscount <= 100 ? configuredQuarterlyDiscount : 0;
   const resolveGracePeriod = (subscription: any, fallback = globalGracePeriodDays) => {
     const value = Number(subscription?.gracePeriodDays);
     const valid = Number.isInteger(value) && value >= 0 && value <= 60;
@@ -108,9 +110,12 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
           });
           return 'suspended';
         }
-        const amount = Number(sub.priceFcfa);
-        if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000000) return 'skip';
+        const baseAmount = Number(sub.priceFcfa);
+        if (!Number.isSafeInteger(baseAmount) || baseAmount < 0 || baseAmount > 1000000000) return 'skip';
         const cycle = String(sub.billingCycle || '');
+        const discountPercent = cycle === 'quarterly' ? quarterlyDiscountPercent : 0;
+        const discountAmount = Math.round(baseAmount * discountPercent / 100);
+        const amount = baseAmount - discountAmount;
         if (amount === 0 && ['monthly', 'quarterly', 'yearly'].includes(cycle)) {
           const periodStart = Math.max(Number(sub.endsAt || now), now);
           const periodEnd = addBillingCycle(periodStart, cycle);
@@ -128,7 +133,8 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         const invoiceRef = subscriptionRef.collection('invoices').doc(invoiceId);
         tx.create(invoiceRef, {
           id: invoiceId, restaurantSlug: slug, planName: String(sub.planName || ''),
-          billingCycle: String(sub.billingCycle || ''), amountFcfa: amount, currency: 'XOF',
+          billingCycle: cycle, baseAmountFcfa: baseAmount, discountPercent, discountAmountFcfa: discountAmount,
+          amountFcfa: amount, currency: 'XOF',
           periodStartAt: Number(sub.startsAt || 0), periodEndAt: Number(sub.endsAt || nextBillingAt),
           issuedAt: now, dueAt: now, gracePeriodDays, status: 'open',
           createdAt: now
@@ -139,7 +145,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         });
         tx.create(db.collection('admin_audit_logs').doc(`sub_invoice_${hash(slug + ':' + invoiceId)}`), {
           action: 'create_recurring_subscription_invoice', restaurantSlug: slug,
-          invoiceId, amountFcfa: amount, createdAt: now
+          invoiceId, amountFcfa: amount, baseAmountFcfa: baseAmount, discountPercent, discountAmountFcfa: discountAmount, createdAt: now
         });
         return 'created';
       });
