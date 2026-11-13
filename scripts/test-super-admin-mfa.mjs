@@ -41,7 +41,8 @@ try {
     'the compatibility mode remains unchanged when enforcement is disabled');
 
   assert(adminSource.includes('hasValidPlatformAdminMfaSession') &&
-    adminSource.includes('firebaseMfaIsRecent') && adminSource.includes('createPlatformAdminMfaSession') &&
+    adminSource.includes('firebaseMfaIsRecent') && adminSource.includes('firebaseMfaAdminIdentity') &&
+    adminSource.includes("user.role === 'platform_admin'") && adminSource.includes('createPlatformAdminMfaSession') &&
     adminSource.includes('sessionValid') && adminSource.includes("action === 'mfa_accept_firebase'") &&
     adminSource.includes('createPlatformAdminMfaSession') &&
     adminSource.includes('getPlatformAdminRole(db, user, mfaSessionValid)'),
