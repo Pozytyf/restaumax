@@ -1054,7 +1054,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 400, { success: false, error: 'Le catalogue doit contenir entre 1 et 20 formules.' });
         }
         const planNames = new Set<string>();
-        const normalizedPlans: Array<{ name: string; description: string; active: boolean; priceMonthlyFcfa: number; features: Record<string, boolean> }> = [];
+        const normalizedPlans: Array<{ id: string; name: string; description: string; active: boolean; priceMonthlyFcfa: number; features: Record<string, boolean> }> = [];
         const planFeatures: Record<string, Record<string, boolean>> = {};
         for (const rawPlan of planInput) {
           const name = String(rawPlan?.name || '').trim();
@@ -1527,14 +1527,19 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           db.collectionGroup('invoices').get(),
           db.collectionGroup('payments').get()
         ]);
-        const invoiceRows = invoiceFinancialSnap.docs.map((doc: any) => ({
-          ...(doc.data() || {}), restaurantSlug: doc.ref.parent.parent?.id || String(doc.data()?.restaurantSlug || '')
-        }));
+        const invoiceRows = invoiceFinancialSnap.docs
+          .filter((doc: any) => doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions')
+          .map((doc: any) => ({
+            ...(doc.data() || {}), restaurantSlug: doc.ref.parent.parent?.id || String(doc.data()?.restaurantSlug || '')
+          }));
         const openInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && !(Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
         const overdueInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'overdue' || (invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
         const upcomingInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && Number(invoice.dueAt || 0) > aggregationTime && Number(invoice.dueAt) <= aggregationTime + 30 * 24 * 60 * 60 * 1000);
         const sumInvoiceAmounts = (items: any[]) => items.reduce((total, invoice) => total + (Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0), 0);
-        const collectedAmountFcfa = paymentFinancialSnap.docs.reduce((total: number, doc: any) => {
+        const subscriptionPaymentDocs = paymentFinancialSnap.docs.filter((doc: any) =>
+          doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions'
+        );
+        const collectedAmountFcfa = subscriptionPaymentDocs.reduce((total: number, doc: any) => {
           const payment = doc.data() || {};
           return total + (Number.isSafeInteger(payment.amountFcfa) ? payment.amountFcfa : 0);
         }, 0);
@@ -1543,7 +1548,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           overdueInvoicesCount: overdueInvoices.length, overdueAmountFcfa: sumInvoiceAmounts(overdueInvoices),
           collectedAmountFcfa, upcomingDueCount: upcomingInvoices.length,
           upcomingDueAmountFcfa: sumInvoiceAmounts(upcomingInvoices),
-          invoicesScanned: invoiceRows.length, paymentsScanned: paymentFinancialSnap.size,
+          invoicesScanned: invoiceRows.length, paymentsScanned: subscriptionPaymentDocs.length,
           asOf: aggregationTime
         };
         const summary = {
