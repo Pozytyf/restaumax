@@ -47,6 +47,12 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const [customMfaCode, setCustomMfaCode] = useState('');
   const [customMfaQrCode, setCustomMfaQrCode] = useState('');
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [mfaEnrolled, setMfaEnrolled] = useState(false);
+  const [recoveryCodesRemaining, setRecoveryCodesRemaining] = useState(0);
+  const [recoveryRotationOpen, setRecoveryRotationOpen] = useState(false);
+  const [recoveryRotationCode, setRecoveryRotationCode] = useState('');
+  const [recoveryRotationCodes, setRecoveryRotationCodes] = useState<string[]>([]);
+  const [recoveryRotationBusy, setRecoveryRotationBusy] = useState(false);
   const mfaRecaptchaVerifier = useRef<RecaptchaVerifier | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -62,7 +68,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     if (!response.ok || !data.success) {
       // /admin is a separate security boundary: a restaurant session must not
       // remain authenticated after the platform API rejects it.
-      if ((response.status === 401 || response.status === 403) && !['mfa_verify', 'mfa_status', 'mfa_accept_firebase', 'mfa_recovery_enroll_start'].includes(String(body?.action || ''))) {
+      if ((response.status === 401 || response.status === 403) && !['mfa_verify', 'mfa_status', 'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_recovery_regenerate'].includes(String(body?.action || ''))) {
         setIsPlatformAdminAuthorized(false);
         setRestaurants([]);
         setSummary(null);
@@ -73,7 +79,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     }
     // The first allowlisted request may have just received the super-admin custom claim.
     await auth.currentUser?.getIdToken(true);
-    if (!['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_logout'].includes(String(body?.action || ''))) {
+    if (!['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_recovery_regenerate', 'mfa_logout'].includes(String(body?.action || ''))) {
       setIsPlatformAdminAuthorized(true);
     }
     return data;
@@ -96,6 +102,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     const status = await request({ action: 'mfa_status' });
     setNeedsPlatformAdminLogin(false);
     if (status.sessionValid === true) {
+      setMfaEnrolled(status.enrolled === true);
+      setRecoveryCodesRemaining(Number(status.recoveryCodesRemaining || 0));
       if (status.recoverySession === true) {
         const setup = await request({ action: 'mfa_recovery_enroll_start' });
         setTotpSecret({ secretKey: setup.secret, otpauthUri: setup.otpauthUri, recoveryEnrollment: true });
@@ -323,6 +331,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     try {
       const result = await request({ action: 'mfa_enroll_confirm', code: totpEnrollmentCode.trim() });
       setRecoveryCodes(Array.isArray(result.recoveryCodes) ? result.recoveryCodes : []);
+      setRecoveryCodesRemaining(Array.isArray(result.recoveryCodes) ? result.recoveryCodes.length : 0);
+      setMfaEnrolled(true);
       setTotpSecret(null);
       setTotpEnrollmentCode('');
       setCustomMfaSetup(false);
@@ -357,6 +367,23 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       setError(verificationError?.message || 'Code MFA invalide ou expiré.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const regenerateRecoveryCodes = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    setRecoveryRotationBusy(true);
+    try {
+      const result = await request({ action: 'mfa_recovery_regenerate', code: recoveryRotationCode.trim() });
+      setRecoveryRotationCodes(Array.isArray(result.recoveryCodes) ? result.recoveryCodes : []);
+      setRecoveryCodesRemaining(Number(result.recoveryCodesRemaining || 0));
+      setRecoveryRotationCode('');
+      setRecoveryRotationOpen(false);
+    } catch (rotationError: any) {
+      setError(rotationError?.message || 'Impossible de renouveler les codes de secours.');
+    } finally {
+      setRecoveryRotationBusy(false);
     }
   };
 
@@ -418,6 +445,26 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         </>}
       </section></div>
     ) : <>
+      {mfaEnrolled && <div className="mx-auto w-full max-w-7xl px-4 pt-4">
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><strong>Codes de secours MFA</strong><p className="mt-1">{recoveryCodesRemaining} code(s) encore disponible(s). Chaque code ne sert qu’une fois.</p></div>
+            <button type="button" onClick={() => { setRecoveryRotationOpen(value => !value); setRecoveryRotationCodes([]); setError(''); }} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold">Renouveler les 10 codes</button>
+          </div>
+          {recoveryRotationOpen && <form onSubmit={regenerateRecoveryCodes} className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="min-w-56 flex-1 font-semibold">Code courant de votre authentificateur TOTP
+              <input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" value={recoveryRotationCode} onChange={event => setRecoveryRotationCode(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 bg-white px-3 tracking-widest"/>
+            </label>
+            <button disabled={recoveryRotationBusy} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{recoveryRotationBusy ? 'Renouvellement…' : 'Confirmer avec MFA'}</button>
+          </form>}
+          {recoveryRotationCodes.length > 0 && <div className="mt-3 rounded-lg border border-amber-300 bg-white p-3">
+            <p className="font-semibold">Les nouveaux codes sont affichés une seule fois. Tous les anciens codes sont maintenant invalides.</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 font-mono">{recoveryRotationCodes.map(code => <code key={code}>{code}</code>)}</div>
+            <button type="button" onClick={() => setRecoveryRotationCodes([])} className="mt-3 rounded-lg bg-[#101d2d] px-3 py-2 font-semibold text-white">J’ai sauvegardé les nouveaux codes</button>
+          </div>}
+          {error && <p role="alert" className="mt-2 text-rose-800">{error}</p>}
+        </section>
+      </div>}
       <PlatformAdminWorkspace
         restaurants={restaurants}
         summary={summary}
