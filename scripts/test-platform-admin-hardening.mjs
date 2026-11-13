@@ -20,6 +20,8 @@ assert(rules.includes("return plan == ''\n        ? feature == 'kitchenScreen'")
   'Firestore applies the same limited legacy feature baseline');
 assert(rules.includes("featureMap.get(feature, plan == 'Pro' || feature == 'kitchenScreen') == true"),
   'unmapped Firestore plans retain only the kitchen baseline and do not inherit premium features');
+assert(rules.includes("let snapshotValue = snapshotFeatures.get(feature, null)") && rules.includes('snapshotValue is bool'),
+  'Firestore entitlement checks honor the same immutable feature snapshot as server APIs');
 
 const staffStart = admin.indexOf("if (action === 'staff_list' && ['full', 'support'].includes");
 const staffEnd = admin.indexOf('// Owner and authorized manager staff administration', staffStart);
