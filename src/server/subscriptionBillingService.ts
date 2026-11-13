@@ -316,9 +316,11 @@ export async function settleSubscriptionInvoiceWithDb(
   const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
   const restaurantRef = db.collection('restaurants').doc(slug);
   const invoiceRef = subscriptionRef.collection('invoices').doc(invoiceId);
+  const paymentId = `subpay_${hash(slug + ':' + invoiceId + ':' + paymentReference)}`;
+  const paymentRef = subscriptionRef.collection('payments').doc(paymentId);
   return db.runTransaction(async (tx: any) => {
-    const [subSnap, restaurantSnap, invoiceSnap] = await Promise.all([
-      tx.get(subscriptionRef), tx.get(restaurantRef), tx.get(invoiceRef)
+    const [subSnap, restaurantSnap, invoiceSnap, paymentSnap] = await Promise.all([
+      tx.get(subscriptionRef), tx.get(restaurantRef), tx.get(invoiceRef), tx.get(paymentRef)
     ]);
     if (!subSnap.exists || !restaurantSnap.exists || !invoiceSnap.exists) {
       return { success: false, error: 'Abonnement ou facture introuvable.' };
@@ -327,18 +329,24 @@ export async function settleSubscriptionInvoiceWithDb(
     const restaurant = restaurantSnap.data() || {};
     const invoice = invoiceSnap.data() || {};
     const identity = resolveSubscriptionInvoiceIdentity(invoiceRef, invoice);
-    if (!identity || identity.restaurantSlug !== slug || identity.invoiceId !== invoiceId) {
-      return { success: false, conflict: true, error: 'Le lien entre la facture et son abonnement est incohérent.' };
+    if (!identity || identity.restaurantSlug !== slug || identity.invoiceId !== invoiceId ||
+        (invoice.planId && sub.planId && String(invoice.planId) !== String(sub.planId)) ||
+        (invoice.billingCycle && sub.billingCycle && String(invoice.billingCycle) !== String(sub.billingCycle))) {
+      return { success: false, conflict: true, error: 'Le lien entre le restaurant, la formule, l’abonnement et la facture est incohérent.' };
     }
     if (invoice.status === 'paid') {
-      if (invoice.paymentReference === paymentReference && input.amountFcfa === Number(invoice.amountFcfa)) {
+      const recordedPayment = paymentSnap.data() || {};
+      if (invoice.paymentReference === paymentReference && input.amountFcfa === Number(invoice.amountFcfa) &&
+          paymentSnap.exists && recordedPayment.invoiceId === invoiceId &&
+          recordedPayment.restaurantSlug === slug && recordedPayment.paymentReference === paymentReference &&
+          Number(recordedPayment.amountFcfa) === input.amountFcfa) {
         return { success: true, idempotentReplay: true, invoice };
       }
-      return { success: false, conflict: true, error: 'Cette facture est déjà réglée ou la référence/le montant ne correspond pas.' };
+      return { success: false, conflict: true, error: 'Cette facture est déjà réglée ou le règlement enregistré ne correspond pas.' };
     }
     if (!['open', 'overdue'].includes(String(invoice.status)) || String(sub.currentInvoiceId || '') !== invoiceId ||
-        input.amountFcfa !== Number(invoice.amountFcfa)) {
-      return { success: false, conflict: true, error: 'Le montant ou le statut de la facture ne correspond pas.' };
+        input.amountFcfa !== Number(invoice.amountFcfa) || paymentSnap.exists) {
+      return { success: false, conflict: true, error: 'Le montant, le statut ou le lien du règlement ne correspond pas à la facture.' };
     }
     const cycle = String(sub.billingCycle || '');
     if (cycle !== 'monthly' && cycle !== 'quarterly' && cycle !== 'yearly') {
@@ -352,9 +360,8 @@ export async function settleSubscriptionInvoiceWithDb(
       amountPaidFcfa: input.amountFcfa, paidBy: input.actorUid
     };
     tx.update(invoiceRef, { ...updatedInvoice, paymentMethod: 'manual' });
-    const subscriptionPaymentId = `subpay_${hash(slug + ':' + invoiceId + ':' + paymentReference)}`;
-    tx.create(subscriptionRef.collection('payments').doc(subscriptionPaymentId), {
-      id: subscriptionPaymentId, invoiceId, restaurantSlug: slug,
+    tx.create(paymentRef, {
+      id: paymentId, invoiceId, restaurantSlug: slug,
       amountFcfa: input.amountFcfa, currency: 'XOF', method: 'manual',
       paymentReference, paidAt: now, recordedBy: input.actorUid
     });
