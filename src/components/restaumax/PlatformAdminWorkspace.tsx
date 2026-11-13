@@ -205,6 +205,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [promotions, setPromotions] = useState<PlatformPromotion[]>([]);
   const [editingPromotionId, setEditingPromotionId] = useState<string | null>(null);
+  const [promotionFormActive, setPromotionFormActive] = useState(true);
   const [promotionForm, setPromotionForm] = useState({
     name: '', code: '', discountType: 'percentage', value: '10',
     startsOn: '', endsOn: '', eligiblePlans: ['Essentiel'] as string[], maxUses: '100'
@@ -615,10 +616,10 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
       await request({
         action: 'promotion_save', ...(editingPromotionId ? { id: editingPromotionId } : {}), name: promotionForm.name, code: promotionForm.code.toUpperCase(),
         discountType: promotionForm.discountType, value, startsAt, endsAt,
-        eligiblePlans: promotionForm.eligiblePlans, maxUses, active: true
+        eligiblePlans: promotionForm.eligiblePlans, maxUses, active: promotionFormActive
       });
       const data = await read('promotion_list'); setPromotions(data.promotions || []);
-      setPromotionForm({ name: '', code: '', discountType: 'percentage', value: '10', startsOn: '', endsOn: '', eligiblePlans: ['Essentiel'], maxUses: '100' }); setEditingPromotionId(null);
+      setPromotionForm({ name: '', code: '', discountType: 'percentage', value: '10', startsOn: '', endsOn: '', eligiblePlans: ['Essentiel'], maxUses: '100' }); setEditingPromotionId(null); setPromotionFormActive(true);
       setNotice('Promotion enregistrée. Elle sera appliquée automatiquement aux prochaines factures éligibles, sans cumul avec la remise trimestrielle.');
     } catch (e: any) { setPageError(e.message || 'Enregistrement de la promotion impossible.'); }
     finally { setPageLoading(false); }
@@ -626,6 +627,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
 
   const editPromotion = (promotion: PlatformPromotion) => {
     setEditingPromotionId(promotion.id);
+    setPromotionFormActive(promotion.active);
     setPromotionForm({
       name: promotion.name, code: promotion.code, discountType: promotion.discountType,
       value: String(promotion.value),
@@ -849,7 +851,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
                   <div className="grid gap-3 sm:grid-cols-2"><Field label="Nom"><input required minLength={3} maxLength={80} value={promotionForm.name} onChange={e=>setPromotionForm({...promotionForm,name:e.target.value})} className={inputClass}/></Field><Field label="Code de suivi"><input required minLength={3} maxLength={24} pattern="[A-Za-z0-9_-]+" value={promotionForm.code} onChange={e=>setPromotionForm({...promotionForm,code:e.target.value.toUpperCase()})} className={inputClass}/></Field></div>
                   <div className="grid gap-3 sm:grid-cols-2"><Field label="Type de réduction"><select value={promotionForm.discountType} onChange={e=>setPromotionForm({...promotionForm,discountType:e.target.value})} className={inputClass}><option value="percentage">Pourcentage (%)</option><option value="fixed">Montant fixe (FCFA)</option></select></Field><Field label={promotionForm.discountType==='percentage'?'Réduction (%)':'Réduction (FCFA)'}><input required type="number" min={1} max={promotionForm.discountType==='percentage'?100:1000000000} value={promotionForm.value} onChange={e=>setPromotionForm({...promotionForm,value:e.target.value})} className={inputClass}/></Field></div>
                   <div className="grid gap-3 sm:grid-cols-2"><Field label="Début"><input required type="date" value={promotionForm.startsOn} onChange={e=>setPromotionForm({...promotionForm,startsOn:e.target.value})} className={inputClass}/></Field><Field label="Fin"><input required type="date" value={promotionForm.endsOn} onChange={e=>setPromotionForm({...promotionForm,endsOn:e.target.value})} className={inputClass}/></Field></div>
-                  <Field label="Nombre maximum d’utilisations"><input required type="number" min={1} max={1000000} value={promotionForm.maxUses} onChange={e=>setPromotionForm({...promotionForm,maxUses:e.target.value})} className={inputClass}/></Field>
+                  <Field label="Nombre maximum d’utilisations"><input required type="number" min={1} max={1000000} value={promotionForm.maxUses} onChange={e=>setPromotionForm({...promotionForm,maxUses:e.target.value})} className={inputClass}/></Field><label className="flex min-h-11 items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={promotionFormActive} onChange={e=>setPromotionFormActive(e.target.checked)} className="h-4 w-4"/> Promotion active</label>
                   <div><p className="mb-2 text-sm font-semibold text-slate-700">Formules éligibles</p><div className="flex flex-wrap gap-2">{platformConfig.plans.map(plan=><label key={plan.name} className="flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-semibold"><input type="checkbox" checked={promotionForm.eligiblePlans.includes(plan.name)} onChange={e=>setPromotionForm({...promotionForm,eligiblePlans:e.target.checked?[...promotionForm.eligiblePlans,plan.name]:promotionForm.eligiblePlans.filter(name=>name!==plan.name)})} className="h-4 w-4"/>{plan.name}</label>)}</div></div>
                   <button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white">{editingPromotionId?'Enregistrer les modifications':'Créer la promotion'}</button>
                 </form>
