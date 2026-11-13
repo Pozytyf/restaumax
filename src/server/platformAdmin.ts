@@ -1748,6 +1748,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 404, { success: false, error: 'Restaurant introuvable ou supprimé.' });
         }
         const now = Date.now();
+        if (['active', 'trial'].includes(validation.subscription.status) && validation.subscription.nextBillingAt <= now) {
+          return json(res, 409, { success: false, error: 'Une formule active ou en essai doit avoir une prochaine échéance future. Aucune facturation rétroactive ne sera déclenchée sans validation explicite.' });
+        }
         const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
         const currentSubscriptionSnap = await subscriptionRef.get();
         const platformConfigSnap = await db.collection('platform_config').doc('global').get();
