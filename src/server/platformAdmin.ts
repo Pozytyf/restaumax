@@ -237,13 +237,29 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const body = req.body || {};
   const action = req.method === 'GET' ? String(req.query?.action || 'overview') : String(body.action || '');
   const cookieHeader = String(req.headers?.cookie || '');
-  const mfaCookie = cookieHeader.split(';').map((part: string) => part.trim())
+  let mfaCookie = cookieHeader.split(';').map((part: string) => part.trim())
     .find((part: string) => part.startsWith('restaumax_platform_mfa='))?.slice('restaumax_platform_mfa='.length) || '';
   const mfaSessionVersion = Number(
     user.role === 'platform_admin'
       ? (user as any).platformAdminSessionVersion || 1
       : (user as any).sessionVersion || 1
   );
+
+  const firebaseSecondFactor = (user as any).firebase?.sign_in_second_factor;
+  const firebaseMfaIsRecent = typeof firebaseSecondFactor === 'string' && firebaseSecondFactor &&
+    Number(user.auth_time || 0) >= Math.floor(Date.now() / 1000) - 5 * 60;
+  if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true' && firebaseMfaIsRecent &&
+      isSuperAdminIdentity(user) &&
+      !(await hasValidPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, mfaCookie))) {
+    const session = await createPlatformAdminMfaSession(db, user.uid, mfaSessionVersion);
+    mfaCookie = session.token;
+    res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=14400`);
+    await db.collection('admin_audit_logs').add({
+      action: 'platform_admin_mfa_verified_firebase', actorUid: user.uid,
+      actorEmail: String(user.email || ''), factorId: firebaseSecondFactor,
+      expiresAt: session.expiresAt, createdAt: Date.now()
+    }).catch(() => undefined);
+  }
 
   const mfaActions = ['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify', 'mfa_accept_firebase', 'mfa_logout'];
   if (mfaActions.includes(action)) {
@@ -1616,10 +1632,35 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
         const hasMore = correlated.length > requestedLimit;
         const pageRows = hasMore ? correlated.slice(0, requestedLimit) : correlated;
-        const invoices = pageRows.map(({ doc: invoiceDoc, identity }) => {
+        const invoices = await Promise.all(pageRows.map(async ({ doc: invoiceDoc, identity }) => {
           const invoice = invoiceDoc.data() || {};
+          const [restaurantSnap, subscriptionSnap] = await Promise.all([
+            db.collection('restaurants').doc(identity.restaurantSlug).get(),
+            db.collection('restaurantSubscriptions').doc(identity.restaurantSlug).get()
+          ]);
+          const restaurant = restaurantSnap.exists ? (restaurantSnap.data() || {}) : {};
+          const subscription = subscriptionSnap.exists ? (subscriptionSnap.data() || {}) : {};
           return {
             id: identity.invoiceId, restaurantSlug: identity.restaurantSlug,
+            restaurant: {
+              name: typeof restaurant.name === 'string' ? restaurant.name : identity.restaurantSlug,
+              slug: identity.restaurantSlug,
+              status: typeof restaurant.status === 'string' ? restaurant.status : 'unknown',
+              isOpen: restaurant.isOpen === true,
+              city: typeof restaurant.city === 'string' ? restaurant.city : '',
+              country: typeof restaurant.country === 'string' ? restaurant.country : '',
+              address: typeof restaurant.address === 'string' ? restaurant.address : (typeof restaurant.location === 'string' ? restaurant.location : ''),
+              phone: typeof restaurant.phone === 'string' ? restaurant.phone : (typeof restaurant.contactPhone === 'string' ? restaurant.contactPhone : ''),
+              email: typeof restaurant.email === 'string' ? restaurant.email : (typeof restaurant.contactEmail === 'string' ? restaurant.contactEmail : ''),
+              ownerName: typeof restaurant.ownerName === 'string' ? restaurant.ownerName : '',
+              createdAt: Number.isFinite(restaurant.createdAt) ? restaurant.createdAt : null,
+              subscriptionStatus: typeof subscription.status === 'string' ? subscription.status : 'unknown',
+              billingCycle: typeof subscription.billingCycle === 'string' ? subscription.billingCycle : '',
+              startsAt: Number.isFinite(subscription.startsAt) ? subscription.startsAt : null,
+              endsAt: Number.isFinite(subscription.endsAt) ? subscription.endsAt : null,
+              nextBillingAt: Number.isFinite(subscription.nextBillingAt) ? subscription.nextBillingAt : null,
+              autoRenew: subscription.autoRenew !== false
+            },
             planId: typeof invoice.planId === 'string' ? invoice.planId : '',
             planName: typeof invoice.planName === 'string' ? invoice.planName : '',
             amountFcfa: Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0,
@@ -1643,7 +1684,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             paidAt: Number.isFinite(invoice.paidAt) ? invoice.paidAt : null,
             paymentReference: typeof invoice.paymentReference === 'string' ? invoice.paymentReference.slice(0, 80) : null
           };
-        });
+        }));
         const lastRow = pageRows.length ? pageRows[pageRows.length - 1] : null;
         return json(res, 200, {
           success: true, invoices, gracePeriodDays, hasMore,
