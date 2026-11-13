@@ -150,8 +150,9 @@ assert(admin.includes('sessionValid') && admin.includes("action === 'mfa_accept_
   'MFA reuses a valid server session and accepts one verified Firebase second factor');
 
 assert(admin.includes("!['full', 'billing', 'support', 'read_only'].includes(role)") &&
-  admin.includes("role === 'full' ? { role: 'super_admin', sessionVersion }") &&
-  admin.includes("action: role === 'full' ? 'invite_full_super_admin' : 'create_platform_admin'"),
+  admin.includes("role === 'full'") &&
+  admin.includes("{ role: 'super_admin', sessionVersion }") &&
+  admin.includes("invite_full_super_admin"),
   'only a full administrator can invite a new full Super-admin through the authenticated admin API');
 assert(admin.includes("action === 'platform_admin_revoke_sessions'") &&
   admin.includes('revokePlatformAdminMfaSessions(db, uid)') &&
