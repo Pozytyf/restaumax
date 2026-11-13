@@ -260,9 +260,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }
     if (action === 'mfa_enroll_confirm') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
-      const confirmed = await confirmPlatformAdminMfaEnrollment(db, user.uid, String(body.code || ''));
-      if (!confirmed) return json(res, 400, { success: false, error: 'Code invalide, déjà utilisé ou enrôlement expiré.' });
-      return json(res, 200, { success: true, enrolled: true, reauthenticationRequired: true });
+      const recoveryCodes = await confirmPlatformAdminMfaEnrollment(db, user.uid, String(body.code || ''));
+      if (!recoveryCodes) return json(res, 400, { success: false, error: 'Code invalide, déjà utilisé ou enrôlement expiré.' });
+      return json(res, 200, { success: true, enrolled: true, recoveryCodes, reauthenticationRequired: true });
     }
     if (action === 'mfa_verify') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
