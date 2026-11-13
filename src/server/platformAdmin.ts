@@ -99,6 +99,11 @@ function configuredSuperAdmins() {
     .split(',').map((email) => email.trim().toLowerCase()).filter(Boolean);
 }
 
+function isProtectedSuperAdminAccount(authUser: any): boolean {
+  const email = String(authUser?.email || '').trim().toLowerCase();
+  return authUser?.customClaims?.role === 'super_admin' || (!!email && configuredSuperAdmins().includes(email));
+}
+
 async function authenticate(req: any): Promise<DecodedIdToken | null> {
   const header = req.headers?.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
@@ -475,6 +480,20 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             disabled: authUser?.disabled === true
           };
         }));
+        const knownUids = new Set(admins.map((admin: any) => admin.uid));
+        for (const email of configuredSuperAdmins()) {
+          try {
+            const authUser = await getAuth().getUserByEmail(email);
+            if (knownUids.has(authUser.uid)) continue;
+            admins.unshift({
+              uid: authUser.uid, email: String(authUser.email || email),
+              displayName: String(authUser.displayName || 'Super-administrateur principal'),
+              role: 'full', active: authUser.disabled !== true, mfaEnrolled: Array.isArray(authUser.multiFactor?.enrolledFactors) && authUser.multiFactor.enrolledFactors.length > 0,
+              disabled: authUser.disabled === true, lastSignInAt: authUser.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null,
+              isPrimary: true
+            });
+          } catch { /* a configured address without a Firebase identity is not presented as an account */ }
+        }
         return json(res, 200, { success: true, admins });
       }
 
@@ -606,6 +625,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (tenantMembership.exists && tenantMembership.data()?.active === true) return json(res, 409, { success: false, error: 'Ce compte possède une appartenance restaurant active et ne peut pas devenir administrateur de plateforme.' });
         const auth = getAuth();
         const authUser = await auth.getUser(uid);
+        if (isProtectedSuperAdminAccount(authUser)) return json(res, 403, { success: false, error: 'Le compte Super-admin principal est protégé et ne peut pas être modifié comme un compte délégué.' });
         const sessionVersion = Number(snap.data()?.sessionVersion || 0) + 1;
         await auth.setCustomUserClaims(uid, {
           ...(authUser.customClaims || {}), role: 'platform_admin',
@@ -633,6 +653,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!snap.exists) return json(res, 404, { success: false, error: 'Compte délégué introuvable.' });
         const auth = getAuth();
         const authUser = await auth.getUser(uid);
+        if (isProtectedSuperAdminAccount(authUser)) return json(res, 403, { success: false, error: 'Le compte Super-admin principal est protégé et ne peut pas être suspendu depuis la gestion des comptes délégués.' });
         const sessionVersion = Number(snap.data()?.sessionVersion || 0) + 1;
         await auth.setCustomUserClaims(uid, {
           ...(authUser.customClaims || {}), role: 'platform_admin',
@@ -670,6 +691,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         } else {
           const adminSnap = await db.collection('platform_admins').doc(uid).get();
           if (!adminSnap.exists) return json(res, 404, { success: false, error: 'Compte administrateur délégué introuvable.' });
+          const targetAuthUser = await getAuth().getUser(uid);
+          if (isProtectedSuperAdminAccount(targetAuthUser)) return json(res, 403, { success: false, error: 'Le compte Super-admin principal est protégé.' });
         }
         const now = Date.now();
         await db.collection('admin_audit_logs').add({
