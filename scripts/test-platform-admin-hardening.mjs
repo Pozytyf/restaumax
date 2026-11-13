@@ -126,6 +126,7 @@ assert(ui.includes("screen === 'settings'") && ui.includes("const configData = a
   'the offer catalog is loaded through a least-privilege billing action before a subscription is edited');
 assert(ui.includes('planId: selectedPlan?.id') && ui.includes('summary?.financialSummary?.overdueInvoicesCount') &&
   ui.includes('{date(i.dueAt)}') && ui.includes('Période facturée') && ui.includes('Fin de grâce') &&
+  ui.includes("i.planId || 'Offre historique'") &&
   !ui.includes("status: 'Existant'") && !ui.includes('Vert · Existant'),
   'subscription UI sends the offer ID and displays overdue counts and invoice due dates');
 assert(billing.includes('Number(sub.priceFcfa)') && billing.includes('Catalog edits must not'),
@@ -133,6 +134,7 @@ assert(billing.includes('Number(sub.priceFcfa)') && billing.includes('Catalog ed
 assert(billing.includes("!['open', 'overdue'].includes(String(invoice.status))"),
   'overdue invoices remain payable through the same settlement transaction');
 assert(billing.includes('graceEndsAt: now + gracePeriodDays * DAY_MS') &&
+  billing.includes('planId: String(sub.planId || \'\')') &&
   billing.includes('periodStartAt: nextBillingAt') && billing.includes('periodEndAt: addBillingCycle(nextBillingAt, cycle)'),
   'recurring invoices snapshot the scheduled contract period and grace deadline');
 assert(admin.includes('sessionValid') && admin.includes("action === 'mfa_accept_firebase'") &&

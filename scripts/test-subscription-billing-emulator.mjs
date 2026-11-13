@@ -21,7 +21,8 @@ try {
     restaurantRef.collection('table_sessions').doc('active-session').set({ status: 'active', sessionHash: 'active-session' }),
     restaurantRef.collection('table_qr_tokens').doc('active-token').set({ status: 'active', tokenHash: 'active-token', tableId: 'table-4' }),
     subscriptionRef.set({
-      planName: 'Pro', priceFcfa: 25000, currency: 'XOF', billingCycle: 'monthly',
+      planId: 'pro-stable-id', planName: 'Pro', planPriceMonthlyFcfa: 25000,
+      priceFcfa: 25000, currency: 'XOF', billingCycle: 'monthly',
       status: 'active', startsAt: now - 30 * 86400000, endsAt: now - 1000,
       nextBillingAt: now - 1000, autoRenew: true, gracePeriodDays: 7
     })
@@ -35,6 +36,7 @@ try {
   const invoiceRef = subscriptionRef.collection('invoices').doc(subscription.currentInvoiceId);
   const invoice = (await invoiceRef.get()).data();
   assert.equal(invoice.amountFcfa, 25000);
+  assert.equal(invoice.planId, 'pro-stable-id', 'La facture conserve l’identifiant stable de l’offre souscrite');
   assert.equal(invoice.status, 'open');
   assert.equal(invoice.periodStartAt, now - 1000, 'La facture commence à la date de renouvellement prévue');
   assert.equal(invoice.graceEndsAt, now + 7 * 86400000, 'La fin du délai de grâce est figée à la création de la facture');
