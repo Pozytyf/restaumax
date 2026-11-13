@@ -198,4 +198,7 @@ assert(ui.includes('Modifier les permissions') &&
   ui.includes("permission.value==='platform.overview'"),
   'the account screen exposes individual permission toggles while keeping the overview permission mandatory');
 
+assert(admin.includes("support_access_list: 'support.manage'"),
+  'read-only support roles cannot inspect the access-request queue');
+
 console.log('Platform admin hardening regression tests passed.');
