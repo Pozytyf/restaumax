@@ -306,7 +306,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     if (screen === 'accounts' && allowedActions.includes('platform_admin_list')) void load('platform_admin_list', data => setPlatformAdmins(data.admins || []));
     if (screen === 'support') void load('support_list', data => setSupportTickets(data.tickets || []));
     if (screen === 'health') void load('health_details', data => setHealth({ checkedAt: data.checkedAt, services: data.services || [] }));
-    if (screen === 'settings' || screen === 'restaurants') void load('config_read', data => { if (data.config) setPlatformConfig(current => mergePlatformConfig(current, data.config)); });
+    if (screen === 'settings') void load('config_read', data => { if (data.config) setPlatformConfig(current => mergePlatformConfig(current, data.config)); });
     if (screen === 'communication') void load('announcement_list', data => setAnnouncements(data.announcements || []));
     return () => { active = false; };
   }, [screen, allowedActions]);
@@ -687,7 +687,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const startSubscriptionEdit = async (restaurant: Restaurant) => {
     setPageLoading(true); setPageError('');
     try {
-      const configData = await read('config_read');
+      const configData = await read('billing_catalog_read');
       if (configData.config) setPlatformConfig(current => mergePlatformConfig(current, configData.config));
       const sub = restaurant.subscription || {};
       const configuredPlan = (configData.config?.plans || platformConfig.plans).find((plan: PlanDefinition) =>
