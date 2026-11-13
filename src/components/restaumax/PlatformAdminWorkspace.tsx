@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 
 type Subscription = {
+  planId?: string; planFeatures?: Partial<PlanFeatureFlags>; planPriceMonthlyFcfa?: number; source?: string;
   planName?: string; priceFcfa?: number; currency?: string;
   billingCycle?: 'monthly' | 'quarterly' | 'yearly' | 'custom';
   status?: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
@@ -58,7 +59,7 @@ type SupportTicket = {
 type PlanFeatureKey = 'kitchenScreen' | 'advancedReports' | 'inventoryRecipes' | 'loyalty' | 'dishImages';
 type PlanFeatureFlags = Record<PlanFeatureKey, boolean>;
 type PlanDefinition = {
-  name: string; description: string; active: boolean; priceMonthlyFcfa: number; features: PlanFeatureFlags;
+  id?: string; name: string; description: string; active: boolean; priceMonthlyFcfa: number; features: PlanFeatureFlags;
 };
 type PlatformConfig = {
   currency: 'XOF'; gracePeriodDays: number; quarterlyDiscountPercent: number; maintenanceMode: boolean; version: number;
@@ -76,6 +77,7 @@ type Props = {
   summary: {
     totalRestaurants: number; activeRestaurants: number; suspendedRestaurants: number;
     monthlyRecurringRevenueFcfa: number; subscriptionsByStatus?: Record<string, number>;
+    financialSummary?: { openInvoicesCount: number; openAmountFcfa: number; overdueInvoicesCount: number; overdueAmountFcfa: number; collectedAmountFcfa: number; upcomingDueCount: number; upcomingDueAmountFcfa: number; asOf: number };
   } | null;
   userEmail?: string | null;
   loading: boolean;
@@ -304,7 +306,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     if (screen === 'accounts' && allowedActions.includes('platform_admin_list')) void load('platform_admin_list', data => setPlatformAdmins(data.admins || []));
     if (screen === 'support') void load('support_list', data => setSupportTickets(data.tickets || []));
     if (screen === 'health') void load('health_details', data => setHealth({ checkedAt: data.checkedAt, services: data.services || [] }));
-    if (screen === 'settings') void load('config_read', data => { if (data.config) setPlatformConfig(current => mergePlatformConfig(current, data.config)); });
+    if (screen === 'settings' || screen === 'restaurants') void load('config_read', data => { if (data.config) setPlatformConfig(current => mergePlatformConfig(current, data.config)); });
     if (screen === 'communication') void load('announcement_list', data => setAnnouncements(data.announcements || []));
     return () => { active = false; };
   }, [screen, allowedActions]);
@@ -662,7 +664,10 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     }
     setPageLoading(true); setPageError('');
     try {
+      const selectedPlan = platformConfig.plans.find(plan => plan.name === subscriptionForm.planName);
+      if (!selectedPlan && subscriptionForm.planName) throw new Error('La formule choisie n’est plus présente dans le catalogue. Rechargez le catalogue avant de modifier cet abonnement.');
       await request({ action: 'update_subscription', slug: subscriptionTarget.slug, subscription: {
+        planId: selectedPlan?.id || subscriptionForm.planName.toLocaleLowerCase('fr-FR').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
         planName: subscriptionForm.planName.trim(), priceFcfa, billingCycle: subscriptionForm.billingCycle,
         status: subscriptionForm.status, startsAt, endsAt, nextBillingAt: endsAt,
         autoRenew: subscriptionForm.billingCycle === 'custom' ? false : subscriptionForm.autoRenew,
@@ -673,16 +678,25 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     finally { setPageLoading(false); }
   };
 
-  const startSubscriptionEdit = (restaurant: Restaurant) => {
-    const sub = restaurant.subscription || {};
-    setSubscriptionTarget(restaurant);
+  const startSubscriptionEdit = async (restaurant: Restaurant) => {
+    setPageLoading(true); setPageError('');
+    try {
+      const configData = await read('config_read');
+      if (configData.config) setPlatformConfig(current => mergePlatformConfig(current, configData.config));
+      const sub = restaurant.subscription || {};
+      const configuredPlan = (configData.config?.plans || platformConfig.plans).find((plan: PlanDefinition) =>
+        (sub.planId && (plan.id || plan.name.toLocaleLowerCase('fr-FR').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')) === sub.planId) || plan.name === sub.planName
+      );
+      setSubscriptionTarget(restaurant);
     setSubscriptionForm({
-      planName: sub.planName || '', priceFcfa: String(sub.priceFcfa ?? 0),
+      planName: configuredPlan?.name || sub.planName || '', priceFcfa: String(sub.priceFcfa ?? (configuredPlan?.priceMonthlyFcfa || 0)),
       billingCycle: sub.billingCycle || 'monthly', status: sub.status || 'trial',
       startsOn: sub.startsAt ? new Date(sub.startsAt).toISOString().slice(0, 10) : '',
       endsOn: sub.endsAt ? new Date(sub.endsAt).toISOString().slice(0, 10) : '',
       gracePeriodDays: String(sub.gracePeriodDays ?? platformConfig.gracePeriodDays), useGlobalGracePeriod: sub.gracePeriodOverride === false || !Number.isSafeInteger(sub.gracePeriodDays), autoRenew: sub.autoRenew !== false
     });
+    } catch (e: any) { setPageError(e.message || 'Chargement du catalogue impossible.'); }
+    finally { setPageLoading(false); }
   };
 
   const setRestaurantStatus = async (restaurant: Restaurant) => {
@@ -825,9 +839,16 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
                 ['En essai', summary?.subscriptionsByStatus?.trial ?? 0, 'bg-sky-50'],
                 ['Suspendus', summary?.suspendedRestaurants ?? 0, 'bg-rose-50'],
                 ['Revenu récurrent mensuel', money(summary?.monthlyRecurringRevenueFcfa || 0), 'bg-orange-50'],
-                ['Factures impayées affichées', unpaidInvoices.length, 'bg-amber-50']
-              ].filter(([label]) => label !== 'Factures impayées' || can('billing_list')).map(([label, value, color]) => <Panel key={String(label)} className={String(color)}><p className="text-sm font-semibold text-slate-600">{label}</p><p className="mt-2 text-3xl font-extrabold tabular-nums">{value}</p></Panel>)}
+                ['Factures ouvertes', summary?.financialSummary?.openInvoicesCount ?? 0, 'bg-amber-50']
+              ].filter(([label]) => label !== 'Factures ouvertes' || can('billing_list')).map(([label, value, color]) => <Panel key={String(label)} className={String(color)}><p className="text-sm font-semibold text-slate-600">{label}</p><p className="mt-2 text-3xl font-extrabold tabular-nums">{value}</p></Panel>)}
             </div>
+            {can('billing_list') && <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <Panel><p className="text-xs font-semibold text-slate-500">Montant ouvert</p><p className="mt-2 text-xl font-extrabold">{money(summary?.financialSummary?.openAmountFcfa || 0)}</p></Panel>
+              <Panel><p className="text-xs font-semibold text-slate-500">Factures en retard</p><p className="mt-2 text-xl font-extrabold">{summary?.financialSummary?.overdueInvoicesCount || 0} · {money(summary?.financialSummary?.overdueAmountFcfa || 0)}</p></Panel>
+              <Panel><p className="text-xs font-semibold text-slate-500">Montants encaissés</p><p className="mt-2 text-xl font-extrabold">{money(summary?.financialSummary?.collectedAmountFcfa || 0)}</p></Panel>
+              <Panel><p className="text-xs font-semibold text-slate-500">Échéances sous 30 jours</p><p className="mt-2 text-xl font-extrabold">{summary?.financialSummary?.upcomingDueCount || 0} · {money(summary?.financialSummary?.upcomingDueAmountFcfa || 0)}</p></Panel>
+              <Panel><p className="text-xs font-semibold text-slate-500">Calcul arrêté au</p><p className="mt-2 text-sm font-bold">{summary?.financialSummary?.asOf ? new Date(summary.financialSummary.asOf).toLocaleString('fr-FR') : '—'}</p></Panel>
+            </div>}
             <div className="mt-5 grid gap-5 xl:grid-cols-[1.6fr_1fr]">
               <Panel><div className="mb-4 flex items-center justify-between gap-3"><h3 className="font-extrabold">Restaurants récents</h3><button type="button" onClick={() => setScreen('restaurants')} className="min-h-11 text-sm font-bold text-[#9a3412]">Voir tous <ChevronRight className="inline" size={15}/></button></div>
                 <div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Échéance</th></tr></thead><tbody className="divide-y divide-slate-100">{restaurants.slice(0,5).map(r=><tr key={r.slug}><td className="px-3 py-3 font-semibold">{r.name}</td><td className="px-3 py-3">{r.subscription?.planName || 'Non configuré'}</td><td className="px-3 py-3"><Badge value={r.status}/></td><td className="px-3 py-3">{date(r.subscription?.nextBillingAt || r.subscription?.endsAt)}</td></tr>)}</tbody></table></div>
