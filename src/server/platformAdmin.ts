@@ -1011,7 +1011,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const snap = await db.collection('platform_config').doc('global').get();
         const config = snap.exists ? snap.data() : null;
         return json(res, 200, { success: true, config: config || {
-          currency: 'XOF', gracePeriodDays: 7, maintenanceMode: false, version: 1,
+          currency: 'XOF', gracePeriodDays: 7, quarterlyDiscountPercent: 0, maintenanceMode: false, version: 1,
           planFeatures: {
             Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false },
             Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true }
@@ -1029,7 +1029,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
         const input = body.config && typeof body.config === 'object' ? body.config : {};
         const gracePeriodDays = Number(input.gracePeriodDays);
+        const quarterlyDiscountPercent = Number(input.quarterlyDiscountPercent ?? 0);
         if (input.currency !== 'XOF' || !Number.isInteger(gracePeriodDays) || gracePeriodDays < 0 || gracePeriodDays > 60 ||
+            !Number.isInteger(quarterlyDiscountPercent) || quarterlyDiscountPercent < 0 || quarterlyDiscountPercent > 100 ||
             typeof input.maintenanceMode !== 'boolean') {
           return json(res, 400, { success: false, error: 'Devise, délai de grâce ou mode maintenance invalide.' });
         }
@@ -1058,7 +1060,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const ref = db.collection('platform_config').doc('global');
         const now = Date.now();
         const saved = {
-          currency: 'XOF', gracePeriodDays, maintenanceMode: input.maintenanceMode,
+          currency: 'XOF', gracePeriodDays, quarterlyDiscountPercent, maintenanceMode: input.maintenanceMode,
           planFeatures, emailTemplates: normalizedTemplates, updatedAt: now, updatedBy: user.uid
         };
         await db.runTransaction(async (tx: any) => {
