@@ -215,10 +215,9 @@ export async function verifyPlatformAdminMfaAndCreateSession(db: any, uid: strin
   return { token, expiresAt: now + SESSION_TTL_MS, recoveryUsed };
 }
 
-export async function regeneratePlatformAdminRecoveryCodes(db: any, uid: string, code: string): Promise<string[] | null> {
+export async function regeneratePlatformAdminRecoveryCodes(db: any, uid: string, code: string, now = Date.now()): Promise<string[] | null> {
   if (!await consumeAttempt(db, uid)) return null;
   const ref = db.collection(MFA_COLLECTION).doc(uid);
-  const now = Date.now();
   const recoveryCodes = await db.runTransaction(async (tx: any) => {
     const snap = await tx.get(ref);
     const record = snap.exists ? snap.data() || {} : {};
