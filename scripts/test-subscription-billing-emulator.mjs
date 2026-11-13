@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { runSubscriptionBillingCycleWithDb, settleSubscriptionInvoiceWithDb } from '../src/server/subscriptionBillingService.ts';
+import { resolveSubscriptionInvoiceIdentity, runSubscriptionBillingCycleWithDb, settleSubscriptionInvoiceWithDb } from '../src/server/subscriptionBillingService.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   console.error('ÉCHEC : Firestore Emulator requis pour les tests de facturation récurrente.');
@@ -10,6 +10,14 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
 const app = initializeApp({ projectId: 'demo-restaumax' }, 'subscription-billing-emulator-test');
 const db = getFirestore(app);
 const now = Date.now();
+assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurantSubscriptions/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, {}).restaurantSlug, 'correlation-a',
+  'Une facture placée sous son abonnement canonique est correctement corrélée');
+assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurants/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, {}), null,
+  'Une facture d’une autre collection ne peut pas entrer dans le panel Abonnements');
+assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurantSubscriptions/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, { restaurantSlug: 'correlation-b' }), null,
+  'Une facture dont le restaurant déclaré contredit son chemin Firestore est rejetée');
+assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurantSubscriptions/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, { id: 'subinv_ffffffffffffffffffffffffffffffff' }), null,
+  'Un identifiant de facture différent de son identifiant Firestore est rejeté');
 const slug = 'subscription-cycle-emulator';
 const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
 const restaurantRef = db.collection('restaurants').doc(slug);
