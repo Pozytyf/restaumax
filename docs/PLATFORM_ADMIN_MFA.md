@@ -26,7 +26,7 @@ Les règles Firestore sont en refus par défaut. Les clients Firebase ne peuvent
 4. L'administrateur saisit un code courant. Le serveur valide ce code, active le facteur et retourne dix codes de secours à usage unique.
 5. Après sauvegarde des codes de secours, l'administrateur se déconnecte et se reconnecte.
 6. Après le mot de passe Firebase, il doit saisir un TOTP ou un code de secours. Le serveur consomme atomiquement le pas TOTP ou le code de secours, puis crée une session aléatoire dont seul le hash est stocké.
-7. Le navigateur reçoit le jeton uniquement dans un cookie `HttpOnly; Secure; SameSite=Strict`, limité à `/api/platform-admin`, avec une durée maximale de quatre heures.
+7. Le navigateur reçoit le jeton uniquement dans un cookie `HttpOnly; Secure; SameSite=Strict`, limité à `/api/platform-admin`, avec une durée maximale de 90 jours. La session est persistante sur cet appareil jusqu'à son expiration, sa révocation ou un changement de version de session.
 
 Toutes les actions d'administration plateforme, y compris les lectures, exigent une session MFA valide lorsque `RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA=true`. Les routes de support du restaurant restent dans leur périmètre tenant et ne sont pas transformées en routes super-admin.
 
