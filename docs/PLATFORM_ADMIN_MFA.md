@@ -39,6 +39,8 @@ L'adresse de récupération MFA est distincte de l'adresse de connexion Firebase
 
 1. Depuis une session de plateforme déjà validée par TOTP ou passkey, l'administrateur saisit une adresse de récupération.
 2. Le serveur envoie un code à huit chiffres via Resend. Le code est stocké uniquement sous forme HMAC avec la clé MFA, expire après dix minutes et est limité à trois envois par fenêtre de quinze minutes, avec un délai minimal entre envois.
+
+En Preview uniquement, lorsque l'expéditeur est `onboarding@resend.dev`, `RESEND_TEST_RECIPIENT` peut rediriger le message de diagnostic vers l'adresse autorisée du propriétaire du compte Resend. Cette redirection est explicitement marquée `testDeliveryOnly` : le code reçu dans cette boîte ne peut jamais vérifier l'adresse de récupération demandée, qui reste non configurée. Ne définissez jamais cette variable en Production. Pour vérifier réellement une adresse tierce, un domaine expéditeur doit être vérifié dans Resend.
 3. La confirmation exige une session MFA normale et une authentification Firebase récente. Le code est consommé dans une transaction.
 4. L'adresse vérifiée est enregistrée sous l'UID ; une réservation par empreinte SHA-256 empêche son attribution à un autre administrateur. Le remplacement d'une adresse libère l'ancienne réservation dans la même transaction.
 5. La récupération MFA envoie exclusivement à cette adresse vérifiée. Si aucune adresse n'est configurée, la récupération est refusée sans repli silencieux vers l'adresse Firebase.
