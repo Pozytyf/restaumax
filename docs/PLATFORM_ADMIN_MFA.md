@@ -37,11 +37,32 @@ Toutes les actions d'administration plateforme, y compris les lectures, exigent 
 - Les tentatives de vérification et d'enrôlement sont limitées à huit par compte sur une fenêtre de dix minutes.
 - Les sessions sont liées à la version de session Firebase de l'administrateur ; une révocation ou un changement de version invalide les sessions existantes.
 
-## Réinitialisation d'urgence
+## Perte du téléphone et récupération
 
-L'action serveur `mfa_reset` est réservée à un Super-admin disposant lui-même d'une session MFA valide. Elle cible un autre compte administrateur, révoque ses sessions, invalide ses jetons Firebase, supprime son facteur et inscrit une entrée d'audit. Le compte cible doit ensuite se reconnecter et refaire son enrôlement.
+### Si au moins un code de secours reste disponible
 
-Un administrateur ne peut pas réinitialiser lui-même son propre facteur via cette action.
+1. Se connecter avec l'adresse e-mail et le mot de passe habituels.
+2. À l'écran MFA, saisir un code de secours encore inutilisé (10 caractères hexadécimaux). Le code est consommé atomiquement et ne peut plus être réutilisé.
+3. Le serveur crée une session de récupération explicitement marquée `factorSource=recovery`. Cette session n'autorise aucune lecture ni opération du panel.
+4. L'application impose immédiatement le remplacement du facteur : scanner le nouveau QR TOTP et confirmer avec un code à six chiffres.
+5. La confirmation remplace le secret TOTP précédent et génère dix nouveaux codes de secours. Les anciens codes restants sont invalidés.
+6. Enregistrer les nouveaux codes hors ligne, puis utiliser le bouton de fin qui révoque la session de récupération et déconnecte le compte.
+7. Se reconnecter avec le nouveau facteur TOTP.
+
+La session de récupération ne peut servir qu'à consulter l'état MFA, démarrer/confirmer le nouvel enrôlement ou se déconnecter. Toute autre action de plateforme est refusée côté serveur. Le mot de passe seul ne permet ni de créer cette session ni de remplacer le facteur.
+
+### Si tous les codes de secours sont épuisés
+
+- Si un autre Super-admin est disponible : celui-ci doit se connecter avec son propre MFA, puis effectuer `mfa_reset` sur le compte bloqué. Cette action cible un autre compte uniquement, révoque ses sessions et jetons Firebase, supprime son facteur et laisse une trace d'audit. Le compte réinitialisé doit ensuite s'enrôler à nouveau.
+- Si le compte concerné est le seul Super-admin : aucune réinitialisation autonome par mot de passe n'est prévue. Il faut déclencher une procédure opérateur hors bande avec vérification d'identité indépendante, contrôle à deux personnes et journalisation du ticket d'incident. L'opérateur autorisé doit révoquer les sessions/jetons et supprimer le facteur via l'administration sécurisée, puis le titulaire refait l'enrôlement. Ne jamais ajouter de route publique, de code universel, de lien de contournement ou de désactivation MFA par mot de passe.
+
+### Règles de sécurité
+
+- Les codes de secours sont des secrets à usage unique, stockés uniquement sous forme d'empreintes.
+- Un code de secours ne donne qu'une session de récupération restreinte, jamais une session d'administration complète.
+- La perte du téléphone doit être suivie immédiatement d'un remplacement TOTP.
+- Un reset par un autre Super-admin exige sa propre session MFA valide et ne peut pas se cibler lui-même.
+- Toute opération de récupération ou de réinitialisation est journalisée.
 
 ## Activation progressive
 
