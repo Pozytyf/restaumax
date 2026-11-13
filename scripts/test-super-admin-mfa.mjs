@@ -47,8 +47,10 @@ try {
     adminSource.includes('createPlatformAdminMfaSession') &&
     adminSource.includes('getPlatformAdminRole(db, user, mfaSessionValid)'),
     'platform admin API reads and enforces the server-side MFA session on protected actions');
-  assert(adminSource.includes('HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin'),
+  assert(adminSource.includes('HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin') && adminSource.includes('Max-Age=7776000'),
     'MFA session token is issued only in a scoped HttpOnly secure cookie');
+  assert(mfaSource.includes('PLATFORM_ADMIN_TRUSTED_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000'),
+    'the trusted MFA session has an explicit 90-day server-side TTL');
   assert(mfaSource.includes('lastAcceptedStep') && mfaSource.includes('tx.update(ref, update)'),
     'TOTP time steps are consumed transactionally to prevent replay');
   assert(mfaSource.includes('recoveryCodeHashes') && mfaSource.includes('hashMfaToken'),
