@@ -201,7 +201,7 @@ function mergePlatformConfig(current: PlatformConfig, incoming: any): PlatformCo
 
 
 export const PlatformAdminWorkspace: React.FC<Props> = ({
-  restaurants, summary, userEmail, loading, request, onRefresh, onBack, onSignOut
+  restaurants, summary, userEmail, security, onRefreshSecurity, loading, request, onRefresh, onBack, onSignOut
 }) => {
   const [screen, setScreen] = useState<Screen>('overview');
   const [platformRole, setPlatformRole] = useState<'full' | 'billing' | 'support' | 'read_only' | null>(null);
