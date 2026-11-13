@@ -42,7 +42,6 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const [totpSecret, setTotpSecret] = useState<any>(null);
   const [totpEnrollmentCode, setTotpEnrollmentCode] = useState('');
   const [totpEnrollmentBusy, setTotpEnrollmentBusy] = useState(false);
-  const [currentAccountMfaEnrolled, setCurrentAccountMfaEnrolled] = useState(false);
   const [customMfaRequired, setCustomMfaRequired] = useState(false);
   const [customMfaSetup, setCustomMfaSetup] = useState(false);
   const [customMfaCode, setCustomMfaCode] = useState('');
@@ -95,7 +94,6 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
 
   const continueAfterAuthentication = useCallback(async () => {
     const status = await request({ action: 'mfa_status' });
-    setCurrentAccountMfaEnrolled(status.enrolled === true);
     setNeedsPlatformAdminLogin(false);
     if (status.enrolled === true) {
       setCustomMfaRequired(true);
@@ -274,22 +272,6 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     return () => { active = false; };
   }, [totpSecret]);
 
-  const beginTotpEnrollment = async () => {
-    if (!user || !isPlatformAdminAuthorized) return;
-    setError('');
-    setTotpEnrollmentBusy(true);
-    try {
-      const setup = await request({ action: 'mfa_enroll_start' });
-      setTotpSecret({ secretKey: setup.secret, otpauthUri: setup.otpauthUri });
-      setCustomMfaSetup(true);
-      setTotpEnrollmentCode('');
-    } catch (enrollmentError: any) {
-      setError(enrollmentError?.message || 'Impossible de préparer l’enrôlement MFA.');
-    } finally {
-      setTotpEnrollmentBusy(false);
-    }
-  };
-
   const confirmTotpEnrollment = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!user || !totpSecret) return;
@@ -297,7 +279,6 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     setTotpEnrollmentBusy(true);
     try {
       const result = await request({ action: 'mfa_enroll_confirm', code: totpEnrollmentCode.trim() });
-      setCurrentAccountMfaEnrolled(true);
       setRecoveryCodes(Array.isArray(result.recoveryCodes) ? result.recoveryCodes : []);
       setTotpSecret(null);
       setTotpEnrollmentCode('');
@@ -397,28 +378,6 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         </>}
       </section></div>
     ) : <>
-      {isPlatformAdminAuthorized && <section className="mx-auto mt-5 w-[min(96%,1100px)] rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><h2 className="font-extrabold text-[#101d2d]">Sécurité du compte administrateur plateforme</h2><p className="mt-1 text-sm text-slate-600">Enrôlez une application d’authentification TOTP. La politique MFA obligatoire s’appliquera à tous les comptes administrateurs plateforme, y compris les comptes délégués.</p></div>
-          <span className={currentAccountMfaEnrolled?'rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800':'rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800'}>{currentAccountMfaEnrolled?'MFA enrôlé':'Enrôlement requis'}</span>
-        </div>
-        {!currentAccountMfaEnrolled && !totpSecret && <button type="button" disabled={totpEnrollmentBusy} onClick={()=>void beginTotpEnrollment()} className="mt-4 min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white disabled:opacity-50">{totpEnrollmentBusy?'Préparation…':'Configurer une application d’authentification'}</button>}
-        {totpSecret && <form onSubmit={confirmTotpEnrollment} className="mt-4 max-w-xl space-y-3">
-          <p className="text-sm text-slate-700">Scannez le QR code avec Google Authenticator, Microsoft Authenticator ou une application TOTP compatible, ou saisissez manuellement la clé :</p>
-          {customMfaQrCode && <img src={customMfaQrCode} alt="QR code de configuration MFA RestauMax" className="h-56 w-56 rounded-lg border p-2"/>}
-          <code className="block break-all rounded-lg bg-slate-100 p-3 text-sm font-bold tracking-wider">{totpSecret.secretKey}</code>
-          <p className="text-xs text-slate-500">Cette clé donne accès à la génération de codes MFA. Ne la partagez avec personne et ne la copiez pas dans un ticket ou un e-mail.</p>
-          <label className="block text-sm font-semibold text-slate-700">Code à 6 chiffres de l’application<input required inputMode="numeric" pattern="[0-9]{6}" autoComplete="one-time-code" value={totpEnrollmentCode} onChange={e=>setTotpEnrollmentCode(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 tracking-widest"/></label>
-          <div className="flex flex-wrap gap-2"><button disabled={totpEnrollmentBusy} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white disabled:opacity-50">{totpEnrollmentBusy?'Validation…':'Valider et activer MFA'}</button><button type="button" onClick={()=>{setTotpSecret(null);setTotpEnrollmentCode('');}} className="min-h-11 rounded-xl border px-4 text-sm font-semibold">Annuler</button></div>
-        </form>}
-        {currentAccountMfaEnrolled && <p className="mt-3 text-sm text-emerald-800">Un facteur TOTP chiffré est enregistré côté serveur RestauMax. La politique obligatoire reste désactivée jusqu’à la reconnexion testée des deux administrateurs.</p>}
-        {recoveryCodes.length > 0 && <div className="mt-3 space-y-2">
-          <p className="text-sm font-semibold text-amber-800">Enregistrez vos codes de secours : ils sont affichés une seule fois.</p>
-          <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-3 font-mono text-sm">{recoveryCodes.map(code => <code key={code}>{code}</code>)}</div>
-          <button type="button" onClick={() => void finishMfaEnrollment()} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white">J’ai enregistré mes codes — me déconnecter</button>
-        </div>}
-        {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
-      </section>}
       <PlatformAdminWorkspace
         restaurants={restaurants}
         summary={summary}
