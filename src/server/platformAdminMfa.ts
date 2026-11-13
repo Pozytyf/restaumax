@@ -137,10 +137,9 @@ export async function beginPlatformAdminMfaEnrollment(db: any, uid: string, emai
   return { secret, otpauthUri: buildTotpUri(secret, email), expiresAt: now + ENROLLMENT_TTL_MS };
 }
 
-export async function confirmPlatformAdminMfaEnrollment(db: any, uid: string, code: string): Promise<string[] | null> {
+export async function confirmPlatformAdminMfaEnrollment(db: any, uid: string, code: string, now = Date.now()): Promise<string[] | null> {
   if (!await consumeAttempt(db, uid)) return null;
   const ref = db.collection(MFA_COLLECTION).doc(uid);
-  const now = Date.now();
   const recoveryCodes = await db.runTransaction(async (tx: any) => {
     const snap = await tx.get(ref);
     const record = snap.exists ? snap.data() || {} : {};
