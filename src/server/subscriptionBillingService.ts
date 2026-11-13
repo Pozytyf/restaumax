@@ -47,7 +47,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
   const [subscriptions, configSnap, promotionsSnap] = await Promise.all([
     db.collection('restaurantSubscriptions').get(),
     db.collection('platform_config').doc('global').get(),
-    db.collection('platform_promotions').where('active', '==', true).get()
+    db.collection('platform_promotions').where('active', '==', true).limit(100).get()
   ]);
   const configuredGrace = Number(configSnap.data()?.gracePeriodDays);
   const globalGracePeriodDays = Number.isInteger(configuredGrace) && configuredGrace >= 0 && configuredGrace <= 60 ? configuredGrace : 7;
