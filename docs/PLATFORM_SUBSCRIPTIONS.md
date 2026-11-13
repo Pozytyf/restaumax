@@ -25,6 +25,8 @@ Les API serveur et les règles Firestore refusent les fonctionnalités Premium n
 
 Le prix de formule est défini au mois. Le tarif de période appliqué à un abonnement est calculé côté serveur :
 
+Le prix courant du catalogue est relu au renouvellement : une modification du tarif d'une formule s'applique à la prochaine facture des abonnements concernés, sans modifier les factures déjà émises.
+
 - Mensuel : prix mensuel × 1
 - Trimestriel : prix mensuel × 3
 - Annuel : prix mensuel × 12
