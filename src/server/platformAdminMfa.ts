@@ -141,7 +141,7 @@ export async function confirmPlatformAdminMfaEnrollment(db: any, uid: string, co
   if (!await consumeAttempt(db, uid)) return null;
   const ref = db.collection(MFA_COLLECTION).doc(uid);
   const now = Date.now();
-  return db.runTransaction(async (tx: any) => {
+  const recoveryCodes = await db.runTransaction(async (tx: any) => {
     const snap = await tx.get(ref);
     const record = snap.exists ? snap.data() || {} : {};
     if (!record.pendingSecret || Number(record.pendingExpiresAt || 0) <= now) return null;
@@ -161,6 +161,8 @@ export async function confirmPlatformAdminMfaEnrollment(db: any, uid: string, co
     }, { merge: true });
     return recoveryCodes;
   });
+  if (recoveryCodes) await db.collection(ATTEMPT_COLLECTION).doc(uid).delete().catch(() => undefined);
+  return recoveryCodes;
 }
 
 export async function verifyPlatformAdminMfaAndCreateSession(db: any, uid: string, code: string, sessionVersion: number) {
