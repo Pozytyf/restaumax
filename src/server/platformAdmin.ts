@@ -176,6 +176,41 @@ const PLATFORM_ADMIN_ROLE_PERMISSIONS: Record<PlatformAdminRole, readonly string
   read_only: ['platform.overview', 'support.read', 'health.read', 'audit.read', 'communication.read']
 };
 
+const PLATFORM_ADMIN_ACTION_PERMISSION: Record<string, string> = {
+  overview: 'platform.overview', platform_capabilities: 'platform.overview',
+  audit_list: 'audit.read',
+  billing_list: 'billing.read', billing_catalog_read: 'billing.read',
+  update_subscription: 'billing.manage', settle_subscription_invoice: 'billing.manage',
+  promotion_list: 'billing.read', promotion_save: 'billing.manage', promotion_toggle: 'billing.manage',
+  support_list: 'support.read', support_messages: 'support.read', support_create: 'support.manage', support_update: 'support.manage',
+  support_access_request: 'support.access.request', support_access_list: 'support.read',
+  support_access_diagnostics: 'support.access.diagnostics',
+  platform_staff_list: 'accounts.read',
+  health_details: 'health.read', announcement_list: 'communication.read',
+  platform_admin_list: 'accounts.manage', platform_admin_create: 'accounts.manage',
+  platform_admin_update: 'accounts.manage', platform_admin_status: 'accounts.manage',
+  platform_admin_delete: 'accounts.manage', platform_admin_revoke_sessions: 'accounts.manage',
+  platform_account_password_reset: 'accounts.manage', mfa_reset: 'accounts.manage',
+  create_restaurant: 'platform.manage', set_restaurant_status: 'platform.manage',
+  update_subscription_platform: 'platform.manage', delete_restaurant: 'platform.manage',
+  platform_owner_invite: 'accounts.manage', platform_staff_status: 'accounts.manage',
+  platform_staff_revoke_sessions: 'accounts.manage',
+  config_read: 'platform.manage', config_update: 'platform.manage',
+  promotion_manage: 'billing.manage', announcement_save: 'communication.manage',
+  announcement_publish: 'communication.manage', announcement_cancel: 'communication.manage'
+};
+
+function resolvePlatformAdminPermissions(role: Exclude<PlatformAdminRole, 'full'>, requested: unknown): string[] | null {
+  const ceiling = PLATFORM_ADMIN_ROLE_PERMISSIONS[role];
+  if (requested === undefined) return [...ceiling];
+  if (!Array.isArray(requested)) return null;
+  const permissions = [...new Set(requested.filter((value): value is string => typeof value === 'string'))];
+  if (permissions.length !== requested.length || !permissions.includes('platform.overview') ||
+      permissions.some(permission => !ceiling.includes(permission))) return null;
+  return permissions;
+}
+
+
 function platformAdminMfaSatisfied(_user: DecodedIdToken, mfaSessionValid: boolean): boolean {
   return process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA !== 'true' || mfaSessionValid;
 }
@@ -195,19 +230,27 @@ export async function getPlatformAdminRole(db: any, user: DecodedIdToken, mfaSes
   if (!snap.exists) return null;
   const record = snap.data() || {};
   const tokenVersion = Number((user as any).platformAdminSessionVersion || 0);
+  const expectedPermissions = Array.isArray(record.permissions)
+    ? record.permissions
+    : PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole];
+  const tokenPermissions = Array.isArray((user as any).platformAdminPermissions)
+    ? (user as any).platformAdminPermissions
+    : PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole];
   if (record.active !== true || record.role !== role ||
       !Number.isSafeInteger(tokenVersion) || tokenVersion < 1 ||
-      tokenVersion !== Number(record.sessionVersion || 0)) return null;
+      tokenVersion !== Number(record.sessionVersion || 0) ||
+      [...expectedPermissions].sort().join('|') !== [...tokenPermissions].sort().join('|')) return null;
   return role as PlatformAdminRole;
 }
 
-export function canPlatformAdminPerform(role: PlatformAdminRole, action: string): boolean {
+export function canPlatformAdminPerform(role: PlatformAdminRole, action: string, assignedPermissions?: unknown): boolean {
   if (role === 'full') return true;
-  if (['overview', 'audit_list', 'platform_capabilities'].includes(action)) return true;
-  if (role === 'billing') return ['billing_list', 'billing_catalog_read', 'update_subscription', 'settle_subscription_invoice', 'promotion_list', 'promotion_save', 'promotion_toggle'].includes(action);
-  if (role === 'support') return ['support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'platform_staff_list', 'health_details', 'announcement_list'].includes(action);
-  if (role === 'read_only') return ['support_list', 'support_messages', 'health_details', 'announcement_list'].includes(action);
-  return false;
+  const requiredPermission = PLATFORM_ADMIN_ACTION_PERMISSION[action];
+  if (!requiredPermission) return false;
+  const permissions = Array.isArray(assignedPermissions)
+    ? assignedPermissions.filter((value): value is string => typeof value === 'string')
+    : PLATFORM_ADMIN_ROLE_PERMISSIONS[role];
+  return permissions.includes(requiredPermission);
 }
 
 export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole: string): boolean {
@@ -802,7 +845,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
     if (['overview', 'billing_list', 'billing_catalog_read', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_admin_delete', 'platform_admin_revoke_sessions', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'promotion_list', 'promotion_save', 'promotion_toggle', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details', 'mfa_reset'].includes(action)) {
       const platformRole = await getPlatformAdminRole(db, user, mfaSessionValid);
-      if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
+      if (!platformRole || !canPlatformAdminPerform(platformRole, action, (user as any).platformAdminPermissions)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
       if (action === 'mfa_reset') {
         if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
@@ -862,7 +905,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         ];
         return json(res, 200, {
           success: true, role: platformRole,
-          allowedActions: knownActions.filter((candidate: string) => canPlatformAdminPerform(platformRole, candidate))
+          allowedActions: knownActions.filter((candidate: string) => canPlatformAdminPerform(platformRole, candidate, (user as any).platformAdminPermissions))
         });
       }
 
@@ -883,7 +926,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             lastSignInAt: authUser?.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null,
             mfaEnrolled: mfaRecord.active === true,
             recoveryCodesRemaining: Array.isArray(mfaRecord.recoveryCodeHashes) ? mfaRecord.recoveryCodeHashes.length : 0,
-            disabled: authUser?.disabled === true, isPrimary: raw.role === 'full' || authUser?.customClaims?.role === 'super_admin'
+            disabled: authUser?.disabled === true, isPrimary: raw.role === 'full' || authUser?.customClaims?.role === 'super_admin',
+            permissions: Array.isArray(raw.permissions) ? raw.permissions : (raw.role === 'full' ? ['platform.*'] : PLATFORM_ADMIN_ROLE_PERMISSIONS[String(raw.role || 'read_only') as PlatformAdminRole] || [])
           };
         }));
         const knownUids = new Set(admins.map((admin: any) => admin.uid));
@@ -1005,6 +1049,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             !['full', 'billing', 'support', 'read_only'].includes(role)) {
           return json(res, 400, { success: false, error: 'Nom, e-mail ou rôle administrateur invalide.' });
         }
+        const permissions = role === 'full' ? null : resolvePlatformAdminPermissions(role as Exclude<PlatformAdminRole, 'full'>, body.permissions);
+        if (role !== 'full' && !permissions) return json(res, 400, { success: false, error: 'La sélection des permissions dépasse le plafond du rôle.' });
         const auth = getAuth();
         let created: any = null;
         try {
@@ -1015,12 +1061,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             : {
                 role: 'platform_admin', platformAdminRole: role,
                 platformAdminSessionVersion: sessionVersion,
-                platformAdminPermissions: PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole]
+                platformAdminPermissions: permissions
               });
           const now = Date.now();
           const record = {
             uid: created.uid, email, displayName, role, active: true,
-            sessionVersion, createdAt: now, updatedAt: now, createdBy: user.uid
+            sessionVersion, createdAt: now, updatedAt: now, createdBy: user.uid,
+            ...(permissions ? { permissions } : {})
           };
           const batch = db.batch();
           batch.create(db.collection('platform_admins').doc(created.uid), record);
@@ -1044,6 +1091,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!uid || uid === user.uid || !['billing', 'support', 'read_only'].includes(role)) {
           return json(res, 400, { success: false, error: 'Compte cible ou rôle invalide. Vous ne pouvez pas modifier votre propre rôle.' });
         }
+        const permissions = resolvePlatformAdminPermissions(role as Exclude<PlatformAdminRole, 'full'>, body.permissions);
+        if (!permissions) return json(res, 400, { success: false, error: 'Permissions invalides ou supérieures au plafond du rôle.' });
         const ref = db.collection('platform_admins').doc(uid);
         const snap = await ref.get();
         if (!snap.exists || snap.data()?.active !== true) return json(res, 404, { success: false, error: 'Compte délégué actif introuvable.' });
@@ -1056,15 +1105,16 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         await auth.setCustomUserClaims(uid, {
           ...(authUser.customClaims || {}), role: 'platform_admin',
           platformAdminRole: role, platformAdminSessionVersion: sessionVersion,
-          platformAdminPermissions: PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole]
+          platformAdminPermissions: permissions
         });
         await auth.revokeRefreshTokens(uid);
         const now = Date.now();
-        await ref.update({ role, sessionVersion, updatedAt: now, updatedBy: user.uid });
+        await ref.update({ role, permissions, sessionVersion, updatedAt: now, updatedBy: user.uid });
         await db.collection('admin_audit_logs').add({
           action: 'update_platform_admin_role', targetUid: uid, targetRole: role,
           previousRole: String(snap.data()?.role || ''), newRole: role,
-          outcome: 'success', actorUid: user.uid, createdAt: now
+          previousPermissions: Array.isArray(snap.data()?.permissions) ? snap.data()?.permissions : PLATFORM_ADMIN_ROLE_PERMISSIONS[String(snap.data()?.role || 'read_only') as PlatformAdminRole],
+          newPermissions: permissions, outcome: 'success', actorUid: user.uid, createdAt: now
         });
         return json(res, 200, { success: true, uid, role, requiresReauthentication: true });
       }
@@ -1101,7 +1151,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           ...(authUser.customClaims || {}), role: 'platform_admin',
           platformAdminRole: String(snap.data()?.role || 'read_only'),
           platformAdminSessionVersion: sessionVersion,
-          platformAdminPermissions: PLATFORM_ADMIN_ROLE_PERMISSIONS[String(snap.data()?.role || 'read_only') as PlatformAdminRole]
+          platformAdminPermissions: Array.isArray(snap.data()?.permissions) ? snap.data()?.permissions : PLATFORM_ADMIN_ROLE_PERMISSIONS[String(snap.data()?.role || 'read_only') as PlatformAdminRole]
         });
         await auth.updateUser(uid, { disabled: !active });
         await auth.revokeRefreshTokens(uid);
