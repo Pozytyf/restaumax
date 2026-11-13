@@ -153,7 +153,7 @@ const consentBlockStart = source.indexOf("if (action === 'support_access_request
 const consentBlockEnd = source.indexOf("if (action === 'restaurant_announcements')", consentBlockStart);
 const consentBlock = source.slice(consentBlockStart, consentBlockEnd);
 assert(consentBlock.indexOf("getRestaurantOwnerUid") >= 0 && consentBlock.indexOf("getRestaurantOwnerUid") < consentBlock.indexOf("if (action === 'support_access_revoke')"), 'owner identity is checked before a diagnostic access can be revoked');
-assert(source.includes("id: 'mfa'") && source.includes("RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA"), 'platform health reports the server-side MFA enforcement policy');
+assert(source.includes("id: 'admin-access'") && source.includes("RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA"), 'platform health reports the server-side administrator access enforcement policy without exposing MFA setup messaging');
 assert(firestoreRules.includes('function hasPlatformFeature') && firestoreRules.includes("hasPlatformFeature(restaurantSlug, 'kitchenScreen')"), 'Firestore order reads enforce the kitchen plan entitlement');
 assert(firestoreRules.includes('function isPlatformMaintenanceMode'), 'Firestore rules read the persisted platform maintenance flag');
 const firestoreWriteRules = firestoreRules.split('\n').filter(line => /allow (create|update|delete|write)/.test(line) && /: if/.test(line));
