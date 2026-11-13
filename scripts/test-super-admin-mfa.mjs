@@ -36,7 +36,7 @@ try {
     { uid: 'disabled-full', email: 'disabled@example.test', emailVerified: true, disabled: true, customClaims: { role: 'super_admin' } },
     { uid: 'unverified-allowlist', email: 'root@example.test', emailVerified: false, disabled: false, customClaims: {} }
   ];
-  const mockAuth = { listUsers: async (_limit: number, pageToken?: string) => pageToken
+  const mockAuth = { listUsers: async (_limit, pageToken) => pageToken
     ? { users: activeAdminUsers.slice(2), pageToken: undefined }
     : { users: activeAdminUsers.slice(0, 2), pageToken: 'next' } };
   assert.equal(await countActivePlatformSuperAdmins(mockAuth), 2,
