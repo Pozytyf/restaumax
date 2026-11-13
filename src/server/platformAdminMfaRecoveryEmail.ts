@@ -30,8 +30,13 @@ async function sendWithResend(email: string, code: string, purpose: 'recovery' |
   if (!apiKey || !from) throw new Error('La récupération par e-mail n’est pas configurée sur cet environnement.');
   const testRecipient = String(process.env.RESEND_TEST_RECIPIENT || '').trim().toLowerCase();
   const isResendOnboardingSender = /onboarding@resend\.dev/i.test(from);
-  const deliveredTo = isResendOnboardingSender && testRecipient ? testRecipient : email;
-  const testDeliveryOnly = deliveredTo !== email;
+  if (isResendOnboardingSender && !testRecipient) {
+    throw new Error('Mode test Resend bloqué : RESEND_TEST_RECIPIENT doit être configuré sur Preview. Aucun e-mail n’a été envoyé.');
+  }
+  const deliveredTo = isResendOnboardingSender ? testRecipient : email;
+  // Every onboarding-sender delivery is test-only, even if the requested address
+  // happens to equal the configured mailbox. It must never verify a recovery contact.
+  const testDeliveryOnly = isResendOnboardingSender;
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
