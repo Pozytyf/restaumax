@@ -34,7 +34,7 @@ try {
   assert.equal(await getPlatformAdminRole({}, trustedClaim), 'full',
     'the compatibility mode remains unchanged when enforcement is disabled');
 
-  console.log('Super-admin MFA gate tests passed (7 assertions).');
+  console.log('Super-admin MFA gate tests passed (8 assertions).');
 } finally {
   if (previousMfa === undefined) delete process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA;
   else process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA = previousMfa;
