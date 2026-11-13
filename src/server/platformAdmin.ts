@@ -248,8 +248,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const firebaseSecondFactor = (user as any).firebase?.sign_in_second_factor;
   const firebaseMfaIsRecent = typeof firebaseSecondFactor === 'string' && firebaseSecondFactor &&
     Number(user.auth_time || 0) >= Math.floor(Date.now() / 1000) - 5 * 60;
+  const firebaseMfaAdminIdentity = isSuperAdminIdentity(user) ||
+    (user.role === 'platform_admin' && await getPlatformAdminRole(db, user, true) !== null);
   if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true' && firebaseMfaIsRecent &&
-      isSuperAdminIdentity(user) &&
+      firebaseMfaAdminIdentity &&
       !(await hasValidPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, mfaCookie))) {
     const session = await createPlatformAdminMfaSession(db, user.uid, mfaSessionVersion);
     mfaCookie = session.token;
