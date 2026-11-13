@@ -94,10 +94,14 @@ service cloud.firestore {
       let subscription = exists(subscriptionPath) ? get(subscriptionPath).data : {};
       let config = exists(configPath) ? get(configPath).data : {};
       let plan = subscription.get('planName', '');
+      let snapshotFeatures = subscription.get('planFeatures', {});
+      let snapshotValue = snapshotFeatures.get(feature, null);
       let featureMap = config.get('planFeatures', {}).get(plan, {});
       return plan == ''
         ? feature == 'kitchenScreen'
-        : featureMap.get(feature, plan == 'Pro' || feature == 'kitchenScreen') == true;
+        : snapshotValue is bool
+          ? snapshotValue
+          : featureMap.get(feature, plan == 'Pro' || feature == 'kitchenScreen') == true;
     }
 
     // Maximum permission ceilings for the six restaurant roles.
