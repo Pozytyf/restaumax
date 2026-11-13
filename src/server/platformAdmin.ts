@@ -1585,7 +1585,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           try { parsed = JSON.parse(cursor); } catch { /* invalid cursor handled below */ }
           const slug = String(parsed?.slug || '');
           const invoiceId = String(parsed?.id || '');
-          if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^subinv_[a-f0-9]{32}$/.test(invoiceId)) {
+          if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(invoiceId)) {
             return json(res, 400, { success: false, error: 'Curseur de facturation invalide.' });
           }
           const cursorSnap = await db.collection('restaurantSubscriptions').doc(slug).collection('invoices').doc(invoiceId).get();
