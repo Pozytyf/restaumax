@@ -1760,18 +1760,29 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             db.collectionGroup('invoices').get(),
             db.collectionGroup('payments').get()
           ]);
-          const invoiceRows = invoiceFinancialSnap.docs
-            .filter((doc: any) => doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions')
-            .map((doc: any) => ({
-              ...(doc.data() || {}), restaurantSlug: doc.ref.parent.parent?.id || String(doc.data()?.restaurantSlug || '')
-            }));
+          const invoiceRows = invoiceFinancialSnap.docs.flatMap((doc: any) => {
+            const rawInvoice = doc.data() || {};
+            const identity = resolveSubscriptionInvoiceIdentity(doc.ref, rawInvoice);
+            return identity ? [{ ...rawInvoice, id: identity.invoiceId, restaurantSlug: identity.restaurantSlug }] : [];
+          });
+          const invoiceByKey = new Map(invoiceRows.map((invoice: any) => [`${invoice.restaurantSlug}/${invoice.id}`, invoice]));
           const openInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && !(Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
           const overdueInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'overdue' || (invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
           const upcomingInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && Number(invoice.dueAt || 0) > aggregationTime && Number(invoice.dueAt) <= aggregationTime + 30 * 24 * 60 * 60 * 1000);
           const sumInvoiceAmounts = (items: any[]) => items.reduce((total, invoice) => total + (Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0), 0);
-          const subscriptionPaymentDocs = paymentFinancialSnap.docs.filter((doc: any) =>
-            doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions'
-          );
+          const subscriptionPaymentDocs = paymentFinancialSnap.docs.filter((doc: any) => {
+            const segments = String(doc.ref.path || '').split('/');
+            if (segments.length !== 4 || segments[0] !== 'restaurantSubscriptions' || segments[2] !== 'payments') return false;
+            const restaurantSlug = segments[1];
+            const paymentId = segments[3];
+            const payment = doc.data() || {};
+            if (payment.restaurantSlug !== restaurantSlug || (payment.id && payment.id !== paymentId) ||
+                typeof payment.invoiceId !== 'string') return false;
+            const linkedInvoice: any = invoiceByKey.get(`${restaurantSlug}/${payment.invoiceId}`);
+            return Boolean(linkedInvoice && linkedInvoice.status === 'paid' &&
+              linkedInvoice.paymentReference === payment.paymentReference &&
+              Number(linkedInvoice.amountFcfa) === Number(payment.amountFcfa));
+          });
           const collectedAmountFcfa = subscriptionPaymentDocs.reduce((total: number, doc: any) => {
             const payment = doc.data() || {};
             return total + (Number.isSafeInteger(payment.amountFcfa) ? payment.amountFcfa : 0);
@@ -1991,11 +2002,14 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           if (!outstandingInvoice.exists) {
             return json(res, 409, { success: false, error: 'Le lien de la facture courante est introuvable. Corrigez le rapprochement avant de modifier la formule ou la période.' });
           }
-          const invoiceIdentity = resolveSubscriptionInvoiceIdentity(outstandingInvoice.ref, outstandingInvoice.data() || {});
-          if (!invoiceIdentity || invoiceIdentity.restaurantSlug !== slug || invoiceIdentity.invoiceId !== currentInvoiceId) {
-            return json(res, 409, { success: false, error: 'Le lien entre le restaurant, l’abonnement et sa facture courante est incohérent.' });
+          const currentInvoiceData = outstandingInvoice.data() || {};
+          const invoiceIdentity = resolveSubscriptionInvoiceIdentity(outstandingInvoice.ref, currentInvoiceData);
+          if (!invoiceIdentity || invoiceIdentity.restaurantSlug !== slug || invoiceIdentity.invoiceId !== currentInvoiceId ||
+              (currentInvoiceData.planId && currentSubscription.planId && String(currentInvoiceData.planId) !== String(currentSubscription.planId)) ||
+              (currentInvoiceData.billingCycle && currentSubscription.billingCycle && String(currentInvoiceData.billingCycle) !== String(currentSubscription.billingCycle))) {
+            return json(res, 409, { success: false, error: 'Le lien entre le restaurant, la formule, l’abonnement et sa facture courante est incohérent.' });
           }
-          if (!['paid', 'void'].includes(String(outstandingInvoice.data()?.status || ''))) {
+          if (!['paid', 'void'].includes(String(currentInvoiceData.status || ''))) {
             return json(res, 409, { success: false, error: 'Une facture d’abonnement reste impayée. Régularisez-la avant de modifier la formule ou la période afin de préserver le lien entre contrat et facture.' });
           }
         }
