@@ -204,6 +204,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const [paymentReference, setPaymentReference] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [promotions, setPromotions] = useState<PlatformPromotion[]>([]);
+  const [editingPromotionId, setEditingPromotionId] = useState<string | null>(null);
   const [promotionForm, setPromotionForm] = useState({
     name: '', code: '', discountType: 'percentage', value: '10',
     startsOn: '', endsOn: '', eligiblePlans: ['Essentiel'] as string[], maxUses: '100'
@@ -612,15 +613,27 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     setPageLoading(true); setPageError('');
     try {
       await request({
-        action: 'promotion_save', name: promotionForm.name, code: promotionForm.code.toUpperCase(),
+        action: 'promotion_save', ...(editingPromotionId ? { id: editingPromotionId } : {}), name: promotionForm.name, code: promotionForm.code.toUpperCase(),
         discountType: promotionForm.discountType, value, startsAt, endsAt,
         eligiblePlans: promotionForm.eligiblePlans, maxUses, active: true
       });
       const data = await read('promotion_list'); setPromotions(data.promotions || []);
-      setPromotionForm({ name: '', code: '', discountType: 'percentage', value: '10', startsOn: '', endsOn: '', eligiblePlans: ['Essentiel'], maxUses: '100' });
+      setPromotionForm({ name: '', code: '', discountType: 'percentage', value: '10', startsOn: '', endsOn: '', eligiblePlans: ['Essentiel'], maxUses: '100' }); setEditingPromotionId(null);
       setNotice('Promotion enregistrée. Elle sera appliquée automatiquement aux prochaines factures éligibles, sans cumul avec la remise trimestrielle.');
     } catch (e: any) { setPageError(e.message || 'Enregistrement de la promotion impossible.'); }
     finally { setPageLoading(false); }
+  };
+
+  const editPromotion = (promotion: PlatformPromotion) => {
+    setEditingPromotionId(promotion.id);
+    setPromotionForm({
+      name: promotion.name, code: promotion.code, discountType: promotion.discountType,
+      value: String(promotion.value),
+      startsOn: new Date(promotion.startsAt).toISOString().slice(0, 10),
+      endsOn: new Date(promotion.endsAt).toISOString().slice(0, 10),
+      eligiblePlans: [...promotion.eligiblePlans], maxUses: String(promotion.maxUses)
+    });
+    setPageError('');
   };
 
   const togglePromotion = async (promotion: PlatformPromotion) => {
@@ -838,11 +851,11 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
                   <div className="grid gap-3 sm:grid-cols-2"><Field label="Début"><input required type="date" value={promotionForm.startsOn} onChange={e=>setPromotionForm({...promotionForm,startsOn:e.target.value})} className={inputClass}/></Field><Field label="Fin"><input required type="date" value={promotionForm.endsOn} onChange={e=>setPromotionForm({...promotionForm,endsOn:e.target.value})} className={inputClass}/></Field></div>
                   <Field label="Nombre maximum d’utilisations"><input required type="number" min={1} max={1000000} value={promotionForm.maxUses} onChange={e=>setPromotionForm({...promotionForm,maxUses:e.target.value})} className={inputClass}/></Field>
                   <div><p className="mb-2 text-sm font-semibold text-slate-700">Formules éligibles</p><div className="flex flex-wrap gap-2">{platformConfig.plans.map(plan=><label key={plan.name} className="flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-semibold"><input type="checkbox" checked={promotionForm.eligiblePlans.includes(plan.name)} onChange={e=>setPromotionForm({...promotionForm,eligiblePlans:e.target.checked?[...promotionForm.eligiblePlans,plan.name]:promotionForm.eligiblePlans.filter(name=>name!==plan.name)})} className="h-4 w-4"/>{plan.name}</label>)}</div></div>
-                  <button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white">Créer la promotion</button>
+                  <button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white"{editingPromotionId?'Enregistrer les modifications':'Créer la promotion'}</button>
                 </form>
               </Panel>
               <Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Promotions configurées</h3><span className="text-xs text-slate-500">{promotions.length} promotion(s)</span></div>
-                <div className="space-y-3">{promotions.map(promotion=><div key={promotion.id} className="rounded-xl border border-slate-200 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold">{promotion.name} · {promotion.code}</p><p className="text-xs text-slate-500">{promotion.discountType==='percentage'?promotion.value+' %':money(promotion.value)} · {date(promotion.startsAt)} au {date(promotion.endsAt)}</p></div><button type="button" disabled={pageLoading} onClick={()=>void togglePromotion(promotion)} className="min-h-10 rounded-lg border px-3 text-xs font-bold">{promotion.active?'Désactiver':'Réactiver'}</button></div><p className="mt-2 text-xs text-slate-600">Formules : {promotion.eligiblePlans.join(', ')} · Utilisations : {promotion.usedCount}/{promotion.maxUses}</p></div>)}</div>
+                <div className="space-y-3">{promotions.map(promotion=><div key={promotion.id} className="rounded-xl border border-slate-200 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold">{promotion.name} · {promotion.code}</p><p className="text-xs text-slate-500">{promotion.discountType==='percentage'?promotion.value+' %':money(promotion.value)} · {date(promotion.startsAt)} au {date(promotion.endsAt)}</p></div><div className="flex gap-2"><button type="button" disabled={pageLoading} onClick={()=>editPromotion(promotion)} className="min-h-10 rounded-lg border px-3 text-xs font-bold">Modifier</button><button type="button" disabled={pageLoading} onClick={()=>void togglePromotion(promotion)} className="min-h-10 rounded-lg border px-3 text-xs font-bold">{promotion.active?'Désactiver':'Réactiver'}</button></div></div><p className="mt-2 text-xs text-slate-600">Formules : {promotion.eligiblePlans.join(', ')} · Utilisations : {promotion.usedCount}/{promotion.maxUses}</p></div>)}</div>
                 {promotions.length===0&&<p className="py-8 text-center text-sm text-slate-500">Aucune promotion configurée.</p>}
               </Panel>
             </div>}
