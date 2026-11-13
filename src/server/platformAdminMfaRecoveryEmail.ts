@@ -167,6 +167,7 @@ export async function verifyPlatformAdminRecoveryContact(db: any, uid: string, c
     return { email, duplicate: false };
   });
   if (result.duplicate) throw new Error('Cette adresse est déjà associée à un autre compte administrateur.');
+  if ((result as any).testDeliveryOnly) throw new Error('Le code a été envoyé uniquement à la boîte de test Resend. L’adresse demandée n’a pas été vérifiée.');
   return result.email;
 }
 
