@@ -41,6 +41,7 @@ try {
     'the compatibility mode remains unchanged when enforcement is disabled');
 
   assert(adminSource.includes('hasValidPlatformAdminMfaSession') &&
+    adminSource.includes('firebaseMfaIsRecent') && adminSource.includes('createPlatformAdminMfaSession') &&
     adminSource.includes('sessionValid') && adminSource.includes("action === 'mfa_accept_firebase'") &&
     adminSource.includes('createPlatformAdminMfaSession') &&
     adminSource.includes('getPlatformAdminRole(db, user, mfaSessionValid)'),
@@ -62,7 +63,8 @@ try {
     adminView.includes('mfa_verify'),
     'admin UI supports server-backed QR enrollment and MFA login verification');
   assert(adminView.includes('getIdTokenResult(true)') && adminView.includes('credential.user.getIdToken(true)') &&
-    adminView.includes('continueAfterAuthentication(true)'),
+    adminView.includes('continueAfterAuthentication(true)') &&
+    adminSource.includes('firebase.sign_in_second_factor') === false && adminSource.includes('firebaseMfaIsRecent'),
     'Firebase MFA login force-refreshes the verified second-factor claim and establishes one platform session');
   assert(!adminView.includes('Demo-RestauMax-2026!') && !adminView.includes('isPublicDemoAccess'),
     'public Preview never embeds or pre-fills a super-admin password');
