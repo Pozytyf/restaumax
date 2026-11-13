@@ -1,5 +1,5 @@
 export type SubscriptionStatus = 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
-export type SubscriptionBillingCycle = 'monthly' | 'yearly' | 'custom';
+export type SubscriptionBillingCycle = 'monthly' | 'quarterly' | 'yearly' | 'custom';
 
 export interface NormalizedSubscriptionInput {
   planName: string;
@@ -34,7 +34,7 @@ export function validateSubscriptionInput(input: unknown): SubscriptionValidatio
 
   if (planName.length < 2 || planName.length > 80 ||
       !Number.isSafeInteger(priceFcfa) || priceFcfa < 0 || priceFcfa > 1_000_000_000 ||
-      !['monthly', 'yearly', 'custom'].includes(billingCycle) ||
+      !['monthly', 'quarterly', 'yearly', 'custom'].includes(billingCycle) ||
       !['trial', 'active', 'past_due', 'suspended', 'cancelled'].includes(status) ||
       !Number.isSafeInteger(startsAt) || startsAt <= 0 ||
       !Number.isSafeInteger(endsAt) || endsAt <= startsAt ||
