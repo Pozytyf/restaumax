@@ -77,4 +77,10 @@ assert(ui.includes('Politique de promotion') && ui.includes('promotion_list') &&
   ui.includes('Formules éligibles'),
   'billing workspace exposes promotion creation, targeting and activation');
 
+assert(admin.includes("'dishImages'") && ui.includes('Photos des plats (stockage sécurisé)'),
+  'dish photo uploads are an assignable plan entitlement');
+assert(server.includes("isPlatformFeatureEnabled(adminDb, imageRestaurantSlug, 'dishImages')") &&
+  server.includes('Les photos de plats ne sont pas incluses dans la formule'),
+  'dish image uploads are denied by the server when the restaurant plan lacks the entitlement');
+
 console.log('Platform admin hardening regression tests passed.');
