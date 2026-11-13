@@ -1842,17 +1842,18 @@ export async function handlePublicMenuRequest(req: any): Promise<{ statusCode: n
 export async function handleRestaurantImageRequest(payload: unknown, req?: any) {
   const imageInput = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
   const imageRestaurantSlug = String(imageInput.restaurantSlug || '').trim();
-  if (String(req?.method || '').toUpperCase() === 'POST' && imageRestaurantSlug &&
+  if (adminDb && String(req?.method || '').toUpperCase() === 'POST' && imageRestaurantSlug &&
       !(await isPlatformFeatureEnabled(adminDb, imageRestaurantSlug, 'dishImages'))) {
     return { statusCode: 403, body: { success: false, error: 'Les photos de plats ne sont pas incluses dans la formule de ce restaurant.' } };
   }
-  if (process.env.RESTAUMAX_STORAGE_IMAGES_ENABLED !== 'true') {
-    return { statusCode: 503, body: { success: false, error: 'Les photos seront activées après publication des règles Firebase Storage.' } };
+  if (process.env.RESTAUMAX_IMAGEKIT_UPLOADS_ENABLED !== 'true') {
+    return { statusCode: 503, body: { success: false, error: 'Les envois de photos ImageKit ne sont pas encore activés.' } };
   }
   return createRestaurantImageHandler({
     adminDb,
     adminAuth,
-    adminStorage,
+    imageKitPrivateKey: process.env.IMAGEKIT_PRIVATE_KEY,
+    imageKitUrlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
     requestHasValidOrigin,
     getRestaurantOwnerUid,
     logger: console
