@@ -949,6 +949,9 @@ async function isPlatformFeatureEnabled(db: any, restaurantSlug: string, feature
   // Legacy records without a plan retain only the baseline kitchen screen.
   // Unknown plan names must be explicitly configured; never grant premium features by default.
   if (!planName) return feature === 'kitchenScreen';
+  const snapshotFeature = subscription.planFeatures && typeof subscription.planFeatures === 'object'
+    ? subscription.planFeatures[feature] : undefined;
+  if (typeof snapshotFeature === 'boolean') return snapshotFeature;
   const configured = configSnap.exists ? configSnap.data()?.planFeatures?.[planName]?.[feature] : undefined;
   if (typeof configured === 'boolean') return configured;
   const defaultValue = DEFAULT_PLAN_FEATURES[planName]?.[feature];
