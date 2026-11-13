@@ -24,10 +24,14 @@ function sameHash(left: string, right: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-async function sendWithResend(email: string, code: string, purpose: 'recovery' | 'contact' = 'recovery'): Promise<void> {
+async function sendWithResend(email: string, code: string, purpose: 'recovery' | 'contact' = 'recovery'): Promise<{ deliveredTo: string; testDeliveryOnly: boolean }> {
   const apiKey = String(process.env.RESEND_API_KEY || '').trim();
   const from = String(process.env.RESEND_FROM_EMAIL || '').trim();
   if (!apiKey || !from) throw new Error('La récupération par e-mail n’est pas configurée sur cet environnement.');
+  const testRecipient = String(process.env.RESEND_TEST_RECIPIENT || '').trim().toLowerCase();
+  const isResendOnboardingSender = /onboarding@resend\.dev/i.test(from);
+  const deliveredTo = isResendOnboardingSender && testRecipient ? testRecipient : email;
+  const testDeliveryOnly = deliveredTo !== email;
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -36,7 +40,7 @@ async function sendWithResend(email: string, code: string, purpose: 'recovery' |
     },
     body: JSON.stringify({
       from,
-      to: [email],
+      to: [deliveredTo],
       subject: purpose === 'contact' ? 'Vérification de votre adresse de récupération RestauMax' : 'Code de récupération MFA RestauMax',
       text: purpose === 'contact'
         ? 'Votre code de vérification RestauMax est ' + code + '. Il expire dans 10 minutes. Si vous n’avez pas demandé cette vérification, ignorez ce message.'
@@ -55,6 +59,7 @@ async function sendWithResend(email: string, code: string, purpose: 'recovery' |
       : 'resend_error';
     throw new Error('Resend a refusé l’envoi (' + response.status + ', ' + providerName + ') : ' + providerMessage);
   }
+  return { deliveredTo, testDeliveryOnly };
 }
 
 
@@ -70,7 +75,7 @@ export async function getPlatformAdminRecoveryContact(db: any, uid: string): Pro
   return Number(record.verifiedAt || 0) > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
-export async function startPlatformAdminRecoveryContactVerification(db: any, uid: string, email: string): Promise<void> {
+export async function startPlatformAdminRecoveryContactVerification(db: any, uid: string, email: string): Promise<{ deliveredTo: string; testDeliveryOnly: boolean }> {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   if (!normalizedEmail || normalizedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
     throw new Error('Adresse e-mail de récupération invalide.');
@@ -95,6 +100,7 @@ export async function startPlatformAdminRecoveryContactVerification(db: any, uid
     tx.set(ref, {
       pendingEmail: normalizedEmail,
       codeHash: hashRecoveryCode(code),
+      testDeliveryOnly: false,
       createdAt: now,
       expiresAt: now + RECOVERY_TTL_MS,
       attempts: 0,
@@ -105,7 +111,9 @@ export async function startPlatformAdminRecoveryContactVerification(db: any, uid
     });
   });
   try {
-    await sendWithResend(normalizedEmail, code, 'contact');
+    const delivery = await sendWithResend(normalizedEmail, code, 'contact');
+    if (delivery.testDeliveryOnly) await ref.set({ testDeliveryOnly: true, deliveredTo: delivery.deliveredTo }, { merge: true });
+    return delivery;
   } catch (error) {
     await ref.set({ codeHash: null, expiresAt: Date.now(), deliveryFailedAt: Date.now() }, { merge: true }).catch(() => undefined);
     throw error;
@@ -121,6 +129,10 @@ export async function verifyPlatformAdminRecoveryContact(db: any, uid: string, c
     const snap = await tx.get(verificationRef);
     if (!snap.exists) return { email: null, duplicate: false };
     const record = snap.data() || {};
+    if (record.testDeliveryOnly) {
+      tx.update(verificationRef, { codeHash: null, consumedAt: Date.now(), updatedAt: Date.now() });
+      return { email: null, duplicate: false, testDeliveryOnly: true };
+    }
     if (record.consumedAt || Number(record.expiresAt || 0) <= Date.now() ||
         Number(record.attempts || 0) >= MAX_VERIFY_ATTEMPTS) {
       tx.update(verificationRef, { codeHash: null, consumedAt: Date.now(), updatedAt: Date.now() });
