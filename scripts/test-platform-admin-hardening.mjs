@@ -46,4 +46,22 @@ for (const field of ['targetUid','previousRole','newRole','previousStatus','newS
 assert(ui.includes('expandedAuditId===a.id') && ui.includes('Aucun détail complémentaire n’avait été enregistré'),
   'audit UI exposes expandable detail rows and explains missing legacy metadata');
 
+const billing = fs.readFileSync(new URL('../src/server/subscriptionBillingService.ts', import.meta.url), 'utf8');
+assert(admin.includes('const planInput = Array.isArray(input.plans)') && admin.includes('planInput.length > 20'),
+  'platform configuration accepts a bounded, dynamic plan catalog');
+assert(admin.includes('rawPlan.active !== \'boolean\'') && admin.includes('normalizedFeatures'),
+  'custom plan definitions validate activation state and every supported entitlement');
+assert(admin.includes('quarterlyDiscountPercent') && ui.includes('quarterlyDiscountPercent'),
+  'quarterly discount rate is configurable in the admin API and UI');
+assert(ui.includes('Créer une formule personnalisée') && ui.includes('platformConfig.plans.map'),
+  'super-admin can create and manage multiple named subscription plans');
+assert(ui.includes('Formule souscrite') && ui.includes('platformConfig.plans.filter(plan=>plan.active)'),
+  'restaurant subscription assignment uses the active plan catalog');
+assert(billing.includes("cycle === 'quarterly' ? quarterlyDiscountPercent : 0") &&
+  billing.includes('baseAmountFcfa: baseAmount') && billing.includes('discountAmountFcfa: discountAmount'),
+  'quarterly invoice stores an immutable base amount and applied discount snapshot');
+assert(billing.includes("date.setUTCMonth(date.getUTCMonth() + 3)") &&
+  billing.includes("cycle !== 'quarterly'"),
+  'quarterly subscription period is supported in renewal and settlement logic');
+
 console.log('Platform admin hardening regression tests passed.');
