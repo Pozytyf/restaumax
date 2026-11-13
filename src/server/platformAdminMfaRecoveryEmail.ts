@@ -67,12 +67,12 @@ export async function getPlatformAdminRecoveryContact(db: any, uid: string): Pro
   if (!snap.exists) return null;
   const record = snap.data() || {};
   const email = String(record.email || '').trim().toLowerCase();
-  return Number(record.verifiedAt || 0) > 0 && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) ? email : null;
+  return Number(record.verifiedAt || 0) > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
 export async function startPlatformAdminRecoveryContactVerification(db: any, uid: string, email: string): Promise<void> {
   const normalizedEmail = String(email || '').trim().toLowerCase();
-  if (!normalizedEmail || normalizedEmail.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(normalizedEmail)) {
+  if (!normalizedEmail || normalizedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
     throw new Error('Adresse e-mail de récupération invalide.');
   }
   const claimRef = db.collection(RECOVERY_CONTACT_COLLECTION + '_claims').doc(recoveryEmailClaimId(normalizedEmail));
@@ -113,8 +113,8 @@ export async function startPlatformAdminRecoveryContactVerification(db: any, uid
 }
 
 export async function verifyPlatformAdminRecoveryContact(db: any, uid: string, code: string): Promise<string | null> {
-  const normalizedCode = String(code || '').replace(/\\s/g, '');
-  if (!/^\\d{8}$/.test(normalizedCode)) return null;
+  const normalizedCode = String(code || '').replace(/\s/g, '');
+  if (!/^\d{8}$/.test(normalizedCode)) return null;
   const verificationRef = db.collection(RECOVERY_CONTACT_VERIFICATION_COLLECTION).doc(uid);
   const contactRef = db.collection(RECOVERY_CONTACT_COLLECTION).doc(uid);
   const result = await db.runTransaction(async (tx: any) => {
@@ -132,7 +132,7 @@ export async function verifyPlatformAdminRecoveryContact(db: any, uid: string, c
       return { email: null, duplicate: false };
     }
     const email = String(record.pendingEmail || '').trim().toLowerCase();
-    if (!email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       tx.update(verificationRef, { codeHash: null, consumedAt: Date.now(), updatedAt: Date.now() });
       return { email: null, duplicate: false };
     }
