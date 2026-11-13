@@ -27,7 +27,7 @@ const staffStart = admin.indexOf("if (action === 'staff_list' && ['full', 'suppo
 const staffEnd = admin.indexOf('// Owner and authorized manager staff administration', staffStart);
 assert(staffStart >= 0 && staffEnd > staffStart, 'platform staff audit endpoint exists');
 const staffAudit = admin.slice(staffStart, staffEnd);
-assert(staffAudit.includes("canSeeFullAccountDetails = await getPlatformAdminRole(db, user) === 'full'"),
+assert(staffAudit.includes("canSeeFullAccountDetails = await getPlatformAdminRole(db, user, mfaSessionValid) === 'full'"),
   'only full platform administrators may see complete account email addresses');
 assert(staffAudit.includes('email: canSeeFullAccountDetails ? email : maskedEmail'),
   'support account list masks email addresses');
@@ -116,7 +116,7 @@ assert(admin.includes('financialSummary') && admin.includes('overdueInvoicesCoun
   'overview exposes open, overdue, collected and upcoming-due financial totals');
 assert(admin.includes("doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions'"),
   'financial aggregates include only invoices and payments attached to subscription documents');
-assert(admin.includes("['full', 'billing'].includes(String(await getPlatformAdminRole(db, user) || ''))"),
+assert(admin.includes("['full', 'billing'].includes(String(await getPlatformAdminRole(db, user, mfaSessionValid) || ''))"),
   'financial aggregates are restricted to full and billing platform administrators');
 assert(ui.includes("screen === 'settings'") && ui.includes("const configData = await read('billing_catalog_read')") &&
   admin.includes("action === 'billing_catalog_read'") && admin.includes("'billing_catalog_read'"),
