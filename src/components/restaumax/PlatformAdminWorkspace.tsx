@@ -150,9 +150,11 @@ const inputClass = 'min-h-11 w-full rounded-xl border border-slate-300 bg-white 
 
 function mergePlatformConfig(current: PlatformConfig, incoming: any): PlatformConfig {
   const templates = ['invitation', 'passwordReset', 'invoice', 'overdue'] as const;
-  const plans = Array.isArray(incoming?.plans) ? incoming.plans : current.plans;
+  const plans = Array.isArray(incoming?.plans) ? incoming.plans : current.plans.map(plan => ({
+    ...plan, features: incoming?.planFeatures?.[plan.name] || plan.features
+  }));
   const planFeatures = incoming?.planFeatures && typeof incoming.planFeatures === 'object'
-    ? incoming.planFeatures : current.planFeatures;
+    ? incoming.planFeatures : Object.fromEntries(plans.map(plan => [plan.name, plan.features]));
   return {
     ...current, ...incoming, currency: 'XOF', plans, planFeatures,
     quarterlyDiscountPercent: Number.isInteger(incoming?.quarterlyDiscountPercent)
