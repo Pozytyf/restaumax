@@ -255,7 +255,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       !(await hasValidPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, mfaCookie))) {
     const session = await createPlatformAdminMfaSession(db, user.uid, mfaSessionVersion);
     mfaCookie = session.token;
-    res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=14400`);
+    res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=7776000`);
     await db.collection('admin_audit_logs').add({
       action: 'platform_admin_mfa_verified_firebase', actorUid: user.uid,
       actorEmail: String(user.email || ''), factorId: firebaseSecondFactor,
@@ -285,7 +285,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         return json(res, 401, { success: false, error: 'Une authentification Firebase avec second facteur récente est requise.' });
       }
       const session = await createPlatformAdminMfaSession(db, user.uid, mfaSessionVersion);
-      res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=14400`);
+      res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=7776000`);
       await db.collection('admin_audit_logs').add({
         action: 'platform_admin_mfa_verified_firebase', actorUid: user.uid,
         actorEmail: String(user.email || ''), factorId: secondFactor, expiresAt: session.expiresAt, createdAt: Date.now()
@@ -344,7 +344,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       try {
         const session = await verifyPlatformAdminMfaAndCreateSession(db, user.uid, String(body.code || ''), mfaSessionVersion);
         if (!session) return json(res, 401, { success: false, error: 'Code MFA invalide, déjà utilisé ou temporairement bloqué.' });
-        res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=14400`);
+        res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=7776000`);
         await db.collection('admin_audit_logs').add({
           action: session.recoveryUsed ? 'platform_admin_mfa_recovery_code_used' : 'platform_admin_mfa_verified',
           factorSource: session.recoveryUsed ? 'recovery' : 'totp',
