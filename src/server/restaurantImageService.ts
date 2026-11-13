@@ -30,9 +30,11 @@ export function createRestaurantImageHandler(deps: RestaurantImageHandlerDepende
       const input = payload && typeof payload === 'object' ? payload as Record<string, any> : {};
       const restaurantSlug = String(input.restaurantSlug || '').trim();
       if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
-      const [restaurantSnap, memberSnap] = await Promise.all([
+      const [restaurantSnap, memberSnap, subscriptionSnap, configSnap] = await Promise.all([
         deps.adminDb.collection('restaurants').doc(restaurantSlug).get(),
-        deps.adminDb.collection('managers').doc(decoded.uid).get()
+        deps.adminDb.collection('managers').doc(decoded.uid).get(),
+        deps.adminDb.collection('restaurantSubscriptions').doc(restaurantSlug).get(),
+        deps.adminDb.collection('platform_config').doc('global').get()
       ]);
       const restaurant = restaurantSnap.exists ? restaurantSnap.data() : null;
       const member = memberSnap.exists ? memberSnap.data() : null;
@@ -40,6 +42,15 @@ export function createRestaurantImageHandler(deps: RestaurantImageHandlerDepende
           !member || member.active !== true || member.restaurantSlug !== restaurantSlug ||
           (member.status && member.status !== 'active') || Number(decoded.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
         return { statusCode: 403, body: { success: false, error: 'Accès au stockage du restaurant refusé.' } };
+      }
+      if (method === 'POST') {
+        const subscription = subscriptionSnap.exists ? subscriptionSnap.data() || {} : restaurant.subscription || {};
+        const planName = String(subscription.planName || '').trim();
+        const configured = configSnap.exists ? configSnap.data()?.planFeatures?.[planName]?.dishImages : undefined;
+        const hasDishImages = typeof configured === 'boolean' ? configured : planName === 'Pro';
+        if (!hasDishImages) {
+          return { statusCode: 403, body: { success: false, error: 'Les photos de plats ne sont pas incluses dans la formule de ce restaurant.' } };
+        }
       }
       const kind = String(input.kind || '');
       if (kind !== 'menu' && kind !== 'branding') return { statusCode: 400, body: { success: false, error: 'Type de photo invalide.' } };
