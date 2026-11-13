@@ -3,7 +3,7 @@ import { auth, requestManagerPasswordReset } from '../../lib/firebase';
 import {
   Activity, Bell, Building2, ChevronRight, CircleHelp, ClipboardList,
   CreditCard, LayoutDashboard, LogOut, Plus, RefreshCw, Search, Settings,
-  Users, X, AlertTriangle
+  Users, X, AlertTriangle, ShieldCheck, KeyRound, LockKeyhole
 } from 'lucide-react';
 
 type Subscription = {
@@ -81,6 +81,7 @@ type PlatformAnnouncement = {
   id: string; title: string; message: string; targetType: string; planName: string;
   restaurantSlugs: string[]; status: string; createdAt: number; publishedAt?: number | null; scheduledAt?: number | null;
 };
+type SecuritySummary = { passkeyCount: number; mfaEnrolled: boolean; recoveryCodesRemaining: number; trustedSessionExpiresAt: number | null; recoveryContactEmail: string };
 type Props = {
   restaurants: Restaurant[];
   summary: {
@@ -89,6 +90,8 @@ type Props = {
     financialSummary?: { openInvoicesCount: number; openAmountFcfa: number; overdueInvoicesCount: number; overdueAmountFcfa: number; collectedAmountFcfa: number; upcomingDueCount: number; upcomingDueAmountFcfa: number; asOf: number };
   } | null;
   userEmail?: string | null;
+  security: SecuritySummary;
+  onRefreshSecurity: () => Promise<void>;
   loading: boolean;
   request: (body?: Record<string, unknown>) => Promise<any>;
   onRefresh: () => Promise<void>;
@@ -104,6 +107,7 @@ const NAV = [
   { id: 'support', label: 'Support', icon: CircleHelp },
   { id: 'audit', label: 'Journal d’audit', icon: ClipboardList },
   { id: 'health', label: 'Santé de la plateforme', icon: Activity },
+  { id: 'security', label: 'Sécurité', icon: ShieldCheck },
   { id: 'settings', label: 'Configuration', icon: Settings },
   { id: 'communication', label: 'Communication', icon: Bell }
 ] as const;
@@ -218,6 +222,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountRestaurant, setAccountRestaurant] = useState('');
   const [pageLoading, setPageLoading] = useState(false);
+  const [passwordResetBusy, setPasswordResetBusy] = useState(false);
   const [pageError, setPageError] = useState('');
   const [notice, setNotice] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
@@ -326,6 +331,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     if (screen === 'support') void load('support_list', data => setSupportTickets(data.tickets || []));
     if (screen === 'health') void load('health_details', data => setHealth({ checkedAt: data.checkedAt, services: data.services || [] }));
     if (screen === 'settings') void load('config_read', data => { if (data.config) setPlatformConfig(current => mergePlatformConfig(current, data.config)); });
+    if (screen === 'security') void onRefreshSecurity().catch((e: any) => { if (active) setPageError(e?.message || 'Actualisation de la sécurité impossible.'); });
     if (screen === 'communication') void load('announcement_list', data => setAnnouncements(data.announcements || []));
     const refreshTimer = (screen === 'billing' || screen === 'overview') && allowedActions.includes('billing_list')
       ? setInterval(() => {
@@ -336,7 +342,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
         }, 60_000)
       : null;
     return () => { active = false; if (refreshTimer) clearInterval(refreshTimer); };
-  }, [screen, allowedActions, onRefresh]);
+  }, [screen, allowedActions, onRefresh, onRefreshSecurity]);
 
   const can = (action: string) => allowedActions.includes(action);
   const visibleNav = useMemo(() => !capabilitiesReady ? NAV.filter(item => item.id === 'overview') : NAV.filter(item => {
@@ -344,7 +350,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
       overview: 'overview', restaurants: 'overview', billing: 'billing_list',
       accounts: can('platform_admin_list') ? 'platform_admin_list' : can('platform_staff_list') ? 'platform_staff_list' : 'accounts.read',
       support: 'support_list', audit: 'audit_list', health: 'health_details',
-      settings: 'config_read', communication: 'announcement_list'
+      settings: 'config_read', security: 'overview', communication: 'announcement_list'
     };
     return can(actionByScreen[item.id]);
   }), [allowedActions, capabilitiesReady]);
@@ -368,6 +374,18 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
       setAccounts(data.staff || []);
     } catch (e: any) { setPageError(e.message || 'Chargement des comptes impossible.'); }
     finally { setPageLoading(false); }
+  };
+
+  const sendOwnPasswordReset = async () => {
+    if (!userEmail || passwordResetBusy) return;
+    if (!window.confirm('Envoyer un lien sécurisé de réinitialisation à ' + userEmail + ' ?')) return;
+    setPasswordResetBusy(true); setPageError(''); setNotice('');
+    try {
+      const result = await requestManagerPasswordReset(userEmail);
+      if (!result.success) throw new Error(result.error || 'Envoi du lien impossible.');
+      setNotice('Un lien de réinitialisation a été envoyé à ' + userEmail + '. Vérifiez également vos courriers indésirables.');
+    } catch (e: any) { setPageError(e?.message || 'Impossible d’envoyer le lien de réinitialisation.'); }
+    finally { setPasswordResetBusy(false); }
   };
 
   const resetAccountPassword = async (account: Account) => {
