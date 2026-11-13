@@ -1614,6 +1614,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
               ? 'overdue' : (['open', 'paid', 'void', 'overdue'].includes(String(invoice.status)) ? invoice.status : 'unknown'),
             issuedAt: Number.isFinite(invoice.issuedAt) ? invoice.issuedAt : null,
             dueAt: Number.isFinite(invoice.dueAt) ? invoice.dueAt : null,
+            periodStartAt: Number.isFinite(invoice.periodStartAt) ? invoice.periodStartAt : null,
+            periodEndAt: Number.isFinite(invoice.periodEndAt) ? invoice.periodEndAt : null,
+            gracePeriodDays: Number.isSafeInteger(invoice.gracePeriodDays) ? invoice.gracePeriodDays : gracePeriodDays,
+            graceEndsAt: Number.isFinite(invoice.graceEndsAt) ? invoice.graceEndsAt : (Number(invoice.dueAt || 0) + (Number.isSafeInteger(invoice.gracePeriodDays) ? invoice.gracePeriodDays : gracePeriodDays) * 24 * 60 * 60 * 1000),
             paidAt: Number.isFinite(invoice.paidAt) ? invoice.paidAt : null,
             paymentReference: typeof invoice.paymentReference === 'string' ? invoice.paymentReference.slice(0, 80) : null
           };
@@ -1960,6 +1964,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const currentSubscription = currentSubscriptionSnap.exists
           ? currentSubscriptionSnap.data() || {}
           : (restaurantSnap.data()?.subscription && typeof restaurantSnap.data()?.subscription === 'object' ? restaurantSnap.data().subscription : {});
+        if (currentSubscription.currentInvoiceId) {
+          const outstandingInvoice = await subscriptionRef.collection('invoices').doc(String(currentSubscription.currentInvoiceId)).get();
+          if (outstandingInvoice.exists && !['paid', 'void'].includes(String(outstandingInvoice.data()?.status || ''))) {
+            return json(res, 409, { success: false, error: 'Une facture d’abonnement reste impayée. Régularisez-la avant de modifier la formule ou la période afin de préserver le lien entre contrat et facture.' });
+          }
+        }
         const platformConfigSnap = await db.collection('platform_config').doc('global').get();
         const configuredPlans = Array.isArray(platformConfigSnap.data()?.plans) ? platformConfigSnap.data().plans : [];
         if (configuredPlans.length) {
