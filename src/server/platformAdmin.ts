@@ -1069,7 +1069,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         });
         await db.collection('admin_audit_logs').add({
           action: 'update_platform_configuration', actorUid: user.uid, createdAt: now,
-          gracePeriodDays, maintenanceMode: input.maintenanceMode, currency: 'XOF'
+          gracePeriodDays, quarterlyDiscountPercent, maintenanceMode: input.maintenanceMode, currency: 'XOF'
         });
         return json(res, 200, { success: true, config: saved });
       }
