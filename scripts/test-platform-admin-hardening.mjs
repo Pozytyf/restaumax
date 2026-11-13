@@ -69,6 +69,8 @@ assert(billing.includes("date.setUTCMonth(date.getUTCMonth() + 3)") &&
 
 assert(admin.includes("if (action === 'promotion_save')") && admin.includes("if (action === 'promotion_toggle')"),
   'promotion creation and activation changes are server-authorized actions');
+assert(admin.includes('promo_') && admin.includes('activePromotions.size >= 100'),
+  'promotion codes are unique under concurrent creation and active campaigns are bounded');
 assert(admin.includes('eligiblePlans.length > 20') && admin.includes("!['percentage', 'fixed'].includes(discountType)") && billing.includes("promotion.discountType === 'fixed'"),
   'promotion API validates targeted plans, discount types and quotas');
 assert(billing.includes('usedCount < maxUses') && billing.includes('tx.update(appliedPromotionRef') &&
