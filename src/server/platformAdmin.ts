@@ -158,7 +158,7 @@ export async function getPlatformAdminRole(db: any, user: DecodedIdToken): Promi
 export function canPlatformAdminPerform(role: PlatformAdminRole, action: string): boolean {
   if (role === 'full') return true;
   if (['overview', 'audit_list', 'platform_capabilities'].includes(action)) return true;
-  if (role === 'billing') return ['billing_list', 'update_subscription', 'settle_subscription_invoice', 'promotion_list', 'promotion_save', 'promotion_toggle'].includes(action);
+  if (role === 'billing') return ['billing_list', 'billing_catalog_read', 'update_subscription', 'settle_subscription_invoice', 'promotion_list', 'promotion_save', 'promotion_toggle'].includes(action);
   if (role === 'support') return ['support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'platform_staff_list', 'health_details', 'announcement_list'].includes(action);
   if (role === 'read_only') return ['support_list', 'support_messages', 'health_details', 'announcement_list'].includes(action);
   return false;
@@ -1008,6 +1008,25 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         });
         await batch.commit();
         return json(res, 200, { success: true, ticketId });
+      }
+
+      if (action === 'billing_catalog_read') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_config').doc('global').get();
+        const raw = snap.exists ? snap.data() || {} : {};
+        const plans = Array.isArray(raw.plans) ? raw.plans.map((plan: any) => ({
+          id: String(plan.id || planIdentifier(String(plan.name || ''))),
+          name: String(plan.name || ''), description: String(plan.description || ''),
+          active: plan.active === true, priceMonthlyFcfa: Number.isSafeInteger(plan.priceMonthlyFcfa) ? plan.priceMonthlyFcfa : 0,
+          features: plan.features && typeof plan.features === 'object' ? Object.fromEntries(
+            ['kitchenScreen', 'advancedReports', 'inventoryRecipes', 'loyalty', 'dishImages'].map(key => [key, plan.features[key] === true])
+          ) : {}
+        })) : [];
+        return json(res, 200, { success: true, config: {
+          currency: 'XOF', plans,
+          gracePeriodDays: Number.isInteger(raw.gracePeriodDays) ? raw.gracePeriodDays : 7,
+          quarterlyDiscountPercent: Number.isInteger(raw.quarterlyDiscountPercent) ? raw.quarterlyDiscountPercent : 0
+        } });
       }
 
       if (action === 'config_read') {
