@@ -5,6 +5,7 @@ const server = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
 const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const admin = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
 const ui = fs.readFileSync(new URL('../src/components/restaumax/PlatformAdminWorkspace.tsx', import.meta.url), 'utf8');
+const imageService = fs.readFileSync(new URL('../src/server/restaurantImageService.ts', import.meta.url), 'utf8');
 
 assert(server.includes("if (!restaurantSnap.exists || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.status === 'deleted') return false;"),
   'feature entitlements deny deleted or missing restaurants');
@@ -79,8 +80,8 @@ assert(ui.includes('Politique de promotion') && ui.includes('promotion_list') &&
 
 assert(admin.includes("'dishImages'") && ui.includes('Photos des plats (stockage sécurisé)'),
   'dish photo uploads are an assignable plan entitlement');
-assert(server.includes("isPlatformFeatureEnabled(adminDb, imageRestaurantSlug, 'dishImages')") &&
-  server.includes('Les photos de plats ne sont pas incluses dans la formule'),
+assert(imageService.includes("collection('platform_config')") && imageService.includes('dishImages') &&
+  imageService.includes('Les photos de plats ne sont pas incluses dans la formule'),
   'dish image uploads are denied by the server when the restaurant plan lacks the entitlement');
 
 console.log('Platform admin hardening regression tests passed.');
