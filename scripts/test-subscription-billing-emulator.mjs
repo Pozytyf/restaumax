@@ -75,6 +75,45 @@ try {
   assert.equal((quarterlyEnd.getUTCFullYear() - quarterlyStart.getUTCFullYear()) * 12 + quarterlyEnd.getUTCMonth() - quarterlyStart.getUTCMonth(), 3,
     'Le renouvellement trimestriel ajoute exactement trois mois');
 
+  const promotionRef = db.collection('platform_promotions').doc('promotion-single-use');
+  await promotionRef.set({
+    name: 'Bienvenue 20%', code: 'WELCOME20', discountType: 'percentage', value: 20,
+    startsAt: now - 1000, endsAt: now + 86400000, eligiblePlans: ['Pro'],
+    maxUses: 1, usedCount: 0, active: true, createdAt: now - 1000
+  });
+  const promoSlugs = ['subscription-promo-a', 'subscription-promo-b'];
+  const promoRefs = promoSlugs.map(value => db.collection('restaurantSubscriptions').doc(value));
+  await Promise.all(promoRefs.map((ref, index) => Promise.all([
+    db.collection('restaurants').doc(promoSlugs[index]).set({ slug: promoSlugs[index], status: 'active', isOpen: true }),
+    ref.set({
+      planName: 'Pro', priceFcfa: 10000, billingCycle: index === 0 ? 'quarterly' : 'monthly',
+      status: 'active', startsAt: now - 90000000, endsAt: now - 1000, nextBillingAt: now - 1000,
+      autoRenew: true, gracePeriodDays: 60
+    })
+  ])));
+  const promoRun = await runSubscriptionBillingCycleWithDb(db, now + 2000);
+  assert.equal(promoRun.invoicesCreated, 2, 'Deux abonnements éligibles produisent leurs factures');
+  const promoInvoices = await Promise.all(promoRefs.map(async ref => {
+    const sub = (await ref.get()).data();
+    return (await ref.collection('invoices').doc(sub.currentInvoiceId).get()).data();
+  }));
+  assert.equal(promoInvoices.filter(invoice => invoice.discountSource === 'promotion').length, 1,
+    'Une promotion limitée à un usage n’est appliquée qu’une seule fois');
+  assert.equal((await promotionRef.get()).data().usedCount, 1, 'Le quota de promotion est incrémenté atomiquement');
+  for (let index = 0; index < promoRefs.length; index++) {
+    const invoice = promoInvoices[index];
+    const expectedAmount = invoice.discountSource === 'promotion' ? 8000 :
+      (invoice.billingCycle === 'quarterly' ? 9000 : 10000);
+    assert.equal(invoice.amountFcfa, expectedAmount, 'Une promotion et la réduction trimestrielle ne se cumulent jamais');
+    const sub = (await promoRefs[index].get()).data();
+    const payment = await settleSubscriptionInvoiceWithDb(db, {
+      restaurantSlug: promoSlugs[index], invoiceId: sub.currentInvoiceId,
+      amountFcfa: invoice.amountFcfa, paymentReference: `PROMO-RECEIPT-00${index + 1}`,
+      actorUid: 'super-admin-test', now: now + 3000 + index
+    });
+    assert.equal(payment.success, true, 'Les factures avec ou sans promotion restent réglables');
+  }
+
   const beforeGrace = await runSubscriptionBillingCycleWithDb(db, now + 6 * 86400000);
   assert.equal(beforeGrace.restaurantsSuspended, 0, 'Le restaurant reste accessible pendant le délai de grâce');
   assert.equal((await restaurantRef.get()).data().status, 'active');
@@ -172,7 +211,7 @@ try {
   assert.equal((await globalGraceRestaurant.get()).data().status, 'suspended',
     'Le délai global est respecté avant suspension');
 
-  console.log('Subscription billing Firestore Emulator tests passed: 39 assertions.');
+  console.log('Subscription billing Firestore Emulator tests passed: 47 assertions.');
 } finally {
   await app.delete();
 }
