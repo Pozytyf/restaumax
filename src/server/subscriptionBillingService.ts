@@ -7,12 +7,14 @@ function invoiceIdFor(slug: string, billingCycle: string, nextBillingAt: number)
   return `subinv_${hash(`${slug}:${billingCycle}:${nextBillingAt}`)}`;
 }
 
-function addBillingCycle(timestamp: number, cycle: 'monthly' | 'yearly') {
+function addBillingCycle(timestamp: number, cycle: string) {
   const date = new Date(timestamp);
   const day = date.getUTCDate();
   date.setUTCDate(1);
   if (cycle === 'monthly') date.setUTCMonth(date.getUTCMonth() + 1);
-  else date.setUTCFullYear(date.getUTCFullYear() + 1);
+  else if (cycle === 'quarterly') date.setUTCMonth(date.getUTCMonth() + 3);
+  else if (cycle === 'yearly') date.setUTCFullYear(date.getUTCFullYear() + 1);
+  else throw new Error('Périodicité de facturation inconnue.');
   const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
   date.setUTCDate(Math.min(day, lastDay));
   return date.getTime();
@@ -109,7 +111,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         const amount = Number(sub.priceFcfa);
         if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000000) return 'skip';
         const cycle = String(sub.billingCycle || '');
-        if (amount === 0 && (cycle === 'monthly' || cycle === 'yearly')) {
+        if (amount === 0 && ['monthly', 'quarterly', 'yearly'].includes(cycle)) {
           const periodStart = Math.max(Number(sub.endsAt || now), now);
           const periodEnd = addBillingCycle(periodStart, cycle);
           tx.update(subscriptionRef, {
@@ -230,7 +232,7 @@ export async function settleSubscriptionInvoiceWithDb(
       return { success: false, conflict: true, error: 'Le montant ou le statut de la facture ne correspond pas.' };
     }
     const cycle = String(sub.billingCycle || '');
-    if (cycle !== 'monthly' && cycle !== 'yearly') {
+    if (cycle !== 'monthly' && cycle !== 'quarterly' && cycle !== 'yearly') {
       return { success: false, error: 'Le renouvellement automatique exige une périodicité mensuelle ou annuelle.' };
     }
     const periodStart = Math.max(Number(sub.endsAt || now), now);
