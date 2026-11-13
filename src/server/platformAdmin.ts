@@ -2012,7 +2012,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }
 
     // Super-admin account audit is deliberately read-only and limited to identity/linkage fields.
-    if (action === 'staff_list' && ['full', 'support'].includes(String(await getPlatformAdminRole(db, user) || ''))) {
+    if (action === 'staff_list' && ['full', 'support'].includes(String(await getPlatformAdminRole(db, user, mfaSessionValid) || ''))) {
       const canSeeFullAccountDetails = await getPlatformAdminRole(db, user, mfaSessionValid) === 'full';
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '').trim();
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
