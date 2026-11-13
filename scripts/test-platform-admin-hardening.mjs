@@ -122,8 +122,11 @@ assert(admin.includes("billingCycle === 'quarterly'" ) && admin.includes('amount
 assert(admin.includes('financialSummary') && admin.includes('overdueInvoicesCount') &&
   admin.includes('collectedAmountFcfa') && admin.includes('upcomingDueAmountFcfa'),
   'overview exposes open, overdue, collected and upcoming-due financial totals');
-assert(admin.includes("doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions'"),
-  'financial aggregates include only invoices and payments attached to subscription documents');
+assert(admin.includes('resolveSubscriptionInvoiceIdentity(doc.ref, rawInvoice)') &&
+  admin.includes("payment.restaurantSlug !== restaurantSlug") &&
+  admin.includes("linkedInvoice.status === 'paid'") &&
+  admin.includes("linkedInvoice.paymentReference === payment.paymentReference"),
+  'financial aggregates include only canonical invoices and payments reconciled to the same paid invoice');
 assert(admin.includes("['full', 'billing'].includes(String(await getPlatformAdminRole(db, user, mfaSessionValid) || ''))"),
   'financial aggregates are restricted to full and billing platform administrators');
 assert(ui.includes("screen === 'settings'") && ui.includes("const configData = await read('billing_catalog_read')") &&
