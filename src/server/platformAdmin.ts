@@ -1760,7 +1760,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           if (selectedPlan) {
             if (selectedPlan.active !== true) return json(res, 400, { success: false, error: 'Cette formule est désactivée et ne peut plus être attribuée.' });
             const monthlyPrice = Number(selectedPlan.priceMonthlyFcfa || 0);
-            if (monthlyPrice > 0 && validation.subscription.billingCycle !== 'custom') {
+            if (validation.subscription.billingCycle !== 'custom') {
               const multiplier = validation.subscription.billingCycle === 'quarterly' ? 3 :
                 validation.subscription.billingCycle === 'yearly' ? 12 : 1;
               if (validation.subscription.priceFcfa !== monthlyPrice * multiplier) {
