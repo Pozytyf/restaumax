@@ -32,11 +32,9 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const [needsPlatformAdminLogin, setNeedsPlatformAdminLogin] = useState(false);
   const adminLoginInProgress = useRef(false);
   const [error, setError] = useState('');
-  const isPublicDemoAccess = typeof window !== 'undefined' &&
-    import.meta.env.VITE_APP_ENV === 'preview' &&
-    new URLSearchParams(window.location.search).get('demo') === 'super_admin';
-  const [email, setEmail] = useState(isPublicDemoAccess ? 'superadmin@restaumax.test' : '');
-  const [password, setPassword] = useState(isPublicDemoAccess ? 'Demo-RestauMax-2026!' : '');
+  // No administrator credentials are embedded or prefilled in public Preview builds.
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
   const [mfaFactor, setMfaFactor] = useState<{ kind: 'totp'; uid: string } | { kind: 'phone'; uid: string; phoneNumber: string } | null>(null);
   const [mfaVerificationId, setMfaVerificationId] = useState('');
