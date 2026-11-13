@@ -29,6 +29,8 @@ assert(staffAudit.includes("canSeeFullAccountDetails = await getPlatformAdminRol
 assert(staffAudit.includes('email: canSeeFullAccountDetails ? email : maskedEmail'),
   'support account list masks email addresses');
 
+assert(admin.includes('billingLastRunAt <= now') && admin.includes('now - billingLastRunAt >= 0'),
+  'billing health rejects future-dated telemetry before declaring the scheduler operational');
 assert(admin.includes('backupFresh') && admin.includes('now - backupLastRunAt <= 48 * 60 * 60 * 1000'),
   'backup health status requires a successful run within 48 hours');
 assert(admin.includes("id: 'deployment', label: 'Déploiement', status: 'unknown'"),
