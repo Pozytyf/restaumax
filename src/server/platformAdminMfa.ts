@@ -118,16 +118,23 @@ export async function getPlatformAdminMfaStatus(db: any, uid: string) {
 export async function beginPlatformAdminMfaEnrollment(db: any, uid: string, email: string) {
   const secret = generateTotpSecret();
   const now = Date.now();
-  await db.collection(MFA_COLLECTION).doc(uid).set({
-    active: false,
-    pendingSecret: encryptTotpSecret(secret),
-    pendingExpiresAt: now + ENROLLMENT_TTL_MS,
-    updatedAt: now
-  }, { merge: true });
+  const ref = db.collection(MFA_COLLECTION).doc(uid);
+  await db.runTransaction(async (tx: any) => {
+    const snap = await tx.get(ref);
+    const current = snap.exists ? snap.data() || {} : {};
+    if (current.active === true) throw new Error('Un facteur MFA est déjà enrôlé pour ce compte.');
+    tx.set(ref, {
+      active: false,
+      pendingSecret: encryptTotpSecret(secret),
+      pendingExpiresAt: now + ENROLLMENT_TTL_MS,
+      updatedAt: now
+    }, { merge: true });
+  });
   return { secret, otpauthUri: buildTotpUri(secret, email), expiresAt: now + ENROLLMENT_TTL_MS };
 }
 
 export async function confirmPlatformAdminMfaEnrollment(db: any, uid: string, code: string) {
+  if (!await consumeAttempt(db, uid)) return false;
   const ref = db.collection(MFA_COLLECTION).doc(uid);
   const now = Date.now();
   return db.runTransaction(async (tx: any) => {
