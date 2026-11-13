@@ -14,7 +14,9 @@ assert(superAdminStart >= 0 && superAdminEnd > superAdminStart, 'super-admin ide
 const superAdmin = source.slice(superAdminStart, superAdminEnd);
 assert(superAdmin.includes("user.role === 'super_admin'"), 'trusted server-issued super-admin claim grants identity');
 assert(superAdmin.includes('verifiedAllowlistedEmail'), 'verified allowlist remains bootstrap path');
-assert(superAdmin.includes('RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA') && superAdmin.includes('sign_in_second_factor'), 'legacy Firebase MFA predicate remains explicit while custom MFA sessions are enforced separately');
+assert(superAdmin.includes('return isSuperAdminIdentity(user);'), 'identity recognition does not duplicate the Firebase factor challenge');
+assert(source.includes('sessionValid') && source.includes('getPlatformAdminRole(db, user, mfaSessionValid)'), 'protected platform operations still require a server-validated MFA session');
+assert(source.includes("action === 'mfa_accept_firebase'") && source.includes('createPlatformAdminMfaSession'), 'one verified Firebase second factor can establish the RestauMax MFA session');
 assert(superAdmin.includes('!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail'), 'untrusted users remain denied');
 assert(!overview.includes('...data'), 'overview does not spread arbitrary restaurant fields');
 for (const privateField of ['ownerEmail:', 'ownerName:', 'phone:', 'address:']) {
