@@ -1365,6 +1365,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             discountPercent: Number.isInteger(invoice.discountPercent) ? invoice.discountPercent : 0,
             discountAmountFcfa: Number.isSafeInteger(invoice.discountAmountFcfa) ? invoice.discountAmountFcfa : 0,
             discountSource: typeof invoice.discountSource === 'string' ? invoice.discountSource : 'none',
+            discountType: typeof invoice.discountType === 'string' ? invoice.discountType : 'none',
+            discountValue: Number.isSafeInteger(invoice.discountValue) ? invoice.discountValue : 0,
             promotionCode: typeof invoice.promotionCode === 'string' ? invoice.promotionCode : null,
             promotionName: typeof invoice.promotionName === 'string' ? invoice.promotionName : null,
             currency: 'FCFA',
