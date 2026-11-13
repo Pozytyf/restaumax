@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { canPlatformAdminPerform, getPlatformAdminRole, isSuperAdmin } from '../src/server/platformAdmin.ts';
+import { canPlatformAdminPerform, countActivePlatformSuperAdmins, getPlatformAdminRole, isSuperAdmin } from '../src/server/platformAdmin.ts';
 
 const adminSource = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
 const mfaSource = fs.readFileSync(new URL('../src/server/platformAdminMfa.ts', import.meta.url), 'utf8');
@@ -29,6 +29,18 @@ try {
     'an allowlisted identity without a server-side MFA session is rejected');
   assert.equal(await getPlatformAdminRole({}, allowlisted, true), 'full',
     'an allowlisted identity with a server-side MFA session is accepted');
+
+  const activeAdminUsers = [
+    { uid: 'root-uid', email: 'root@example.test', emailVerified: true, disabled: false, customClaims: {} },
+    { uid: 'new-full', email: 'new-full@example.test', emailVerified: false, disabled: false, customClaims: { role: 'super_admin' } },
+    { uid: 'disabled-full', email: 'disabled@example.test', emailVerified: true, disabled: true, customClaims: { role: 'super_admin' } },
+    { uid: 'unverified-allowlist', email: 'root@example.test', emailVerified: false, disabled: false, customClaims: {} }
+  ];
+  const mockAuth = { listUsers: async (_limit: number, pageToken?: string) => pageToken
+    ? { users: activeAdminUsers.slice(2), pageToken: undefined }
+    : { users: activeAdminUsers.slice(0, 2), pageToken: 'next' } };
+  assert.equal(await countActivePlatformSuperAdmins(mockAuth), 2,
+    'the lockout guard counts active claimed and verified allowlisted Super-admins across Auth pages, excluding disabled or unverified accounts');
 
   const delegatedDb = {
     collection: () => ({
