@@ -10,13 +10,15 @@ const members = {
   'suspended-1': { active: false, role: 'manager', restaurantSlug: 'rest-a', sessionVersion: 1, permissions: ['menu.manage'] },
   'owner-suspended': { active: true, role: 'owner', restaurantSlug: 'rest-suspended', sessionVersion: 1 }
 };
+const subscriptions = { 'rest-a': { planName: 'Pro' } };
+const platformConfig = { planFeatures: { Pro: { dishImages: true }, Essentiel: { dishImages: false } } };
 const tokens = {
   'owner-token': { uid: 'owner-1', sessionVersion: 2 }, 'manager-token': { uid: 'manager-1', sessionVersion: 4 },
   'manager-no-permission-token': { uid: 'manager-2', sessionVersion: 1 }, 'suspended-token': { uid: 'suspended-1', sessionVersion: 1 },
   'stale-session-token': { uid: 'manager-1', sessionVersion: 3 }, 'wrong-owner-token': { uid: 'owner-2', sessionVersion: 1 },
   'revoked-token': new Error('revoked'), 'owner-suspended-token': { uid: 'owner-suspended', sessionVersion: 1 }
 };
-const db = { collection(name) { return { doc(id) { return { async get() { const data = name === 'restaurants' ? restaurants[id] : name === 'managers' ? members[id] : null; return { exists: Boolean(data), data: () => data }; } }; } }; } };
+const db = { collection(name) { return { doc(id) { return { async get() { const data = name === 'restaurants' ? restaurants[id] : name === 'managers' ? members[id] : name === 'restaurantSubscriptions' ? subscriptions[id] : name === 'platform_config' && id === 'global' ? platformConfig : null; return { exists: Boolean(data), data: () => data }; } }; } }; } };
 const files = new Map([['image-file-id-12345', { filePath: '/restaurants/rest-a/menu/image-file-id-12345.jpg' }]]);
 const calls = [];
 const fetchImpl = async (url, options = {}) => {
@@ -53,6 +55,9 @@ const base = { restaurantSlug: 'rest-a', kind: 'menu', contentType: 'image/jpeg'
 
 assert.equal((await handler(base, request(null))).statusCode, 401);
 assert.equal((await handler(base, request('owner-token', 'POST', 'https://evil.test'))).statusCode, 403);
+subscriptions['rest-a'] = { planName: 'Essentiel' };
+assert.equal((await handler(base, request('owner-token'))).statusCode, 403, 'Dish photos are denied when the plan does not include the entitlement');
+subscriptions['rest-a'] = { planName: 'Pro' };
 const ownerUpload = await handler(base, request('owner-token'));
 assert.equal(ownerUpload.statusCode, 201);
 assert.equal(ownerUpload.body.path, 'image-file-id-12345');
@@ -68,10 +73,11 @@ assert.equal((await handler({ ...base, contentType: 'image/gif' }, request('owne
 assert.equal((await handler({ ...base, dataBase64: Buffer.from('not an image').toString('base64'), size: 12 }, request('owner-token'))).statusCode, 400);
 assert.equal((await handler({ ...base, size: 3 * 1024 * 1024 + 1 }, request('owner-token'))).statusCode, 400);
 assert.equal((await handler({ ...base, kind: 'branding' }, request('manager-token'))).statusCode, 403);
+subscriptions['rest-a'] = { planName: 'Essentiel' };
 assert.equal((await handler({ ...base, path: 'image-file-id-12345' }, request('owner-token', 'DELETE'))).statusCode, 200);
 assert.equal(files.has('image-file-id-12345'), false);
 files.set('foreign-file-id-12345', { filePath: '/restaurants/rest-b/menu/photo.jpg' });
 assert.equal((await handler({ ...base, path: 'foreign-file-id-12345' }, request('owner-token', 'DELETE'))).statusCode, 403);
 assert.equal((await handler(base, request('revoked-token'))).statusCode, 401);
 assert.equal((await handler(base, { method: 'GET', headers: { origin: 'https://restaumax.test' } })).statusCode, 405);
-console.log('Restaurant ImageKit API authorization tests: 21 assertions passed.');
+console.log('Restaurant ImageKit API authorization tests: 22 assertions passed.');
