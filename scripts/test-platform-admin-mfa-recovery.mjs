@@ -101,6 +101,24 @@ try {
     'a recovery email already claimed by another admin cannot be reused'
   );
 
+  process.env.RESEND_FROM_EMAIL = 'RestauMax <onboarding@resend.dev>';
+  process.env.RESEND_TEST_RECIPIENT = 'stephaneolivierbali@gmail.com';
+  const testOnlyUid = 'mfa-resend-test-only';
+  await startPlatformAdminRecoveryContactVerification(db, testOnlyUid, 'infos.idaynews@gmail.com');
+  assert.equal(sentBody.to[0], 'stephaneolivierbali@gmail.com',
+    'Resend onboarding test mode redirects delivery to the configured account-owner recipient');
+  const testOnlyCode = sentBody.text.match(/\\b\\d{8}\\b/)?.[0];
+  assert.match(testOnlyCode || '', /^\\d{8}$/, 'test delivery still contains an eight-digit diagnostic code');
+  await assert.rejects(
+    verifyPlatformAdminRecoveryContact(db, testOnlyUid, testOnlyCode),
+    /uniquement à la boîte de test Resend/,
+    'a code delivered to the Resend test inbox can never verify the requested recovery address'
+  );
+  assert.equal(await getPlatformAdminRecoveryContact(db, testOnlyUid), null,
+    'test-only delivery leaves the requested recovery address unverified');
+  delete process.env.RESEND_TEST_RECIPIENT;
+
+  process.env.RESEND_FROM_EMAIL = 'RestauMax <security@example.test>';
   await startPlatformAdminEmailRecovery(db, uid, 'stephaneolivierbali@gmail.com');
   assert.equal(sentBody.to[0], 'stephaneolivierbali@gmail.com', 'Resend targets the verified recovery contact');
   assert.equal(sentBody.from, 'RestauMax <security@example.test>', 'Resend uses the configured sender');
