@@ -55,6 +55,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const [recoveryRotationCodes, setRecoveryRotationCodes] = useState<string[]>([]);
   const [recoveryRotationBusy, setRecoveryRotationBusy] = useState(false);
   const [passkeyCount, setPasskeyCount] = useState(0);
+  const [trustedSessionExpiresAt, setTrustedSessionExpiresAt] = useState<number | null>(null);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [emailRecoveryRequested, setEmailRecoveryRequested] = useState(false);
   const [emailRecoveryCode, setEmailRecoveryCode] = useState('');
@@ -142,6 +143,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     setMfaEnrolled(status.enrolled === true);
     setRecoveryCodesRemaining(Number(status.recoveryCodesRemaining || 0));
     setPasskeyCount(Number(status.passkeyCount || 0));
+    setTrustedSessionExpiresAt(Number(status.sessionExpiresAt || 0) || null);
     setRecoveryContactEmail(String(status.recoveryContactEmail || ''));
 
     if (status.recoverySession === true) {
@@ -383,6 +385,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       setRecoveryCodes(Array.isArray(result.recoveryCodes) ? result.recoveryCodes : []);
       setRecoveryCodesRemaining(Array.isArray(result.recoveryCodes) ? result.recoveryCodes.length : 0);
       setMfaEnrolled(true);
+      setTrustedSessionExpiresAt(Number(result.sessionExpiresAt || 0) || null);
       setTotpSecret(null);
       setTotpEnrollmentCode('');
       setCustomMfaSetup(false);
@@ -444,6 +447,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       await request({ action: 'mfa_passkey_register_verify', response, name: 'Passkey administrateur' });
       const status = await request({ action: 'mfa_status' });
       setPasskeyCount(Number(status.passkeyCount || 0));
+      setTrustedSessionExpiresAt(Number(status.sessionExpiresAt || 0) || null);
       setMfaNotice('Passkey ajoutée avec succès à votre compte administrateur.');
     } catch (passkeyError: any) {
       setError(passkeyError?.message || 'Impossible d’ajouter cette passkey.');
@@ -609,7 +613,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       {mfaEnrolled && <div className="mx-auto w-full max-w-7xl px-4 pt-4">
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-64 flex-1"><strong>Sécurité du compte · Protection MFA RestauMax</strong><p className="mt-1">Google Authenticator : enrôlé · {passkeyCount} passkey(s) enregistrée(s) · {recoveryCodesRemaining} code(s) de secours disponible(s).</p><p className="mt-1 text-xs text-amber-800">Adresse de récupération : <strong>{recoveryContactEmail || "non configurée"}</strong>. Elle est indépendante de l’adresse de connexion Firebase.</p></div>
+            <div className="min-w-64 flex-1"><strong>Sécurité du compte · Protection MFA RestauMax</strong><p className="mt-1">Google Authenticator : enrôlé · {passkeyCount} passkey(s) enregistrée(s) · {recoveryCodesRemaining} code(s) de secours disponible(s).</p><p className="mt-1 text-xs text-amber-800">{trustedSessionExpiresAt && trustedSessionExpiresAt > Date.now() ? <>Session de confiance active jusqu’au <strong>{new Date(trustedSessionExpiresAt).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })}</strong> (90 jours maximum).</> : 'Session de confiance de 90 jours non confirmée par le serveur.'}</p><p className="mt-1 text-xs text-amber-800">Adresse de récupération : <strong>{recoveryContactEmail || "non configurée"}</strong>. Elle est indépendante de l’adresse de connexion Firebase.</p></div>
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={passkeyBusy} onClick={() => void registerPasskey()} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold disabled:opacity-50">{passkeyBusy ? 'Passkey…' : 'Ajouter une passkey'}</button>
               <button type="button" onClick={() => { setRecoveryRotationOpen(value => !value); setRecoveryRotationCodes([]); setError(''); }} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold">Renouveler les 10 codes de secours</button>
