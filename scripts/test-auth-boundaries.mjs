@@ -40,8 +40,10 @@ assert.match(adminView, /onAuthStateChanged\(auth, \(nextUser\)/,
   'a restored or changed Firebase session is revalidated on /admin');
 assert.match(adminView, /!\['super_admin', 'platform_admin'\]\.includes\(String\(token\.claims\.role \|\| ''\)\)/,
   'only super-admin and delegated platform-admin claims can restore the platform console session');
-assert.match(adminView, /adminLoginInProgress\.current = true[\s\S]*?const data = await request\(\)/,
-  'the dedicated admin login explicitly authenticates before requesting platform access');
+assert.match(adminView, /adminLoginInProgress\.current = true[\s\S]*?await signInWithEmailAndPassword\(auth, email\.trim\(\), password\)[\s\S]*?await continueAfterAuthentication\(\)/,
+  'the dedicated admin login explicitly authenticates before continuing through MFA');
+assert.match(adminView, /const continueAfterAuthentication = useCallback[\s\S]*?request\(\{ action: 'mfa_status' \}\)/,
+  'platform access is requested only after the MFA session status is checked');
 assert.match(adminView, /\(!user \|\| needsPlatformAdminLogin\) \? \([\s\S]*?mfaResolver \?/,
   'a pre-existing non-platform Firebase session remains behind the dedicated admin login boundary');
 assert.match(adminView, /: <form onSubmit=\{login\}/,
