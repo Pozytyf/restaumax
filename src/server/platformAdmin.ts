@@ -6,7 +6,7 @@ import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwner
 import {
   beginPlatformAdminMfaEnrollment, confirmPlatformAdminMfaEnrollment,
   createPlatformAdminMfaSession, getPlatformAdminMfaStatus, getPlatformAdminMfaSessionDetails, hasValidPlatformAdminMfaSession,
-  revokePlatformAdminMfaSessions, verifyPlatformAdminMfaAndCreateSession
+  regeneratePlatformAdminRecoveryCodes, revokePlatformAdminMfaSessions, verifyPlatformAdminMfaAndCreateSession
 } from './platformAdminMfa.js';
 
 const PERMISSIONS = [
@@ -263,7 +263,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }).catch(() => undefined);
   }
 
-  const mfaActions = ['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify', 'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_logout'];
+  const mfaActions = ['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify', 'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_recovery_regenerate', 'mfa_logout'];
   if (mfaActions.includes(action)) {
     const delegatedIdentity = user.role === 'platform_admin' &&
       await getPlatformAdminRole(db, user, true) !== null;
@@ -329,6 +329,15 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
       }).catch(() => undefined);
       return json(res, 200, { success: true, enrolled: true, recoveryCodes, reauthenticationRequired: true });
+    }
+    if (action === 'mfa_recovery_regenerate') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (!sessionDetails || sessionDetails.factorSource === 'recovery') return json(res, 403, { success: false, error: 'Une session MFA normale et valide est requise pour renouveler les codes de secours.' });
+      const recoveryCodes = await regeneratePlatformAdminRecoveryCodes(db, user.uid, String(body.code || ''));
+      if (!recoveryCodes) return json(res, 401, { success: false, error: 'Code TOTP invalide, déjà utilisé ou temporairement bloqué.' });
+      await db.collection('admin_audit_logs').add({ action: 'platform_admin_mfa_recovery_codes_regenerated', actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now() }).catch(() => undefined);
+      return json(res, 200, { success: true, recoveryCodes, recoveryCodesRemaining: recoveryCodes.length });
     }
     if (action === 'mfa_verify') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
