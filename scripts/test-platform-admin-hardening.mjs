@@ -118,9 +118,9 @@ assert(admin.includes("doc.ref.parent.parent?.parent?.id === 'restaurantSubscrip
   'financial aggregates include only invoices and payments attached to subscription documents');
 assert(admin.includes("['full', 'billing'].includes(String(await getPlatformAdminRole(db, user) || ''))"),
   'financial aggregates are restricted to full and billing platform administrators');
-assert(ui.includes("screen === 'settings' || screen === 'restaurants'") &&
-  ui.includes("const configData = await read('config_read')"),
-  'the real offer catalog is loaded before a restaurant subscription can be edited');
+assert(ui.includes("screen === 'settings'") && ui.includes("const configData = await read('billing_catalog_read')") &&
+  admin.includes("action === 'billing_catalog_read'") && admin.includes("'billing_catalog_read'"),
+  'the offer catalog is loaded through a least-privilege billing action before a subscription is edited');
 assert(ui.includes('planId: selectedPlan?.id') && ui.includes('summary?.financialSummary?.overdueInvoicesCount') &&
   ui.includes('{date(i.dueAt)}'),
   'subscription UI sends the offer ID and displays overdue counts and invoice due dates');
