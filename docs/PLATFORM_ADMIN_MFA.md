@@ -39,6 +39,10 @@ Toutes les actions d'administration plateforme, y compris les lectures, exigent 
 
 ## Perte du téléphone et récupération
 
+### Renouveler les codes avant épuisement
+
+Tant que l'application TOTP est accessible, l'administrateur peut renouveler ses dix codes depuis le bandeau « Codes de secours MFA » du panel. L'opération exige une session MFA normale déjà valide et un nouveau code TOTP courant. Le serveur consomme ce pas TOTP une seule fois, remplace atomiquement les dix empreintes, journalise l'opération et affiche les nouveaux codes une seule fois. Les anciens codes deviennent immédiatement inutilisables. Le nombre de codes restants est affiché dans le panel.
+
 ### Si au moins un code de secours reste disponible
 
 1. Se connecter avec l'adresse e-mail et le mot de passe habituels.
