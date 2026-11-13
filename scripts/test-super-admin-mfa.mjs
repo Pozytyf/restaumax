@@ -63,6 +63,17 @@ try {
   assert(adminView.includes('mfa_enroll_start') && adminView.includes('QRCode.toDataURL') &&
     adminView.includes('mfa_verify'),
     'admin UI supports server-backed QR enrollment and MFA login verification');
+  assert(mfaSource.includes("factorSource: recoveryUsed ? 'recovery' : 'totp'") &&
+    mfaSource.includes('getPlatformAdminMfaSessionDetails'),
+    'a recovery code creates a separately marked MFA recovery session');
+  assert(adminSource.includes("action === 'mfa_recovery_enroll_start'") &&
+    adminSource.includes("factorSource !== 'recovery'") &&
+    adminSource.includes("factorSource === 'recovery'"),
+    'recovery sessions are restricted to replacing the lost factor and cannot access platform data');
+  assert(adminView.includes("status.recoverySession === true") &&
+    adminView.includes("action: 'mfa_recovery_enroll_start'") &&
+    adminView.includes('await continueAfterAuthentication();'),
+    'recovery-code sign-in forces a new TOTP enrollment before platform access');
   assert(adminView.includes('getIdTokenResult(true)') && adminView.includes('credential.user.getIdToken(true)') &&
     adminView.includes('continueAfterAuthentication(true)') &&
     adminSource.includes('firebase.sign_in_second_factor') === false && adminSource.includes('firebaseMfaIsRecent'),
