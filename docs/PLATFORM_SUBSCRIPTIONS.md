@@ -53,3 +53,4 @@ Les statuts de santé s'appuient sur des sondes et de la télémétrie disponibl
 - La dernière exécution de facturation doit être un succès, datée dans le passé et âgée de moins de 36 heures.
 - La sauvegarde doit être déclarée réussie, datée dans le passé et âgée de moins de 48 heures.
 - La sonde de déploiement n'affirme pas l'état Ready de Vercel sans vérification indépendante.
+- ImageKit est déclaré non mesuré tant qu'aucune sonde fournisseur réelle n'est exécutée ; un feature flag activé sans secrets valides est signalé comme dégradé.
