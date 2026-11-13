@@ -15,14 +15,16 @@ const valid = {
   billingCycle: 'monthly',
   status: 'trial',
   startsAt: 1793836800000,
-  endsAt: 1795046400000,
+  endsAt: 1796515199999,
   notes: 'Essai commercial'
 };
 
 console.log('\n--- Validation des abonnements plateforme ---');
 const validResult = validateSubscriptionInput(valid);
 assert(validResult.success === true, 'Un abonnement mensuel valide est accepté');
-assert(validateSubscriptionInput({ ...valid, billingCycle: 'quarterly' }).success === true, 'Un abonnement trimestriel valide est accepté');
+assert(validateSubscriptionInput({ ...valid, billingCycle: 'quarterly', endsAt: Date.UTC(2027, 1, 5, 23, 59, 59, 999) }).success === true, 'Un abonnement trimestriel valide est accepté');
+assert(validateSubscriptionInput({ ...valid, billingCycle: 'yearly', endsAt: Date.UTC(2027, 10, 5, 23, 59, 59, 999) }).success === true, 'Un abonnement annuel valide est accepté');
+assert(validateSubscriptionInput({ ...valid, endsAt: Date.UTC(2026, 10, 19, 23, 59, 59, 999) }).success === false, 'Une période mensuelle qui ne correspond pas à un mois civil est refusée');
 assert(validResult.success === true && validResult.subscription.currency === 'XOF', 'La devise est normalisée en XOF');
 assert(validResult.success === true && validResult.subscription.priceFcfa === 15000, 'Le tarif FCFA est conservé sans arrondi');
 const freeResult = validateSubscriptionInput({ ...valid, priceFcfa: 0, status: 'active' });

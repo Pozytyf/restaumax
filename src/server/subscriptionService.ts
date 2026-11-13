@@ -1,4 +1,15 @@
 export type SubscriptionStatus = 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
+
+function expectedPeriodEndDate(startsAt: number, cycle: SubscriptionBillingCycle) {
+  if (cycle === 'custom') return null;
+  const date = new Date(startsAt);
+  const day = date.getUTCDate();
+  date.setUTCDate(1);
+  date.setUTCMonth(date.getUTCMonth() + (cycle === 'monthly' ? 1 : cycle === 'quarterly' ? 3 : 12));
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+  date.setUTCDate(Math.min(day, lastDay));
+  return date.toISOString().slice(0, 10);
+}
 export type SubscriptionBillingCycle = 'monthly' | 'quarterly' | 'yearly' | 'custom';
 
 export interface NormalizedSubscriptionInput {
@@ -40,10 +51,11 @@ export function validateSubscriptionInput(input: unknown): SubscriptionValidatio
       !Number.isSafeInteger(endsAt) || endsAt <= startsAt ||
       !Number.isSafeInteger(gracePeriodDays) || gracePeriodDays < 0 || gracePeriodDays > 60 ||
       !Number.isSafeInteger(nextBillingAt) || nextBillingAt <= 0 || nextBillingAt !== endsAt ||
+      (billingCycle !== 'custom' && new Date(endsAt).toISOString().slice(0, 10) !== expectedPeriodEndDate(startsAt, billingCycle as SubscriptionBillingCycle)) ||
       (billingCycle === 'custom' && autoRenew)) {
     return {
       success: false,
-      error: 'Informations d’abonnement invalides. Vérifiez le plan, le tarif FCFA, la périodicité, le statut et les dates.'
+      error: 'Informations d’abonnement invalides. Vérifiez le plan, le tarif FCFA, le statut et la cohérence des dates avec la périodicité choisie.'
     };
   }
 
