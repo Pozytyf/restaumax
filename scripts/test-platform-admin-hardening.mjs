@@ -84,4 +84,8 @@ assert(imageService.includes("collection('platform_config')") && imageService.in
   imageService.includes('Les photos de plats ne sont pas incluses dans la formule'),
   'dish image uploads are denied by the server when the restaurant plan lacks the entitlement');
 
+assert(admin.includes("id: 'imagekit'") && admin.includes('imageKitEndpointValid') &&
+  admin.includes('la disponibilité du fournisseur reste non mesurée'),
+  'health panel reports ImageKit configuration without claiming provider uptime');
+
 console.log('Platform admin hardening regression tests passed.');
