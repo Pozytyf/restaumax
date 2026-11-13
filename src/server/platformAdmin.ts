@@ -120,13 +120,22 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
   }
 }
 
-export function isSuperAdmin(user: DecodedIdToken) {
-  // Trust only the server-issued Firebase custom claim or the verified bootstrap allowlist.
+function isSuperAdminIdentity(user: DecodedIdToken): boolean {
+  // Identity recognition is separate from the custom RestauMax MFA session proof.
   const hasTrustedSuperAdminClaim = user.role === 'super_admin';
   const verifiedAllowlistedEmail = user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase());
-  if (!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail) return false;
+  return hasTrustedSuperAdminClaim || verifiedAllowlistedEmail;
+}
+
+export function isSuperAdmin(user: DecodedIdToken) {
+  // Preserve the legacy Firebase-token predicate for existing callers and regression tests.
+  if (!isSuperAdminIdentity(user)) return false;
+  if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true') {
+    const secondFactor = (user as any).firebase?.sign_in_second_factor;
+    return typeof secondFactor === 'string' && secondFactor.length > 0;
+  }
   return true;
 }
 
@@ -145,7 +154,7 @@ function platformAdminMfaSatisfied(_user: DecodedIdToken, mfaSessionValid: boole
 }
 
 export async function getPlatformAdminRole(db: any, user: DecodedIdToken, mfaSessionValid = false): Promise<PlatformAdminRole | null> {
-  if (isSuperAdmin(user)) return platformAdminMfaSatisfied(user, mfaSessionValid) ? 'full' : null;
+  if (isSuperAdminIdentity(user)) return platformAdminMfaSatisfied(user, mfaSessionValid) ? 'full' : null;
   if (user.role !== 'platform_admin' || !platformAdminMfaSatisfied(user, mfaSessionValid)) return null;
   const role = String((user as any).platformAdminRole || '');
   if (!PLATFORM_ADMIN_ROLES.includes(role as PlatformAdminRole) || role === 'full') return null;
@@ -237,7 +246,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   if (mfaActions.includes(action)) {
     const delegatedIdentity = user.role === 'platform_admin' &&
       await getPlatformAdminRole(db, user, true) !== null;
-    if (!isSuperAdmin(user) && !delegatedIdentity) {
+    if (!isSuperAdminIdentity(user) && !delegatedIdentity) {
       return json(res, 403, { success: false, error: 'Compte administrateur plateforme requis.' });
     }
     if (action === 'mfa_status') {
