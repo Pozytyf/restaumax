@@ -38,8 +38,11 @@ assert(admin.includes('backupFresh') && admin.includes('now - backupLastRunAt <=
   'backup health status requires a successful run within 48 hours');
 assert(admin.includes("id: 'deployment', label: 'Déploiement', status: 'unknown'"),
   'deployment health is not marked operational from environment metadata alone');
-assert(admin.includes('l’enrôlement individuel de chaque administrateur'),
-  'MFA health does not overclaim individual enrollment based only on policy configuration');
+assert(admin.includes("const mfaPolicyEnabled = process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true';") &&
+  admin.includes('const mfaOperational = mfaPolicyEnabled && mfaSessionValid;') &&
+  admin.includes("id: 'admin-access', label: 'Sécurité des accès administrateur'") &&
+  admin.includes("status: mfaOperational ? 'operational' : 'degraded'"),
+  'administrator access health requires both the enforced policy and a server-validated current session');
 
 const auditStart = admin.indexOf("if (action === 'audit_list') {");
 const auditEnd = admin.indexOf("if (action === 'overview') {", auditStart);
