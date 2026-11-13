@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getStorage, ref as storageRef, getDownloadURL, connectStorageEmulator } from 'firebase/storage';
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken } from 'firebase/app-check';
 import { 
   getAuth, 
@@ -84,7 +84,7 @@ export const appCheck = appCheckSiteKey
 // CRITICAL: Always use the explicitly selected Firestore database.
 export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
-export const restaurantImageUploadsEnabled = viteEnv?.VITE_RESTAUMAX_STORAGE_IMAGES_ENABLED === 'true';
+export const restaurantImageUploadsEnabled = viteEnv?.VITE_RESTAUMAX_IMAGEKIT_UPLOADS_ENABLED === 'true';
 export const storage = getStorage(app);
 
 // Isolate local development from production Firebase when explicitly requested.
@@ -347,7 +347,7 @@ export async function uploadRestaurantImage(
   restaurantSlug: string,
   kind: RestaurantImageKind
 ): Promise<{ path: string; url: string }> {
-  if (!restaurantImageUploadsEnabled) throw new Error('Les photos seront activées après publication des règles Firebase Storage.');
+  if (!restaurantImageUploadsEnabled) throw new Error('Les envois de photos ne sont pas encore activés.');
   const slug = String(restaurantSlug || '').trim();
   if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) throw new Error('Restaurant invalide.');
   if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
@@ -371,25 +371,19 @@ export async function uploadRestaurantImage(
     dataBase64
   });
   const path = String(result.path || '');
-  if (!path.startsWith(`restaurants/${slug}/${kind}/`)) {
-    throw new Error('Le serveur a retourné un chemin de photo invalide.');
+  const url = String(result.url || '');
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(path) || !url.startsWith('https://')) {
+    throw new Error('Le serveur a retourné une référence de photo invalide.');
   }
-  try {
-    return { path, url: await getDownloadURL(storageRef(storage, path)) };
-  } catch (error) {
-    await callRestaurantImageApi('DELETE', { restaurantSlug: slug, kind, path }).catch(() => undefined);
-    throw error;
-  }
+  return { path, url };
 }
 
 export async function deleteRestaurantImage(path: string, restaurantSlug: string): Promise<void> {
   const slug = String(restaurantSlug || '').trim();
-  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) ||
-      (!path.startsWith(`restaurants/${slug}/menu/`) &&
-       !path.startsWith(`restaurants/${slug}/branding/`))) {
-    throw new Error('Chemin de fichier non autorisé pour ce restaurant.');
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^[A-Za-z0-9_-]{8,128}$/.test(path)) {
+    throw new Error('Référence de photo invalide.');
   }
-  await callRestaurantImageApi('DELETE', { restaurantSlug: slug, kind: path.includes('/branding/') ? 'branding' : 'menu', path });
+  await callRestaurantImageApi('DELETE', { restaurantSlug: slug, kind: 'menu', path });
 }
 
 /**
