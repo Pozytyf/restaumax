@@ -64,4 +64,15 @@ assert(billing.includes("date.setUTCMonth(date.getUTCMonth() + 3)") &&
   billing.includes("cycle !== 'quarterly'"),
   'quarterly subscription period is supported in renewal and settlement logic');
 
+assert(admin.includes("if (action === 'promotion_save')") && admin.includes("if (action === 'promotion_toggle')"),
+  'promotion creation and activation changes are server-authorized actions');
+assert(admin.includes('eligiblePlans.length > 20') && admin.includes("promotion.discountType === 'fixed'"),
+  'promotion API validates targeted plans, discount types and quotas');
+assert(billing.includes('usedCount < maxUses') && billing.includes('tx.update(promotionRef') &&
+  billing.includes('No stacking: apply the single best available reduction.'),
+  'promotion quota is consumed transactionally and never stacks with quarterly discounts');
+assert(ui.includes('Politique de promotion') && ui.includes('promotion_list') &&
+  ui.includes('Formules éligibles'),
+  'billing workspace exposes promotion creation, targeting and activation');
+
 console.log('Platform admin hardening regression tests passed.');
