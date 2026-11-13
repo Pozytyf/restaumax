@@ -135,11 +135,17 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         }
         const cycle = String(sub.billingCycle || '');
         const configuredPlans = Array.isArray(configSnap.data()?.plans) ? configSnap.data().plans : [];
-        const configuredPlan = configuredPlans.find((plan: any) => String(plan?.name || '') === String(sub.planName || ''));
-        const monthlyPlanPrice = Number(configuredPlan?.priceMonthlyFcfa || 0);
+        const configuredPlan = configuredPlans.find((plan: any) =>
+          (sub.planId && String(plan?.id || '') === String(sub.planId)) || String(plan?.name || '') === String(sub.planName || '')
+        );
+        const monthlyPlanPrice = Number(sub.planPriceMonthlyFcfa ?? configuredPlan?.priceMonthlyFcfa ?? 0);
         const cycleMultiplier = cycle === 'quarterly' ? 3 : cycle === 'yearly' ? 12 : 1;
-        const configuredCyclePrice = monthlyPlanPrice > 0 && cycle !== 'custom'
-          ? monthlyPlanPrice * cycleMultiplier : Number(sub.priceFcfa);
+        // The subscription price is a signed snapshot. Catalog edits must not
+        // silently reprice an existing contract; legacy records are backfilled
+        // from the catalog only when no subscription price snapshot exists.
+        const configuredCyclePrice = Number.isSafeInteger(Number(sub.priceFcfa))
+          ? Number(sub.priceFcfa)
+          : monthlyPlanPrice > 0 && cycle !== 'custom' ? monthlyPlanPrice * cycleMultiplier : Number.NaN;
         const baseAmount = Number(configuredCyclePrice);
         if (!Number.isSafeInteger(baseAmount) || baseAmount < 0 || baseAmount > 1000000000) return 'skip';
         let discountPercent = cycle === 'quarterly' ? quarterlyDiscountPercent : 0;
