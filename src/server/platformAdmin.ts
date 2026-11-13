@@ -227,6 +227,8 @@ async function requireStaffAdministrator(db: any, user: DecodedIdToken, slug: st
 
 export async function handlePlatformAdmin(req: any, res: any, db: any) {
   res.setHeader?.('Cache-Control', 'no-store');
+  res.setHeader?.('Referrer-Policy', 'no-referrer');
+  res.setHeader?.('X-Content-Type-Options', 'nosniff');
   if (req.method !== 'GET' && req.method !== 'POST') {
     res.setHeader?.('Allow', 'GET, POST');
     return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
@@ -560,6 +562,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         await auth.revokeRefreshTokens(targetUid);
         if (delegatedSnap.exists) await delegatedRef.update({ sessionVersion: nextVersion, updatedAt: Date.now(), mfaResetAt: Date.now(), mfaResetBy: user.uid });
         await db.collection('platform_admin_mfa').doc(targetUid).delete().catch(() => undefined);
+        await db.collection('platform_admin_mfa_attempts').doc(targetUid).delete().catch(() => undefined);
         await revokePlatformAdminMfaSessions(db, targetUid);
         await db.collection('admin_audit_logs').add({
           action: 'platform_admin_mfa_reset', targetUid, targetEmail,
