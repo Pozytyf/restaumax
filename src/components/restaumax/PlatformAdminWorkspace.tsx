@@ -27,6 +27,8 @@ type Invoice = {
   promotionCode?: string | null; promotionName?: string | null;
   currency: string; status: string; issuedAt: number | null; dueAt: number | null;
   paidAt: number | null; paymentReference?: string | null;
+  periodStartAt?: number | null; periodEndAt?: number | null;
+  gracePeriodDays?: number; graceEndsAt?: number | null;
 };
 type PlatformPromotion = {
   id: string; name: string; code: string; discountType: 'percentage' | 'fixed'; value: number;
@@ -88,15 +90,15 @@ type Props = {
 };
 
 const NAV = [
-  { id: 'overview', label: 'Vue d’ensemble', status: 'Existant', icon: LayoutDashboard },
-  { id: 'restaurants', label: 'Restaurants', status: 'Existant', icon: Building2 },
-  { id: 'billing', label: 'Abonnements et factures', status: 'Existant', icon: CreditCard },
-  { id: 'accounts', label: 'Comptes et accès', status: 'Existant', icon: Users },
-  { id: 'support', label: 'Support', status: 'Existant', icon: CircleHelp },
-  { id: 'audit', label: 'Journal d’audit', status: 'Existant', icon: ClipboardList },
-  { id: 'health', label: 'Santé de la plateforme', status: 'Existant', icon: Activity },
-  { id: 'settings', label: 'Configuration', status: 'Existant', icon: Settings },
-  { id: 'communication', label: 'Communication', status: 'Existant', icon: Bell }
+  { id: 'overview', label: 'Vue d’ensemble', icon: LayoutDashboard },
+  { id: 'restaurants', label: 'Restaurants', icon: Building2 },
+  { id: 'billing', label: 'Abonnements et factures', icon: CreditCard },
+  { id: 'accounts', label: 'Comptes et accès', icon: Users },
+  { id: 'support', label: 'Support', icon: CircleHelp },
+  { id: 'audit', label: 'Journal d’audit', icon: ClipboardList },
+  { id: 'health', label: 'Santé de la plateforme', icon: Activity },
+  { id: 'settings', label: 'Configuration', icon: Settings },
+  { id: 'communication', label: 'Communication', icon: Bell }
 ] as const;
 type Screen = typeof NAV[number]['id'];
 
@@ -308,8 +310,16 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     if (screen === 'health') void load('health_details', data => setHealth({ checkedAt: data.checkedAt, services: data.services || [] }));
     if (screen === 'settings') void load('config_read', data => { if (data.config) setPlatformConfig(current => mergePlatformConfig(current, data.config)); });
     if (screen === 'communication') void load('announcement_list', data => setAnnouncements(data.announcements || []));
-    return () => { active = false; };
-  }, [screen, allowedActions]);
+    const refreshTimer = (screen === 'billing' || screen === 'overview') && allowedActions.includes('billing_list')
+      ? setInterval(() => {
+          void read('billing_list', { limit: '100' }).then(data => {
+            if (active) { setInvoices(data.invoices || []); setInvoiceCursor(data.nextCursor || null); setInvoiceHasMore(data.hasMore === true); }
+          }).catch(() => undefined);
+          if (screen === 'overview') void onRefresh();
+        }, 60_000)
+      : null;
+    return () => { active = false; if (refreshTimer) clearInterval(refreshTimer); };
+  }, [screen, allowedActions, onRefresh]);
 
   const can = (action: string) => allowedActions.includes(action);
   const visibleNav = useMemo(() => !capabilitiesReady ? NAV.filter(item => item.id === 'overview') : NAV.filter(item => {
@@ -823,10 +833,10 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
         </div>
         <nav aria-label="Navigation super-administrateur" className="flex-1 space-y-1 px-3 py-4">
           {visibleNav.map(item => { const Icon = item.icon; return <button key={item.id} type="button" onClick={() => { setScreen(item.id); setPageError(''); setNotice(''); }} aria-current={screen === item.id ? 'page' : undefined} className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors ${screen === item.id ? 'bg-white/15 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
-            <Icon size={17}/><span className="min-w-0 flex-1">{item.label}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${item.status === 'Existant' ? 'bg-emerald-200 text-emerald-950' : item.status === 'Partiel' ? 'bg-amber-200 text-amber-950' : 'bg-slate-600 text-slate-100'}`}>{item.status}</span>
+            <Icon size={17}/><span className="min-w-0 flex-1">{item.label}</span>
           </button>; })}
         </nav>
-        <div className="border-t border-white/10 p-4 text-[11px] text-slate-300"><p className="mb-2 font-bold text-white">Légende</p><p>Vert · Existant</p><p>Jaune · Partiel</p><p>Gris · À créer</p><p className="mt-4 break-all">{userEmail || 'Compte super-administrateur'}</p></div>
+        <div className="border-t border-white/10 p-4 text-[11px] text-slate-300"><p className="break-all">{userEmail || 'Compte super-administrateur'}</p></div>
       </aside>
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between gap-3 border-b border-[#dbe3ee] bg-white/95 px-4 backdrop-blur md:px-7">
@@ -874,7 +884,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
 
           {screen === 'billing' && <>
             <div className="mb-5 grid gap-4 sm:grid-cols-3"><Panel><p className="text-sm text-slate-500">Montant des factures ouvertes affichées</p><p className="mt-2 text-2xl font-extrabold">{money(unpaidTotal)}</p></Panel><Panel><p className="text-sm text-slate-500">Factures à régulariser affichées</p><p className="mt-2 text-2xl font-extrabold">{unpaidInvoices.length}</p></Panel><Panel><p className="text-sm text-slate-500">Délai de grâce standard</p><p className="mt-2 text-2xl font-extrabold">{globalGracePeriodDays} jours</p></Panel></div>
-            <Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Factures d’abonnement</h3><span className="text-xs text-slate-500">{invoices.length} facture(s) chargée(s){invoiceHasMore?' · d’autres sont disponibles':''}</span></div><div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Facture</th><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Montant</th><th className="px-3 py-3">Émise</th><th className="px-3 py-3">Échéance</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{invoices.map(i=><tr key={i.id}><td className="px-3 py-3 font-semibold">{i.id.slice(0,14)}</td><td className="px-3 py-3">{restaurants.find(r=>r.slug===i.restaurantSlug)?.name || i.restaurantSlug}</td><td className="px-3 py-3">{i.planName}</td><td className="px-3 py-3 font-bold">{money(i.amountFcfa)}{(i.discountAmountFcfa||0)>0&&<span className="block text-[11px] font-medium text-emerald-700">{i.discountType==='fixed'?'Remise fixe':'-'+(i.discountPercent||0)+' %'} · économie {money(i.discountAmountFcfa||0)}</span>}{i.promotionCode&&<span className="block text-[11px] font-medium text-sky-700">Promo {i.promotionCode}</span>}</td><td className="px-3 py-3">{date(i.issuedAt)}</td><td className="px-3 py-3">{date(i.dueAt)}</td><td className="px-3 py-3"><Badge value={i.status}/></td><td className="px-3 py-3">{['open','overdue'].includes(i.status)?<button type="button" onClick={()=>setSelectedInvoice(i)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Enregistrer paiement</button>:<span className="text-xs text-slate-500">—</span>}</td></tr>)}</tbody></table></div>{pageLoading&&<p className="mt-3 text-sm text-slate-500">Chargement des factures…</p>}{invoices.length===0&&!pageLoading&&<p className="py-8 text-center text-sm text-slate-500">Aucune facture d’abonnement trouvée.</p>}{invoiceHasMore&&<div className="mt-4 flex justify-center"><button type="button" disabled={pageLoading||!invoiceCursor} onClick={async()=>{if(!invoiceCursor)return;setPageLoading(true);setPageError('');try{const data=await read('billing_list',{limit:'100',cursor:invoiceCursor});setInvoices(current=>[...current,...(data.invoices||[])]);setInvoiceCursor(data.nextCursor||null);setInvoiceHasMore(data.hasMore===true);}catch(e:any){setPageError(e.message||'Chargement des factures suivantes impossible.');}finally{setPageLoading(false);}}} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-bold">Charger les factures suivantes</button></div>}</Panel>
+            <Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Factures d’abonnement</h3><span className="text-xs text-slate-500">{invoices.length} facture(s) chargée(s){invoiceHasMore?' · d’autres sont disponibles':''}</span></div><div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Facture</th><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Montant</th><th className="px-3 py-3">Période facturée</th><th className="px-3 py-3">Émise</th><th className="px-3 py-3">Échéance</th><th className="px-3 py-3">Fin de grâce</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{invoices.map(i=><tr key={i.id}><td className="px-3 py-3 font-semibold">{i.id.slice(0,14)}</td><td className="px-3 py-3">{restaurants.find(r=>r.slug===i.restaurantSlug)?.name || i.restaurantSlug}</td><td className="px-3 py-3">{i.planName}</td><td className="px-3 py-3 font-bold">{money(i.amountFcfa)}{(i.discountAmountFcfa||0)>0&&<span className="block text-[11px] font-medium text-emerald-700">{i.discountType==='fixed'?'Remise fixe':'-'+(i.discountPercent||0)+' %'} · économie {money(i.discountAmountFcfa||0)}</span>}{i.promotionCode&&<span className="block text-[11px] font-medium text-sky-700">Promo {i.promotionCode}</span>}</td><td className="px-3 py-3">{date(i.periodStartAt)} – {date(i.periodEndAt)}</td><td className="px-3 py-3">{date(i.issuedAt)}</td><td className="px-3 py-3">{date(i.dueAt)}</td><td className="px-3 py-3">{date(i.graceEndsAt)}</td><td className="px-3 py-3"><Badge value={i.status}/></td><td className="px-3 py-3">{['open','overdue'].includes(i.status)?<button type="button" onClick={()=>setSelectedInvoice(i)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Enregistrer paiement</button>:<span className="text-xs text-slate-500">—</span>}</td></tr>)}</tbody></table></div>{pageLoading&&<p className="mt-3 text-sm text-slate-500">Chargement des factures…</p>}{invoices.length===0&&!pageLoading&&<p className="py-8 text-center text-sm text-slate-500">Aucune facture d’abonnement trouvée.</p>}{invoiceHasMore&&<div className="mt-4 flex justify-center"><button type="button" disabled={pageLoading||!invoiceCursor} onClick={async()=>{if(!invoiceCursor)return;setPageLoading(true);setPageError('');try{const data=await read('billing_list',{limit:'100',cursor:invoiceCursor});setInvoices(current=>[...current,...(data.invoices||[])]);setInvoiceCursor(data.nextCursor||null);setInvoiceHasMore(data.hasMore===true);}catch(e:any){setPageError(e.message||'Chargement des factures suivantes impossible.');}finally{setPageLoading(false);}}} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-bold">Charger les factures suivantes</button></div>}</Panel>
             {can('promotion_list')&&<div className="mt-5 grid gap-5 xl:grid-cols-2">
               <Panel><h3 className="mb-3 font-extrabold">Politique de promotion</h3><p className="mb-4 text-xs text-slate-500">Les promotions sont appliquées automatiquement aux prochaines factures des formules ciblées, pendant la période définie. Une seule réduction est retenue : la meilleure entre la promotion et la remise trimestrielle. Les quotas sont contrôlés dans une transaction serveur.</p>
                 <form onSubmit={savePromotion} className="space-y-3">

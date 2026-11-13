@@ -214,8 +214,8 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
           discountSource, discountType, discountValue,
           promotionId: appliedPromotion?.id || null, promotionCode: appliedPromotion?.code || null,
           promotionName: appliedPromotion?.name || null, amountFcfa: amount, currency: 'XOF',
-          periodStartAt: Number(sub.startsAt || 0), periodEndAt: Number(sub.endsAt || nextBillingAt),
-          issuedAt: now, dueAt: now, gracePeriodDays, status: 'open',
+          periodStartAt: nextBillingAt, periodEndAt: addBillingCycle(nextBillingAt, cycle),
+          issuedAt: now, dueAt: now, gracePeriodDays, graceEndsAt: now + gracePeriodDays * DAY_MS, status: 'open',
           createdAt: now
         });
         tx.update(subscriptionRef, {
@@ -323,12 +323,13 @@ export async function settleSubscriptionInvoiceWithDb(
     }
     const cycle = String(sub.billingCycle || '');
     if (cycle !== 'monthly' && cycle !== 'quarterly' && cycle !== 'yearly') {
-      return { success: false, error: 'Le renouvellement automatique exige une périodicité mensuelle ou annuelle.' };
+      return { success: false, error: 'Le renouvellement automatique exige une périodicité mensuelle, trimestrielle ou annuelle.' };
     }
     const periodStart = Math.max(Number(sub.endsAt || now), now);
     const periodEnd = addBillingCycle(periodStart, cycle);
     const updatedInvoice = {
       ...invoice, status: 'paid', paidAt: now, paymentReference,
+      periodStartAt: periodStart, periodEndAt: periodEnd,
       amountPaidFcfa: input.amountFcfa, paidBy: input.actorUid
     };
     tx.update(invoiceRef, { ...updatedInvoice, paymentMethod: 'manual' });

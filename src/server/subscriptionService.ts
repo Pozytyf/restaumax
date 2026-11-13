@@ -39,7 +39,7 @@ export function validateSubscriptionInput(input: unknown): SubscriptionValidatio
       !Number.isSafeInteger(startsAt) || startsAt <= 0 ||
       !Number.isSafeInteger(endsAt) || endsAt <= startsAt ||
       !Number.isSafeInteger(gracePeriodDays) || gracePeriodDays < 0 || gracePeriodDays > 60 ||
-      !Number.isSafeInteger(nextBillingAt) || nextBillingAt <= 0 ||
+      !Number.isSafeInteger(nextBillingAt) || nextBillingAt <= 0 || nextBillingAt !== endsAt ||
       (billingCycle === 'custom' && autoRenew)) {
     return {
       success: false,
