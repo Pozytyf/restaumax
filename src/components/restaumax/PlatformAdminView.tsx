@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { getMultiFactorResolver, onAuthStateChanged, PhoneAuthProvider, PhoneMultiFactorGenerator, RecaptchaVerifier, signInWithEmailAndPassword, signOut, TotpMultiFactorGenerator, type MultiFactorResolver, type User } from 'firebase/auth';
+import { getMultiFactorResolver, multiFactor, onAuthStateChanged, PhoneAuthProvider, PhoneMultiFactorGenerator, RecaptchaVerifier, signInWithEmailAndPassword, signOut, TotpMultiFactorGenerator, type MultiFactorResolver, type User } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
 import { ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { PlatformAdminWorkspace } from './PlatformAdminWorkspace';
@@ -40,6 +40,10 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const [mfaFactor, setMfaFactor] = useState<{ kind: 'totp'; uid: string } | { kind: 'phone'; uid: string; phoneNumber: string } | null>(null);
   const [mfaVerificationId, setMfaVerificationId] = useState('');
   const [mfaCode, setMfaCode] = useState('');
+  const [totpSecret, setTotpSecret] = useState<any>(null);
+  const [totpEnrollmentCode, setTotpEnrollmentCode] = useState('');
+  const [totpEnrollmentBusy, setTotpEnrollmentBusy] = useState(false);
+  const [primaryMfaEnrolled, setPrimaryMfaEnrolled] = useState(false);
   const mfaRecaptchaVerifier = useRef<RecaptchaVerifier | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -239,6 +243,52 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     }
   };
 
+  const isPrimarySuperAdmin = user?.email?.toLowerCase() === 'superadmin@restaumax.test';
+
+  useEffect(() => {
+    if (!user || !isPrimarySuperAdmin) {
+      setPrimaryMfaEnrolled(false);
+      return;
+    }
+    setPrimaryMfaEnrolled(multiFactor(user).enrolledFactors.length > 0);
+  }, [user, isPrimarySuperAdmin]);
+
+  const beginTotpEnrollment = async () => {
+    if (!user || !isPrimarySuperAdmin) return;
+    setError('');
+    setTotpEnrollmentBusy(true);
+    try {
+      const session = await multiFactor(user).getSession();
+      const secret = await TotpMultiFactorGenerator.generateSecret(session);
+      setTotpSecret(secret);
+      setTotpEnrollmentCode('');
+    } catch (enrollmentError: any) {
+      setError(enrollmentError?.message || 'Impossible de préparer l’enrôlement MFA. Vérifiez que TOTP est activé dans Firebase Authentication.');
+    } finally {
+      setTotpEnrollmentBusy(false);
+    }
+  };
+
+  const confirmTotpEnrollment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!user || !isPrimarySuperAdmin || !totpSecret) return;
+    setError('');
+    setTotpEnrollmentBusy(true);
+    try {
+      const assertion = TotpMultiFactorGenerator.assertionForEnrollment(totpSecret, totpEnrollmentCode.trim());
+      await multiFactor(user).enroll(assertion, 'RestauMax · Authentificateur');
+      await user.getIdToken(true);
+      setPrimaryMfaEnrolled(multiFactor(user).enrolledFactors.length > 0);
+      setTotpSecret(null);
+      setTotpEnrollmentCode('');
+      await refresh();
+    } catch (enrollmentError: any) {
+      setError(enrollmentError?.message || 'Code invalide ou enrôlement MFA impossible. Réessayez avec le code courant.');
+    } finally {
+      setTotpEnrollmentBusy(false);
+    }
+  };
+
   const cancelMfaLogin = () => {
     mfaRecaptchaVerifier.current?.clear();
     mfaRecaptchaVerifier.current = null;
@@ -279,15 +329,33 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         <p className="text-sm text-slate-600">{loading ? 'Vérification de votre identité et de vos autorisations côté serveur…' : 'Aucune donnée de plateforme ne sera affichée tant que le serveur n’aura pas confirmé vos droits.'}</p>
         {!loading && <button type="button" onClick={() => void refresh()} className="min-h-11 w-full rounded-lg bg-[#101d2d] p-3 font-bold text-white">Vérifier à nouveau</button>}
       </section></div>
-    ) : <PlatformAdminWorkspace
-      restaurants={restaurants}
-      summary={summary}
-      userEmail={user.email}
-      loading={loading}
-      request={request}
-      onRefresh={refresh}
-      onBack={onBack}
-      onSignOut={() => { void signOut(auth); }}
-    />}
+    ) : <>
+      {isPrimarySuperAdmin && <section className="mx-auto mt-5 w-[min(96%,1100px)] rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="font-extrabold text-[#101d2d]">Sécurité du compte Super-admin principal</h2><p className="mt-1 text-sm text-slate-600">Enrôlez une application d’authentification TOTP avant l’activation de la politique MFA obligatoire.</p></div>
+          <span className={primaryMfaEnrolled?'rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800':'rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800'}>{primaryMfaEnrolled?'MFA enrôlé':'Enrôlement requis'}</span>
+        </div>
+        {!primaryMfaEnrolled && !totpSecret && <button type="button" disabled={totpEnrollmentBusy} onClick={()=>void beginTotpEnrollment()} className="mt-4 min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white disabled:opacity-50">{totpEnrollmentBusy?'Préparation…':'Configurer une application d’authentification'}</button>}
+        {totpSecret && <form onSubmit={confirmTotpEnrollment} className="mt-4 max-w-xl space-y-3">
+          <p className="text-sm text-slate-700">Ajoutez un nouveau compte dans Google Authenticator, Microsoft Authenticator ou une application TOTP compatible. Saisissez manuellement cette clé secrète :</p>
+          <code className="block break-all rounded-lg bg-slate-100 p-3 text-sm font-bold tracking-wider">{totpSecret.secretKey}</code>
+          <p className="text-xs text-slate-500">Cette clé donne accès à la génération de codes MFA. Ne la partagez avec personne et ne la copiez pas dans un ticket ou un e-mail.</p>
+          <label className="block text-sm font-semibold text-slate-700">Code à 6 chiffres de l’application<input required inputMode="numeric" pattern="[0-9]{6}" autoComplete="one-time-code" value={totpEnrollmentCode} onChange={e=>setTotpEnrollmentCode(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 tracking-widest"/></label>
+          <div className="flex flex-wrap gap-2"><button disabled={totpEnrollmentBusy} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white disabled:opacity-50">{totpEnrollmentBusy?'Validation…':'Valider et activer MFA'}</button><button type="button" onClick={()=>{setTotpSecret(null);setTotpEnrollmentCode('');}} className="min-h-11 rounded-xl border px-4 text-sm font-semibold">Annuler</button></div>
+        </form>}
+        {primaryMfaEnrolled && <p className="mt-3 text-sm text-emerald-800">Un facteur MFA est enregistré dans Firebase Authentication. L’obligation serveur reste désactivée jusqu’à la vérification finale de l’accès.</p>}
+        {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
+      </section>}
+      <PlatformAdminWorkspace
+        restaurants={restaurants}
+        summary={summary}
+        userEmail={user.email}
+        loading={loading}
+        request={request}
+        onRefresh={refresh}
+        onBack={onBack}
+        onSignOut={() => { void signOut(auth); }}
+      />
+    </>}
   </div>;
 };
