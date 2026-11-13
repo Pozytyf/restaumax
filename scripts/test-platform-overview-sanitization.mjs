@@ -8,13 +8,13 @@ const overview = source.slice(start, end);
 assert(!overview.includes('migrateLegacyRestaurantPrivateData'), 'GET overview must never run a data migration');
 assert(!overview.includes('.set(') && !overview.includes('.update(') && !overview.includes('.delete('), 'GET overview must remain read-only');
 assert(overview.includes("collection('restaurantSubscriptions').doc(d.id).get()"), 'overview reads canonical subscription data without writing');
-const superAdminStart = source.indexOf('function isSuperAdmin(user: DecodedIdToken) {');
+const superAdminStart = source.indexOf('function isSuperAdminIdentity(user: DecodedIdToken): boolean {');
 const superAdminEnd = source.indexOf('export function canManageStaffMember', superAdminStart);
-assert(superAdminStart >= 0 && superAdminEnd > superAdminStart, 'super-admin authorization helper exists');
+assert(superAdminStart >= 0 && superAdminEnd > superAdminStart, 'super-admin identity and MFA authorization helpers exist');
 const superAdmin = source.slice(superAdminStart, superAdminEnd);
-assert(superAdmin.includes("user.role === 'super_admin'"), 'trusted server-issued super-admin claim grants access');
+assert(superAdmin.includes("user.role === 'super_admin'"), 'trusted server-issued super-admin claim grants identity');
 assert(superAdmin.includes('verifiedAllowlistedEmail'), 'verified allowlist remains bootstrap path');
-assert(superAdmin.includes('RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA'), 'MFA remains enforced when configured');
+assert(superAdmin.includes('RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA') && superAdmin.includes('sign_in_second_factor'), 'legacy Firebase MFA predicate remains explicit while custom MFA sessions are enforced separately');
 assert(superAdmin.includes('!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail'), 'untrusted users remain denied');
 assert(!overview.includes('...data'), 'overview does not spread arbitrary restaurant fields');
 for (const privateField of ['ownerEmail:', 'ownerName:', 'phone:', 'address:']) {
@@ -26,7 +26,7 @@ assert(overview.includes('monthlyRecurringRevenueFcfa'), 'overview reports norma
 assert(overview.includes("billingCycle === 'yearly'"), 'yearly subscriptions are normalized over twelve months');
 console.log('Platform overview minimization and aggregate checks passed.');
 
-const accountsStart = source.indexOf("if (action === 'staff_list' && ['full', 'support'].includes(String(await getPlatformAdminRole(db, user) || ''))) {");
+const accountsStart = source.indexOf("if (action === 'staff_list' && ['full', 'support'].includes(String(await getPlatformAdminRole(db, user, mfaSessionValid) || ''))) {");
 const accountsEnd = source.indexOf("// Owner and authorized manager staff administration", accountsStart);
 assert(accountsStart >= 0 && accountsEnd > accountsStart, 'super-admin account audit exists before tenant staff authorization');
 const accountAudit = source.slice(accountsStart, accountsEnd);
