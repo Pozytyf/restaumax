@@ -183,4 +183,19 @@ assert(admin.includes("const managedPlatformAdmin = adminSnap.exists") &&
   admin.includes("if (!managedPlatformAdmin && !trustedFullIdentity)"),
   'password reset requests support delegated and full platform administrators while rejecting unrelated identities');
 
+assert(admin.includes("function resolvePlatformAdminPermissions") &&
+  admin.includes("!permissions.includes('platform.overview')") &&
+  admin.includes("permissions.some(permission => !ceiling.includes(permission))"),
+  'delegated permission overrides must retain the overview baseline and stay within the selected role ceiling');
+assert(admin.includes("const requiredPermission = PLATFORM_ADMIN_ACTION_PERMISSION[action]") &&
+  admin.includes("return permissions.includes(requiredPermission)") &&
+  admin.includes("tokenVersion !== Number(record.sessionVersion || 0)"),
+  'every delegated API action is checked against the permission set stored in the verified admin session');
+assert(admin.includes("previousPermissions:") && admin.includes("newPermissions: permissions"),
+  'permission changes record both previous and next grants in the audit trail');
+assert(ui.includes('Modifier les permissions') &&
+  ui.includes("changePlatformAdminPermissions(admin,permission.value,e.target.checked)") &&
+  ui.includes("permission.value==='platform.overview'"),
+  'the account screen exposes individual permission toggles while keeping the overview permission mandatory');
+
 console.log('Platform admin hardening regression tests passed.');
