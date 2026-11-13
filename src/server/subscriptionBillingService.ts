@@ -155,6 +155,9 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
           if (!validPromotion) continue;
           const promoType = promotion.discountType === 'fixed' ? 'fixed' : 'percentage';
           const promoValue = Number(promotion.value || 0);
+          if (!Number.isSafeInteger(promoValue) || promoValue < 1 ||
+              (promoType === 'percentage' && promoValue > 100) ||
+              (promoType === 'fixed' && promoValue > 1000000000)) continue;
           const promoAmount = promoType === 'fixed'
             ? Math.min(baseAmount, promoValue)
             : Math.round(baseAmount * promoValue / 100);
