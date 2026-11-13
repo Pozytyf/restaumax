@@ -117,7 +117,7 @@ function configuredSuperAdmins() {
     .split(',').map((email) => email.trim().toLowerCase()).filter(Boolean);
 }
 
-async function countActivePlatformSuperAdmins(auth: any): Promise<number> {
+export async function countActivePlatformSuperAdmins(auth: any): Promise<number> {
   const allowlisted = new Set(configuredSuperAdmins());
   const active = new Set<string>();
   let pageToken: string | undefined;
