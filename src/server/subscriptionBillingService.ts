@@ -3,6 +3,12 @@ import { createHash } from 'node:crypto';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function planIdentifier(name: string) {
+  return String(name || '').toLowerCase().normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '').slice(0, 60) || 'plan';
+}
+
 export function resolveSubscriptionInvoiceIdentity(ref: any, invoice: any) {
   const segments = String(ref?.path || '').split('/');
   if (segments.length !== 4 || segments[0] !== 'restaurantSubscriptions' || segments[2] !== 'invoices') return null;
