@@ -61,6 +61,9 @@ try {
   assert(adminView.includes('mfa_enroll_start') && adminView.includes('QRCode.toDataURL') &&
     adminView.includes('mfa_verify'),
     'admin UI supports server-backed QR enrollment and MFA login verification');
+  assert(adminView.includes('getIdTokenResult(true)') && adminView.includes('credential.user.getIdToken(true)') &&
+    adminView.includes('continueAfterAuthentication(true)'),
+    'Firebase MFA login force-refreshes the verified second-factor claim and establishes one platform session');
   assert(!adminView.includes('Demo-RestauMax-2026!') && !adminView.includes('isPublicDemoAccess'),
     'public Preview never embeds or pre-fills a super-admin password');
 

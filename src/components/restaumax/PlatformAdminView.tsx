@@ -92,7 +92,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     finally { setLoading(false); }
   }, [request]);
 
-  const continueAfterAuthentication = useCallback(async () => {
+  const continueAfterAuthentication = useCallback(async (firebaseMfaJustCompleted = false) => {
     const status = await request({ action: 'mfa_status' });
     setNeedsPlatformAdminLogin(false);
     if (status.sessionValid === true) {
@@ -101,9 +101,14 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       setRestaurants(data.restaurants || []); setSummary(data.summary || null);
       return;
     }
-    const tokenResult = await auth.currentUser?.getIdTokenResult();
+    // Firebase adds sign_in_second_factor only after resolveSignIn succeeds.
+    // Force refresh so a cached pre-challenge token cannot trigger a second TOTP.
+    const tokenResult = await auth.currentUser?.getIdTokenResult(true);
     const firebaseSecondFactor = (tokenResult?.claims?.firebase as any)?.sign_in_second_factor;
-    if (typeof firebaseSecondFactor === 'string' && firebaseSecondFactor) {
+    if (firebaseMfaJustCompleted && !(typeof firebaseSecondFactor === 'string' && firebaseSecondFactor)) {
+      throw new Error('Firebase n’a pas encore confirmé le second facteur dans le jeton de connexion. Réessayez la connexion.');
+    }
+    if (firebaseMfaJustCompleted || (typeof firebaseSecondFactor === 'string' && firebaseSecondFactor)) {
       try {
         await request({ action: 'mfa_accept_firebase' });
         const data = await request();
@@ -269,13 +274,19 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         : PhoneMultiFactorGenerator.assertion(
             PhoneAuthProvider.credential(mfaVerificationId, mfaCode.trim())
           );
-      await mfaResolver.resolveSignIn(assertion);
+      const credential = await mfaResolver.resolveSignIn(assertion);
+      await credential.user.getIdToken(true);
+      const verifiedToken = await credential.user.getIdTokenResult(true);
+      const verifiedFactor = (verifiedToken.claims.firebase as any)?.sign_in_second_factor;
+      if (typeof verifiedFactor !== 'string' || !verifiedFactor) {
+        throw new Error('Le second facteur Firebase a été validé, mais sa preuve n’est pas encore disponible. Reconnectez-vous.');
+      }
       setMfaResolver(null);
       setMfaFactor(null);
       setMfaVerificationId('');
       setMfaCode('');
       setPassword('');
-      await continueAfterAuthentication();
+      await continueAfterAuthentication(true);
     } catch (mfaError: any) {
       setError(mfaError?.message || 'Le code de vérification MFA est invalide ou expiré.');
     } finally {
