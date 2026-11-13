@@ -90,4 +90,39 @@ assert(admin.includes("id: 'imagekit'") && admin.includes('imageKitEndpointValid
   admin.includes('la disponibilité du fournisseur reste non mesurée'),
   'health panel reports ImageKit configuration without claiming provider uptime');
 
+// Subscription catalogue, persistence, invoicing policy and financial dashboard regressions.
+assert(server.includes('const snapshotFeature = subscription.planFeatures') &&
+  server.includes('if (typeof snapshotFeature === \'boolean\') return snapshotFeature;'),
+  'restaurant feature access uses the immutable entitlement snapshot attached to its subscription');
+assert(admin.includes('planId: selectedPlanId') && admin.includes('planFeatures: selectedPlanFeatures') &&
+  admin.includes('planPriceMonthlyFcfa: selectedMonthlyPrice'),
+  'each subscription stores the stable offer ID, contractual price and entitlement snapshot');
+assert(admin.includes('subscriptionRef.collection(\'history\').doc()') &&
+  admin.includes('billingAction: \'subscription_changed_no_invoice\''),
+  'subscription changes are versioned and do not create an immediate or retroactive invoice');
+assert(admin.includes('batch.set(subscriptionRef, updatedSubscription)') &&
+  admin.includes('batch.create(historyRef') && admin.includes('batch.commit()'),
+  'canonical subscription, history and audit are persisted atomically');
+assert(admin.includes('if (subscriptionSnap.exists') && admin.includes("'legacy_unmigrated'"),
+  'the canonical subscription document takes precedence and legacy data is marked explicitly');
+assert(admin.includes("billingCycle === 'quarterly'" ) && admin.includes('amount / 3'),
+  'quarterly contracts contribute one third of their cycle price to MRR');
+assert(admin.includes('financialSummary') && admin.includes('overdueInvoicesCount') &&
+  admin.includes('collectedAmountFcfa') && admin.includes('upcomingDueAmountFcfa'),
+  'overview exposes open, overdue, collected and upcoming-due financial totals');
+assert(admin.includes("doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions'"),
+  'financial aggregates include only invoices and payments attached to subscription documents');
+assert(admin.includes("['full', 'billing'].includes(String(await getPlatformAdminRole(db, user) || ''))"),
+  'financial aggregates are restricted to full and billing platform administrators');
+assert(ui.includes("screen === 'settings' || screen === 'restaurants'") &&
+  ui.includes("const configData = await read('config_read')"),
+  'the real offer catalog is loaded before a restaurant subscription can be edited');
+assert(ui.includes('planId: selectedPlan?.id') && ui.includes('summary?.financialSummary?.overdueInvoicesCount') &&
+  ui.includes('{date(i.dueAt)}'),
+  'subscription UI sends the offer ID and displays overdue counts and invoice due dates');
+assert(billing.includes('Number(sub.priceFcfa)') && billing.includes('catalog edits must not'),
+  'recurring invoices use the saved contractual price snapshot instead of silently repricing existing subscriptions');
+assert(billing.includes("!['open', 'overdue'].includes(String(invoice.status))"),
+  'overdue invoices remain payable through the same settlement transaction');
+
 console.log('Platform admin hardening regression tests passed.');
