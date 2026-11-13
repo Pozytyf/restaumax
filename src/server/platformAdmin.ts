@@ -1168,7 +1168,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           usedCount: Number(previous.usedCount || 0), active: body.active,
           createdAt: Number(previous.createdAt || now), updatedAt: now, updatedBy: user.uid
         };
-        await ref.set(saved);
+        if (id) {
+          await ref.set(saved);
+        } else {
+          try { await ref.create(saved); }
+          catch (error: any) {
+            if (error?.code === 6 || String(error?.code || '').includes('ALREADY_EXISTS')) {
+              return json(res, 409, { success: false, error: 'Ce code promotionnel existe déjà.' });
+            }
+            throw error;
+          }
+        }
         await db.collection('admin_audit_logs').add({
           action: id ? 'update_platform_promotion' : 'create_platform_promotion',
           actorUid: user.uid, promotionId: ref.id, promotionCode: code,
