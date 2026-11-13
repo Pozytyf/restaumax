@@ -1840,12 +1840,6 @@ export async function handlePublicMenuRequest(req: any): Promise<{ statusCode: n
 }
 
 export async function handleRestaurantImageRequest(payload: unknown, req?: any) {
-  const imageInput = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
-  const imageRestaurantSlug = String(imageInput.restaurantSlug || '').trim();
-  if (adminDb && String(req?.method || '').toUpperCase() === 'POST' && imageRestaurantSlug &&
-      !(await isPlatformFeatureEnabled(adminDb, imageRestaurantSlug, 'dishImages'))) {
-    return { statusCode: 403, body: { success: false, error: 'Les photos de plats ne sont pas incluses dans la formule de ce restaurant.' } };
-  }
   if (process.env.RESTAUMAX_IMAGEKIT_UPLOADS_ENABLED !== 'true') {
     return { statusCode: 503, body: { success: false, error: 'Les envois de photos ImageKit ne sont pas encore activés.' } };
   }
