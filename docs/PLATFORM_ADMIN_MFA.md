@@ -15,6 +15,9 @@ Les documents sont gérés exclusivement par Firebase Admin SDK :
 - `platform_admin_mfa/{uid}` : secret TOTP chiffré AES-256-GCM, état d'enrôlement, dernier pas TOTP consommé et empreintes SHA-256 des codes de secours.
 - `platform_admin_mfa_sessions/{sha256(token)}` : sessions MFA courtes, identifiant utilisateur, version de session, expiration et révocation.
 - `platform_admin_mfa_attempts/{uid}` : compteur de tentatives et fenêtre de limitation.
+- `platform_admin_mfa_recovery_contacts/{uid}` : adresse de récupération indépendante, enregistrée uniquement après validation d'un code e-mail à usage unique.
+- `platform_admin_mfa_recovery_contacts_claims/{sha256(email)}` : réservation atomique empêchant qu'une même adresse de récupération soit attribuée à plusieurs administrateurs.
+- `platform_admin_mfa_recovery_contact_verifications/{uid}` : vérification temporaire, empreinte HMAC du code, expiration et compteur d'essais.
 
 Les règles Firestore sont en refus par défaut. Les clients Firebase ne peuvent ni lire ni modifier ces documents.
 
@@ -29,6 +32,18 @@ Les règles Firestore sont en refus par défaut. Les clients Firebase ne peuvent
 7. Le navigateur reçoit le jeton uniquement dans un cookie `HttpOnly; Secure; SameSite=Strict`, limité à `/api/platform-admin`, avec une durée maximale de 90 jours. La session est persistante sur cet appareil jusqu'à son expiration, sa révocation ou un changement de version de session.
 
 Toutes les actions d'administration plateforme, y compris les lectures, exigent une session MFA valide lorsque `RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA=true`. Les routes de support du restaurant restent dans leur périmètre tenant et ne sont pas transformées en routes super-admin.
+
+## Adresse de récupération indépendante
+
+L'adresse de récupération MFA est distincte de l'adresse de connexion Firebase. Elle est associée à l'UID de l'administrateur et ne modifie ni l'adresse Firebase, ni le mot de passe, ni les revendications du compte.
+
+1. Depuis une session de plateforme déjà validée par TOTP ou passkey, l'administrateur saisit une adresse de récupération.
+2. Le serveur envoie un code à huit chiffres via Resend. Le code est stocké uniquement sous forme HMAC avec la clé MFA, expire après dix minutes et est limité à trois envois par fenêtre de quinze minutes, avec un délai minimal entre envois.
+3. La confirmation exige une session MFA normale et une authentification Firebase récente. Le code est consommé dans une transaction.
+4. L'adresse vérifiée est enregistrée sous l'UID ; une réservation par empreinte SHA-256 empêche son attribution à un autre administrateur. Le remplacement d'une adresse libère l'ancienne réservation dans la même transaction.
+5. La récupération MFA envoie exclusivement à cette adresse vérifiée. Si aucune adresse n'est configurée, la récupération est refusée sans repli silencieux vers l'adresse Firebase.
+
+Les administrateurs doivent configurer et vérifier cette adresse avant tout incident. Le parcours de récupération reste restreint : il ne donne accès qu'au remplacement du facteur et ne restaure pas directement l'accès au panel.
 
 ## Anti-rejeu et limitation
 
