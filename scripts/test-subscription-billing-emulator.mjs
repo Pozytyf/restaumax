@@ -91,8 +91,8 @@ try {
     db.collection('restaurants').doc(futureSlug).set({ slug: futureSlug, status: 'active', isOpen: true }),
     futureRef.set({
       planId: 'pro', planName: 'Pro', priceFcfa: 12000, planPriceMonthlyFcfa: 12000,
-      billingCycle: 'monthly', status: 'active', startsAt: now, endsAt: now + 7 * 86400000,
-      nextBillingAt: now + 7 * 86400000, autoRenew: true
+      billingCycle: 'monthly', status: 'active', startsAt: now, endsAt: now + 60 * 86400000,
+      nextBillingAt: now + 60 * 86400000, autoRenew: true
     })
   ]);
   const futureRun = await runSubscriptionBillingCycleWithDb(db, now);
