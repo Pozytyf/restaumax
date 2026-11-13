@@ -1153,10 +1153,15 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (duplicateSnap.docs.some((doc: any) => doc.id !== id)) {
           return json(res, 409, { success: false, error: 'Ce code promotionnel existe déjà.' });
         }
-        const ref = id ? collection.doc(id) : collection.doc();
-        const existing = id ? await ref.get() : null;
-        if (id && !existing?.exists) return json(res, 404, { success: false, error: 'Promotion introuvable.' });
-        const previous = existing?.data() || {};
+        const ref = id ? collection.doc(id) : collection.doc(`promo_${code.toLowerCase()}`);
+        const existing = await ref.get();
+        if (id && !existing.exists) return json(res, 404, { success: false, error: 'Promotion introuvable.' });
+        if (!id && existing.exists) return json(res, 409, { success: false, error: 'Ce code promotionnel existe déjà.' });
+        const previous = existing.exists ? existing.data() || {} : {};
+        if (body.active === true && (!id || previous.active !== true)) {
+          const activePromotions = await collection.where('active', '==', true).get();
+          if (activePromotions.size >= 100) return json(res, 409, { success: false, error: 'Limite de 100 promotions actives atteinte.' });
+        }
         const now = Date.now();
         const saved = {
           name, code, discountType, value, startsAt, endsAt, eligiblePlans, maxUses,
