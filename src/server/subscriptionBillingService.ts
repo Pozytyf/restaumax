@@ -83,20 +83,33 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
 
     if (['active', 'trial'].includes(status) && nextBillingAt > 0 && nextBillingAt <= now) {
       const invoiceId = invoiceIdFor(slug, String(initial.billingCycle || ''), nextBillingAt);
-      const promotionCandidate = promotionsSnap.docs.find((promotionDoc: any) => {
+      const promotionCandidates = promotionsSnap.docs.filter((promotionDoc: any) => {
         const promotion = promotionDoc.data() || {};
         const eligiblePlans = Array.isArray(promotion.eligiblePlans) ? promotion.eligiblePlans : [];
         return eligiblePlans.includes(String(initial.planName || '')) &&
           Number(promotion.startsAt || 0) <= now && Number(promotion.endsAt || 0) > now &&
           Number(promotion.usedCount || 0) < Number(promotion.maxUses || 0);
-      }) || null;
-      const promotionRef = promotionCandidate?.ref || null;
+      }).sort((a: any, b: any) => {
+        const base = Number(initial.priceFcfa || 0);
+        const estimate = (doc: any) => {
+          const promotion = doc.data() || {};
+          return promotion.discountType === 'fixed'
+            ? Math.min(base, Number(promotion.value || 0))
+            : Math.round(base * Number(promotion.value || 0) / 100);
+        };
+        return estimate(b) - estimate(a);
+      });
+      const promotionRefs = promotionCandidates.map((promotionDoc: any) => promotionDoc.ref);
       const result = await db.runTransaction(async (tx: any) => {
-        const [subSnap, restaurantSnap, invoiceSnap, promotionSnap] = await Promise.all([
+        const snapshots = await Promise.all([
           tx.get(subscriptionRef), tx.get(restaurantRef),
           tx.get(subscriptionRef.collection('invoices').doc(invoiceId)),
-          promotionRef ? tx.get(promotionRef) : Promise.resolve(null)
+          ...promotionRefs.map((ref: any) => tx.get(ref))
         ]);
+        const subSnap = snapshots[0];
+        const restaurantSnap = snapshots[1];
+        const invoiceSnap = snapshots[2];
+        const promotionSnaps = snapshots.slice(3);
         if (!subSnap.exists || !restaurantSnap.exists) return 'skip';
         const sub = subSnap.data() || {};
         const restaurant = restaurantSnap.data() || {};
@@ -129,7 +142,9 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         let discountType = discountSource === 'quarterly' ? 'percentage' : 'none';
         let discountValue = discountSource === 'quarterly' ? discountPercent : 0;
         let appliedPromotion: any = null;
-        if (promotionSnap?.exists) {
+        let appliedPromotionRef: any = null;
+        for (const promotionSnap of promotionSnaps) {
+          if (!promotionSnap?.exists) continue;
           const promotion = promotionSnap.data() || {};
           const eligiblePlans = Array.isArray(promotion.eligiblePlans) ? promotion.eligiblePlans : [];
           const usedCount = Number(promotion.usedCount || 0);
@@ -137,21 +152,21 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
           const validPromotion = promotion.active === true && eligiblePlans.includes(String(sub.planName || '')) &&
             Number(promotion.startsAt || 0) <= now && Number(promotion.endsAt || 0) > now &&
             Number.isInteger(usedCount) && Number.isInteger(maxUses) && usedCount < maxUses;
-          if (validPromotion) {
-            const promoType = promotion.discountType === 'fixed' ? 'fixed' : 'percentage';
-            const promoValue = Number(promotion.value || 0);
-            const promoAmount = promoType === 'fixed'
-              ? Math.min(baseAmount, promoValue)
-              : Math.round(baseAmount * promoValue / 100);
-            // No stacking: apply the single best available reduction.
-            if (Number.isSafeInteger(promoAmount) && promoAmount > discountAmount) {
-              discountAmount = promoAmount;
-              discountPercent = promoType === 'percentage' ? promoValue : 0;
-              discountSource = 'promotion';
-              discountType = promoType;
-              discountValue = promoValue;
-              appliedPromotion = { id: promotionSnap.id, ...promotion };
-            }
+          if (!validPromotion) continue;
+          const promoType = promotion.discountType === 'fixed' ? 'fixed' : 'percentage';
+          const promoValue = Number(promotion.value || 0);
+          const promoAmount = promoType === 'fixed'
+            ? Math.min(baseAmount, promoValue)
+            : Math.round(baseAmount * promoValue / 100);
+          // No stacking: apply the single best available reduction.
+          if (Number.isSafeInteger(promoAmount) && promoAmount > discountAmount) {
+            discountAmount = promoAmount;
+            discountPercent = promoType === 'percentage' ? promoValue : 0;
+            discountSource = 'promotion';
+            discountType = promoType;
+            discountValue = promoValue;
+            appliedPromotion = { id: promotionSnap.id, ...promotion };
+            appliedPromotionRef = promotionSnap.ref;
           }
         }
         const amount = baseAmount - discountAmount;
@@ -166,8 +181,8 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
             lastDiscountSource: discountSource, lastPromotionId: appliedPromotion?.id || null,
             lastPromotionCode: appliedPromotion?.code || null, lastDiscountedAt: now, updatedAt: now
           });
-          if (appliedPromotion && promotionRef) {
-            tx.update(promotionRef, { usedCount: Number(appliedPromotion.usedCount || 0) + 1, updatedAt: now });
+          if (appliedPromotion && appliedPromotionRef) {
+            tx.update(appliedPromotionRef, { usedCount: Number(appliedPromotion.usedCount || 0) + 1, updatedAt: now });
           }
           tx.create(db.collection('admin_audit_logs').doc(`sub_free_renew_${hash(slug + ':' + invoiceId)}`), {
             action: 'renew_free_subscription', restaurantSlug: slug, baseAmountFcfa: baseAmount,
@@ -198,8 +213,8 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
           discountAmountFcfa: discountAmount, discountSource,
           promotionId: appliedPromotion?.id || null, promotionCode: appliedPromotion?.code || null, createdAt: now
         });
-        if (appliedPromotion && promotionRef) {
-          tx.update(promotionRef, { usedCount: Number(appliedPromotion.usedCount || 0) + 1, updatedAt: now });
+        if (appliedPromotion && appliedPromotionRef) {
+          tx.update(appliedPromotionRef, { usedCount: Number(appliedPromotion.usedCount || 0) + 1, updatedAt: now });
         }
         return 'created';
       });
