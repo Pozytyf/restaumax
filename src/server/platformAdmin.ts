@@ -182,8 +182,10 @@ function platformAdminMfaSatisfied(_user: DecodedIdToken, mfaSessionValid: boole
 
 export async function getPlatformAdminRole(db: any, user: DecodedIdToken, mfaSessionValid = false): Promise<PlatformAdminRole | null> {
   if (isSuperAdminIdentity(user)) {
-    const managedFull = await db.collection('platform_admins').doc(user.uid).get();
-    if (managedFull.exists && managedFull.data()?.role === 'full' && managedFull.data()?.active !== true) return null;
+    if (db && typeof db.collection === 'function') {
+      const managedFull = await db.collection('platform_admins').doc(user.uid).get();
+      if (managedFull.exists && managedFull.data()?.role === 'full' && managedFull.data()?.active !== true) return null;
+    }
     return platformAdminMfaSatisfied(user, mfaSessionValid) ? 'full' : null;
   }
   if (user.role !== 'platform_admin' || !platformAdminMfaSatisfied(user, mfaSessionValid)) return null;
