@@ -475,12 +475,16 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         return json(res, 403, { success: false, error: 'Une session MFA RestauMax normale est requise pour configurer cette adresse.' });
       }
       try {
-        await startPlatformAdminRecoveryContactVerification(db, user.uid, String(body.email || ''));
+        const delivery = await startPlatformAdminRecoveryContactVerification(db, user.uid, String(body.email || ''));
         await db.collection('admin_audit_logs').add({
           action: 'platform_admin_mfa_recovery_contact_verification_requested',
           actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
         }).catch(() => undefined);
-        return json(res, 200, { success: true, sent: true, expiresInSeconds: 600 });
+        return json(res, 200, {
+          success: true, sent: true, expiresInSeconds: 600,
+          testDeliveryOnly: delivery.testDeliveryOnly,
+          deliveredTo: delivery.testDeliveryOnly ? delivery.deliveredTo : undefined
+        });
       } catch (error: any) {
         const message = String(error?.message || '');
         return json(res, message.includes('attendre') ? 429 : message.includes('déjà associée') ? 409 : 400, {
