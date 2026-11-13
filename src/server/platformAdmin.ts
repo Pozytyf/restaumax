@@ -16,7 +16,10 @@ import {
 } from './platformAdminMfaPasskeys.js';
 import {
   startPlatformAdminEmailRecovery,
-  verifyPlatformAdminEmailRecovery
+  verifyPlatformAdminEmailRecovery,
+  getPlatformAdminRecoveryContact,
+  startPlatformAdminRecoveryContactVerification,
+  verifyPlatformAdminRecoveryContact
 } from './platformAdminMfaRecoveryEmail.js';
 
 const PERMISSIONS = [
@@ -281,6 +284,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const mfaActions = [
     'mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify',
     'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_recovery_regenerate',
+    'mfa_recovery_contact_start', 'mfa_recovery_contact_verify',
     'mfa_recovery_email_start', 'mfa_recovery_email_verify',
     'mfa_passkey_register_options', 'mfa_passkey_register_verify',
     'mfa_passkey_auth_options', 'mfa_passkey_auth_verify', 'mfa_logout'
@@ -294,10 +298,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     if (action === 'mfa_status') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
       const status = await getPlatformAdminMfaStatus(db, user.uid);
+      const recoveryContactEmail = await getPlatformAdminRecoveryContact(db, user.uid);
       const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
       const sessionValid = Boolean(sessionDetails);
       return json(res, 200, {
-        success: true, ...status, sessionValid,
+        success: true, ...status, recoveryContactEmail, sessionValid,
         sessionFactorSource: sessionDetails?.factorSource || null,
         sessionExpiresAt: sessionDetails?.expiresAt || null,
         recoverySession: sessionDetails?.factorSource === 'recovery',
@@ -393,11 +398,55 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         return json(res, 503, { success: false, error: 'Service MFA temporairement indisponible.' });
       }
     }
+    if (action === 'mfa_recovery_contact_start') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
+        return json(res, 401, { success: false, error: 'Reconnectez-vous avec votre mot de passe avant de modifier l’adresse de récupération.' });
+      }
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (!sessionDetails || !['totp', 'passkey'].includes(sessionDetails.factorSource)) {
+        return json(res, 403, { success: false, error: 'Une session MFA RestauMax normale est requise pour configurer cette adresse.' });
+      }
+      try {
+        await startPlatformAdminRecoveryContactVerification(db, user.uid, String(body.email || ''));
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_recovery_contact_verification_requested',
+          actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, { success: true, sent: true, expiresInSeconds: 600 });
+      } catch (error: any) {
+        const message = String(error?.message || '');
+        return json(res, message.includes('attendre') ? 429 : message.includes('déjà associée') ? 409 : 400, {
+          success: false, error: message || 'Impossible d’envoyer le code de vérification.'
+        });
+      }
+    }
+    if (action === 'mfa_recovery_contact_verify') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
+        return json(res, 401, { success: false, error: 'Reconnectez-vous avec votre mot de passe avant de valider cette adresse.' });
+      }
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (!sessionDetails || !['totp', 'passkey'].includes(sessionDetails.factorSource)) {
+        return json(res, 403, { success: false, error: 'Une session MFA RestauMax normale est requise pour confirmer cette adresse.' });
+      }
+      try {
+        const recoveryContactEmail = await verifyPlatformAdminRecoveryContact(db, user.uid, String(body.code || ''));
+        if (!recoveryContactEmail) return json(res, 401, { success: false, error: 'Code de vérification invalide, expiré ou déjà utilisé.' });
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_recovery_contact_verified',
+          actorUid: user.uid, actorEmail: String(user.email || ''), recoveryContactEmail, createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, { success: true, verified: true, recoveryContactEmail });
+      } catch (error: any) {
+        const message = String(error?.message || '');
+        return json(res, message.includes('déjà associée') ? 409 : 400, {
+          success: false, error: message || 'Impossible de confirmer cette adresse.'
+        });
+      }
+    }
     if (action === 'mfa_recovery_email_start') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
-      if ((user as any).email_verified !== true || !String(user.email || '').trim()) {
-        return json(res, 403, { success: false, error: 'Une adresse e-mail vérifiée est nécessaire pour la récupération.' });
-      }
       if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
         return json(res, 401, { success: false, error: 'Reconnectez-vous avec votre mot de passe avant de demander une récupération MFA.' });
       }
@@ -405,11 +454,15 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (!status.enrolled && Number(status.passkeyCount || 0) === 0) {
         return json(res, 409, { success: false, error: 'Aucun facteur RestauMax à récupérer pour ce compte.' });
       }
+      const recoveryContactEmail = await getPlatformAdminRecoveryContact(db, user.uid);
+      if (!recoveryContactEmail) {
+        return json(res, 409, { success: false, error: 'Aucune adresse de récupération vérifiée. Configurez-la dans votre espace administrateur avant tout incident.' });
+      }
       try {
-        await startPlatformAdminEmailRecovery(db, user.uid, String(user.email));
+        await startPlatformAdminEmailRecovery(db, user.uid, recoveryContactEmail);
         await db.collection('admin_audit_logs').add({
           action: 'platform_admin_mfa_email_recovery_requested',
-          actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
+          actorUid: user.uid, actorEmail: String(user.email || ''), recoveryContactEmail, createdAt: Date.now()
         }).catch(() => undefined);
         return json(res, 200, { success: true, sent: true, expiresInSeconds: 600 });
       } catch (error: any) {
