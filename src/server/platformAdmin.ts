@@ -481,18 +481,33 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           };
         }));
         const knownUids = new Set(admins.map((admin: any) => admin.uid));
+        const trustedPrimaryUsers = new Map<string, any>();
+        // Include Firebase identities carrying the server-issued super_admin claim,
+        // even when they are not represented in platform_admins or the bootstrap allowlist.
+        let pageToken: string | undefined;
+        do {
+          const page = await getAuth().listUsers(1000, pageToken);
+          for (const authUser of page.users) {
+            if (authUser.customClaims?.role === 'super_admin') trustedPrimaryUsers.set(authUser.uid, authUser);
+          }
+          pageToken = page.pageToken;
+        } while (pageToken);
+        // Also include verified bootstrap allowlist identities, when provisioned.
         for (const email of configuredSuperAdmins()) {
           try {
             const authUser = await getAuth().getUserByEmail(email);
-            if (knownUids.has(authUser.uid)) continue;
-            admins.unshift({
-              uid: authUser.uid, email: String(authUser.email || email),
-              displayName: String(authUser.displayName || 'Super-administrateur principal'),
-              role: 'full', active: authUser.disabled !== true, mfaEnrolled: Array.isArray(authUser.multiFactor?.enrolledFactors) && authUser.multiFactor.enrolledFactors.length > 0,
-              disabled: authUser.disabled === true, lastSignInAt: authUser.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null,
-              isPrimary: true
-            });
+            trustedPrimaryUsers.set(authUser.uid, authUser);
           } catch { /* a configured address without a Firebase identity is not presented as an account */ }
+        }
+        for (const authUser of trustedPrimaryUsers.values()) {
+          if (knownUids.has(authUser.uid)) continue;
+          admins.unshift({
+            uid: authUser.uid, email: String(authUser.email || ''),
+            displayName: String(authUser.displayName || 'Super-administrateur principal'),
+            role: 'full', active: authUser.disabled !== true, mfaEnrolled: Array.isArray(authUser.multiFactor?.enrolledFactors) && authUser.multiFactor.enrolledFactors.length > 0,
+            disabled: authUser.disabled === true, lastSignInAt: authUser.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null,
+            isPrimary: true
+          });
         }
         return json(res, 200, { success: true, admins });
       }
