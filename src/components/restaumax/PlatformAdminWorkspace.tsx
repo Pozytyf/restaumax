@@ -76,7 +76,7 @@ type Props = {
   restaurants: Restaurant[];
   summary: {
     totalRestaurants: number; activeRestaurants: number; suspendedRestaurants: number;
-    monthlyRecurringRevenueFcfa: number; subscriptionsByStatus?: Record<string, number>;
+    monthlyRecurringRevenueFcfa: number | null; subscriptionsByStatus?: Record<string, number>;
     financialSummary?: { openInvoicesCount: number; openAmountFcfa: number; overdueInvoicesCount: number; overdueAmountFcfa: number; collectedAmountFcfa: number; upcomingDueCount: number; upcomingDueAmountFcfa: number; asOf: number };
   } | null;
   userEmail?: string | null;
@@ -846,7 +846,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
                 ['Suspendus', summary?.suspendedRestaurants ?? 0, 'bg-rose-50'],
                 ['Revenu récurrent mensuel', money(summary?.monthlyRecurringRevenueFcfa || 0), 'bg-orange-50'],
                 ['Factures ouvertes', summary?.financialSummary?.openInvoicesCount ?? 0, 'bg-amber-50']
-              ].filter(([label]) => label !== 'Factures ouvertes' || can('billing_list')).map(([label, value, color]) => <Panel key={String(label)} className={String(color)}><p className="text-sm font-semibold text-slate-600">{label}</p><p className="mt-2 text-3xl font-extrabold tabular-nums">{value}</p></Panel>)}
+              ].filter(([label]) => can('billing_list') || !['Revenu récurrent mensuel', 'Factures ouvertes'].includes(String(label))).map(([label, value, color]) => <Panel key={String(label)} className={String(color)}><p className="text-sm font-semibold text-slate-600">{label}</p><p className="mt-2 text-3xl font-extrabold tabular-nums">{value}</p></Panel>)}
             </div>
             {can('billing_list') && <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <Panel><p className="text-xs font-semibold text-slate-500">Montant ouvert</p><p className="mt-2 text-xl font-extrabold">{money(summary?.financialSummary?.openAmountFcfa || 0)}</p></Panel>
