@@ -3,6 +3,17 @@ import { createHash } from 'node:crypto';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+export function resolveSubscriptionInvoiceIdentity(ref: any, invoice: any) {
+  const segments = String(ref?.path || '').split('/');
+  if (segments.length !== 4 || segments[0] !== 'restaurantSubscriptions' || segments[2] !== 'invoices') return null;
+  const restaurantSlug = segments[1];
+  const invoiceId = segments[3];
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^subinv_[a-f0-9]{32}$/.test(invoiceId)) return null;
+  if (invoice?.restaurantSlug && String(invoice.restaurantSlug) !== restaurantSlug) return null;
+  if (invoice?.id && String(invoice.id) !== invoiceId) return null;
+  return { restaurantSlug, invoiceId };
+}
+
 function invoiceIdFor(slug: string, billingCycle: string, nextBillingAt: number) {
   return `subinv_${hash(`${slug}:${billingCycle}:${nextBillingAt}`)}`;
 }
@@ -315,9 +326,15 @@ export async function settleSubscriptionInvoiceWithDb(
     const sub = subSnap.data() || {};
     const restaurant = restaurantSnap.data() || {};
     const invoice = invoiceSnap.data() || {};
+    const identity = resolveSubscriptionInvoiceIdentity(invoiceRef, invoice);
+    if (!identity || identity.restaurantSlug !== slug || identity.invoiceId !== invoiceId) {
+      return { success: false, conflict: true, error: 'Le lien entre la facture et son abonnement est incohérent.' };
+    }
     if (invoice.status === 'paid') {
-      if (invoice.paymentReference === paymentReference) return { success: true, idempotentReplay: true, invoice };
-      return { success: false, conflict: true, error: 'Cette facture est déjà réglée avec une autre référence.' };
+      if (invoice.paymentReference === paymentReference && input.amountFcfa === Number(invoice.amountFcfa)) {
+        return { success: true, idempotentReplay: true, invoice };
+      }
+      return { success: false, conflict: true, error: 'Cette facture est déjà réglée ou la référence/le montant ne correspond pas.' };
     }
     if (!['open', 'overdue'].includes(String(invoice.status)) || String(sub.currentInvoiceId || '') !== invoiceId ||
         input.amountFcfa !== Number(invoice.amountFcfa)) {
