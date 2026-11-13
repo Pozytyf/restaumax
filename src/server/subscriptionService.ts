@@ -47,8 +47,8 @@ export function validateSubscriptionInput(input: unknown): SubscriptionValidatio
       !Number.isSafeInteger(priceFcfa) || priceFcfa < 0 || priceFcfa > 1_000_000_000 ||
       !['monthly', 'quarterly', 'yearly', 'custom'].includes(billingCycle) ||
       !['trial', 'active', 'past_due', 'suspended', 'cancelled'].includes(status) ||
-      !Number.isSafeInteger(startsAt) || startsAt <= 0 ||
-      !Number.isSafeInteger(endsAt) || endsAt <= startsAt ||
+      !Number.isSafeInteger(startsAt) || startsAt <= 0 || !Number.isFinite(new Date(startsAt).getTime()) ||
+      !Number.isSafeInteger(endsAt) || endsAt <= startsAt || !Number.isFinite(new Date(endsAt).getTime()) ||
       !Number.isSafeInteger(gracePeriodDays) || gracePeriodDays < 0 || gracePeriodDays > 60 ||
       !Number.isSafeInteger(nextBillingAt) || nextBillingAt <= 0 || nextBillingAt !== endsAt ||
       (billingCycle !== 'custom' && new Date(endsAt).toISOString().slice(0, 10) !== expectedPeriodEndDate(startsAt, billingCycle as SubscriptionBillingCycle)) ||

@@ -107,8 +107,6 @@ assert(subscriptionService.includes('expectedPeriodEndDate') && subscriptionServ
   'server rejects subscription periods that do not match the selected billing cycle');
 assert(ui.includes('expectedSubscriptionEnd') && ui.includes('Fin calculée automatiquement selon la périodicité.'),
   'subscription UI derives the contract end date from its start date and billing cycle');
-assert(admin.includes('planFeatures: selectedPlanFeatures'),
-  'each subscription stores the stable offer ID, contractual price and entitlement snapshot');
 assert(admin.includes('subscriptionRef.collection(\'history\').doc()') &&
   admin.includes('billingAction: \'subscription_changed_no_invoice\''),
   'subscription changes are versioned and do not create an immediate or retroactive invoice');

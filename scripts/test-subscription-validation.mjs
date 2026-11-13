@@ -25,6 +25,7 @@ assert(validResult.success === true, 'Un abonnement mensuel valide est accepté'
 assert(validateSubscriptionInput({ ...valid, billingCycle: 'quarterly', endsAt: Date.UTC(2027, 1, 5, 23, 59, 59, 999) }).success === true, 'Un abonnement trimestriel valide est accepté');
 assert(validateSubscriptionInput({ ...valid, billingCycle: 'yearly', endsAt: Date.UTC(2027, 10, 5, 23, 59, 59, 999) }).success === true, 'Un abonnement annuel valide est accepté');
 assert(validateSubscriptionInput({ ...valid, endsAt: Date.UTC(2026, 10, 19, 23, 59, 59, 999) }).success === false, 'Une période mensuelle qui ne correspond pas à un mois civil est refusée');
+assert(validateSubscriptionInput({ ...valid, endsAt: Number.MAX_SAFE_INTEGER }).success === false, 'Une date hors plage calendaire est refusée sans erreur serveur');
 assert(validResult.success === true && validResult.subscription.currency === 'XOF', 'La devise est normalisée en XOF');
 assert(validResult.success === true && validResult.subscription.priceFcfa === 15000, 'Le tarif FCFA est conservé sans arrondi');
 const freeResult = validateSubscriptionInput({ ...valid, priceFcfa: 0, status: 'active' });
