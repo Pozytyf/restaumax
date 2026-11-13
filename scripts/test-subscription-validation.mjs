@@ -22,6 +22,7 @@ const valid = {
 console.log('\n--- Validation des abonnements plateforme ---');
 const validResult = validateSubscriptionInput(valid);
 assert(validResult.success === true, 'Un abonnement mensuel valide est accepté');
+assert(validateSubscriptionInput({ ...valid, billingCycle: 'quarterly' }).success === true, 'Un abonnement trimestriel valide est accepté');
 assert(validResult.success === true && validResult.subscription.currency === 'XOF', 'La devise est normalisée en XOF');
 assert(validResult.success === true && validResult.subscription.priceFcfa === 15000, 'Le tarif FCFA est conservé sans arrondi');
 const freeResult = validateSubscriptionInput({ ...valid, priceFcfa: 0, status: 'active' });
