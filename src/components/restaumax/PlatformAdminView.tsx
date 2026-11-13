@@ -43,7 +43,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const [totpSecret, setTotpSecret] = useState<any>(null);
   const [totpEnrollmentCode, setTotpEnrollmentCode] = useState('');
   const [totpEnrollmentBusy, setTotpEnrollmentBusy] = useState(false);
-  const [currentAccountMfaEnrolled, setPrimaryMfaEnrolled] = useState(false);
+  const [currentAccountMfaEnrolled, setCurrentAccountMfaEnrolled] = useState(false);
   const mfaRecaptchaVerifier = useRef<RecaptchaVerifier | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -243,15 +243,13 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     }
   };
 
-  const isPrimarySuperAdmin = user?.email?.toLowerCase() === 'superadmin@restaumax.test';
-
   useEffect(() => {
-    if (!user || !isPrimarySuperAdmin) {
-      setPrimaryMfaEnrolled(false);
+    if (!user || !isPlatformAdminAuthorized) {
+      setCurrentAccountMfaEnrolled(false);
       return;
     }
-    setPrimaryMfaEnrolled(multiFactor(user).enrolledFactors.length > 0);
-  }, [user, isPrimarySuperAdmin]);
+    setCurrentAccountMfaEnrolled(multiFactor(user).enrolledFactors.length > 0);
+  }, [user, isPlatformAdminAuthorized]);
 
   const beginTotpEnrollment = async () => {
     if (!user || !isPlatformAdminAuthorized) return;
@@ -271,14 +269,14 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
 
   const confirmTotpEnrollment = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!user || !isPrimarySuperAdmin || !totpSecret) return;
+    if (!user || !isPlatformAdminAuthorized || !totpSecret) return;
     setError('');
     setTotpEnrollmentBusy(true);
     try {
       const assertion = TotpMultiFactorGenerator.assertionForEnrollment(totpSecret, totpEnrollmentCode.trim());
       await multiFactor(user).enroll(assertion, 'RestauMax · Authentificateur');
       await user.getIdToken(true);
-      setPrimaryMfaEnrolled(multiFactor(user).enrolledFactors.length > 0);
+      setCurrentAccountMfaEnrolled(multiFactor(user).enrolledFactors.length > 0);
       setTotpSecret(null);
       setTotpEnrollmentCode('');
       await refresh();
