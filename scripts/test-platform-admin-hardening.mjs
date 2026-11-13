@@ -179,4 +179,8 @@ assert(admin.includes("if (db && typeof db.collection === 'function')") &&
   admin.includes("managedFull.data()?.active !== true"),
   'full-admin suspension state is checked when Firestore is available without breaking isolated role unit tests');
 
+assert(admin.includes("const managedPlatformAdmin = adminSnap.exists") &&
+  admin.includes("if (!managedPlatformAdmin && !trustedFullIdentity)"),
+  'password reset requests support delegated and full platform administrators while rejecting unrelated identities');
+
 console.log('Platform admin hardening regression tests passed.');
