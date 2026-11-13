@@ -5,7 +5,7 @@ import { resolveSubscriptionInvoiceIdentity, settleSubscriptionInvoiceWithDb } f
 import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.ts';
 import {
   beginPlatformAdminMfaEnrollment, confirmPlatformAdminMfaEnrollment,
-  createPlatformAdminMfaSession, getPlatformAdminMfaStatus, hasValidPlatformAdminMfaSession,
+  createPlatformAdminMfaSession, getPlatformAdminMfaStatus, getPlatformAdminMfaSessionDetails, hasValidPlatformAdminMfaSession,
   revokePlatformAdminMfaSessions, verifyPlatformAdminMfaAndCreateSession
 } from './platformAdminMfa.js';
 
@@ -263,7 +263,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }).catch(() => undefined);
   }
 
-  const mfaActions = ['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify', 'mfa_accept_firebase', 'mfa_logout'];
+  const mfaActions = ['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify', 'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_logout'];
   if (mfaActions.includes(action)) {
     const delegatedIdentity = user.role === 'platform_admin' &&
       await getPlatformAdminRole(db, user, true) !== null;
@@ -273,8 +273,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     if (action === 'mfa_status') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
       const status = await getPlatformAdminMfaStatus(db, user.uid);
-      const sessionValid = await hasValidPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, mfaCookie);
-      return json(res, 200, { success: true, ...status, sessionValid });
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      const sessionValid = Boolean(sessionDetails);
+      return json(res, 200, { success: true, ...status, sessionValid, recoverySession: sessionDetails?.factorSource === 'recovery' });
     }
     if (action === 'mfa_accept_firebase') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
@@ -290,6 +291,18 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         actorEmail: String(user.email || ''), factorId: secondFactor, expiresAt: session.expiresAt, createdAt: Date.now()
       }).catch(() => undefined);
       return json(res, 200, { success: true, sessionExpiresAt: session.expiresAt });
+    }
+    if (action === 'mfa_recovery_enroll_start') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (sessionDetails?.factorSource !== 'recovery') return json(res, 403, { success: false, error: 'Une connexion par code de secours est requise pour remplacer le facteur perdu.' });
+      try {
+        const setup = await beginPlatformAdminMfaEnrollment(db, user.uid, String(user.email || user.uid), true);
+        await db.collection('admin_audit_logs').add({ action: 'platform_admin_mfa_recovery_enrollment_started', actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now() });
+        return json(res, 200, { success: true, ...setup, recoveryEnrollment: true });
+      } catch {
+        return json(res, 503, { success: false, error: 'Impossible de préparer le remplacement du facteur MFA.' });
+      }
     }
     if (action === 'mfa_enroll_start') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
@@ -342,8 +355,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }
   }
 
+  const activeMfaSessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+  if (activeMfaSessionDetails?.factorSource === 'recovery') {
+    return json(res, 403, { success: false, error: 'Cette session de récupération est limitée au remplacement du facteur MFA. Terminez le nouvel enrôlement puis reconnectez-vous.' });
+  }
   const mfaSessionValid = process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA !== 'true' ||
-    await hasValidPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, mfaCookie);
+    Boolean(activeMfaSessionDetails);
 
   // Restaurant-side support and announcement reads are tenant-scoped. They
   // intentionally run before the platform-admin membership exclusion below.
