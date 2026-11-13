@@ -22,8 +22,14 @@ type Restaurant = {
 type Invoice = {
   id: string; restaurantSlug: string; planName: string; amountFcfa: number;
   baseAmountFcfa?: number; discountPercent?: number; discountAmountFcfa?: number;
+  discountSource?: string; promotionCode?: string | null; promotionName?: string | null;
   currency: string; status: string; issuedAt: number | null; dueAt: number | null;
   paidAt: number | null; paymentReference?: string | null;
+};
+type PlatformPromotion = {
+  id: string; name: string; code: string; discountType: 'percentage' | 'fixed'; value: number;
+  startsAt: number; endsAt: number; eligiblePlans: string[]; maxUses: number; usedCount: number;
+  active: boolean; createdAt: number;
 };
 type AuditEntry = {
   id: string; action: string; actorUid: string; restaurantSlug: string;
@@ -197,6 +203,11 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
   const [subscriptionForm, setSubscriptionForm] = useState({ planName: '', priceFcfa: '0', billingCycle: 'monthly', status: 'trial', startsOn: '', endsOn: '', gracePeriodDays: '7', useGlobalGracePeriod: true, autoRenew: true });
   const [paymentReference, setPaymentReference] = useState('');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [promotions, setPromotions] = useState<PlatformPromotion[]>([]);
+  const [promotionForm, setPromotionForm] = useState({
+    name: '', code: '', discountType: 'percentage', value: '10',
+    startsOn: '', endsOn: '', eligiblePlans: ['Essentiel'] as string[], maxUses: '100'
+  });
   const [health, setHealth] = useState<{ checkedAt: number; services: HealthService[] } | null>(null);
   const [platformAdmins, setPlatformAdmins] = useState<PlatformAdmin[]>([]);
   const [platformAdminForm, setPlatformAdminForm] = useState({ displayName: '', email: '', platformRole: 'support' });
@@ -284,6 +295,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
       catch (e: any) { if (active) setPageError(e.message || 'Chargement impossible.'); }
       finally { if (active) setPageLoading(false); }
     };
+    if (screen === 'billing' && allowedActions.includes('promotion_list')) void load('promotion_list', data => setPromotions(data.promotions || []));
     if (screen === 'accounts' && allowedActions.includes('platform_admin_list')) void load('platform_admin_list', data => setPlatformAdmins(data.admins || []));
     if (screen === 'support') void load('support_list', data => setSupportTickets(data.tickets || []));
     if (screen === 'health') void load('health_details', data => setHealth({ checkedAt: data.checkedAt, services: data.services || [] }));
@@ -584,6 +596,43 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
     finally { setPageLoading(false); }
   };
 
+  const savePromotion = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const startsAt = Date.parse(`${promotionForm.startsOn}T00:00:00.000Z`);
+    const endsAt = Date.parse(`${promotionForm.endsOn}T23:59:59.999Z`);
+    const value = Number(promotionForm.value);
+    const maxUses = Number(promotionForm.maxUses);
+    if (!promotionForm.eligiblePlans.length || !Number.isSafeInteger(value) || value < 1 ||
+        (promotionForm.discountType === 'percentage' && value > 100) ||
+        (promotionForm.discountType === 'fixed' && value > 1000000000) ||
+        !Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt ||
+        !Number.isSafeInteger(maxUses) || maxUses < 1) {
+      setPageError('Vérifiez le montant, la période, les formules et le quota de la promotion.'); return;
+    }
+    setPageLoading(true); setPageError('');
+    try {
+      await request({
+        action: 'promotion_save', name: promotionForm.name, code: promotionForm.code.toUpperCase(),
+        discountType: promotionForm.discountType, value, startsAt, endsAt,
+        eligiblePlans: promotionForm.eligiblePlans, maxUses, active: true
+      });
+      const data = await read('promotion_list'); setPromotions(data.promotions || []);
+      setPromotionForm({ name: '', code: '', discountType: 'percentage', value: '10', startsOn: '', endsOn: '', eligiblePlans: ['Essentiel'], maxUses: '100' });
+      setNotice('Promotion enregistrée. Elle sera appliquée automatiquement aux prochaines factures éligibles, sans cumul avec la remise trimestrielle.');
+    } catch (e: any) { setPageError(e.message || 'Enregistrement de la promotion impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const togglePromotion = async (promotion: PlatformPromotion) => {
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'promotion_toggle', id: promotion.id, active: !promotion.active });
+      const data = await read('promotion_list'); setPromotions(data.promotions || []);
+      setNotice('Promotion ' + promotion.code + (promotion.active ? ' désactivée.' : ' activée.'));
+    } catch (e: any) { setPageError(e.message || 'Modification de la promotion impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
   const saveSubscription = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!subscriptionTarget) return;
@@ -780,7 +829,23 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
 
           {screen === 'billing' && <>
             <div className="mb-5 grid gap-4 sm:grid-cols-3"><Panel><p className="text-sm text-slate-500">Montant des factures ouvertes affichées</p><p className="mt-2 text-2xl font-extrabold">{money(unpaidTotal)}</p></Panel><Panel><p className="text-sm text-slate-500">Factures à régulariser affichées</p><p className="mt-2 text-2xl font-extrabold">{unpaidInvoices.length}</p></Panel><Panel><p className="text-sm text-slate-500">Délai de grâce standard</p><p className="mt-2 text-2xl font-extrabold">{globalGracePeriodDays} jours</p></Panel></div>
-            <Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Factures d’abonnement</h3><span className="text-xs text-slate-500">{invoices.length} facture(s) chargée(s){invoiceHasMore?' · d’autres sont disponibles':''}</span></div><div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Facture</th><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Montant</th><th className="px-3 py-3">Émise</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{invoices.map(i=><tr key={i.id}><td className="px-3 py-3 font-semibold">{i.id.slice(0,14)}</td><td className="px-3 py-3">{restaurants.find(r=>r.slug===i.restaurantSlug)?.name || i.restaurantSlug}</td><td className="px-3 py-3">{i.planName}</td><td className="px-3 py-3 font-bold">{money(i.amountFcfa)}{(i.discountPercent||0)>0&&<span className="block text-[11px] font-medium text-emerald-700">-{i.discountPercent}% · économie {money(i.discountAmountFcfa||0)}</span>}</td><td className="px-3 py-3">{date(i.issuedAt)}</td><td className="px-3 py-3"><Badge value={i.status}/></td><td className="px-3 py-3">{i.status==='open'?<button type="button" onClick={()=>setSelectedInvoice(i)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Enregistrer paiement</button>:<span className="text-xs text-slate-500">—</span>}</td></tr>)}</tbody></table></div>{pageLoading&&<p className="mt-3 text-sm text-slate-500">Chargement des factures…</p>}{invoices.length===0&&!pageLoading&&<p className="py-8 text-center text-sm text-slate-500">Aucune facture d’abonnement trouvée.</p>}{invoiceHasMore&&<div className="mt-4 flex justify-center"><button type="button" disabled={pageLoading||!invoiceCursor} onClick={async()=>{if(!invoiceCursor)return;setPageLoading(true);setPageError('');try{const data=await read('billing_list',{limit:'100',cursor:invoiceCursor});setInvoices(current=>[...current,...(data.invoices||[])]);setInvoiceCursor(data.nextCursor||null);setInvoiceHasMore(data.hasMore===true);}catch(e:any){setPageError(e.message||'Chargement des factures suivantes impossible.');}finally{setPageLoading(false);}}} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-bold">Charger les factures suivantes</button></div>}</Panel>
+            <Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Factures d’abonnement</h3><span className="text-xs text-slate-500">{invoices.length} facture(s) chargée(s){invoiceHasMore?' · d’autres sont disponibles':''}</span></div><div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Facture</th><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Montant</th><th className="px-3 py-3">Émise</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{invoices.map(i=><tr key={i.id}><td className="px-3 py-3 font-semibold">{i.id.slice(0,14)}</td><td className="px-3 py-3">{restaurants.find(r=>r.slug===i.restaurantSlug)?.name || i.restaurantSlug}</td><td className="px-3 py-3">{i.planName}</td><td className="px-3 py-3 font-bold">{money(i.amountFcfa)}{(i.discountAmountFcfa||0)>0&&<span className="block text-[11px] font-medium text-emerald-700">-{i.discountPercent||0}% · économie {money(i.discountAmountFcfa||0)}</span>}{i.promotionCode&&<span className="block text-[11px] font-medium text-sky-700">Promo {i.promotionCode}</span>}</td><td className="px-3 py-3">{date(i.issuedAt)}</td><td className="px-3 py-3"><Badge value={i.status}/></td><td className="px-3 py-3">{i.status==='open'?<button type="button" onClick={()=>setSelectedInvoice(i)} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Enregistrer paiement</button>:<span className="text-xs text-slate-500">—</span>}</td></tr>)}</tbody></table></div>{pageLoading&&<p className="mt-3 text-sm text-slate-500">Chargement des factures…</p>}{invoices.length===0&&!pageLoading&&<p className="py-8 text-center text-sm text-slate-500">Aucune facture d’abonnement trouvée.</p>}{invoiceHasMore&&<div className="mt-4 flex justify-center"><button type="button" disabled={pageLoading||!invoiceCursor} onClick={async()=>{if(!invoiceCursor)return;setPageLoading(true);setPageError('');try{const data=await read('billing_list',{limit:'100',cursor:invoiceCursor});setInvoices(current=>[...current,...(data.invoices||[])]);setInvoiceCursor(data.nextCursor||null);setInvoiceHasMore(data.hasMore===true);}catch(e:any){setPageError(e.message||'Chargement des factures suivantes impossible.');}finally{setPageLoading(false);}}} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-bold">Charger les factures suivantes</button></div>}</Panel>
+            {can('promotion_list')&&<div className="mt-5 grid gap-5 xl:grid-cols-2">
+              <Panel><h3 className="mb-3 font-extrabold">Politique de promotion</h3><p className="mb-4 text-xs text-slate-500">Les promotions sont appliquées automatiquement aux prochaines factures des formules ciblées, pendant la période définie. Une seule réduction est retenue : la meilleure entre la promotion et la remise trimestrielle. Les quotas sont contrôlés dans une transaction serveur.</p>
+                <form onSubmit={savePromotion} className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2"><Field label="Nom"><input required minLength={3} maxLength={80} value={promotionForm.name} onChange={e=>setPromotionForm({...promotionForm,name:e.target.value})} className={inputClass}/></Field><Field label="Code de suivi"><input required minLength={3} maxLength={24} pattern="[A-Za-z0-9_-]+" value={promotionForm.code} onChange={e=>setPromotionForm({...promotionForm,code:e.target.value.toUpperCase()})} className={inputClass}/></Field></div>
+                  <div className="grid gap-3 sm:grid-cols-2"><Field label="Type de réduction"><select value={promotionForm.discountType} onChange={e=>setPromotionForm({...promotionForm,discountType:e.target.value})} className={inputClass}><option value="percentage">Pourcentage (%)</option><option value="fixed">Montant fixe (FCFA)</option></select></Field><Field label={promotionForm.discountType==='percentage'?'Réduction (%)':'Réduction (FCFA)'}><input required type="number" min={1} max={promotionForm.discountType==='percentage'?100:1000000000} value={promotionForm.value} onChange={e=>setPromotionForm({...promotionForm,value:e.target.value})} className={inputClass}/></Field></div>
+                  <div className="grid gap-3 sm:grid-cols-2"><Field label="Début"><input required type="date" value={promotionForm.startsOn} onChange={e=>setPromotionForm({...promotionForm,startsOn:e.target.value})} className={inputClass}/></Field><Field label="Fin"><input required type="date" value={promotionForm.endsOn} onChange={e=>setPromotionForm({...promotionForm,endsOn:e.target.value})} className={inputClass}/></Field></div>
+                  <Field label="Nombre maximum d’utilisations"><input required type="number" min={1} max={1000000} value={promotionForm.maxUses} onChange={e=>setPromotionForm({...promotionForm,maxUses:e.target.value})} className={inputClass}/></Field>
+                  <div><p className="mb-2 text-sm font-semibold text-slate-700">Formules éligibles</p><div className="flex flex-wrap gap-2">{platformConfig.plans.map(plan=><label key={plan.name} className="flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-semibold"><input type="checkbox" checked={promotionForm.eligiblePlans.includes(plan.name)} onChange={e=>setPromotionForm({...promotionForm,eligiblePlans:e.target.checked?[...promotionForm.eligiblePlans,plan.name]:promotionForm.eligiblePlans.filter(name=>name!==plan.name)})} className="h-4 w-4"/>{plan.name}</label>)}</div></div>
+                  <button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white">Créer la promotion</button>
+                </form>
+              </Panel>
+              <Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Promotions configurées</h3><span className="text-xs text-slate-500">{promotions.length} promotion(s)</span></div>
+                <div className="space-y-3">{promotions.map(promotion=><div key={promotion.id} className="rounded-xl border border-slate-200 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold">{promotion.name} · {promotion.code}</p><p className="text-xs text-slate-500">{promotion.discountType==='percentage'?promotion.value+' %':money(promotion.value)} · {date(promotion.startsAt)} au {date(promotion.endsAt)}</p></div><button type="button" disabled={pageLoading} onClick={()=>void togglePromotion(promotion)} className="min-h-10 rounded-lg border px-3 text-xs font-bold">{promotion.active?'Désactiver':'Réactiver'}</button></div><p className="mt-2 text-xs text-slate-600">Formules : {promotion.eligiblePlans.join(', ')} · Utilisations : {promotion.usedCount}/{promotion.maxUses}</p></div>)}</div>
+                {promotions.length===0&&<p className="py-8 text-center text-sm text-slate-500">Aucune promotion configurée.</p>}
+              </Panel>
+            </div>}
             {selectedInvoice&&<Panel className="mt-4"><h3 className="mb-2 font-extrabold">Confirmer le règlement · {selectedInvoice.id}</h3><p className="mb-3 text-sm text-slate-600">Montant exact attendu : <strong>{money(selectedInvoice.amountFcfa)}</strong>. Confirmez uniquement un paiement effectivement reçu.</p><form onSubmit={settleInvoice} className="flex flex-wrap gap-2"><Field label="Référence du paiement"><input required minLength={4} maxLength={128} value={paymentReference} onChange={e=>setPaymentReference(e.target.value)} className={inputClass}/></Field><button disabled={pageLoading} className="min-h-11 self-end rounded-lg bg-[#101d2d] px-4 text-sm font-bold text-white">Confirmer le paiement</button><button type="button" onClick={()=>setSelectedInvoice(null)} className="min-h-11 self-end rounded-lg border px-4 text-sm">Annuler</button></form></Panel>}
           </>}
 
