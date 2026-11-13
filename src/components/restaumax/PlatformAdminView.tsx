@@ -469,10 +469,15 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     setError('');
     setRecoveryContactBusy(true);
     try {
-      await request({ action: 'mfa_recovery_contact_start', email: recoveryContactInput.trim() });
-      setRecoveryContactPending(true);
+      const delivery = await request({ action: 'mfa_recovery_contact_start', email: recoveryContactInput.trim() });
       setRecoveryContactCode('');
-      setMfaNotice('Un code de vérification a été envoyé à la nouvelle adresse. Il expire dans 10 minutes.');
+      if (delivery.testDeliveryOnly) {
+        setRecoveryContactPending(false);
+        setMfaNotice('Mode test Resend : un message de test a été envoyé à ' + String(delivery.deliveredTo || 'la boîte autorisée').trim() + '. L’adresse ' + recoveryContactInput.trim() + ' reste NON VÉRIFIÉE et ne peut pas servir à récupérer le MFA.');
+      } else {
+        setRecoveryContactPending(true);
+        setMfaNotice('Un code de vérification a été envoyé à la nouvelle adresse. Il expire dans 10 minutes.');
+      }
     } catch (contactError: any) {
       setError(contactError?.message || 'Impossible d’envoyer le code de vérification.');
     } finally {
