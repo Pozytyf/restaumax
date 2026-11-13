@@ -122,10 +122,12 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
           tx.update(subscriptionRef, {
             status: 'active', startsAt: periodStart, endsAt: periodEnd, nextBillingAt: periodEnd,
             pastDueAt: null, currentInvoiceId: null, lastInvoicePaidAt: now,
-            lastPaymentReference: 'free-plan-renewal', updatedAt: now
+            lastPaymentReference: 'free-plan-renewal', lastDiscountBaseAmountFcfa: baseAmount,
+            lastDiscountPercent: discountPercent, lastDiscountAmountFcfa: discountAmount, lastDiscountedAt: now, updatedAt: now
           });
           tx.create(db.collection('admin_audit_logs').doc(`sub_free_renew_${hash(slug + ':' + invoiceId)}`), {
-            action: 'renew_free_subscription', restaurantSlug: slug, createdAt: now
+            action: 'renew_free_subscription', restaurantSlug: slug, baseAmountFcfa: baseAmount,
+            discountPercent, discountAmountFcfa: discountAmount, createdAt: now
           });
           return 'free_renewed';
         }
