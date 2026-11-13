@@ -164,7 +164,11 @@ function platformAdminMfaSatisfied(_user: DecodedIdToken, mfaSessionValid: boole
 }
 
 export async function getPlatformAdminRole(db: any, user: DecodedIdToken, mfaSessionValid = false): Promise<PlatformAdminRole | null> {
-  if (isSuperAdminIdentity(user)) return platformAdminMfaSatisfied(user, mfaSessionValid) ? 'full' : null;
+  if (isSuperAdminIdentity(user)) {
+    const managedFull = await db.collection('platform_admins').doc(user.uid).get();
+    if (managedFull.exists && managedFull.data()?.role === 'full' && managedFull.data()?.active !== true) return null;
+    return platformAdminMfaSatisfied(user, mfaSessionValid) ? 'full' : null;
+  }
   if (user.role !== 'platform_admin' || !platformAdminMfaSatisfied(user, mfaSessionValid)) return null;
   const role = String((user as any).platformAdminRole || '');
   if (!PLATFORM_ADMIN_ROLES.includes(role as PlatformAdminRole) || role === 'full') return null;
@@ -777,7 +781,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (['overview', 'billing_list', 'billing_catalog_read', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'promotion_list', 'promotion_save', 'promotion_toggle', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details', 'mfa_reset'].includes(action)) {
+    if (['overview', 'billing_list', 'billing_catalog_read', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_admin_delete', 'platform_admin_revoke_sessions', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'promotion_list', 'promotion_save', 'promotion_toggle', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details', 'mfa_reset'].includes(action)) {
       const platformRole = await getPlatformAdminRole(db, user, mfaSessionValid);
       if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
@@ -830,7 +834,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const knownActions = [
           'overview', 'billing_list', 'billing_catalog_read', 'audit_list', 'create_restaurant', 'set_restaurant_status',
           'update_subscription', 'settle_subscription_invoice', 'delete_restaurant',
-          'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status',
+          'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_admin_delete', 'platform_admin_revoke_sessions',
           'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions',
           'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update',
           'support_access_request', 'support_access_list', 'support_access_diagnostics',
@@ -860,7 +864,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             lastSignInAt: authUser?.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null,
             mfaEnrolled: mfaRecord.active === true,
             recoveryCodesRemaining: Array.isArray(mfaRecord.recoveryCodeHashes) ? mfaRecord.recoveryCodeHashes.length : 0,
-            disabled: authUser?.disabled === true
+            disabled: authUser?.disabled === true, isPrimary: raw.role === 'full' || authUser?.customClaims?.role === 'super_admin'
           };
         }));
         const knownUids = new Set(admins.map((admin: any) => admin.uid));
@@ -979,19 +983,21 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const displayName = String(body.displayName || '').trim();
         const role = String(body.platformRole || '');
         if (!validEmail(email) || displayName.length < 2 || displayName.length > 100 ||
-            !['billing', 'support', 'read_only'].includes(role)) {
-          return json(res, 400, { success: false, error: 'Nom, e-mail ou rôle délégué invalide. Le rôle Full ne peut être attribué que par la liste de confiance.' });
+            !['full', 'billing', 'support', 'read_only'].includes(role)) {
+          return json(res, 400, { success: false, error: 'Nom, e-mail ou rôle administrateur invalide.' });
         }
         const auth = getAuth();
         let created: any = null;
         try {
           created = await auth.createUser({ email, displayName, disabled: false, emailVerified: false });
           const sessionVersion = 1;
-          await auth.setCustomUserClaims(created.uid, {
-            role: 'platform_admin', platformAdminRole: role,
-            platformAdminSessionVersion: sessionVersion,
-            platformAdminPermissions: PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole]
-          });
+          await auth.setCustomUserClaims(created.uid, role === 'full'
+            ? { role: 'super_admin', sessionVersion }
+            : {
+                role: 'platform_admin', platformAdminRole: role,
+                platformAdminSessionVersion: sessionVersion,
+                platformAdminPermissions: PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole]
+              });
           const now = Date.now();
           const record = {
             uid: created.uid, email, displayName, role, active: true,
@@ -1000,8 +1006,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           const batch = db.batch();
           batch.create(db.collection('platform_admins').doc(created.uid), record);
           batch.create(db.collection('admin_audit_logs').doc(), {
-            action: 'create_platform_admin', targetUid: created.uid,
-            targetRole: role, actorUid: user.uid, createdAt: now
+            action: role === 'full' ? 'invite_full_super_admin' : 'create_platform_admin', targetUid: created.uid,
+            targetRole: role, actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: now
           });
           await batch.commit();
           return json(res, 201, { success: true, admin: { uid: created.uid, email, displayName, role, active: true, mfaEnrolled: false } });
@@ -1054,6 +1060,19 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!snap.exists) return json(res, 404, { success: false, error: 'Compte délégué introuvable.' });
         const auth = getAuth();
         const authUser = await auth.getUser(uid);
+        if (snap.data()?.role === 'full' || authUser.customClaims?.role === 'super_admin') {
+          const fullSnap = await db.collection('platform_admins').where('role', '==', 'full').get();
+          const activeFull = fullSnap.docs.filter((item: any) => item.data()?.active === true && item.id !== uid);
+          if (!active && activeFull.length === 0) return json(res, 409, { success: false, error: 'Impossible de suspendre le dernier Super-admin actif.' });
+          const sessionVersion = Math.max(Number(snap.data()?.sessionVersion || 0), Number(authUser.customClaims?.sessionVersion || 0)) + 1;
+          await auth.setCustomUserClaims(uid, { ...(authUser.customClaims || {}), role: 'super_admin', sessionVersion });
+          await auth.updateUser(uid, { disabled: !active });
+          await auth.revokeRefreshTokens(uid);
+          await ref.update({ active, sessionVersion, updatedAt: Date.now(), updatedBy: user.uid });
+          await revokePlatformAdminMfaSessions(db, uid);
+          await db.collection('admin_audit_logs').add({ action: active ? 'reactivate_full_super_admin' : 'suspend_full_super_admin', targetUid: uid, targetRole: 'full', previousStatus: snap.data()?.active === true ? 'active' : 'suspended', newStatus: active ? 'active' : 'suspended', actorUid: user.uid, actorEmail: String(user.email || ''), outcome: 'success', createdAt: Date.now() });
+          return json(res, 200, { success: true, uid, active, requiresReauthentication: true });
+        }
         if (isProtectedSuperAdminAccount(authUser)) return json(res, 403, { success: false, error: 'Le compte Super-admin principal est protégé et ne peut pas être suspendu depuis la gestion des comptes délégués.' });
         const sessionVersion = Number(snap.data()?.sessionVersion || 0) + 1;
         await auth.setCustomUserClaims(uid, {
@@ -1074,6 +1093,61 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           outcome: 'success', actorUid: user.uid, createdAt: now
         });
         return json(res, 200, { success: true, uid, active, requiresReauthentication: true });
+      }
+
+      if (action === 'platform_admin_revoke_sessions') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const uid = String(body.uid || '').trim();
+        if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Un autre administrateur doit révoquer cette session.' });
+        const ref = db.collection('platform_admins').doc(uid);
+        const snap = await ref.get();
+        if (!snap.exists || snap.data()?.active !== true) return json(res, 404, { success: false, error: 'Administrateur actif introuvable.' });
+        const auth = getAuth();
+        const target = await auth.getUser(uid);
+        const full = snap.data()?.role === 'full' || target.customClaims?.role === 'super_admin';
+        const version = Math.max(Number(snap.data()?.sessionVersion || 0), Number(target.customClaims?.sessionVersion || 0), Number(target.customClaims?.platformAdminSessionVersion || 0)) + 1;
+        const claims = { ...(target.customClaims || {}) };
+        if (full) { claims.role = 'super_admin'; claims.sessionVersion = version; }
+        else { claims.platformAdminSessionVersion = version; }
+        await auth.setCustomUserClaims(uid, claims);
+        await auth.revokeRefreshTokens(uid);
+        await ref.update({ sessionVersion: version, updatedAt: Date.now(), updatedBy: user.uid });
+        await revokePlatformAdminMfaSessions(db, uid);
+        await db.collection('admin_audit_logs').add({ action: 'revoke_platform_admin_sessions', targetUid: uid, targetRole: full ? 'full' : String(snap.data()?.role || ''), actorUid: user.uid, actorEmail: String(user.email || ''), outcome: 'success', createdAt: Date.now() });
+        return json(res, 200, { success: true, uid, requiresReauthentication: true });
+      }
+
+      if (action === 'platform_admin_delete') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const uid = String(body.uid || '').trim();
+        if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Vous ne pouvez pas supprimer votre propre compte.' });
+        const ref = db.collection('platform_admins').doc(uid);
+        const snap = await ref.get();
+        if (!snap.exists) return json(res, 404, { success: false, error: 'Administrateur introuvable.' });
+        const auth = getAuth();
+        const target = await auth.getUser(uid);
+        const full = snap.data()?.role === 'full' || target.customClaims?.role === 'super_admin';
+        if (full) {
+          const fullSnap = await db.collection('platform_admins').where('role', '==', 'full').get();
+          const activeOthers = fullSnap.docs.filter((item: any) => item.id !== uid && item.data()?.active === true);
+          if (snap.data()?.active === true && activeOthers.length === 0) return json(res, 409, { success: false, error: 'Impossible de supprimer le dernier Super-admin actif.' });
+        }
+        const now = Date.now();
+        const version = Math.max(Number(snap.data()?.sessionVersion || 0), Number(target.customClaims?.sessionVersion || 0), Number(target.customClaims?.platformAdminSessionVersion || 0)) + 1;
+        await auth.setCustomUserClaims(uid, { ...(target.customClaims || {}), role: 'revoked_platform_admin', sessionVersion: version });
+        await auth.updateUser(uid, { disabled: true });
+        await auth.revokeRefreshTokens(uid);
+        await revokePlatformAdminMfaSessions(db, uid);
+        await Promise.all([
+          db.collection('platform_admin_mfa').doc(uid).delete().catch(() => undefined),
+          db.collection('platform_admin_mfa_attempts').doc(uid).delete().catch(() => undefined),
+          db.collection('platform_admin_mfa_email_recovery').doc(uid).delete().catch(() => undefined),
+          db.collection('platform_admin_mfa_webauthn_challenges').doc(uid).delete().catch(() => undefined)
+        ]);
+        await ref.update({ active: false, deleted: true, deletedAt: now, deletedBy: user.uid, sessionVersion: version, updatedAt: now });
+        await db.collection('admin_audit_logs').add({ action: 'delete_platform_admin', targetUid: uid, targetRole: full ? 'full' : String(snap.data()?.role || ''), actorUid: user.uid, actorEmail: String(user.email || ''), outcome: 'success', createdAt: now });
+        await auth.deleteUser(uid);
+        return json(res, 200, { success: true, uid, deleted: true, auditRecordPreserved: true });
       }
 
       if (action === 'platform_account_password_reset') {
