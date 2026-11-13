@@ -189,9 +189,9 @@ assert(admin.includes("function resolvePlatformAdminPermissions") &&
   admin.includes("permissions.some(permission => !ceiling.includes(permission))"),
   'delegated permission overrides must retain the overview baseline and stay within the selected role ceiling');
 assert(admin.includes("const requiredPermission = PLATFORM_ADMIN_ACTION_PERMISSION[action]") &&
-  admin.includes("return permissions.includes(requiredPermission)") &&
+  admin.includes("PLATFORM_ADMIN_ROLE_PERMISSIONS[role].includes(requiredPermission) && permissions.includes(requiredPermission)") &&
   admin.includes("tokenVersion !== Number(record.sessionVersion || 0)"),
-  'every delegated API action is checked against the permission set stored in the verified admin session');
+  'every delegated API action is checked against both the role ceiling and the permission set stored in the verified admin session');
 assert(admin.includes("previousPermissions:") && admin.includes("newPermissions: permissions"),
   'permission changes record both previous and next grants in the audit trail');
 assert(ui.includes('Modifier les permissions') &&
