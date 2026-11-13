@@ -117,6 +117,23 @@ function configuredSuperAdmins() {
     .split(',').map((email) => email.trim().toLowerCase()).filter(Boolean);
 }
 
+async function countActivePlatformSuperAdmins(auth: any): Promise<number> {
+  const allowlisted = new Set(configuredSuperAdmins());
+  const active = new Set<string>();
+  let pageToken: string | undefined;
+  do {
+    const page = await auth.listUsers(1000, pageToken);
+    for (const account of page.users) {
+      const trustedClaim = account.customClaims?.role === 'super_admin';
+      const verifiedAllowlist = account.emailVerified === true &&
+        typeof account.email === 'string' && allowlisted.has(account.email.toLowerCase());
+      if (account.disabled !== true && (trustedClaim || verifiedAllowlist)) active.add(account.uid);
+    }
+    pageToken = page.pageToken;
+  } while (pageToken);
+  return active.size;
+}
+
 function isProtectedSuperAdminAccount(authUser: any): boolean {
   const email = String(authUser?.email || '').trim().toLowerCase();
   return authUser?.customClaims?.role === 'super_admin' || (!!email && configuredSuperAdmins().includes(email));
@@ -1058,12 +1075,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const ref = db.collection('platform_admins').doc(uid);
         const snap = await ref.get();
         if (!snap.exists) return json(res, 404, { success: false, error: 'Compte délégué introuvable.' });
+        if (snap.data()?.deleted === true) return json(res, 409, { success: false, error: 'Ce compte a déjà été supprimé.' });
         const auth = getAuth();
         const authUser = await auth.getUser(uid);
         if (snap.data()?.role === 'full' || authUser.customClaims?.role === 'super_admin') {
-          const fullSnap = await db.collection('platform_admins').where('role', '==', 'full').get();
-          const activeFull = fullSnap.docs.filter((item: any) => item.data()?.active === true && item.id !== uid);
-          if (!active && activeFull.length === 0) return json(res, 409, { success: false, error: 'Impossible de suspendre le dernier Super-admin actif.' });
+          const activeSuperAdmins = await countActivePlatformSuperAdmins(auth);
+          if (!active && authUser.disabled !== true && activeSuperAdmins <= 1) return json(res, 409, { success: false, error: 'Impossible de suspendre le dernier Super-admin actif.' });
           const sessionVersion = Math.max(Number(snap.data()?.sessionVersion || 0), Number(authUser.customClaims?.sessionVersion || 0)) + 1;
           await auth.setCustomUserClaims(uid, { ...(authUser.customClaims || {}), role: 'super_admin', sessionVersion });
           await auth.updateUser(uid, { disabled: !active });
@@ -1124,13 +1141,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const ref = db.collection('platform_admins').doc(uid);
         const snap = await ref.get();
         if (!snap.exists) return json(res, 404, { success: false, error: 'Administrateur introuvable.' });
+        if (snap.data()?.deleted === true) return json(res, 409, { success: false, error: 'Ce compte a déjà été supprimé.' });
         const auth = getAuth();
         const target = await auth.getUser(uid);
         const full = snap.data()?.role === 'full' || target.customClaims?.role === 'super_admin';
         if (full) {
-          const fullSnap = await db.collection('platform_admins').where('role', '==', 'full').get();
-          const activeOthers = fullSnap.docs.filter((item: any) => item.id !== uid && item.data()?.active === true);
-          if (snap.data()?.active === true && activeOthers.length === 0) return json(res, 409, { success: false, error: 'Impossible de supprimer le dernier Super-admin actif.' });
+          const activeSuperAdmins = await countActivePlatformSuperAdmins(auth);
+          if (snap.data()?.active === true && target.disabled !== true && activeSuperAdmins <= 1) return json(res, 409, { success: false, error: 'Impossible de supprimer le dernier Super-admin actif.' });
         }
         const now = Date.now();
         const version = Math.max(Number(snap.data()?.sessionVersion || 0), Number(target.customClaims?.sessionVersion || 0), Number(target.customClaims?.platformAdminSessionVersion || 0)) + 1;
