@@ -90,3 +90,15 @@ assert(app.includes('canManagePendingPosOrders') && app.includes('pendingOnly: t
   app.includes("['manager', 'cashier'].includes(authRestaurantRole) && userPermissions.includes('orders.cancel')"),
   'pending ticket actions are exposed only to the bound owner or a cashier/manager with orders.cancel');
 console.log('Restaurant management navigation checks passed.');
+
+const platformWorkspace = fs.readFileSync(new URL('../src/components/restaumax/PlatformAdminWorkspace.tsx', import.meta.url), 'utf8');
+assert(platformWorkspace.includes('Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Tarif</th><th className="px-3 py-3">Échéance</th><th className="px-3 py-3">Ouverture</th><th className="px-3 py-3">Suspendre</th><th className="px-3 py-3">Archiver</th>'),
+  'platform restaurant list exposes the requested unified columns');
+assert(platformWorkspace.includes('sticky top-0 hidden h-screen') && platformWorkspace.includes('overflow-y-auto overscroll-contain'),
+  'platform navigation remains fixed while its menu scrolls independently');
+assert(platformWorkspace.includes('invoiceDetails') && platformWorkspace.includes('Détail de la facture') && platformWorkspace.includes('restaurant?.ownerName'),
+  'invoice detail action opens the restaurant and subscription detail panel');
+const platformAdminSource = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
+assert(platformAdminSource.includes('restaurant: {') && platformAdminSource.includes('subscriptionStatus:'),
+  'billing API enriches every invoice with the correlated restaurant and subscription snapshot');
+console.log('Platform admin workspace navigation and billing details checks passed.');
