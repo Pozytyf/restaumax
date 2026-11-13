@@ -1524,34 +1524,38 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           }
           return sum;
         }, 0);
-        const [invoiceFinancialSnap, paymentFinancialSnap] = await Promise.all([
-          db.collectionGroup('invoices').get(),
-          db.collectionGroup('payments').get()
-        ]);
-        const invoiceRows = invoiceFinancialSnap.docs
-          .filter((doc: any) => doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions')
-          .map((doc: any) => ({
-            ...(doc.data() || {}), restaurantSlug: doc.ref.parent.parent?.id || String(doc.data()?.restaurantSlug || '')
-          }));
-        const openInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && !(Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
-        const overdueInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'overdue' || (invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
-        const upcomingInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && Number(invoice.dueAt || 0) > aggregationTime && Number(invoice.dueAt) <= aggregationTime + 30 * 24 * 60 * 60 * 1000);
-        const sumInvoiceAmounts = (items: any[]) => items.reduce((total, invoice) => total + (Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0), 0);
-        const subscriptionPaymentDocs = paymentFinancialSnap.docs.filter((doc: any) =>
-          doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions'
-        );
-        const collectedAmountFcfa = subscriptionPaymentDocs.reduce((total: number, doc: any) => {
-          const payment = doc.data() || {};
-          return total + (Number.isSafeInteger(payment.amountFcfa) ? payment.amountFcfa : 0);
-        }, 0);
-        const financialSummary = {
-          openInvoicesCount: openInvoices.length, openAmountFcfa: sumInvoiceAmounts(openInvoices),
-          overdueInvoicesCount: overdueInvoices.length, overdueAmountFcfa: sumInvoiceAmounts(overdueInvoices),
-          collectedAmountFcfa, upcomingDueCount: upcomingInvoices.length,
-          upcomingDueAmountFcfa: sumInvoiceAmounts(upcomingInvoices),
-          invoicesScanned: invoiceRows.length, paymentsScanned: subscriptionPaymentDocs.length,
-          asOf: aggregationTime
-        };
+        const canReadFinancials = ['full', 'billing'].includes(String(await getPlatformAdminRole(db, user) || ''));
+        let financialSummary: any = null;
+        if (canReadFinancials) {
+          const [invoiceFinancialSnap, paymentFinancialSnap] = await Promise.all([
+            db.collectionGroup('invoices').get(),
+            db.collectionGroup('payments').get()
+          ]);
+          const invoiceRows = invoiceFinancialSnap.docs
+            .filter((doc: any) => doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions')
+            .map((doc: any) => ({
+              ...(doc.data() || {}), restaurantSlug: doc.ref.parent.parent?.id || String(doc.data()?.restaurantSlug || '')
+            }));
+          const openInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && !(Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
+          const overdueInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'overdue' || (invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
+          const upcomingInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && Number(invoice.dueAt || 0) > aggregationTime && Number(invoice.dueAt) <= aggregationTime + 30 * 24 * 60 * 60 * 1000);
+          const sumInvoiceAmounts = (items: any[]) => items.reduce((total, invoice) => total + (Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0), 0);
+          const subscriptionPaymentDocs = paymentFinancialSnap.docs.filter((doc: any) =>
+            doc.ref.parent.parent?.parent?.id === 'restaurantSubscriptions'
+          );
+          const collectedAmountFcfa = subscriptionPaymentDocs.reduce((total: number, doc: any) => {
+            const payment = doc.data() || {};
+            return total + (Number.isSafeInteger(payment.amountFcfa) ? payment.amountFcfa : 0);
+          }, 0);
+          financialSummary = {
+            openInvoicesCount: openInvoices.length, openAmountFcfa: sumInvoiceAmounts(openInvoices),
+            overdueInvoicesCount: overdueInvoices.length, overdueAmountFcfa: sumInvoiceAmounts(overdueInvoices),
+            collectedAmountFcfa, upcomingDueCount: upcomingInvoices.length,
+            upcomingDueAmountFcfa: sumInvoiceAmounts(upcomingInvoices),
+            invoicesScanned: invoiceRows.length, paymentsScanned: subscriptionPaymentDocs.length,
+            asOf: aggregationTime
+          };
+        }
         const summary = {
           financialSummary,
           totalRestaurants: restaurants.length,
@@ -1565,8 +1569,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           subscriptionsByPlan: restaurants.reduce((acc: Record<string, number>, r: any) => {
             const key = r.subscription.planName || 'unassigned'; acc[key] = (acc[key] || 0) + 1; return acc;
           }, {}),
-          monthlyRecurringRevenueFcfa,
-          recurringRevenueFcfa: monthlyRecurringRevenueFcfa
+          monthlyRecurringRevenueFcfa: canReadFinancials ? monthlyRecurringRevenueFcfa : null,
+          recurringRevenueFcfa: canReadFinancials ? monthlyRecurringRevenueFcfa : null
         };
         return json(res, 200, { success: true, restaurants, total: restaurants.length, summary });
       }
