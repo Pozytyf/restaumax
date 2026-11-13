@@ -118,9 +118,13 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       if (!nextUser) {
         setIsPlatformAdminAuthorized(false);
         setNeedsPlatformAdminLogin(false);
+        setCustomMfaRequired(false);
+        setCustomMfaSetup(false);
+        setTotpSecret(null);
+        setCustomMfaCode('');
         setRestaurants([]);
         setSummary(null);
-          return;
+        return;
       }
 
       // A pre-existing restaurant session is not silently upgraded by the
@@ -408,7 +412,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         request={request}
         onRefresh={refresh}
         onBack={onBack}
-        onSignOut={() => { void signOut(auth); }}
+        onSignOut={async () => { await request({ action: 'mfa_logout' }).catch(() => undefined); await signOut(auth); }}
       />
     </>}
   </div>;
