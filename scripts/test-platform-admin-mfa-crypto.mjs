@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
-  beginPlatformAdminMfaEnrollment, buildTotpUri, confirmPlatformAdminMfaEnrollment,
-  decryptTotpSecret, encryptTotpSecret, generateTotpSecret, getPlatformAdminMfaSessionDetails, regeneratePlatformAdminRecoveryCodes,
+  beginPlatformAdminMfaEnrollment, buildTotpUri, confirmPlatformAdminMfaEnrollment, createPlatformAdminMfaSession,
+  decryptTotpSecret, encryptTotpSecret, generateTotpSecret, getPlatformAdminMfaSessionDetails, PLATFORM_ADMIN_TRUSTED_SESSION_TTL_MS, regeneratePlatformAdminRecoveryCodes,
   totpAt, verifyPlatformAdminMfaAndCreateSession, verifyTotp
 } from '../src/server/platformAdminMfa.ts';
 
@@ -47,6 +47,11 @@ try {
     'AES-256-GCM encryption round-trips the TOTP seed');
   assert.match(buildTotpUri(secret, 'admin@example.test'), /^otpauth:\/\/totp\//);
   const db = new MemoryDb();
+  assert.equal(PLATFORM_ADMIN_TRUSTED_SESSION_TTL_MS, 90 * 24 * 60 * 60 * 1000,
+    'trusted platform MFA sessions are configured for exactly 90 days');
+  const trustedSession = await createPlatformAdminMfaSession(db, 'trusted-session-admin', 1);
+  assert(trustedSession.expiresAt - Date.now() > 89 * 24 * 60 * 60 * 1000,
+    'Firebase-verified trusted session persists for approximately 90 days');
   const uid = 'recovery-test-admin';
   const enrollment = await beginPlatformAdminMfaEnrollment(db, uid, 'admin@example.test');
   const enrollmentTime = Date.now();
@@ -76,7 +81,7 @@ try {
     process.env.RESTAUMAX_MFA_ENCRYPTION_KEY = 'invalid';
     encryptTotpSecret(secret);
   }, /clé de chiffrement MFA/);
-  console.log('Platform-admin TOTP cryptography and recovery lifecycle tests passed (15 assertions).');
+  console.log('Platform-admin TOTP cryptography, recovery lifecycle, and 90-day trusted-session tests passed.');
 } finally {
   if (previousKey === undefined) delete process.env.RESTAUMAX_MFA_ENCRYPTION_KEY;
   else process.env.RESTAUMAX_MFA_ENCRYPTION_KEY = previousKey;
