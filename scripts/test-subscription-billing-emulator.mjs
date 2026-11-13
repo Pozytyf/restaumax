@@ -75,6 +75,10 @@ try {
   assert.equal((quarterlyEnd.getUTCFullYear() - quarterlyStart.getUTCFullYear()) * 12 + quarterlyEnd.getUTCMonth() - quarterlyStart.getUTCMonth(), 3,
     'Le renouvellement trimestriel ajoute exactement trois mois');
 
+  await db.collection('platform_config').doc('global').set({
+    plans: [{ name: 'Pro', description: 'Pro', active: true, priceMonthlyFcfa: 12000,
+      features: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true } }]
+  }, { merge: true });
   const promotionRef = db.collection('platform_promotions').doc('promotion-single-use');
   await promotionRef.set({
     name: 'Bienvenue 20%', code: 'WELCOME20', discountType: 'percentage', value: 20,
@@ -102,8 +106,10 @@ try {
   assert.equal((await promotionRef.get()).data().usedCount, 1, 'Le quota de promotion est incrémenté atomiquement');
   for (let index = 0; index < promoRefs.length; index++) {
     const invoice = promoInvoices[index];
-    const expectedAmount = invoice.discountSource === 'promotion' ? 8000 :
-      (invoice.billingCycle === 'quarterly' ? 9000 : 10000);
+    const expectedBaseAmount = invoice.billingCycle === 'quarterly' ? 36000 : 12000;
+    assert.equal(invoice.baseAmountFcfa, expectedBaseAmount, 'Le tarif de renouvellement suit automatiquement le prix actuel de la formule');
+    const expectedAmount = invoice.discountSource === 'promotion' ? Math.round(expectedBaseAmount * 0.8) :
+      (invoice.billingCycle === 'quarterly' ? Math.round(expectedBaseAmount * 0.9) : expectedBaseAmount);
     assert.equal(invoice.amountFcfa, expectedAmount, 'Une promotion et la réduction trimestrielle ne se cumulent jamais');
     const sub = (await promoRefs[index].get()).data();
     const payment = await settleSubscriptionInvoiceWithDb(db, {
@@ -211,7 +217,7 @@ try {
   assert.equal((await globalGraceRestaurant.get()).data().status, 'suspended',
     'Le délai global est respecté avant suspension');
 
-  console.log('Subscription billing Firestore Emulator tests passed: 46 assertions.');
+  console.log('Subscription billing Firestore Emulator tests passed: 48 assertions.');
 } finally {
   await app.delete();
 }
