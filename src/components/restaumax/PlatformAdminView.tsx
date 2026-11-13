@@ -352,10 +352,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       await request({ action: 'mfa_verify', code: customMfaCode.trim() });
       setCustomMfaRequired(false);
       setCustomMfaCode('');
-      const data = await request();
-      setRestaurants(data.restaurants || []);
-      setSummary(data.summary || null);
-      setNeedsPlatformAdminLogin(false);
+      await continueAfterAuthentication();
     } catch (verificationError: any) {
       setError(verificationError?.message || 'Code MFA invalide ou expiré.');
     } finally {
