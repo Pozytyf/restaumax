@@ -28,3 +28,16 @@ Contrôle opérationnel à effectuer sans toucher aux données de Production :
 ## Limite de paiement
 
 Ce moteur automatise la génération des factures, le suivi des impayés et la suspension. Il ne débite pas automatiquement les cartes ou les comptes Mobile Money. Aucun compte marchand PayDunya de la plateforme ni mandat de prélèvement récurrent n'a été configuré. Le paiement est donc rapproché manuellement par le Super-admin après réception effective. Ne jamais confirmer une facture sans preuve de paiement.
+
+## Règle contractuelle catalogue → abonnement → facture
+
+- Le document `restaurantSubscriptions/{restaurantSlug}` est la source canonique de l'abonnement. La valeur historique `restaurants/{restaurantSlug}.subscription` n'est qu'une compatibilité de lecture pour les enregistrements non migrés ; une écriture réussie crée l'abonnement canonique et retire l'ancien champ dans la même écriture atomique.
+- Chaque abonnement conserve l'identifiant stable de l'offre, son nom, le tarif mensuel du catalogue, le tarif contractuel de la période, et une copie des droits activés. Une modification ultérieure du catalogue ne doit pas repricer ni modifier les droits d'un abonnement déjà souscrit.
+- Chaque modification crée une entrée d'historique versionnée et auditée.
+- **Une modification de formule ne crée pas de facture.** La première facture récurrente n'est émise qu'à l'échéance future enregistrée dans `nextBillingAt`, par le cycle planifié. Une formule active ou en essai dont l'échéance est déjà passée est refusée par l'action de modification afin d'éviter toute facturation rétroactive accidentelle.
+- Les cycles mensuels, trimestriels et annuels sont normalisés en équivalent mensuel pour le MRR. Un cycle personnalisé n'est inclus que si ses dates de début et de fin permettent de calculer sa durée.
+- Les factures ouvertes dont la date d'échéance est dépassée sont présentées comme en retard, sans mutation automatique de leur historique. Elles restent réglables par rapprochement manuel.
+- Les indicateurs financiers agrègent uniquement les sous-collections `invoices` et `payments` de `restaurantSubscriptions`. Ils ne doivent jamais mélanger les paiements des commandes clients, les caisses des restaurants ou les données d'un autre tenant.
+- Les montants financiers agrégés sont accessibles uniquement aux administrateurs plateforme `full` et `billing`. Les rôles support et lecture seule ne reçoivent pas ces agrégats.
+
+**Chez Awa :** aucune facture de rattrapage ni écriture de paiement ne doit être créée lors de la correction de son abonnement. Toute régularisation d'une période antérieure exige une validation explicite du Super-admin et une preuve de paiement avant rapprochement.
