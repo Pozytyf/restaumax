@@ -172,7 +172,7 @@ try {
   assert.equal((await globalGraceRestaurant.get()).data().status, 'suspended',
     'Le délai global est respecté avant suspension');
 
-  console.log('Subscription billing Firestore Emulator tests passed: 32 assertions.');
+  console.log('Subscription billing Firestore Emulator tests passed: 39 assertions.');
 } finally {
   await app.delete();
 }
