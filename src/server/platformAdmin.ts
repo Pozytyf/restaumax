@@ -1193,9 +1193,16 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           }
         } else {
           const adminSnap = await db.collection('platform_admins').doc(uid).get();
-          if (!adminSnap.exists) return json(res, 404, { success: false, error: 'Compte administrateur délégué introuvable.' });
+          if (adminSnap.exists && adminSnap.data()?.deleted === true) {
+            return json(res, 409, { success: false, error: 'Ce compte administrateur a été supprimé.' });
+          }
           const targetAuthUser = await getAuth().getUser(uid);
-          if (isProtectedSuperAdminAccount(targetAuthUser)) return json(res, 403, { success: false, error: 'Le compte Super-admin principal est protégé.' });
+          const trustedFullIdentity = isProtectedSuperAdminAccount(targetAuthUser);
+          const managedPlatformAdmin = adminSnap.exists &&
+            ['full', 'billing', 'support', 'read_only'].includes(String(adminSnap.data()?.role || ''));
+          if (!managedPlatformAdmin && !trustedFullIdentity) {
+            return json(res, 404, { success: false, error: 'Compte administrateur plateforme introuvable.' });
+          }
         }
         const now = Date.now();
         await db.collection('admin_audit_logs').add({
