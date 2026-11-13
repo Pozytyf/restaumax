@@ -49,7 +49,7 @@ assert(ui.includes('expandedAuditId===a.id') && ui.includes('Aucun détail compl
 const billing = fs.readFileSync(new URL('../src/server/subscriptionBillingService.ts', import.meta.url), 'utf8');
 assert(admin.includes('const planInput = Array.isArray(input.plans)') && admin.includes('planInput.length > 20'),
   'platform configuration accepts a bounded, dynamic plan catalog');
-assert(admin.includes('rawPlan.active !== \'boolean\'') && admin.includes('normalizedFeatures'),
+assert(admin.includes('rawPlan?.active !== \'boolean\'') && admin.includes('normalizedFeatures'),
   'custom plan definitions validate activation state and every supported entitlement');
 assert(admin.includes('quarterlyDiscountPercent') && ui.includes('quarterlyDiscountPercent'),
   'quarterly discount rate is configurable in the admin API and UI');
