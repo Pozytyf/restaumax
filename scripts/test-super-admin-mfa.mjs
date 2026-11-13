@@ -9,16 +9,16 @@ try {
   process.env.RESTAUMAX_SUPER_ADMIN_EMAILS = 'root@example.test';
 
   const trustedClaim = { uid: 'root-uid', role: 'super_admin' };
-  assert.equal(isSuperAdmin(trustedClaim), true,
-    'identity recognition is independent from the MFA proof');
+  assert.equal(isSuperAdmin(trustedClaim), false,
+    'the legacy Firebase-factor predicate is not used as the custom MFA session proof');
   assert.equal(await getPlatformAdminRole({}, trustedClaim), null,
     'a super-admin without a server-validated MFA session is rejected');
   assert.equal(await getPlatformAdminRole({}, trustedClaim, true), 'full',
     'a super-admin with a server-validated MFA session is accepted');
 
   const allowlisted = { uid: 'allowlisted', email: 'root@example.test', email_verified: true };
-  assert.equal(isSuperAdmin(allowlisted), true,
-    'a verified allowlisted identity is recognized before MFA verification');
+  assert.equal(isSuperAdmin(allowlisted), false,
+    'the legacy Firebase-factor predicate rejects an allowlisted identity without a Firebase second factor');
   assert.equal(await getPlatformAdminRole({}, allowlisted), null,
     'an allowlisted identity without a server-side MFA session is rejected');
   assert.equal(await getPlatformAdminRole({}, allowlisted, true), 'full',
