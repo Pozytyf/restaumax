@@ -30,7 +30,7 @@ export function generateTotpSecret(): string {
 }
 
 function decodeBase32(value: string): Buffer {
-  const normalized = value.toUpperCase().replace(/=+$/g, '').replace(/\\s/g, '');
+  const normalized = value.toUpperCase().replace(/=+$/g, '').replace(/\s/g, '');
   if (!normalized || /[^A-Z2-7]/.test(normalized)) throw new Error('Secret TOTP invalide.');
   let bits = '';
   for (const char of normalized) bits += BASE32.indexOf(char).toString(2).padStart(5, '0');
@@ -53,7 +53,7 @@ export function totpAt(secret: string, timeMs = Date.now()): { code: string; ste
 }
 
 export function verifyTotp(secret: string, code: string, now = Date.now(), lastAcceptedStep = -1): number | null {
-  if (!/^\\d{6}$/.test(code)) return null;
+  if (!/^\d{6}$/.test(code)) return null;
   const current = Math.floor(now / 1000 / STEP_SECONDS);
   const supplied = Buffer.from(code);
   for (const step of [current - 1, current, current + 1]) {
