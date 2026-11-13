@@ -317,7 +317,7 @@ export async function settleSubscriptionInvoiceWithDb(
       if (invoice.paymentReference === paymentReference) return { success: true, idempotentReplay: true, invoice };
       return { success: false, conflict: true, error: 'Cette facture est déjà réglée avec une autre référence.' };
     }
-    if (invoice.status !== 'open' || String(sub.currentInvoiceId || '') !== invoiceId ||
+    if (!['open', 'overdue'].includes(String(invoice.status)) || String(sub.currentInvoiceId || '') !== invoiceId ||
         input.amountFcfa !== Number(invoice.amountFcfa)) {
       return { success: false, conflict: true, error: 'Le montant ou le statut de la facture ne correspond pas.' };
     }
