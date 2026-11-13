@@ -1753,6 +1753,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
         const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
         const currentSubscriptionSnap = await subscriptionRef.get();
+        const currentSubscription = currentSubscriptionSnap.exists
+          ? currentSubscriptionSnap.data() || {}
+          : (restaurantSnap.data()?.subscription && typeof restaurantSnap.data()?.subscription === 'object' ? restaurantSnap.data().subscription : {});
         const platformConfigSnap = await db.collection('platform_config').doc('global').get();
         const configuredPlans = Array.isArray(platformConfigSnap.data()?.plans) ? platformConfigSnap.data().plans : [];
         if (configuredPlans.length) {
@@ -1761,7 +1764,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             ? String(plan?.id || planIdentifier(String(plan?.name || ''))) === requestedPlanId && String(plan?.name || '') === validation.subscription.planName
             : String(plan?.name || '') === validation.subscription.planName
           );
-          const existingPlanName = String(currentSubscriptionSnap.data()?.planName || '');
+          const existingPlanName = String(currentSubscription.planName || '');
           if (requestedPlanId && !selectedPlan) {
             return json(res, 400, { success: false, error: 'L’identifiant de formule ne correspond pas au nom de l’offre sélectionnée.' });
           }
@@ -1782,13 +1785,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
         const requestedNotes = typeof body.subscription?.notes === 'string'
           ? body.subscription.notes.trim().slice(0, 500) : '';
-        const preservedNotes = requestedNotes || String(currentSubscriptionSnap.data()?.notes || '');
+        const preservedNotes = requestedNotes || String(currentSubscription.notes || '');
         const requestedPlanId = String(body.subscription?.planId || '').trim();
         const selectedPlan = configuredPlans.find((plan: any) => requestedPlanId
           ? String(plan?.id || planIdentifier(String(plan?.name || ''))) === requestedPlanId && String(plan?.name || '') === validation.subscription.planName
           : String(plan?.name || '') === validation.subscription.planName
         );
-        const currentSubscription = currentSubscriptionSnap.exists ? currentSubscriptionSnap.data() || {} : {};
         const cycleMultiplier = validation.subscription.billingCycle === 'quarterly' ? 3 :
           validation.subscription.billingCycle === 'yearly' ? 12 : 1;
         const selectedPlanId = selectedPlan
