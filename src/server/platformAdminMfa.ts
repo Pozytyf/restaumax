@@ -112,7 +112,11 @@ async function consumeAttempt(db: any, uid: string): Promise<boolean> {
 export async function getPlatformAdminMfaStatus(db: any, uid: string) {
   const snap = await db.collection(MFA_COLLECTION).doc(uid).get();
   const data = snap.exists ? snap.data() || {} : {};
-  return { enrolled: data.active === true, pending: Number(data.pendingExpiresAt || 0) > Date.now() };
+  return {
+    enrolled: data.active === true,
+    pending: Number(data.pendingExpiresAt || 0) > Date.now(),
+    recoveryCodesRemaining: Array.isArray(data.recoveryCodeHashes) ? data.recoveryCodeHashes.length : 0
+  };
 }
 
 export async function beginPlatformAdminMfaEnrollment(db: any, uid: string, email: string) {
@@ -133,27 +137,29 @@ export async function beginPlatformAdminMfaEnrollment(db: any, uid: string, emai
   return { secret, otpauthUri: buildTotpUri(secret, email), expiresAt: now + ENROLLMENT_TTL_MS };
 }
 
-export async function confirmPlatformAdminMfaEnrollment(db: any, uid: string, code: string) {
-  if (!await consumeAttempt(db, uid)) return false;
+export async function confirmPlatformAdminMfaEnrollment(db: any, uid: string, code: string): Promise<string[] | null> {
+  if (!await consumeAttempt(db, uid)) return null;
   const ref = db.collection(MFA_COLLECTION).doc(uid);
   const now = Date.now();
   return db.runTransaction(async (tx: any) => {
     const snap = await tx.get(ref);
     const record = snap.exists ? snap.data() || {} : {};
-    if (!record.pendingSecret || Number(record.pendingExpiresAt || 0) <= now) return false;
+    if (!record.pendingSecret || Number(record.pendingExpiresAt || 0) <= now) return null;
     const secret = decryptTotpSecret(record.pendingSecret);
     const step = verifyTotp(secret, code, now, -1);
-    if (step === null) return false;
+    if (step === null) return null;
+    const recoveryCodes = Array.from({ length: 10 }, () => randomBytes(5).toString('hex').toUpperCase());
     tx.set(ref, {
       active: true,
       secret: record.pendingSecret,
       pendingSecret: null,
       pendingExpiresAt: null,
       lastAcceptedStep: step,
+      recoveryCodeHashes: recoveryCodes.map(hashMfaToken),
       enrolledAt: now,
       updatedAt: now
     }, { merge: true });
-    return true;
+    return recoveryCodes;
   });
 }
 
@@ -170,8 +176,23 @@ export async function verifyPlatformAdminMfaAndCreateSession(db: any, uid: strin
     if (record.active !== true || !record.secret) return false;
     const secret = decryptTotpSecret(record.secret);
     const step = verifyTotp(secret, code, now, Number(record.lastAcceptedStep ?? -1));
-    if (step === null) return false;
-    tx.update(ref, { lastAcceptedStep: step, lastVerifiedAt: now, updatedAt: now });
+    let update: Record<string, unknown>;
+    if (step !== null) {
+      update = { lastAcceptedStep: step, lastVerifiedAt: now, updatedAt: now };
+    } else {
+      const normalizedRecoveryCode = String(code || '').replace(/-/g, '').toUpperCase();
+      if (!/^[A-F0-9]{10}$/.test(normalizedRecoveryCode)) return false;
+      const recoveryHash = hashMfaToken(normalizedRecoveryCode);
+      const hashes = Array.isArray(record.recoveryCodeHashes) ? record.recoveryCodeHashes : [];
+      const index = hashes.indexOf(recoveryHash);
+      if (index < 0) return false;
+      update = {
+        recoveryCodeHashes: hashes.filter((_: string, i: number) => i !== index),
+        lastRecoveryAt: now,
+        updatedAt: now
+      };
+    }
+    tx.update(ref, update);
     tx.create(sessionRef, { uid, sessionVersion, createdAt: now, expiresAt: now + SESSION_TTL_MS, revokedAt: null });
     return true;
   });
