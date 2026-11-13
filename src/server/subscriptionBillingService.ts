@@ -8,7 +8,7 @@ export function resolveSubscriptionInvoiceIdentity(ref: any, invoice: any) {
   if (segments.length !== 4 || segments[0] !== 'restaurantSubscriptions' || segments[2] !== 'invoices') return null;
   const restaurantSlug = segments[1];
   const invoiceId = segments[3];
-  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^subinv_[a-f0-9]{32}$/.test(invoiceId)) return null;
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(invoiceId)) return null;
   if (invoice?.restaurantSlug && String(invoice.restaurantSlug) !== restaurantSlug) return null;
   if (invoice?.id && String(invoice.id) !== invoiceId) return null;
   return { restaurantSlug, invoiceId };
@@ -146,8 +146,10 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         }
         const cycle = String(sub.billingCycle || '');
         const configuredPlans = Array.isArray(configSnap.data()?.plans) ? configSnap.data().plans : [];
-        const configuredPlan = configuredPlans.find((plan: any) =>
-          (sub.planId && String(plan?.id || '') === String(sub.planId)) || String(plan?.name || '') === String(sub.planName || '')
+        const subscriptionPlanId = String(sub.planId || '');
+        const configuredPlan = configuredPlans.find((plan: any) => subscriptionPlanId
+          ? String(plan?.id || planIdentifier(String(plan?.name || ''))) === subscriptionPlanId
+          : String(plan?.name || '') === String(sub.planName || '')
         );
         const monthlyPlanPrice = Number(sub.planPriceMonthlyFcfa ?? configuredPlan?.priceMonthlyFcfa ?? 0);
         const cycleMultiplier = cycle === 'quarterly' ? 3 : cycle === 'yearly' ? 12 : 1;
