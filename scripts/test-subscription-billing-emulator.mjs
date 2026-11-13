@@ -46,6 +46,21 @@ try {
   const invoiceRef = subscriptionRef.collection('invoices').doc(subscription.currentInvoiceId);
   const invoice = (await invoiceRef.get()).data();
   assert.equal(invoice.amountFcfa, 25000);
+  await invoiceRef.update({ restaurantSlug: 'another-restaurant' });
+  const mismatchedRestaurantSettlement = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
+    amountFcfa: 25000, paymentReference: 'MISMATCH-RECEIPT-001',
+    actorUid: 'super-admin-test', now: now + 500
+  });
+  assert.equal(mismatchedRestaurantSettlement.success, false, 'Une facture dont le restaurant déclaré ne correspond pas à son chemin est impossible à rapprocher');
+  await invoiceRef.update({ restaurantSlug: slug, planId: 'different-plan-id' });
+  const mismatchedPlanSettlement = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
+    amountFcfa: 25000, paymentReference: 'MISMATCH-PLAN-001',
+    actorUid: 'super-admin-test', now: now + 600
+  });
+  assert.equal(mismatchedPlanSettlement.success, false, 'Une facture rattachée à une autre formule est refusée');
+  await invoiceRef.update({ restaurantSlug: slug, planId: 'pro-stable-id' });
   assert.equal(invoice.planId, 'pro-stable-id', 'La facture conserve l’identifiant stable de l’offre souscrite');
   assert.equal(invoice.status, 'open');
   assert.equal(invoice.periodStartAt, now - 1000, 'La facture commence à la date de renouvellement prévue');
