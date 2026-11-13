@@ -8,6 +8,16 @@ import {
   createPlatformAdminMfaSession, getPlatformAdminMfaStatus, getPlatformAdminMfaSessionDetails, hasValidPlatformAdminMfaSession,
   regeneratePlatformAdminRecoveryCodes, revokePlatformAdminMfaSessions, verifyPlatformAdminMfaAndCreateSession
 } from './platformAdminMfa.js';
+import {
+  beginPlatformAdminPasskeyRegistration,
+  finishPlatformAdminPasskeyRegistration,
+  beginPlatformAdminPasskeyAuthentication,
+  finishPlatformAdminPasskeyAuthentication
+} from './platformAdminMfaPasskeys.js';
+import {
+  startPlatformAdminEmailRecovery,
+  verifyPlatformAdminEmailRecovery
+} from './platformAdminMfaRecoveryEmail.js';
 
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
@@ -253,17 +263,28 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true' && firebaseMfaIsRecent &&
       firebaseMfaAdminIdentity &&
       !(await hasValidPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, mfaCookie))) {
-    const session = await createPlatformAdminMfaSession(db, user.uid, mfaSessionVersion);
+    const firebaseSessionIsMigration = isSuperAdminIdentity(user);
+    const session = await createPlatformAdminMfaSession(
+      db, user.uid, mfaSessionVersion,
+      firebaseSessionIsMigration ? 'firebase-migration' : 'firebase',
+      firebaseSessionIsMigration ? 10 * 60 * 1000 : 90 * 24 * 60 * 60 * 1000
+    );
     mfaCookie = session.token;
-    res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=7776000`);
+    res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=' + (firebaseSessionIsMigration ? 600 : 7776000));
     await db.collection('admin_audit_logs').add({
-      action: 'platform_admin_mfa_verified_firebase', actorUid: user.uid,
+      action: firebaseSessionIsMigration ? 'platform_admin_mfa_firebase_migration_started' : 'platform_admin_mfa_verified_firebase', actorUid: user.uid,
       actorEmail: String(user.email || ''), factorId: firebaseSecondFactor,
       expiresAt: session.expiresAt, createdAt: Date.now()
     }).catch(() => undefined);
   }
 
-  const mfaActions = ['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify', 'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_recovery_regenerate', 'mfa_logout'];
+  const mfaActions = [
+    'mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify',
+    'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_recovery_regenerate',
+    'mfa_recovery_email_start', 'mfa_recovery_email_verify',
+    'mfa_passkey_register_options', 'mfa_passkey_register_verify',
+    'mfa_passkey_auth_options', 'mfa_passkey_auth_verify', 'mfa_logout'
+  ];
   if (mfaActions.includes(action)) {
     const delegatedIdentity = user.role === 'platform_admin' &&
       await getPlatformAdminRole(db, user, true) !== null;
@@ -275,7 +296,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const status = await getPlatformAdminMfaStatus(db, user.uid);
       const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
       const sessionValid = Boolean(sessionDetails);
-      return json(res, 200, { success: true, ...status, sessionValid, recoverySession: sessionDetails?.factorSource === 'recovery' });
+      return json(res, 200, {
+        success: true, ...status, sessionValid,
+        sessionFactorSource: sessionDetails?.factorSource || null,
+        sessionExpiresAt: sessionDetails?.expiresAt || null,
+        recoverySession: sessionDetails?.factorSource === 'recovery',
+        firebaseMfaMigrationEligible: isSuperAdminIdentity(user)
+      });
     }
     if (action === 'mfa_accept_firebase') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
@@ -284,10 +311,15 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (typeof secondFactor !== 'string' || !secondFactor || authTime < Math.floor(Date.now() / 1000) - 5 * 60) {
         return json(res, 401, { success: false, error: 'Une authentification Firebase avec second facteur récente est requise.' });
       }
-      const session = await createPlatformAdminMfaSession(db, user.uid, mfaSessionVersion);
-      res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=7776000`);
+      const firebaseSessionIsMigration = isSuperAdminIdentity(user);
+      const session = await createPlatformAdminMfaSession(
+        db, user.uid, mfaSessionVersion,
+        firebaseSessionIsMigration ? 'firebase-migration' : 'firebase',
+        firebaseSessionIsMigration ? 10 * 60 * 1000 : 90 * 24 * 60 * 60 * 1000
+      );
+      res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=' + (firebaseSessionIsMigration ? 600 : 7776000));
       await db.collection('admin_audit_logs').add({
-        action: 'platform_admin_mfa_verified_firebase', actorUid: user.uid,
+        action: firebaseSessionIsMigration ? 'platform_admin_mfa_firebase_migration_started' : 'platform_admin_mfa_verified_firebase', actorUid: user.uid,
         actorEmail: String(user.email || ''), factorId: secondFactor, expiresAt: session.expiresAt, createdAt: Date.now()
       }).catch(() => undefined);
       return json(res, 200, { success: true, sessionExpiresAt: session.expiresAt });
@@ -323,12 +355,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const recoverySession = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
       const recoveryCodes = await confirmPlatformAdminMfaEnrollment(db, user.uid, String(body.code || ''));
       if (!recoveryCodes) return json(res, 400, { success: false, error: 'Code invalide, déjà utilisé ou enrôlement expiré.' });
+      const session = await createPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, 'totp');
+      res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=7776000');
       await db.collection('admin_audit_logs').add({
         action: recoverySession?.factorSource === 'recovery' ? 'platform_admin_mfa_recovery_completed' : 'platform_admin_mfa_enrolled',
         factorSource: recoverySession?.factorSource === 'recovery' ? 'recovery' : 'totp',
         actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
       }).catch(() => undefined);
-      return json(res, 200, { success: true, enrolled: true, recoveryCodes, reauthenticationRequired: true });
+      return json(res, 200, {
+        success: true, enrolled: true, recoveryCodes, sessionExpiresAt: session.expiresAt,
+        firebaseMfaMigrationEligible: isSuperAdminIdentity(user)
+      });
     }
     if (action === 'mfa_recovery_regenerate') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
@@ -344,7 +381,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       try {
         const session = await verifyPlatformAdminMfaAndCreateSession(db, user.uid, String(body.code || ''), mfaSessionVersion);
         if (!session) return json(res, 401, { success: false, error: 'Code MFA invalide, déjà utilisé ou temporairement bloqué.' });
-        res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=7776000`);
+        res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=' + (session.recoveryUsed ? 600 : 7776000));
         await db.collection('admin_audit_logs').add({
           action: session.recoveryUsed ? 'platform_admin_mfa_recovery_code_used' : 'platform_admin_mfa_verified',
           factorSource: session.recoveryUsed ? 'recovery' : 'totp',
@@ -356,9 +393,107 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         return json(res, 503, { success: false, error: 'Service MFA temporairement indisponible.' });
       }
     }
+    if (action === 'mfa_recovery_email_start') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      if ((user as any).email_verified !== true || !String(user.email || '').trim()) {
+        return json(res, 403, { success: false, error: 'Une adresse e-mail vérifiée est nécessaire pour la récupération.' });
+      }
+      if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
+        return json(res, 401, { success: false, error: 'Reconnectez-vous avec votre mot de passe avant de demander une récupération MFA.' });
+      }
+      const status = await getPlatformAdminMfaStatus(db, user.uid);
+      if (!status.enrolled && Number(status.passkeyCount || 0) === 0) {
+        return json(res, 409, { success: false, error: 'Aucun facteur RestauMax à récupérer pour ce compte.' });
+      }
+      try {
+        await startPlatformAdminEmailRecovery(db, user.uid, String(user.email));
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_email_recovery_requested',
+          actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, { success: true, sent: true, expiresInSeconds: 600 });
+      } catch (error: any) {
+        const message = String(error?.message || '');
+        return json(res, message.includes('attendre') ? 429 : 503, {
+          success: false,
+          error: message || 'Impossible d’envoyer le code de récupération.'
+        });
+      }
+    }
+    if (action === 'mfa_recovery_email_verify') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
+        return json(res, 401, { success: false, error: 'Reconnectez-vous avec votre mot de passe avant de valider la récupération MFA.' });
+      }
+      const session = await verifyPlatformAdminEmailRecovery(db, user.uid, String(body.code || ''), mfaSessionVersion);
+      if (!session) return json(res, 401, { success: false, error: 'Code de récupération invalide, expiré ou déjà utilisé.' });
+      res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=600');
+      await db.collection('admin_audit_logs').add({
+        action: 'platform_admin_mfa_email_recovery_verified',
+        actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
+      }).catch(() => undefined);
+      return json(res, 200, { success: true, recoverySession: true, expiresAt: session.expiresAt });
+    }
+    if (action === 'mfa_passkey_register_options') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (!sessionDetails || !['totp', 'passkey'].includes(sessionDetails.factorSource)) {
+        return json(res, 403, { success: false, error: 'Une session MFA RestauMax récente est requise pour ajouter une passkey.' });
+      }
+      try {
+        const result = await beginPlatformAdminPasskeyRegistration(db, user.uid, String(user.email || user.uid), req);
+        return json(res, 200, { success: true, options: result.options });
+      } catch (error: any) {
+        return json(res, 400, { success: false, error: error?.message || 'Impossible de préparer la passkey.' });
+      }
+    }
+    if (action === 'mfa_passkey_register_verify') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (!sessionDetails || !['totp', 'passkey'].includes(sessionDetails.factorSource)) {
+        return json(res, 403, { success: false, error: 'Une session MFA RestauMax récente est requise pour ajouter une passkey.' });
+      }
+      try {
+        const registered = await finishPlatformAdminPasskeyRegistration(db, user.uid, body.response, req, String(body.name || 'Passkey'));
+        if (!registered) return json(res, 400, { success: false, error: 'Enregistrement de la passkey non validé.' });
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_passkey_registered',
+          actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, { success: true, passkeyRegistered: true });
+      } catch (error: any) {
+        return json(res, 400, { success: false, error: error?.message || 'Impossible d’enregistrer la passkey.' });
+      }
+    }
+    if (action === 'mfa_passkey_auth_options') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      try {
+        const result = await beginPlatformAdminPasskeyAuthentication(db, user.uid, req);
+        return json(res, 200, { success: true, options: result.options });
+      } catch (error: any) {
+        return json(res, 400, { success: false, error: error?.message || 'Aucune passkey disponible.' });
+      }
+    }
+    if (action === 'mfa_passkey_auth_verify') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      try {
+        const session = await finishPlatformAdminPasskeyAuthentication(db, user.uid, mfaSessionVersion, body.response, req);
+        if (!session) return json(res, 401, { success: false, error: 'La passkey n’a pas pu être vérifiée.' });
+        res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=7776000');
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_verified_passkey',
+          actorUid: user.uid, actorEmail: String(user.email || ''), expiresAt: session.expiresAt, createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, { success: true, expiresAt: session.expiresAt, factorSource: 'passkey' });
+      } catch (error: any) {
+        return json(res, 401, { success: false, error: error?.message || 'La passkey n’a pas pu être vérifiée.' });
+      }
+    }
     if (action === 'mfa_logout') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
       await revokePlatformAdminMfaSessions(db, user.uid);
+      await db.collection('platform_admin_mfa_webauthn_challenges').doc(user.uid).delete().catch(() => undefined);
+      await db.collection('platform_admin_mfa_email_recovery').doc(user.uid).delete().catch(() => undefined);
       res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=0');
       await db.collection('admin_audit_logs').add({
         action: 'platform_admin_mfa_logout', actorUid: user.uid,
@@ -373,7 +508,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     return json(res, 403, { success: false, error: 'Cette session de récupération est limitée au remplacement du facteur MFA. Terminez le nouvel enrôlement puis reconnectez-vous.' });
   }
   const mfaSessionValid = process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA !== 'true' ||
-    Boolean(activeMfaSessionDetails);
+    Boolean(activeMfaSessionDetails && (
+      ['totp', 'passkey'].includes(activeMfaSessionDetails.factorSource) ||
+      (activeMfaSessionDetails.factorSource === 'firebase' && !isSuperAdminIdentity(user))
+    ));
 
   // Restaurant-side support and announcement reads are tenant-scoped. They
   // intentionally run before the platform-admin membership exclusion below.
@@ -624,6 +762,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (delegatedSnap.exists) await delegatedRef.update({ sessionVersion: nextVersion, updatedAt: Date.now(), mfaResetAt: Date.now(), mfaResetBy: user.uid });
         await db.collection('platform_admin_mfa').doc(targetUid).delete().catch(() => undefined);
         await db.collection('platform_admin_mfa_attempts').doc(targetUid).delete().catch(() => undefined);
+        await db.collection('platform_admin_mfa_email_recovery').doc(targetUid).delete().catch(() => undefined);
+        await db.collection('platform_admin_mfa_webauthn_challenges').doc(targetUid).delete().catch(() => undefined);
         await revokePlatformAdminMfaSessions(db, targetUid);
         await db.collection('admin_audit_logs').add({
           action: 'platform_admin_mfa_reset', targetUid, targetEmail,

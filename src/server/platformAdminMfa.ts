@@ -116,7 +116,8 @@ export async function getPlatformAdminMfaStatus(db: any, uid: string) {
   return {
     enrolled: data.active === true,
     pending: Number(data.pendingExpiresAt || 0) > Date.now(),
-    recoveryCodesRemaining: Array.isArray(data.recoveryCodeHashes) ? data.recoveryCodeHashes.length : 0
+    recoveryCodesRemaining: Array.isArray(data.recoveryCodeHashes) ? data.recoveryCodeHashes.length : 0,
+    passkeyCount: Array.isArray(data.passkeys) ? data.passkeys.length : 0
   };
 }
 
@@ -165,12 +166,18 @@ export async function confirmPlatformAdminMfaEnrollment(db: any, uid: string, co
   return recoveryCodes;
 }
 
-export async function createPlatformAdminMfaSession(db: any, uid: string, sessionVersion: number) {
+export async function createPlatformAdminMfaSession(
+  db: any,
+  uid: string,
+  sessionVersion: number,
+  factorSource: 'totp' | 'passkey' | 'recovery' | 'firebase' | 'firebase-migration' = 'totp',
+  ttlMs = SESSION_TTL_MS
+) {
   const token = randomBytes(32).toString('base64url');
   const now = Date.now();
-  const expiresAt = now + SESSION_TTL_MS;
+  const expiresAt = now + ttlMs;
   await db.collection(SESSION_COLLECTION).doc(hashMfaToken(token)).create({
-    uid, sessionVersion, createdAt: now, expiresAt, revokedAt: null, factorSource: 'firebase'
+    uid, sessionVersion, createdAt: now, expiresAt, revokedAt: null, factorSource
   });
   return { token, expiresAt };
 }
@@ -208,12 +215,13 @@ export async function verifyPlatformAdminMfaAndCreateSession(db: any, uid: strin
       };
     }
     tx.update(ref, update);
-    tx.create(sessionRef, { uid, sessionVersion, createdAt: now, expiresAt: now + SESSION_TTL_MS, revokedAt: null, factorSource: recoveryUsed ? 'recovery' : 'totp' });
+    const expiresAt = now + (recoveryUsed ? 10 * 60 * 1000 : SESSION_TTL_MS);
+    tx.create(sessionRef, { uid, sessionVersion, createdAt: now, expiresAt, revokedAt: null, factorSource: recoveryUsed ? 'recovery' : 'totp' });
     return true;
   });
   if (!accepted) return null;
   await db.collection(ATTEMPT_COLLECTION).doc(uid).delete().catch(() => undefined);
-  return { token, expiresAt: now + SESSION_TTL_MS, recoveryUsed };
+  return { token, expiresAt: now + (recoveryUsed ? 10 * 60 * 1000 : SESSION_TTL_MS), recoveryUsed };
 }
 
 export async function regeneratePlatformAdminRecoveryCodes(db: any, uid: string, code: string, now = Date.now()): Promise<string[] | null> {

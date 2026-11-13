@@ -57,6 +57,9 @@ try {
     'recovery codes are stored as hashes and consumed once');
   assert(adminSource.includes("action === 'mfa_reset'") &&
     adminSource.includes("platform_admin_mfa_reset") &&
+    adminSource.includes("platform_admin_mfa_email_recovery") &&
+    adminSource.includes("platform_admin_mfa_webauthn_challenges") &&
+    adminSource.includes("action === 'mfa_logout'") &&
     adminSource.includes("platformRole !== 'full'"),
     'the audited MFA reset endpoint remains restricted to a fully authenticated Super-admin');
   assert(!adminWorkspace.includes("action: 'mfa_reset'") &&
@@ -85,12 +88,30 @@ try {
     'the authenticated admin UI exposes one-time recovery-code rotation');
   assert(adminView.includes('getIdTokenResult(true)') && adminView.includes('credential.user.getIdToken(true)') &&
     adminView.includes('continueAfterAuthentication(true)') &&
-    adminSource.includes('firebase.sign_in_second_factor') === false && adminSource.includes('firebaseMfaIsRecent'),
-    'Firebase MFA login force-refreshes the verified second-factor claim and establishes one platform session');
+    adminSource.includes('firebaseMfaIsRecent') &&
+    adminSource.includes("firebaseSessionIsMigration ? 'firebase-migration' : 'firebase'") &&
+    adminSource.includes("firebaseSessionIsMigration ? 10 * 60 * 1000"),
+    'legacy Firebase MFA is only a short-lived migration bridge, not a trusted RestauMax session');
+  assert(adminSource.includes("['totp', 'passkey'].includes(activeMfaSessionDetails.factorSource)") &&
+    adminSource.includes("(activeMfaSessionDetails.factorSource === 'firebase' && !isSuperAdminIdentity(user))"),
+    'only RestauMax factors unlock Super-admin APIs while delegated admins retain their Firebase MFA policy');
+  assert(adminSource.includes("action === 'mfa_recovery_email_start'") &&
+    adminSource.includes("action === 'mfa_recovery_email_verify'") &&
+    adminSource.includes('startPlatformAdminEmailRecovery') &&
+    adminSource.includes('verifyPlatformAdminEmailRecovery') &&
+    adminSource.includes('user.auth_time || 0'),
+    'verified-email recovery is wired through the authenticated platform API and requires recent primary authentication');
+  assert(adminSource.includes("action === 'mfa_passkey_register_options'") &&
+    adminSource.includes("action === 'mfa_passkey_auth_verify'") &&
+    adminView.includes('startAuthentication') && adminView.includes('startRegistration') &&
+    adminView.includes('status.firebaseMfaMigrationEligible === true'),
+    'passkey enrollment and second-factor authentication are wired end to end');
+  assert(adminView.includes('multiFactor(currentUser).unenroll(factor)'),
+    'Firebase-native factors are progressively removed only after RestauMax MFA succeeds');
   assert(!adminView.includes('Demo-RestauMax-2026!') && !adminView.includes('isPublicDemoAccess'),
     'public Preview never embeds or pre-fills a super-admin password');
 
-  console.log('Super-admin MFA gate and API security tests passed (15 assertions).');
+  console.log('Super-admin MFA gate, migration boundary and API security tests passed.');
 } finally {
   if (previousMfa === undefined) delete process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA;
   else process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA = previousMfa;

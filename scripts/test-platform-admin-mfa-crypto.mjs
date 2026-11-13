@@ -51,7 +51,13 @@ try {
     'trusted platform MFA sessions are configured for exactly 90 days');
   const trustedSession = await createPlatformAdminMfaSession(db, 'trusted-session-admin', 1);
   assert(trustedSession.expiresAt - Date.now() > 89 * 24 * 60 * 60 * 1000,
-    'Firebase-verified trusted session persists for approximately 90 days');
+    'a TOTP-backed trusted session persists for approximately 90 days');
+  const migrationSession = await createPlatformAdminMfaSession(db, 'firebase-migration-admin', 1, 'firebase-migration', 10 * 60 * 1000);
+  assert(migrationSession.expiresAt - Date.now() <= 10 * 60 * 1000,
+    'a legacy Firebase factor is only a short-lived migration proof');
+  const migrationDetails = await getPlatformAdminMfaSessionDetails(db, 'firebase-migration-admin', 1, migrationSession.token);
+  assert.equal(migrationDetails?.factorSource, 'firebase-migration',
+    'Firebase migration proof is never confused with a trusted RestauMax MFA session');
   const uid = 'recovery-test-admin';
   const enrollment = await beginPlatformAdminMfaEnrollment(db, uid, 'admin@example.test');
   const enrollmentTime = Date.now();
@@ -60,6 +66,9 @@ try {
   assert.equal(firstRecoverySet?.length, 10, 'initial enrollment generates ten one-time recovery codes');
   const recoverySession = await verifyPlatformAdminMfaAndCreateSession(db, uid, firstRecoverySet[0], 1);
   assert.equal(recoverySession?.recoveryUsed, true, 'a recovery code is consumed to create a recovery-only session');
+  assert(recoverySession.expiresAt - Date.now() <= 10 * 60 * 1000 &&
+    recoverySession.expiresAt - Date.now() > 9 * 60 * 1000,
+    'a recovery-code session is restricted to a ten-minute factor-replacement window');
   const sessionDetails = await getPlatformAdminMfaSessionDetails(db, uid, 1, recoverySession.token);
   assert.equal(sessionDetails?.factorSource, 'recovery', 'recovery session is explicitly distinguished from TOTP sessions');
   assert.equal(await verifyPlatformAdminMfaAndCreateSession(db, uid, firstRecoverySet[0], 1), null,
