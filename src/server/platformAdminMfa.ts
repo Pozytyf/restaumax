@@ -119,14 +119,14 @@ export async function getPlatformAdminMfaStatus(db: any, uid: string) {
   };
 }
 
-export async function beginPlatformAdminMfaEnrollment(db: any, uid: string, email: string) {
+export async function beginPlatformAdminMfaEnrollment(db: any, uid: string, email: string, allowReplace = false) {
   const secret = generateTotpSecret();
   const now = Date.now();
   const ref = db.collection(MFA_COLLECTION).doc(uid);
   await db.runTransaction(async (tx: any) => {
     const snap = await tx.get(ref);
     const current = snap.exists ? snap.data() || {} : {};
-    if (current.active === true) throw new Error('Un facteur MFA est déjà enrôlé pour ce compte.');
+    if (current.active === true && !allowReplace) throw new Error('Un facteur MFA est déjà enrôlé pour ce compte.');
     tx.set(ref, {
       active: false,
       pendingSecret: encryptTotpSecret(secret),
@@ -182,7 +182,9 @@ export async function verifyPlatformAdminMfaAndCreateSession(db: any, uid: strin
   const tokenHash = hashMfaToken(token);
   const sessionRef = db.collection(SESSION_COLLECTION).doc(tokenHash);
   const now = Date.now();
+  let recoveryUsed = false;
   const accepted = await db.runTransaction(async (tx: any) => {
+    recoveryUsed = false;
     const snap = await tx.get(ref);
     const record = snap.exists ? snap.data() || {} : {};
     if (record.active !== true || !record.secret) return false;
@@ -198,6 +200,7 @@ export async function verifyPlatformAdminMfaAndCreateSession(db: any, uid: strin
       const hashes = Array.isArray(record.recoveryCodeHashes) ? record.recoveryCodeHashes : [];
       const index = hashes.indexOf(recoveryHash);
       if (index < 0) return false;
+      recoveryUsed = true;
       update = {
         recoveryCodeHashes: hashes.filter((_: string, i: number) => i !== index),
         lastRecoveryAt: now,
@@ -205,12 +208,21 @@ export async function verifyPlatformAdminMfaAndCreateSession(db: any, uid: strin
       };
     }
     tx.update(ref, update);
-    tx.create(sessionRef, { uid, sessionVersion, createdAt: now, expiresAt: now + SESSION_TTL_MS, revokedAt: null });
+    tx.create(sessionRef, { uid, sessionVersion, createdAt: now, expiresAt: now + SESSION_TTL_MS, revokedAt: null, factorSource: recoveryUsed ? 'recovery' : 'totp' });
     return true;
   });
   if (!accepted) return null;
   await db.collection(ATTEMPT_COLLECTION).doc(uid).delete().catch(() => undefined);
-  return { token, expiresAt: now + SESSION_TTL_MS };
+  return { token, expiresAt: now + SESSION_TTL_MS, recoveryUsed };
+}
+
+export async function getPlatformAdminMfaSessionDetails(db: any, uid: string, sessionVersion: number, token: string) {
+  if (!token || token.length > 128) return null;
+  const snap = await db.collection(SESSION_COLLECTION).doc(hashMfaToken(token)).get();
+  if (!snap.exists) return null;
+  const session = snap.data() || {};
+  if (session.uid !== uid || session.revokedAt != null || Number(session.sessionVersion) !== Number(sessionVersion) || Number(session.expiresAt || 0) <= Date.now()) return null;
+  return { factorSource: String(session.factorSource || 'totp'), expiresAt: Number(session.expiresAt || 0) };
 }
 
 export async function hasValidPlatformAdminMfaSession(db: any, uid: string, sessionVersion: number, token: string): Promise<boolean> {
