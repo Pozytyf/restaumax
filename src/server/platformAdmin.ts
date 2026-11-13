@@ -126,7 +126,8 @@ function isSuperAdminIdentity(user: DecodedIdToken): boolean {
   const verifiedAllowlistedEmail = user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase());
-  return hasTrustedSuperAdminClaim || verifiedAllowlistedEmail;
+  if (!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail) return false;
+  return true;
 }
 
 export function isSuperAdmin(user: DecodedIdToken) {
