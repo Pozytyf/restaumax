@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { getMultiFactorResolver, multiFactor, onAuthStateChanged, PhoneAuthProvider, PhoneMultiFactorGenerator, RecaptchaVerifier, signInWithEmailAndPassword, signOut, TotpMultiFactorGenerator, type MultiFactorResolver, type User } from 'firebase/auth';
+import { getMultiFactorResolver, onAuthStateChanged, PhoneAuthProvider, PhoneMultiFactorGenerator, RecaptchaVerifier, signInWithEmailAndPassword, signOut, TotpMultiFactorGenerator, type MultiFactorResolver, type User } from 'firebase/auth';
+import QRCode from 'qrcode';
 import { auth } from '../../lib/firebase';
 import { ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { PlatformAdminWorkspace } from './PlatformAdminWorkspace';
@@ -44,6 +45,9 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   const [totpEnrollmentCode, setTotpEnrollmentCode] = useState('');
   const [totpEnrollmentBusy, setTotpEnrollmentBusy] = useState(false);
   const [currentAccountMfaEnrolled, setCurrentAccountMfaEnrolled] = useState(false);
+  const [customMfaRequired, setCustomMfaRequired] = useState(false);
+  const [customMfaCode, setCustomMfaCode] = useState('');
+  const [customMfaQrCode, setCustomMfaQrCode] = useState('');
   const mfaRecaptchaVerifier = useRef<RecaptchaVerifier | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -59,7 +63,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     if (!response.ok || !data.success) {
       // /admin is a separate security boundary: a restaurant session must not
       // remain authenticated after the platform API rejects it.
-      if (response.status === 401 || response.status === 403) {
+      if ((response.status === 401 || response.status === 403) && body?.action !== 'mfa_verify') {
         setIsPlatformAdminAuthorized(false);
         setRestaurants([]);
         setSummary(null);
@@ -70,7 +74,9 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     }
     // The first allowlisted request may have just received the super-admin custom claim.
     await auth.currentUser?.getIdToken(true);
-    setIsPlatformAdminAuthorized(true);
+    if (!['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm'].includes(String(body?.action || ''))) {
+      setIsPlatformAdminAuthorized(true);
+    }
     return data;
   }, []);
 
@@ -85,6 +91,23 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       setError(e.message || 'Accès super-administrateur refusé.');
     }
     finally { setLoading(false); }
+  }, [request]);
+
+  const continueAfterAuthentication = useCallback(async () => {
+    const status = await request({ action: 'mfa_status' });
+    setCurrentAccountMfaEnrolled(status.enrolled === true);
+    setNeedsPlatformAdminLogin(false);
+    if (status.enrolled === true) {
+      setCustomMfaRequired(true);
+      setCustomMfaCode('');
+      setIsPlatformAdminAuthorized(false);
+      return;
+    }
+    const setup = await request({ action: 'mfa_enroll_start' });
+    setTotpSecret({ secretKey: setup.secret, otpauthUri: setup.otpauthUri });
+    setCustomMfaSetup(true);
+    setCustomMfaRequired(false);
+    setIsPlatformAdminAuthorized(false);
   }, [request]);
 
   useEffect(() => {
@@ -113,10 +136,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
           return;
         }
         setNeedsPlatformAdminLogin(false);
-        const data = await request();
+        await continueAfterAuthentication();
         if (!active) return;
-        setRestaurants(data.restaurants || []);
-        setSummary(data.summary || null);
       }).catch((e: any) => {
         if (!active) return;
         // Transient server/network errors keep the session pending and retryable;
@@ -130,7 +151,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       active = false;
       unsubscribe();
     };
-  }, [request]);
+  }, [request, continueAfterAuthentication]);
 
   const login = async (event: React.FormEvent) => {
     event.preventDefault(); setError(''); setLoading(true);
@@ -138,10 +159,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
       setPassword('');
-      const data = await request();
-      setRestaurants(data.restaurants || []);
-      setSummary(data.summary || null);
-      setNeedsPlatformAdminLogin(false);
+      await continueAfterAuthentication();
     } catch (authError: any) {
       const code = authError?.code;
       console.error('[RestauMax SuperAdmin Auth] Échec de connexion:', code || 'unknown');
@@ -231,10 +249,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       setMfaVerificationId('');
       setMfaCode('');
       setPassword('');
-      const data = await request();
-      setRestaurants(data.restaurants || []);
-      setSummary(data.summary || null);
-      setNeedsPlatformAdminLogin(false);
+      await continueAfterAuthentication();
     } catch (mfaError: any) {
       setError(mfaError?.message || 'Le code de vérification MFA est invalide ou expiré.');
     } finally {
@@ -244,24 +259,27 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
   };
 
   useEffect(() => {
-    if (!user || !isPlatformAdminAuthorized) {
-      setCurrentAccountMfaEnrolled(false);
+    if (!totpSecret?.otpauthUri) {
+      setCustomMfaQrCode('');
       return;
     }
-    setCurrentAccountMfaEnrolled(multiFactor(user).enrolledFactors.length > 0);
-  }, [user, isPlatformAdminAuthorized]);
+    let active = true;
+    void QRCode.toDataURL(totpSecret.otpauthUri, { errorCorrectionLevel: 'M', margin: 2, width: 220 })
+      .then((url) => { if (active) setCustomMfaQrCode(url); })
+      .catch(() => { if (active) setCustomMfaQrCode(''); });
+    return () => { active = false; };
+  }, [totpSecret]);
 
   const beginTotpEnrollment = async () => {
     if (!user || !isPlatformAdminAuthorized) return;
     setError('');
     setTotpEnrollmentBusy(true);
     try {
-      const session = await multiFactor(user).getSession();
-      const secret = await TotpMultiFactorGenerator.generateSecret(session);
-      setTotpSecret(secret);
+      const setup = await request({ action: 'mfa_enroll_start' });
+      setTotpSecret({ secretKey: setup.secret, otpauthUri: setup.otpauthUri });
       setTotpEnrollmentCode('');
     } catch (enrollmentError: any) {
-      setError(enrollmentError?.message || 'Impossible de préparer l’enrôlement MFA. Vérifiez que TOTP est activé dans Firebase Authentication.');
+      setError(enrollmentError?.message || 'Impossible de préparer l’enrôlement MFA.');
     } finally {
       setTotpEnrollmentBusy(false);
     }
@@ -269,21 +287,43 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
 
   const confirmTotpEnrollment = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!user || !isPlatformAdminAuthorized || !totpSecret) return;
+    if (!user || !totpSecret) return;
     setError('');
     setTotpEnrollmentBusy(true);
     try {
-      const assertion = TotpMultiFactorGenerator.assertionForEnrollment(totpSecret, totpEnrollmentCode.trim());
-      await multiFactor(user).enroll(assertion, 'RestauMax · Authentificateur');
-      await user.getIdToken(true);
-      setCurrentAccountMfaEnrolled(multiFactor(user).enrolledFactors.length > 0);
+      await request({ action: 'mfa_enroll_confirm', code: totpEnrollmentCode.trim() });
+      setCurrentAccountMfaEnrolled(true);
       setTotpSecret(null);
       setTotpEnrollmentCode('');
-      await refresh();
+      setCustomMfaSetup(false);
+      setCustomMfaRequired(false);
+      await request({ action: 'mfa_logout' }).catch(() => undefined);
+      await signOut(auth);
+      setUser(null);
+      setError('MFA activé. Reconnectez-vous avec votre mot de passe, puis saisissez le code de votre application.');
     } catch (enrollmentError: any) {
       setError(enrollmentError?.message || 'Code invalide ou enrôlement MFA impossible. Réessayez avec le code courant.');
     } finally {
       setTotpEnrollmentBusy(false);
+    }
+  };
+
+  const verifyCustomMfa = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await request({ action: 'mfa_verify', code: customMfaCode.trim() });
+      setCustomMfaRequired(false);
+      setCustomMfaCode('');
+      const data = await request();
+      setRestaurants(data.restaurants || []);
+      setSummary(data.summary || null);
+      setNeedsPlatformAdminLogin(false);
+    } catch (verificationError: any) {
+      setError(verificationError?.message || 'Code MFA invalide ou expiré.');
+    } finally {
+      setLoading(false);
     }
   };
 
