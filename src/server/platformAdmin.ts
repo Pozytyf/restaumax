@@ -320,11 +320,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }
     if (action === 'mfa_enroll_confirm') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const recoverySession = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
       const recoveryCodes = await confirmPlatformAdminMfaEnrollment(db, user.uid, String(body.code || ''));
       if (!recoveryCodes) return json(res, 400, { success: false, error: 'Code invalide, déjà utilisé ou enrôlement expiré.' });
       await db.collection('admin_audit_logs').add({
-        action: 'platform_admin_mfa_enrolled', actorUid: user.uid,
-        actorEmail: String(user.email || ''), createdAt: Date.now()
+        action: recoverySession?.factorSource === 'recovery' ? 'platform_admin_mfa_recovery_completed' : 'platform_admin_mfa_enrolled',
+        factorSource: recoverySession?.factorSource === 'recovery' ? 'recovery' : 'totp',
+        actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
       }).catch(() => undefined);
       return json(res, 200, { success: true, enrolled: true, recoveryCodes, reauthenticationRequired: true });
     }
@@ -335,8 +337,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!session) return json(res, 401, { success: false, error: 'Code MFA invalide, déjà utilisé ou temporairement bloqué.' });
         res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=14400`);
         await db.collection('admin_audit_logs').add({
-          action: 'platform_admin_mfa_verified', actorUid: user.uid,
-          actorEmail: String(user.email || ''), expiresAt: session.expiresAt, createdAt: Date.now()
+          action: session.recoveryUsed ? 'platform_admin_mfa_recovery_code_used' : 'platform_admin_mfa_verified',
+          factorSource: session.recoveryUsed ? 'recovery' : 'totp',
+          actorUid: user.uid, actorEmail: String(user.email || ''),
+          expiresAt: session.expiresAt, createdAt: Date.now()
         }).catch(() => undefined);
         return json(res, 200, { success: true, expiresAt: session.expiresAt });
       } catch {
