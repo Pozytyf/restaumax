@@ -59,6 +59,8 @@ try {
     'removing billing.manage blocks subscription mutations server-side');
   assert.equal(canPlatformAdminPerform('read_only', 'support_access_list', ['platform.overview', 'support.read']), false,
     'read-only support cannot inspect the support access-request queue');
+  assert.equal(canPlatformAdminPerform('billing', 'platform_admin_create', ['platform.overview', 'accounts.manage']), false,
+    'a forged permission claim cannot exceed the role ceiling even when it contains an admin-management permission');
   assert.equal(canPlatformAdminPerform('full', 'platform_admin_create'), true,
     'full Super-admin retains the ability to invite another Super-admin');
 
