@@ -55,8 +55,10 @@ try {
   assert(adminView.includes('mfa_enroll_start') && adminView.includes('QRCode.toDataURL') &&
     adminView.includes('mfa_verify'),
     'admin UI supports server-backed QR enrollment and MFA login verification');
+  assert(!adminView.includes('Demo-RestauMax-2026!') && !adminView.includes('isPublicDemoAccess'),
+    'public Preview never embeds or pre-fills a super-admin password');
 
-  console.log('Super-admin MFA gate and API security tests passed (14 assertions).');
+  console.log('Super-admin MFA gate and API security tests passed (15 assertions).');
 } finally {
   if (previousMfa === undefined) delete process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA;
   else process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA = previousMfa;
