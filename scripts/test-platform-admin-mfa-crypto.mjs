@@ -49,8 +49,9 @@ try {
   const db = new MemoryDb();
   const uid = 'recovery-test-admin';
   const enrollment = await beginPlatformAdminMfaEnrollment(db, uid, 'admin@example.test');
-  const enrollmentCode = totpAt(enrollment.secret).code;
-  const firstRecoverySet = await confirmPlatformAdminMfaEnrollment(db, uid, enrollmentCode);
+  const enrollmentTime = Date.now();
+  const enrollmentCode = totpAt(enrollment.secret, enrollmentTime).code;
+  const firstRecoverySet = await confirmPlatformAdminMfaEnrollment(db, uid, enrollmentCode, enrollmentTime);
   assert.equal(firstRecoverySet?.length, 10, 'initial enrollment generates ten one-time recovery codes');
   const recoverySession = await verifyPlatformAdminMfaAndCreateSession(db, uid, firstRecoverySet[0], 1);
   assert.equal(recoverySession?.recoveryUsed, true, 'a recovery code is consumed to create a recovery-only session');
@@ -59,7 +60,8 @@ try {
   assert.equal(await verifyPlatformAdminMfaAndCreateSession(db, uid, firstRecoverySet[0], 1), null,
     'a consumed recovery code cannot be replayed');
   const replacement = await beginPlatformAdminMfaEnrollment(db, uid, 'admin@example.test', true);
-  const replacementCodes = await confirmPlatformAdminMfaEnrollment(db, uid, totpAt(replacement.secret).code);
+  const replacementTime = Date.now();
+  const replacementCodes = await confirmPlatformAdminMfaEnrollment(db, uid, totpAt(replacement.secret, replacementTime).code, replacementTime);
   assert.equal(replacementCodes?.length, 10, 'lost-factor replacement rotates all recovery codes');
   const replacedRecord = await db.collection('platform_admin_mfa').doc(uid).get();
   assert.equal(decryptTotpSecret(replacedRecord.data().secret), replacement.secret,
