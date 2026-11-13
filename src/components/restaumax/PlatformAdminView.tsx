@@ -62,7 +62,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     if (!response.ok || !data.success) {
       // /admin is a separate security boundary: a restaurant session must not
       // remain authenticated after the platform API rejects it.
-      if ((response.status === 401 || response.status === 403) && !['mfa_verify', 'mfa_status', 'mfa_accept_firebase'].includes(String(body?.action || ''))) {
+      if ((response.status === 401 || response.status === 403) && !['mfa_verify', 'mfa_status', 'mfa_accept_firebase', 'mfa_recovery_enroll_start'].includes(String(body?.action || ''))) {
         setIsPlatformAdminAuthorized(false);
         setRestaurants([]);
         setSummary(null);
@@ -73,7 +73,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     }
     // The first allowlisted request may have just received the super-admin custom claim.
     await auth.currentUser?.getIdToken(true);
-    if (!['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_accept_firebase', 'mfa_logout'].includes(String(body?.action || ''))) {
+    if (!['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_logout'].includes(String(body?.action || ''))) {
       setIsPlatformAdminAuthorized(true);
     }
     return data;
@@ -96,6 +96,14 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     const status = await request({ action: 'mfa_status' });
     setNeedsPlatformAdminLogin(false);
     if (status.sessionValid === true) {
+      if (status.recoverySession === true) {
+        const setup = await request({ action: 'mfa_recovery_enroll_start' });
+        setTotpSecret({ secretKey: setup.secret, otpauthUri: setup.otpauthUri, recoveryEnrollment: true });
+        setCustomMfaSetup(true);
+        setCustomMfaRequired(false);
+        setIsPlatformAdminAuthorized(false);
+        return;
+      }
       setCustomMfaRequired(false); setCustomMfaSetup(false); setTotpSecret(null);
       const data = await request();
       setRestaurants(data.restaurants || []); setSummary(data.summary || null);
@@ -397,7 +405,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
           <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-3 font-mono text-sm">{recoveryCodes.map((code) => <code key={code}>{code}</code>)}</div>
           <button type="button" onClick={() => void finishMfaEnrollment()} className="min-h-11 w-full rounded-lg bg-[#101d2d] p-3 font-bold text-white">J’ai enregistré mes codes de secours — me déconnecter</button>
         </div> : customMfaSetup && totpSecret ? <form onSubmit={confirmTotpEnrollment} className="space-y-3">
-          <p className="text-sm text-slate-600">Scannez ce QR code avec Google Authenticator, Microsoft Authenticator ou une application compatible TOTP. Vous pouvez aussi saisir la clé manuellement.</p>
+          <p className="text-sm text-slate-600">{totpSecret.recoveryEnrollment ? 'Votre code de secours a confirmé votre identité. Configurez maintenant un nouvel authentificateur : l’ancien facteur perdu sera remplacé après validation.' : 'Scannez ce QR code avec Google Authenticator, Microsoft Authenticator ou une application compatible TOTP. Vous pouvez aussi saisir la clé manuellement.'} Vous pouvez aussi saisir la clé manuellement.</p>
           {customMfaQrCode && <img src={customMfaQrCode} alt="QR code de configuration MFA RestauMax" className="mx-auto h-56 w-56 rounded-lg border p-2"/>}
           <code className="block break-all rounded-lg bg-slate-100 p-3 text-xs font-bold">{totpSecret.secretKey}</code>
           <label className="block text-sm font-semibold text-slate-700">Code à 6 chiffres<input required inputMode="numeric" pattern="[0-9]{6}" autoComplete="one-time-code" value={totpEnrollmentCode} onChange={e=>setTotpEnrollmentCode(e.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 tracking-widest"/></label>
