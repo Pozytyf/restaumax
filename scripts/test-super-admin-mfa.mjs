@@ -49,9 +49,13 @@ try {
     'TOTP time steps are consumed transactionally to prevent replay');
   assert(mfaSource.includes('recoveryCodeHashes') && mfaSource.includes('hashMfaToken'),
     'recovery codes are stored as hashes and consumed once');
-  assert(adminSource.includes("action === 'mfa_reset'") && adminSource.includes('platform_admin_mfa_reset') &&
-    adminWorkspace.includes("action: 'mfa_reset'"),
-    'only the full Super-admin account workspace exposes the audited MFA reset procedure');
+  assert(adminSource.includes("action === 'mfa_reset'") &&
+    adminSource.includes("platform_admin_mfa_reset") &&
+    adminSource.includes("platformRole !== 'full'"),
+    'the audited MFA reset endpoint remains restricted to a fully authenticated Super-admin');
+  assert(!adminWorkspace.includes("action: 'mfa_reset'") &&
+    !adminWorkspace.includes('Réinitialiser MFA'),
+    'the account workspace does not expose MFA controls in its menu or account actions');
   assert(adminView.includes('mfa_enroll_start') && adminView.includes('QRCode.toDataURL') &&
     adminView.includes('mfa_verify'),
     'admin UI supports server-backed QR enrollment and MFA login verification');
