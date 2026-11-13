@@ -133,9 +133,15 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
           });
           return 'suspended';
         }
-        const baseAmount = Number(sub.priceFcfa);
-        if (!Number.isSafeInteger(baseAmount) || baseAmount < 0 || baseAmount > 1000000000) return 'skip';
         const cycle = String(sub.billingCycle || '');
+        const configuredPlans = Array.isArray(configSnap.data()?.plans) ? configSnap.data().plans : [];
+        const configuredPlan = configuredPlans.find((plan: any) => String(plan?.name || '') === String(sub.planName || ''));
+        const monthlyPlanPrice = Number(configuredPlan?.priceMonthlyFcfa || 0);
+        const cycleMultiplier = cycle === 'quarterly' ? 3 : cycle === 'yearly' ? 12 : 1;
+        const configuredCyclePrice = monthlyPlanPrice > 0 && cycle !== 'custom'
+          ? monthlyPlanPrice * cycleMultiplier : Number(sub.priceFcfa);
+        const baseAmount = Number(configuredCyclePrice);
+        if (!Number.isSafeInteger(baseAmount) || baseAmount < 0 || baseAmount > 1000000000) return 'skip';
         let discountPercent = cycle === 'quarterly' ? quarterlyDiscountPercent : 0;
         let discountAmount = Math.round(baseAmount * discountPercent / 100);
         let discountSource = discountAmount > 0 ? 'quarterly' : 'none';
