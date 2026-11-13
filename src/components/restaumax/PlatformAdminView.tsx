@@ -496,7 +496,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     try {
       await request({ action: 'mfa_recovery_email_start' });
       setEmailRecoveryRequested(true);
-      setMfaNotice('Un code à 8 chiffres vient d’être envoyé à votre adresse e-mail vérifiée. Il expire dans 10 minutes.');
+      setMfaNotice('Un code à 8 chiffres vient d’être envoyé à votre adresse de récupération vérifiée. Il expire dans 10 minutes.');
     } catch (recoveryError: any) {
       setError(recoveryError?.message || 'Impossible d’envoyer le code de récupération.');
     } finally {
@@ -595,7 +595,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
           </form>
           {passkeyCount > 0 && <button type="button" disabled={passkeyBusy} onClick={() => void authenticateWithPasskey()} className="min-h-11 w-full rounded-lg border border-[#101d2d] p-3 font-bold text-[#101d2d] disabled:opacity-50">{passkeyBusy ? 'Vérification…' : 'Continuer avec une passkey'}</button>}
           {!emailRecoveryRequested ? <button type="button" disabled={emailRecoveryBusy} onClick={() => void startEmailRecovery()} className="min-h-11 w-full rounded-lg border border-slate-300 p-3 text-sm font-semibold disabled:opacity-50">{emailRecoveryBusy ? 'Envoi…' : 'J’ai perdu mon facteur — récupérer par e-mail'}</button> : <form onSubmit={completeEmailRecovery} className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <p className="text-sm text-amber-950">Saisissez le code à 8 chiffres envoyé à votre adresse vérifiée. La récupération révoquera les passkeys existantes et imposera un nouvel enrôlement TOTP.</p>
+            <p className="text-sm text-amber-950">Saisissez le code à 8 chiffres envoyé à votre adresse de récupération vérifiée. La récupération révoquera les passkeys existantes et imposera un nouvel enrôlement TOTP.</p>
             <input required inputMode="numeric" pattern="[0-9]{8}" maxLength={8} autoComplete="one-time-code" value={emailRecoveryCode} onChange={e=>setEmailRecoveryCode(e.target.value)} className="min-h-11 w-full rounded-lg border border-amber-300 bg-white px-3 tracking-widest"/>
             <button disabled={emailRecoveryBusy} className="min-h-11 w-full rounded-lg bg-amber-800 p-3 font-bold text-white disabled:opacity-50">{emailRecoveryBusy ? 'Vérification…' : 'Valider le code e-mail'}</button>
           </form>}
