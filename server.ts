@@ -931,8 +931,8 @@ export function getServerHealth() {
 }
 
 const DEFAULT_PLAN_FEATURES: Record<string, Record<string, boolean>> = {
-  Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false },
-  Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true }
+  Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false, dishImages: false },
+  Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true }
 };
 
 async function isPlatformFeatureEnabled(db: any, restaurantSlug: string, feature: string): Promise<boolean> {
@@ -1840,6 +1840,12 @@ export async function handlePublicMenuRequest(req: any): Promise<{ statusCode: n
 }
 
 export async function handleRestaurantImageRequest(payload: unknown, req?: any) {
+  const imageInput = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+  const imageRestaurantSlug = String(imageInput.restaurantSlug || '').trim();
+  if (String(req?.method || '').toUpperCase() === 'POST' && imageRestaurantSlug &&
+      !(await isPlatformFeatureEnabled(adminDb, imageRestaurantSlug, 'dishImages'))) {
+    return { statusCode: 403, body: { success: false, error: 'Les photos de plats ne sont pas incluses dans la formule de ce restaurant.' } };
+  }
   if (process.env.RESTAUMAX_STORAGE_IMAGES_ENABLED !== 'true') {
     return { statusCode: 503, body: { success: false, error: 'Les photos seront activées après publication des règles Firebase Storage.' } };
   }
