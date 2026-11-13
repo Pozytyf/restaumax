@@ -15,16 +15,16 @@ try {
   process.env.RESTAUMAX_SUPER_ADMIN_EMAILS = 'root@example.test';
 
   const trustedClaim = { uid: 'root-uid', role: 'super_admin' };
-  assert.equal(isSuperAdmin(trustedClaim), false,
-    'the legacy Firebase-factor predicate is not used as the custom MFA session proof');
+  assert.equal(isSuperAdmin(trustedClaim), true,
+    'super-admin identity recognition is independent from the separately enforced server MFA session');
   assert.equal(await getPlatformAdminRole({}, trustedClaim), null,
     'a super-admin without a server-validated MFA session is rejected');
   assert.equal(await getPlatformAdminRole({}, trustedClaim, true), 'full',
     'a super-admin with a server-validated MFA session is accepted');
 
   const allowlisted = { uid: 'allowlisted', email: 'root@example.test', email_verified: true };
-  assert.equal(isSuperAdmin(allowlisted), false,
-    'the legacy Firebase-factor predicate rejects an allowlisted identity without a Firebase second factor');
+  assert.equal(isSuperAdmin(allowlisted), true,
+    'verified allowlisted identity is recognized while protected API actions still require a server MFA session');
   assert.equal(await getPlatformAdminRole({}, allowlisted), null,
     'an allowlisted identity without a server-side MFA session is rejected');
   assert.equal(await getPlatformAdminRole({}, allowlisted, true), 'full',
@@ -41,6 +41,8 @@ try {
     'the compatibility mode remains unchanged when enforcement is disabled');
 
   assert(adminSource.includes('hasValidPlatformAdminMfaSession') &&
+    adminSource.includes('sessionValid') && adminSource.includes("action === 'mfa_accept_firebase'") &&
+    adminSource.includes('createPlatformAdminMfaSession') &&
     adminSource.includes('getPlatformAdminRole(db, user, mfaSessionValid)'),
     'platform admin API reads and enforces the server-side MFA session on protected actions');
   assert(adminSource.includes('HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin'),

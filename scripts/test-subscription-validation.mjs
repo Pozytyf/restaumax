@@ -42,6 +42,7 @@ assert(validateSubscriptionInput({ ...valid, startsAt: 0 }).success === false, '
 assert(validateSubscriptionInput({ ...valid, endsAt: valid.startsAt }).success === false, 'Une fin antérieure ou égale au début est refusée');
 assert(validateSubscriptionInput({ ...valid, gracePeriodDays: 61 }).success === false, 'Un délai de grâce supérieur à 60 jours est refusé');
 assert(validateSubscriptionInput({ ...valid, nextBillingAt: -1 }).success === false, 'Une prochaine échéance invalide est refusée');
+assert(validateSubscriptionInput({ ...valid, nextBillingAt: valid.endsAt + 86400000 }).success === false, 'La prochaine échéance doit correspondre exactement à la fin de période contractuelle');
 assert(validateSubscriptionInput({ ...valid, billingCycle: 'custom' }).success === false, 'Un cycle personnalisé ne peut pas activer le renouvellement automatique');
 assert(validateSubscriptionInput({ ...valid, billingCycle: 'custom', autoRenew: false }).success === true, 'Un cycle personnalisé sans renouvellement automatique est accepté');
 const vercelConfig = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
