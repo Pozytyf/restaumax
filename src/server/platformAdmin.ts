@@ -593,13 +593,16 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           const raw = doc.data() || {};
           let authUser: any = null;
           try { authUser = await getAuth().getUser(doc.id); } catch { /* report a disabled/unavailable identity */ }
+          const mfaSnap = await db.collection('platform_admin_mfa').doc(doc.id).get();
+          const mfaRecord = mfaSnap.exists ? mfaSnap.data() || {} : {};
           return {
             uid: doc.id, email: String(raw.email || authUser?.email || ''),
             displayName: String(raw.displayName || authUser?.displayName || ''),
             role: String(raw.role || 'read_only'), active: raw.active === true,
             createdAt: Number(raw.createdAt || 0), updatedAt: Number(raw.updatedAt || 0),
             lastSignInAt: authUser?.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null,
-            mfaEnrolled: Array.isArray(authUser?.multiFactor?.enrolledFactors) && authUser.multiFactor.enrolledFactors.length > 0,
+            mfaEnrolled: mfaRecord.active === true,
+            recoveryCodesRemaining: Array.isArray(mfaRecord.recoveryCodeHashes) ? mfaRecord.recoveryCodeHashes.length : 0,
             disabled: authUser?.disabled === true
           };
         }));
@@ -624,10 +627,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         }
         for (const authUser of trustedPrimaryUsers.values()) {
           if (knownUids.has(authUser.uid)) continue;
+          const mfaSnap = await db.collection('platform_admin_mfa').doc(authUser.uid).get();
+          const mfaRecord = mfaSnap.exists ? mfaSnap.data() || {} : {};
           admins.unshift({
             uid: authUser.uid, email: String(authUser.email || ''),
             displayName: String(authUser.displayName || 'Super-administrateur principal'),
-            role: 'full', active: authUser.disabled !== true, mfaEnrolled: Array.isArray(authUser.multiFactor?.enrolledFactors) && authUser.multiFactor.enrolledFactors.length > 0,
+            role: 'full', active: authUser.disabled !== true, mfaEnrolled: mfaRecord.active === true,
+            recoveryCodesRemaining: Array.isArray(mfaRecord.recoveryCodeHashes) ? mfaRecord.recoveryCodeHashes.length : 0,
             disabled: authUser.disabled === true, lastSignInAt: authUser.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null,
             isPrimary: true
           });
