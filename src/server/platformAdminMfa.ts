@@ -215,6 +215,30 @@ export async function verifyPlatformAdminMfaAndCreateSession(db: any, uid: strin
   return { token, expiresAt: now + SESSION_TTL_MS, recoveryUsed };
 }
 
+export async function regeneratePlatformAdminRecoveryCodes(db: any, uid: string, code: string): Promise<string[] | null> {
+  if (!await consumeAttempt(db, uid)) return null;
+  const ref = db.collection(MFA_COLLECTION).doc(uid);
+  const now = Date.now();
+  const recoveryCodes = await db.runTransaction(async (tx: any) => {
+    const snap = await tx.get(ref);
+    const record = snap.exists ? snap.data() || {} : {};
+    if (record.active !== true || !record.secret) return null;
+    const secret = decryptTotpSecret(record.secret);
+    const step = verifyTotp(secret, code, now, Number(record.lastAcceptedStep ?? -1));
+    if (step === null) return null;
+    const nextCodes = Array.from({ length: 10 }, () => randomBytes(5).toString('hex').toUpperCase());
+    tx.update(ref, {
+      lastAcceptedStep: step,
+      recoveryCodeHashes: nextCodes.map(hashMfaToken),
+      recoveryCodesRegeneratedAt: now,
+      updatedAt: now
+    });
+    return nextCodes;
+  });
+  if (recoveryCodes) await db.collection(ATTEMPT_COLLECTION).doc(uid).delete().catch(() => undefined);
+  return recoveryCodes;
+}
+
 export async function getPlatformAdminMfaSessionDetails(db: any, uid: string, sessionVersion: number, token: string) {
   if (!token || token.length > 128) return null;
   const snap = await db.collection(SESSION_COLLECTION).doc(hashMfaToken(token)).get();
