@@ -1820,7 +1820,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (restaurantSnap.data()?.subscription !== undefined) batch.update(restaurantRef, { subscription: FieldValue.delete() });
         batch.create(historyRef, {
           restaurantSlug: slug, version: updatedSubscription.version,
-          previous: currentSubscriptionSnap.exists ? currentSubscription : null,
+          previous: Object.keys(currentSubscription).length ? currentSubscription : null,
           next: updatedSubscription, actorUid: user.uid, createdAt: now,
           billingAction: 'subscription_changed_no_invoice'
         });
