@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { getPlatformAdminRole, isSuperAdmin } from '../src/server/platformAdmin.ts';
+import { canPlatformAdminPerform, getPlatformAdminRole, isSuperAdmin } from '../src/server/platformAdmin.ts';
 
 const adminSource = fs.readFileSync(new URL('../src/server/platformAdmin.ts', import.meta.url), 'utf8');
 const mfaSource = fs.readFileSync(new URL('../src/server/platformAdminMfa.ts', import.meta.url), 'utf8');
@@ -29,6 +29,38 @@ try {
     'an allowlisted identity without a server-side MFA session is rejected');
   assert.equal(await getPlatformAdminRole({}, allowlisted, true), 'full',
     'an allowlisted identity with a server-side MFA session is accepted');
+
+  const delegatedDb = {
+    collection: () => ({
+      doc: () => ({
+        get: async () => ({
+          exists: true,
+          data: () => ({
+            role: 'billing', active: true, sessionVersion: 4,
+            permissions: ['platform.overview', 'billing.read']
+          })
+        })
+      })
+    })
+  };
+  const billingAdmin = {
+    uid: 'billing-admin', role: 'platform_admin', platformAdminRole: 'billing',
+    platformAdminSessionVersion: 4,
+    platformAdminPermissions: ['platform.overview', 'billing.read']
+  };
+  assert.equal(await getPlatformAdminRole(delegatedDb, billingAdmin, true), 'billing',
+    'a delegated administrator is accepted only when its token permissions match the server record');
+  assert.equal(await getPlatformAdminRole(delegatedDb, {
+    ...billingAdmin, platformAdminPermissions: ['platform.overview', 'billing.read', 'billing.manage']
+  }, true), null, 'a stale or escalated permission token is rejected against the server record');
+  assert.equal(canPlatformAdminPerform('billing', 'billing_list', ['platform.overview', 'billing.read']), true,
+    'a delegated billing permission enables its mapped read action');
+  assert.equal(canPlatformAdminPerform('billing', 'update_subscription', ['platform.overview', 'billing.read']), false,
+    'removing billing.manage blocks subscription mutations server-side');
+  assert.equal(canPlatformAdminPerform('read_only', 'support_access_list', ['platform.overview', 'support.read']), false,
+    'read-only support cannot inspect the support access-request queue');
+  assert.equal(canPlatformAdminPerform('full', 'platform_admin_create'), true,
+    'full Super-admin retains the ability to invite another Super-admin');
 
   assert.equal(isSuperAdmin({
     role: 'manager',
