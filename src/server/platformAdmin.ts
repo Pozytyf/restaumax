@@ -1012,6 +1012,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const config = snap.exists ? snap.data() : null;
         return json(res, 200, { success: true, config: config || {
           currency: 'XOF', gracePeriodDays: 7, quarterlyDiscountPercent: 0, maintenanceMode: false, version: 1,
+          plans: [
+            { name: 'Essentiel', description: 'Formule essentielle', active: true, priceMonthlyFcfa: 0, features: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false } },
+            { name: 'Pro', description: 'Formule complète', active: true, priceMonthlyFcfa: 0, features: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true } }
+          ],
           planFeatures: {
             Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false },
             Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true }
@@ -1036,14 +1040,37 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 400, { success: false, error: 'Devise, délai de grâce ou mode maintenance invalide.' });
         }
         const featureKeys = ['kitchenScreen', 'advancedReports', 'inventoryRecipes', 'loyalty'];
-        const plans = ['Essentiel', 'Pro'];
+        const legacyPlanNames = ['Essentiel', 'Pro'];
+        const planInput = Array.isArray(input.plans) ? input.plans :
+          legacyPlanNames.map(name => ({
+            name, description: '', active: true, priceMonthlyFcfa: 0,
+            features: input.planFeatures?.[name]
+          }));
+        if (planInput.length < 1 || planInput.length > 20) {
+          return json(res, 400, { success: false, error: 'Le catalogue doit contenir entre 1 et 20 formules.' });
+        }
+        const planNames = new Set<string>();
+        const normalizedPlans: Array<{ name: string; description: string; active: boolean; priceMonthlyFcfa: number; features: Record<string, boolean> }> = [];
         const planFeatures: Record<string, Record<string, boolean>> = {};
-        for (const plan of plans) {
-          const features = input.planFeatures?.[plan];
-          if (!features || featureKeys.some(key => typeof features[key] !== 'boolean')) {
-            return json(res, 400, { success: false, error: 'Les options des plans Essentiel et Pro doivent être renseignées.' });
+        for (const rawPlan of planInput) {
+          const name = String(rawPlan?.name || '').trim();
+          const normalizedName = name.toLocaleLowerCase('fr-FR');
+          const priceMonthlyFcfa = Number(rawPlan?.priceMonthlyFcfa ?? 0);
+          const features = rawPlan?.features || input.planFeatures?.[name];
+          if (name.length < 2 || name.length > 50 || planNames.has(normalizedName) ||
+              typeof rawPlan?.active !== 'boolean' ||
+              !Number.isSafeInteger(priceMonthlyFcfa) || priceMonthlyFcfa < 0 || priceMonthlyFcfa > 1000000000 ||
+              typeof rawPlan?.description !== 'string' || rawPlan.description.length > 240 ||
+              !features || featureKeys.some(key => typeof features[key] !== 'boolean')) {
+            return json(res, 400, { success: false, error: 'Une formule contient un nom, un tarif, un statut ou des droits invalides.' });
           }
-          planFeatures[plan] = Object.fromEntries(featureKeys.map(key => [key, features[key]]));
+          planNames.add(normalizedName);
+          const normalizedFeatures = Object.fromEntries(featureKeys.map(key => [key, features[key]]));
+          normalizedPlans.push({
+            name, description: rawPlan.description.trim(), active: rawPlan.active,
+            priceMonthlyFcfa, features: normalizedFeatures
+          });
+          planFeatures[name] = normalizedFeatures;
         }
         const emailTemplates = input.emailTemplates && typeof input.emailTemplates === 'object' ? input.emailTemplates : {};
         const templateKeys = ['invitation', 'passwordReset', 'invoice', 'overdue'];
@@ -1061,7 +1088,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const now = Date.now();
         const saved = {
           currency: 'XOF', gracePeriodDays, quarterlyDiscountPercent, maintenanceMode: input.maintenanceMode,
-          planFeatures, emailTemplates: normalizedTemplates, updatedAt: now, updatedBy: user.uid
+          plans: normalizedPlans, planFeatures, emailTemplates: normalizedTemplates, updatedAt: now, updatedBy: user.uid
         };
         await db.runTransaction(async (tx: any) => {
           const snap = await tx.get(ref);
