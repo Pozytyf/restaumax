@@ -81,6 +81,10 @@ function json(res: any, status: number, body: unknown) {
   return res.status(status).json(body);
 }
 
+function planIdentifier(name: string) {
+  return slugify(name).replace(/-/g, '_').slice(0, 60) || 'plan';
+}
+
 function slugify(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
@@ -1066,8 +1070,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           }
           planNames.add(normalizedName);
           const normalizedFeatures = Object.fromEntries(featureKeys.map(key => [key, features[key]]));
+          const id = String(rawPlan?.id || planIdentifier(name)).trim();
+          if (!/^[a-zA-Z0-9_-]{2,80}$/.test(id) || normalizedPlans.some(plan => plan.id === id)) {
+            return json(res, 400, { success: false, error: 'Identifiant de formule invalide ou dupliqué.' });
+          }
           normalizedPlans.push({
-            name, description: rawPlan.description.trim(), active: rawPlan.active,
+            id, name, description: rawPlan.description.trim(), active: rawPlan.active,
             priceMonthlyFcfa, features: normalizedFeatures
           });
           planFeatures[name] = normalizedFeatures;
@@ -1469,8 +1477,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           const subscriptionSnap = await db.collection('restaurantSubscriptions').doc(d.id).get();
           const raw = subscriptionSnap.exists
             ? (subscriptionSnap.data() || {})
-            : (data.subscription && typeof data.subscription === 'object' ? data.subscription : {});
+            : (data.subscription && typeof data.subscription === 'object' ? { ...data.subscription, source: 'legacy_unmigrated' } : {});
           const subscription = {
+            planId: typeof raw.planId === 'string' ? raw.planId : null,
+            planFeatures: raw.planFeatures && typeof raw.planFeatures === 'object' ? raw.planFeatures : {},
+            planPriceMonthlyFcfa: Number.isSafeInteger(raw.planPriceMonthlyFcfa) ? raw.planPriceMonthlyFcfa : null,
+            source: subscriptionSnap.exists ? 'canonical' : (raw.source || 'none'),
             planName: typeof raw.planName === 'string' ? raw.planName : null,
             status: typeof raw.status === 'string' ? raw.status : 'unknown',
             billingCycle: typeof raw.billingCycle === 'string' ? raw.billingCycle : null,
@@ -1503,10 +1515,39 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
               (Number.isFinite(r.subscription.endsAt) && r.subscription.endsAt < aggregationTime)) return sum;
           const amount = Number(r.subscription.priceFcfa || 0);
           if (r.subscription.billingCycle === 'monthly') return sum + amount;
+          if (r.subscription.billingCycle === 'quarterly') return sum + Math.round(amount / 3);
           if (r.subscription.billingCycle === 'yearly') return sum + Math.round(amount / 12);
+          if (r.subscription.billingCycle === 'custom' && r.subscription.startsAt && r.subscription.endsAt) {
+            const durationMonths = (r.subscription.endsAt - r.subscription.startsAt) / (30.4375 * 24 * 60 * 60 * 1000);
+            if (durationMonths > 0) return sum + Math.round(amount / durationMonths);
+          }
           return sum;
         }, 0);
+        const [invoiceFinancialSnap, paymentFinancialSnap] = await Promise.all([
+          db.collectionGroup('invoices').get(),
+          db.collectionGroup('payments').get()
+        ]);
+        const invoiceRows = invoiceFinancialSnap.docs.map((doc: any) => ({
+          ...(doc.data() || {}), restaurantSlug: doc.ref.parent.parent?.id || String(doc.data()?.restaurantSlug || '')
+        }));
+        const openInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && !(Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
+        const overdueInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'overdue' || (invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
+        const upcomingInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && Number(invoice.dueAt || 0) > aggregationTime && Number(invoice.dueAt) <= aggregationTime + 30 * 24 * 60 * 60 * 1000);
+        const sumInvoiceAmounts = (items: any[]) => items.reduce((total, invoice) => total + (Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0), 0);
+        const collectedAmountFcfa = paymentFinancialSnap.docs.reduce((total: number, doc: any) => {
+          const payment = doc.data() || {};
+          return total + (Number.isSafeInteger(payment.amountFcfa) ? payment.amountFcfa : 0);
+        }, 0);
+        const financialSummary = {
+          openInvoicesCount: openInvoices.length, openAmountFcfa: sumInvoiceAmounts(openInvoices),
+          overdueInvoicesCount: overdueInvoices.length, overdueAmountFcfa: sumInvoiceAmounts(overdueInvoices),
+          collectedAmountFcfa, upcomingDueCount: upcomingInvoices.length,
+          upcomingDueAmountFcfa: sumInvoiceAmounts(upcomingInvoices),
+          invoicesScanned: invoiceRows.length, paymentsScanned: paymentFinancialSnap.size,
+          asOf: aggregationTime
+        };
         const summary = {
+          financialSummary,
           totalRestaurants: restaurants.length,
           activeRestaurants: restaurants.filter((r: any) => r.status === 'active').length,
           suspendedRestaurants: restaurants.filter((r: any) => r.status === 'suspended').length,
@@ -1702,7 +1743,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const platformConfigSnap = await db.collection('platform_config').doc('global').get();
         const configuredPlans = Array.isArray(platformConfigSnap.data()?.plans) ? platformConfigSnap.data().plans : [];
         if (configuredPlans.length) {
-          const selectedPlan = configuredPlans.find((plan: any) => String(plan?.name || '') === validation.subscription.planName);
+          const requestedPlanId = String(body.subscription?.planId || '').trim();
+          const selectedPlan = configuredPlans.find((plan: any) =>
+            (requestedPlanId && String(plan?.id || planIdentifier(String(plan?.name || ''))) === requestedPlanId) ||
+            String(plan?.name || '') === validation.subscription.planName
+          );
           const existingPlanName = String(currentSubscriptionSnap.data()?.planName || '');
           if (!selectedPlan && validation.subscription.planName !== existingPlanName) {
             return json(res, 400, { success: false, error: 'Choisissez une formule existante dans le catalogue. Une formule historique peut être conservée, mais ne peut pas être réattribuée.' });
@@ -1722,28 +1767,57 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const requestedNotes = typeof body.subscription?.notes === 'string'
           ? body.subscription.notes.trim().slice(0, 500) : '';
         const preservedNotes = requestedNotes || String(currentSubscriptionSnap.data()?.notes || '');
+        const selectedPlan = configuredPlans.find((plan: any) =>
+          (String(body.subscription?.planId || '').trim() && String(plan?.id || planIdentifier(String(plan?.name || ''))) === String(body.subscription?.planId || '').trim()) ||
+          String(plan?.name || '') === validation.subscription.planName
+        );
+        const currentSubscription = currentSubscriptionSnap.exists ? currentSubscriptionSnap.data() || {} : {};
+        const cycleMultiplier = validation.subscription.billingCycle === 'quarterly' ? 3 :
+          validation.subscription.billingCycle === 'yearly' ? 12 : 1;
+        const selectedPlanId = selectedPlan
+          ? String(selectedPlan.id || planIdentifier(String(selectedPlan.name || '')))
+          : String(currentSubscription.planId || 'legacy');
+        const selectedPlanFeatures = selectedPlan && selectedPlan.features && typeof selectedPlan.features === 'object'
+          ? Object.fromEntries(['kitchenScreen', 'advancedReports', 'inventoryRecipes', 'loyalty', 'dishImages'].map(key => [key, selectedPlan.features[key] === true]))
+          : (currentSubscription.planFeatures && typeof currentSubscription.planFeatures === 'object' ? currentSubscription.planFeatures : {});
+        const selectedMonthlyPrice = selectedPlan ? Number(selectedPlan.priceMonthlyFcfa || 0) : Number(currentSubscription.planPriceMonthlyFcfa || 0);
+        const effectivePrice = selectedPlan && validation.subscription.billingCycle !== 'custom' && selectedMonthlyPrice > 0
+          ? selectedMonthlyPrice * cycleMultiplier : validation.subscription.priceFcfa;
         const updatedSubscription = {
           ...validation.subscription,
+          planId: selectedPlanId,
+          planFeatures: selectedPlanFeatures,
+          planPriceMonthlyFcfa: selectedMonthlyPrice,
+          planSnapshotAt: now,
+          priceFcfa: effectivePrice,
           gracePeriodOverride: body.subscription?.gracePeriodOverride === false ? false : true,
-          notes: preservedNotes, updatedAt: now, updatedBy: user.uid
+          notes: preservedNotes, updatedAt: now, updatedBy: user.uid,
+          version: Number(currentSubscription.version || 0) + 1
         };
-        await subscriptionRef.set(updatedSubscription, { merge: true });
-        if (restaurantSnap.data()?.subscription !== undefined) {
-          await restaurantRef.update({ subscription: FieldValue.delete() });
-        }
-        await db.collection('admin_audit_logs').add({
+        const auditRef = db.collection('admin_audit_logs').doc();
+        const historyRef = subscriptionRef.collection('history').doc();
+        const batch = db.batch();
+        batch.set(subscriptionRef, updatedSubscription);
+        if (restaurantSnap.data()?.subscription !== undefined) batch.update(restaurantRef, { subscription: FieldValue.delete() });
+        batch.create(historyRef, {
+          restaurantSlug: slug, version: updatedSubscription.version,
+          previous: currentSubscriptionSnap.exists ? currentSubscription : null,
+          next: updatedSubscription, actorUid: user.uid, createdAt: now,
+          billingAction: 'subscription_changed_no_invoice'
+        });
+        batch.set(auditRef, {
           action: 'update_restaurant_subscription', restaurantSlug: slug, actorUid: user.uid,
-          previousPlanName: String(currentSubscriptionSnap.data()?.planName || ''),
-          newPlanName: validation.subscription.planName,
+          previousPlanName: String(currentSubscription.planName || ''),
+          newPlanName: validation.subscription.planName, planId: selectedPlanId,
           planName: validation.subscription.planName,
-          previousStatus: String(currentSubscriptionSnap.data()?.status || 'unknown'),
+          previousStatus: String(currentSubscription.status || 'unknown'),
           newStatus: validation.subscription.status,
-          priceFcfa: validation.subscription.priceFcfa,
-          billingCycle: validation.subscription.billingCycle,
+          priceFcfa: effectivePrice, billingCycle: validation.subscription.billingCycle,
           subscriptionStatus: validation.subscription.status,
           outcome: 'success', endsAt: validation.subscription.endsAt,
-          createdAt: now
+          invoiceCreated: false, billingPolicy: 'next_scheduled_cycle_only', createdAt: now
         });
+        await batch.commit();
         return json(res, 200, { success: true, subscription: updatedSubscription });
       }
 
