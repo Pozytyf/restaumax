@@ -1318,7 +1318,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const imageKitConfigured = Boolean(process.env.IMAGEKIT_PRIVATE_KEY) && imageKitEndpointValid;
         services.push({
           id: 'imagekit', label: 'Photos des plats · ImageKit',
-          status: !imageKitUploadEnabled ? 'unavailable' : imageKitConfigured ? 'unknown' : 'degraded',
+          status: !imageKitUploadEnabled ? 'unknown' : imageKitConfigured ? 'unknown' : 'degraded',
           detail: !imageKitUploadEnabled
             ? 'Les envois ImageKit sont désactivés par le feature flag de cet environnement.'
             : imageKitConfigured
