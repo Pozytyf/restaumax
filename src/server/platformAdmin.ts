@@ -272,6 +272,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
       const recoveryCodes = await confirmPlatformAdminMfaEnrollment(db, user.uid, String(body.code || ''));
       if (!recoveryCodes) return json(res, 400, { success: false, error: 'Code invalide, déjà utilisé ou enrôlement expiré.' });
+      await db.collection('admin_audit_logs').add({
+        action: 'platform_admin_mfa_enrolled', actorUid: user.uid,
+        actorEmail: String(user.email || ''), createdAt: Date.now()
+      }).catch(() => undefined);
       return json(res, 200, { success: true, enrolled: true, recoveryCodes, reauthenticationRequired: true });
     }
     if (action === 'mfa_verify') {
@@ -280,6 +284,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const session = await verifyPlatformAdminMfaAndCreateSession(db, user.uid, String(body.code || ''), mfaSessionVersion);
         if (!session) return json(res, 401, { success: false, error: 'Code MFA invalide, déjà utilisé ou temporairement bloqué.' });
         res.setHeader?.('Set-Cookie', `restaumax_platform_mfa=${session.token}; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=14400`);
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_verified', actorUid: user.uid,
+          actorEmail: String(user.email || ''), expiresAt: session.expiresAt, createdAt: Date.now()
+        }).catch(() => undefined);
         return json(res, 200, { success: true, expiresAt: session.expiresAt });
       } catch {
         return json(res, 503, { success: false, error: 'Service MFA temporairement indisponible.' });
@@ -289,6 +297,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
       await revokePlatformAdminMfaSessions(db, user.uid);
       res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=0');
+      await db.collection('admin_audit_logs').add({
+        action: 'platform_admin_mfa_logout', actorUid: user.uid,
+        actorEmail: String(user.email || ''), createdAt: Date.now()
+      }).catch(() => undefined);
       return json(res, 200, { success: true });
     }
   }
