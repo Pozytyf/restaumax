@@ -149,4 +149,30 @@ assert(admin.includes('sessionValid') && admin.includes("action === 'mfa_accept_
   admin.includes('createPlatformAdminMfaSession'),
   'MFA reuses a valid server session and accepts one verified Firebase second factor');
 
+assert(admin.includes("!['full', 'billing', 'support', 'read_only'].includes(role)") &&
+  admin.includes("role === 'full' ? { role: 'super_admin', sessionVersion }") &&
+  admin.includes("action: role === 'full' ? 'invite_full_super_admin' : 'create_platform_admin'"),
+  'only a full administrator can invite a new full Super-admin through the authenticated admin API');
+assert(admin.includes("action === 'platform_admin_revoke_sessions'") &&
+  admin.includes('revokePlatformAdminMfaSessions(db, uid)') &&
+  admin.includes("action: 'revoke_platform_admin_sessions'"),
+  'administrator session revocation invalidates Firebase tokens and RestauMax MFA sessions with an audit record');
+assert(admin.includes("action === 'platform_admin_delete'") &&
+  admin.includes("role: 'revoked_platform_admin'") &&
+  admin.includes("action: 'delete_platform_admin'") &&
+  admin.includes('auditRecordPreserved: true'),
+  'administrator deletion disables and removes the identity while preserving its audit tombstone');
+assert(admin.includes('countActivePlatformSuperAdmins(auth)') &&
+  admin.includes('Impossible de suspendre le dernier Super-admin actif') &&
+  admin.includes('Impossible de supprimer le dernier Super-admin actif'),
+  'full administrator suspension and deletion cannot lock out the last active Super-admin, including allowlisted identities');
+assert(admin.includes("managedFull.data()?.active !== true") &&
+  admin.includes("snap.data()?.deleted === true"),
+  'suspended and deleted full-admin records are denied server-side and cannot be reactivated as live accounts');
+assert(ui.includes('<option value="full">Super-admin complet') &&
+  ui.includes('platform_admin_revoke_sessions') &&
+  ui.includes('platform_admin_delete') &&
+  ui.includes('Révoquer sessions') && ui.includes('Supprimer'),
+  'the administrator workspace exposes full-admin invitation, session revocation and deletion controls');
+
 console.log('Platform admin hardening regression tests passed.');
