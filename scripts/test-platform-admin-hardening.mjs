@@ -70,7 +70,7 @@ assert(admin.includes("if (action === 'promotion_save')") && admin.includes("if 
   'promotion creation and activation changes are server-authorized actions');
 assert(admin.includes('eligiblePlans.length > 20') && admin.includes("!['percentage', 'fixed'].includes(discountType)") && billing.includes("promotion.discountType === 'fixed'"),
   'promotion API validates targeted plans, discount types and quotas');
-assert(billing.includes('usedCount < maxUses') && billing.includes('tx.update(promotionRef') &&
+assert(billing.includes('usedCount < maxUses') && billing.includes('tx.update(appliedPromotionRef') &&
   billing.includes('No stacking: apply the single best available reduction.'),
   'promotion quota is consumed transactionally and never stacks with quarterly discounts');
 assert(ui.includes('Politique de promotion') && ui.includes('promotion_list') &&
