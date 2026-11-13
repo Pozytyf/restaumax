@@ -164,6 +164,12 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         setCustomMfaSetup(false);
         setTotpSecret(null);
         setCustomMfaCode('');
+        setMfaEnrolled(false);
+        setRecoveryCodesRemaining(0);
+        setRecoveryCodes([]);
+        setRecoveryRotationCodes([]);
+        setRecoveryRotationCode('');
+        setRecoveryRotationOpen(false);
         setRestaurants([]);
         setSummary(null);
         return;
