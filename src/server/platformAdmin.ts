@@ -1762,6 +1762,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             : String(plan?.name || '') === validation.subscription.planName
           );
           const existingPlanName = String(currentSubscriptionSnap.data()?.planName || '');
+          if (requestedPlanId && !selectedPlan) {
+            return json(res, 400, { success: false, error: 'L’identifiant de formule ne correspond pas au nom de l’offre sélectionnée.' });
+          }
           if (!selectedPlan && validation.subscription.planName !== existingPlanName) {
             return json(res, 400, { success: false, error: 'Choisissez une formule existante dans le catalogue. Une formule historique peut être conservée, mais ne peut pas être réattribuée.' });
           }
