@@ -107,8 +107,8 @@ try {
   await startPlatformAdminRecoveryContactVerification(db, testOnlyUid, 'infos.idaynews@gmail.com');
   assert.equal(sentBody.to[0], 'stephaneolivierbali@gmail.com',
     'Resend onboarding test mode redirects delivery to the configured account-owner recipient');
-  const testOnlyCode = sentBody.text.match(/\\b\\d{8}\\b/)?.[0];
-  assert.match(testOnlyCode || '', /^\\d{8}$/, 'test delivery still contains an eight-digit diagnostic code');
+  const testOnlyCode = sentBody.text.match(/\b\d{8}\b/)?.[0];
+  assert.match(testOnlyCode || '', /^\d{8}$/, 'test delivery still contains an eight-digit diagnostic code');
   await assert.rejects(
     verifyPlatformAdminRecoveryContact(db, testOnlyUid, testOnlyCode),
     /uniquement à la boîte de test Resend/,
