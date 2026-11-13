@@ -62,7 +62,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     if (!response.ok || !data.success) {
       // /admin is a separate security boundary: a restaurant session must not
       // remain authenticated after the platform API rejects it.
-      if ((response.status === 401 || response.status === 403) && body?.action !== 'mfa_verify') {
+      if ((response.status === 401 || response.status === 403) && !['mfa_verify', 'mfa_status', 'mfa_accept_firebase'].includes(String(body?.action || ''))) {
         setIsPlatformAdminAuthorized(false);
         setRestaurants([]);
         setSummary(null);
