@@ -12,6 +12,8 @@ const db = getFirestore(app);
 const now = Date.now();
 assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurantSubscriptions/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, {}).restaurantSlug, 'correlation-a',
   'Une facture placée sous son abonnement canonique est correctement corrélée');
+assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurantSubscriptions/correlation-a/invoices/legacy-invoice-2026-01' }, {}).invoiceId, 'legacy-invoice-2026-01',
+  'Les anciennes factures canoniques restent consultables même si leur identifiant historique diffère du format courant');
 assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurants/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, {}), null,
   'Une facture d’une autre collection ne peut pas entrer dans le panel Abonnements');
 assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurantSubscriptions/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, { restaurantSlug: 'correlation-b' }), null,
@@ -191,6 +193,12 @@ try {
     actorUid: 'super-admin-test', now: now + 8 * 86400000 + 2000
   });
   assert.equal(settlementReplay.success && settlementReplay.idempotentReplay, true, 'Le rapprochement est idempotent');
+  const wrongAmountReplay = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
+    amountFcfa: 24999, paymentReference: 'TRANSFER-RECEIPT-2026-001',
+    actorUid: 'super-admin-test', now: now + 8 * 86400000 + 3000
+  });
+  assert.equal(wrongAmountReplay.success, false, 'Un rejeu idempotent avec un montant différent est refusé');
   const subscriptionPayments = await subscriptionRef.collection('payments').get();
   assert.equal(subscriptionPayments.size, 1, 'Le règlement possède une seule écriture financière append-only');
   assert.equal(subscriptionPayments.docs[0].data().method, 'manual');
