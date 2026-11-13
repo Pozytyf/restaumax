@@ -89,9 +89,9 @@ try {
   await startPlatformAdminRecoveryContactVerification(db, uid, 'stephaneolivierbali@gmail.com');
   assert.equal(sentBody.to[0], 'stephaneolivierbali@gmail.com', 'recovery contact verification sends to the independently supplied address');
   assert.equal(sentBody.subject, 'Vérification de votre adresse de récupération RestauMax', 'contact verification has a distinct email subject');
-  const contactCode = sentBody.text.match(/\\b\\d{8}\\b/)?.[0];
-  assert.match(contactCode || '', /^\\d{8}$/, 'contact verification email contains an eight-digit code');
-  assert.equal(await verifyPlatformAdminRecoveryContact(db, uid, '00000000'), null, 'an incorrect recovery-contact code is rejected');
+  const contactCode = sentBody.text.match(/\b\d{8}\b/)?.[0];
+  assert.match(contactCode || '', /^\d{8}$/, 'contact verification email contains an eight-digit code');
+  assert.equal(await verifyPlatformAdminRecoveryContact(db, uid, contactCode === '00000000' ? '00000001' : '00000000'), null, 'an incorrect recovery-contact code is rejected');
   const verifiedContact = await verifyPlatformAdminRecoveryContact(db, uid, contactCode);
   assert.equal(verifiedContact, 'stephaneolivierbali@gmail.com', 'correct code verifies and stores the recovery contact');
   assert.equal(await getPlatformAdminRecoveryContact(db, uid), 'stephaneolivierbali@gmail.com', 'only a verified recovery contact is returned');
