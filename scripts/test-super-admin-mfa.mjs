@@ -74,6 +74,13 @@ try {
     adminView.includes("action: 'mfa_recovery_enroll_start'") &&
     adminView.includes('await continueAfterAuthentication();'),
     'recovery-code sign-in forces a new TOTP enrollment before platform access');
+  assert(mfaSource.includes('regeneratePlatformAdminRecoveryCodes') &&
+    adminSource.includes("action === 'mfa_recovery_regenerate'") &&
+    adminSource.includes("sessionDetails.factorSource === 'recovery'"),
+    'recovery codes can only be rotated with a valid non-recovery MFA session and a fresh TOTP');
+  assert(adminView.includes("action: 'mfa_recovery_regenerate'") &&
+    adminView.includes('Renouveler les 10 codes'),
+    'the authenticated admin UI exposes one-time recovery-code rotation');
   assert(adminView.includes('getIdTokenResult(true)') && adminView.includes('credential.user.getIdToken(true)') &&
     adminView.includes('continueAfterAuthentication(true)') &&
     adminSource.includes('firebase.sign_in_second_factor') === false && adminSource.includes('firebaseMfaIsRecent'),
