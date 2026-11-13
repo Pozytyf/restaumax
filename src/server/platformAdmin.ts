@@ -1406,7 +1406,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             promotionCode: typeof invoice.promotionCode === 'string' ? invoice.promotionCode : null,
             promotionName: typeof invoice.promotionName === 'string' ? invoice.promotionName : null,
             currency: 'FCFA',
-            status: ['open', 'paid', 'void', 'overdue'].includes(String(invoice.status)) ? invoice.status : 'unknown',
+            status: invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= Date.now()
+              ? 'overdue' : (['open', 'paid', 'void', 'overdue'].includes(String(invoice.status)) ? invoice.status : 'unknown'),
             issuedAt: Number.isFinite(invoice.issuedAt) ? invoice.issuedAt : null,
             dueAt: Number.isFinite(invoice.dueAt) ? invoice.dueAt : null,
             paidAt: Number.isFinite(invoice.paidAt) ? invoice.paidAt : null,
