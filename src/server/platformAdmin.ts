@@ -154,7 +154,7 @@ export async function getPlatformAdminRole(db: any, user: DecodedIdToken): Promi
 export function canPlatformAdminPerform(role: PlatformAdminRole, action: string): boolean {
   if (role === 'full') return true;
   if (['overview', 'audit_list', 'platform_capabilities'].includes(action)) return true;
-  if (role === 'billing') return ['billing_list', 'update_subscription', 'settle_subscription_invoice'].includes(action);
+  if (role === 'billing') return ['billing_list', 'update_subscription', 'settle_subscription_invoice', 'promotion_list', 'promotion_save', 'promotion_toggle'].includes(action);
   if (role === 'support') return ['support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'platform_staff_list', 'health_details', 'announcement_list'].includes(action);
   if (role === 'read_only') return ['support_list', 'support_messages', 'health_details', 'announcement_list'].includes(action);
   return false;
@@ -432,7 +432,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (['overview', 'billing_list', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
+    if (['overview', 'billing_list', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'promotion_list', 'promotion_save', 'promotion_toggle', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details'].includes(action)) {
       const platformRole = await getPlatformAdminRole(db, user);
       if (!platformRole || !canPlatformAdminPerform(platformRole, action)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
@@ -445,7 +445,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions',
           'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update',
           'support_access_request', 'support_access_list', 'support_access_diagnostics',
-          'config_read', 'config_update', 'announcement_list', 'announcement_save',
+          'config_read', 'config_update', 'promotion_list', 'promotion_save', 'promotion_toggle', 'announcement_list', 'announcement_save',
           'announcement_publish', 'announcement_cancel', 'health_details'
         ];
         return json(res, 200, {
@@ -1099,6 +1099,97 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           gracePeriodDays, quarterlyDiscountPercent, maintenanceMode: input.maintenanceMode, currency: 'XOF'
         });
         return json(res, 200, { success: true, config: saved });
+      }
+
+      if (action === 'promotion_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_promotions').orderBy('createdAt', 'desc').limit(100).get();
+        const promotions = snap.docs.map((doc: any) => {
+          const raw = doc.data() || {};
+          return {
+            id: doc.id, name: String(raw.name || ''), code: String(raw.code || ''),
+            discountType: raw.discountType === 'fixed' ? 'fixed' : 'percentage',
+            value: Number(raw.value || 0), startsAt: Number(raw.startsAt || 0),
+            endsAt: Number(raw.endsAt || 0), eligiblePlans: Array.isArray(raw.eligiblePlans) ? raw.eligiblePlans : [],
+            maxUses: Number(raw.maxUses || 0), usedCount: Number(raw.usedCount || 0),
+            active: raw.active === true, createdAt: Number(raw.createdAt || 0)
+          };
+        });
+        return json(res, 200, { success: true, promotions });
+      }
+
+      if (action === 'promotion_save') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const id = String(body.id || '').trim();
+        const name = String(body.name || '').trim();
+        const code = String(body.code || '').trim().toUpperCase();
+        const discountType = String(body.discountType || '');
+        const value = Number(body.value);
+        const startsAt = Number(body.startsAt);
+        const endsAt = Number(body.endsAt);
+        const eligiblePlans = Array.isArray(body.eligiblePlans)
+          ? [...new Set<string>(body.eligiblePlans.map((item: unknown) => String(item).trim()).filter(Boolean))]
+          : [];
+        const maxUses = Number(body.maxUses);
+        if ((id && !/^[a-zA-Z0-9_-]{1,100}$/.test(id)) ||
+            name.length < 3 || name.length > 80 || !/^[A-Z0-9_-]{3,24}$/.test(code) ||
+            !['percentage', 'fixed'].includes(discountType) ||
+            !Number.isSafeInteger(value) || value < 1 ||
+            (discountType === 'percentage' ? value > 100 : value > 1000000000) ||
+            !Number.isSafeInteger(startsAt) || startsAt <= 0 ||
+            !Number.isSafeInteger(endsAt) || endsAt <= startsAt ||
+            eligiblePlans.length < 1 || eligiblePlans.length > 20 ||
+            !Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 1000000 ||
+            typeof body.active !== 'boolean') {
+          return json(res, 400, { success: false, error: 'Paramètres de promotion invalides. Vérifiez le code, la réduction, les dates, les formules et le quota.' });
+        }
+        const planConfig = await db.collection('platform_config').doc('global').get();
+        const knownPlans = Array.isArray(planConfig.data()?.plans) ? planConfig.data().plans.map((plan: any) => String(plan.name)) : ['Essentiel', 'Pro'];
+        if (eligiblePlans.some((plan: string) => !knownPlans.includes(plan))) {
+          return json(res, 400, { success: false, error: 'Une formule ciblée n’existe pas dans le catalogue.' });
+        }
+        const collection = db.collection('platform_promotions');
+        const duplicateSnap = await collection.where('code', '==', code).limit(5).get();
+        if (duplicateSnap.docs.some((doc: any) => doc.id !== id)) {
+          return json(res, 409, { success: false, error: 'Ce code promotionnel existe déjà.' });
+        }
+        const ref = id ? collection.doc(id) : collection.doc();
+        const existing = id ? await ref.get() : null;
+        if (id && !existing?.exists) return json(res, 404, { success: false, error: 'Promotion introuvable.' });
+        const previous = existing?.data() || {};
+        const now = Date.now();
+        const saved = {
+          name, code, discountType, value, startsAt, endsAt, eligiblePlans, maxUses,
+          usedCount: Number(previous.usedCount || 0), active: body.active,
+          createdAt: Number(previous.createdAt || now), updatedAt: now, updatedBy: user.uid
+        };
+        await ref.set(saved);
+        await db.collection('admin_audit_logs').add({
+          action: id ? 'update_platform_promotion' : 'create_platform_promotion',
+          actorUid: user.uid, promotionId: ref.id, promotionCode: code,
+          discountType, discountValue: value, eligiblePlans, active: body.active,
+          outcome: 'success', createdAt: now
+        });
+        return json(res, 200, { success: true, promotion: { id: ref.id, ...saved } });
+      }
+
+      if (action === 'promotion_toggle') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const id = String(body.id || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id) || typeof body.active !== 'boolean') {
+          return json(res, 400, { success: false, error: 'Identifiant ou statut de promotion invalide.' });
+        }
+        const ref = db.collection('platform_promotions').doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return json(res, 404, { success: false, error: 'Promotion introuvable.' });
+        const now = Date.now();
+        await ref.update({ active: body.active, updatedAt: now, updatedBy: user.uid });
+        await db.collection('admin_audit_logs').add({
+          action: body.active ? 'activate_platform_promotion' : 'deactivate_platform_promotion',
+          actorUid: user.uid, promotionId: id, promotionCode: String(snap.data()?.code || ''),
+          outcome: 'success', createdAt: now
+        });
+        return json(res, 200, { success: true, active: body.active });
       }
 
       if (action === 'announcement_list') {
