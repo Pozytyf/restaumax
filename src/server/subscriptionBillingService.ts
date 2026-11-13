@@ -44,9 +44,10 @@ async function revokeActiveTableSessions(db: any, slug: string, now: number, rea
 
 export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now()) {
   if (!db) throw new Error('Firestore indisponible.');
-  const [subscriptions, configSnap] = await Promise.all([
+  const [subscriptions, configSnap, promotionsSnap] = await Promise.all([
     db.collection('restaurantSubscriptions').get(),
-    db.collection('platform_config').doc('global').get()
+    db.collection('platform_config').doc('global').get(),
+    db.collection('platform_promotions').where('active', '==', true).get()
   ]);
   const configuredGrace = Number(configSnap.data()?.gracePeriodDays);
   const globalGracePeriodDays = Number.isInteger(configuredGrace) && configuredGrace >= 0 && configuredGrace <= 60 ? configuredGrace : 7;
@@ -82,10 +83,19 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
 
     if (['active', 'trial'].includes(status) && nextBillingAt > 0 && nextBillingAt <= now) {
       const invoiceId = invoiceIdFor(slug, String(initial.billingCycle || ''), nextBillingAt);
+      const promotionCandidate = promotionsSnap.docs.find((promotionDoc: any) => {
+        const promotion = promotionDoc.data() || {};
+        const eligiblePlans = Array.isArray(promotion.eligiblePlans) ? promotion.eligiblePlans : [];
+        return eligiblePlans.includes(String(initial.planName || '')) &&
+          Number(promotion.startsAt || 0) <= now && Number(promotion.endsAt || 0) > now &&
+          Number(promotion.usedCount || 0) < Number(promotion.maxUses || 0);
+      }) || null;
+      const promotionRef = promotionCandidate?.ref || null;
       const result = await db.runTransaction(async (tx: any) => {
-        const [subSnap, restaurantSnap, invoiceSnap] = await Promise.all([
+        const [subSnap, restaurantSnap, invoiceSnap, promotionSnap] = await Promise.all([
           tx.get(subscriptionRef), tx.get(restaurantRef),
-          tx.get(subscriptionRef.collection('invoices').doc(invoiceId))
+          tx.get(subscriptionRef.collection('invoices').doc(invoiceId)),
+          promotionRef ? tx.get(promotionRef) : Promise.resolve(null)
         ]);
         if (!subSnap.exists || !restaurantSnap.exists) return 'skip';
         const sub = subSnap.data() || {};
@@ -113,8 +123,37 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         const baseAmount = Number(sub.priceFcfa);
         if (!Number.isSafeInteger(baseAmount) || baseAmount < 0 || baseAmount > 1000000000) return 'skip';
         const cycle = String(sub.billingCycle || '');
-        const discountPercent = cycle === 'quarterly' ? quarterlyDiscountPercent : 0;
-        const discountAmount = Math.round(baseAmount * discountPercent / 100);
+        let discountPercent = cycle === 'quarterly' ? quarterlyDiscountPercent : 0;
+        let discountAmount = Math.round(baseAmount * discountPercent / 100);
+        let discountSource = discountAmount > 0 ? 'quarterly' : 'none';
+        let discountType = discountSource === 'quarterly' ? 'percentage' : 'none';
+        let discountValue = discountSource === 'quarterly' ? discountPercent : 0;
+        let appliedPromotion: any = null;
+        if (promotionSnap?.exists) {
+          const promotion = promotionSnap.data() || {};
+          const eligiblePlans = Array.isArray(promotion.eligiblePlans) ? promotion.eligiblePlans : [];
+          const usedCount = Number(promotion.usedCount || 0);
+          const maxUses = Number(promotion.maxUses || 0);
+          const validPromotion = promotion.active === true && eligiblePlans.includes(String(sub.planName || '')) &&
+            Number(promotion.startsAt || 0) <= now && Number(promotion.endsAt || 0) > now &&
+            Number.isInteger(usedCount) && Number.isInteger(maxUses) && usedCount < maxUses;
+          if (validPromotion) {
+            const promoType = promotion.discountType === 'fixed' ? 'fixed' : 'percentage';
+            const promoValue = Number(promotion.value || 0);
+            const promoAmount = promoType === 'fixed'
+              ? Math.min(baseAmount, promoValue)
+              : Math.round(baseAmount * promoValue / 100);
+            // No stacking: apply the single best available reduction.
+            if (Number.isSafeInteger(promoAmount) && promoAmount > discountAmount) {
+              discountAmount = promoAmount;
+              discountPercent = promoType === 'percentage' ? promoValue : 0;
+              discountSource = 'promotion';
+              discountType = promoType;
+              discountValue = promoValue;
+              appliedPromotion = { id: promotionSnap.id, ...promotion };
+            }
+          }
+        }
         const amount = baseAmount - discountAmount;
         if (amount === 0 && ['monthly', 'quarterly', 'yearly'].includes(cycle)) {
           const periodStart = Math.max(Number(sub.endsAt || now), now);
@@ -123,11 +162,17 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
             status: 'active', startsAt: periodStart, endsAt: periodEnd, nextBillingAt: periodEnd,
             pastDueAt: null, currentInvoiceId: null, lastInvoicePaidAt: now,
             lastPaymentReference: 'free-plan-renewal', lastDiscountBaseAmountFcfa: baseAmount,
-            lastDiscountPercent: discountPercent, lastDiscountAmountFcfa: discountAmount, lastDiscountedAt: now, updatedAt: now
+            lastDiscountPercent: discountPercent, lastDiscountAmountFcfa: discountAmount,
+            lastDiscountSource: discountSource, lastPromotionId: appliedPromotion?.id || null,
+            lastPromotionCode: appliedPromotion?.code || null, lastDiscountedAt: now, updatedAt: now
           });
+          if (appliedPromotion && promotionRef) {
+            tx.update(promotionRef, { usedCount: Number(appliedPromotion.usedCount || 0) + 1, updatedAt: now });
+          }
           tx.create(db.collection('admin_audit_logs').doc(`sub_free_renew_${hash(slug + ':' + invoiceId)}`), {
             action: 'renew_free_subscription', restaurantSlug: slug, baseAmountFcfa: baseAmount,
-            discountPercent, discountAmountFcfa: discountAmount, createdAt: now
+            discountPercent, discountAmountFcfa: discountAmount, discountSource,
+            promotionId: appliedPromotion?.id || null, promotionCode: appliedPromotion?.code || null, createdAt: now
           });
           return 'free_renewed';
         }
@@ -136,7 +181,9 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         tx.create(invoiceRef, {
           id: invoiceId, restaurantSlug: slug, planName: String(sub.planName || ''),
           billingCycle: cycle, baseAmountFcfa: baseAmount, discountPercent, discountAmountFcfa: discountAmount,
-          amountFcfa: amount, currency: 'XOF',
+          discountSource, discountType, discountValue,
+          promotionId: appliedPromotion?.id || null, promotionCode: appliedPromotion?.code || null,
+          promotionName: appliedPromotion?.name || null, amountFcfa: amount, currency: 'XOF',
           periodStartAt: Number(sub.startsAt || 0), periodEndAt: Number(sub.endsAt || nextBillingAt),
           issuedAt: now, dueAt: now, gracePeriodDays, status: 'open',
           createdAt: now
@@ -147,8 +194,13 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
         });
         tx.create(db.collection('admin_audit_logs').doc(`sub_invoice_${hash(slug + ':' + invoiceId)}`), {
           action: 'create_recurring_subscription_invoice', restaurantSlug: slug,
-          invoiceId, amountFcfa: amount, baseAmountFcfa: baseAmount, discountPercent, discountAmountFcfa: discountAmount, createdAt: now
+          invoiceId, amountFcfa: amount, baseAmountFcfa: baseAmount, discountPercent,
+          discountAmountFcfa: discountAmount, discountSource,
+          promotionId: appliedPromotion?.id || null, promotionCode: appliedPromotion?.code || null, createdAt: now
         });
+        if (appliedPromotion && promotionRef) {
+          tx.update(promotionRef, { usedCount: Number(appliedPromotion.usedCount || 0) + 1, updatedAt: now });
+        }
         return 'created';
       });
       if (result === 'created') invoicesCreated++;
