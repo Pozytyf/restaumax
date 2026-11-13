@@ -17,6 +17,7 @@ La configuration centrale est stockée dans `platform_config/global`.
 | `advancedReports` | Rapports avancés sur période longue |
 | `inventoryRecipes` | Stocks et recettes |
 | `loyalty` | Programme de fidélité |
+| `dishImages` | Photos des plats via le stockage sécurisé |
 
 Les API serveur et les règles Firestore refusent les fonctionnalités Premium non explicitement accordées. Les anciennes formules non répertoriées, dont « Argent », conservent uniquement l'accès de base à l'écran cuisine jusqu'à attribution manuelle d'une formule reconnue.
 
