@@ -15,7 +15,7 @@ const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
 const restaurantRef = db.collection('restaurants').doc(slug);
 
 try {
-  await db.collection('platform_config').doc('global').set({ gracePeriodDays: 4 }, { merge: true });
+  await db.collection('platform_config').doc('global').set({ gracePeriodDays: 4, quarterlyDiscountPercent: 10 }, { merge: true });
   await Promise.all([
     restaurantRef.set({ slug, status: 'active', isOpen: true, ownerUid: 'owner-subscription-test', tableSessionVersion: 3 }),
     restaurantRef.collection('table_sessions').doc('active-session').set({ status: 'active', sessionHash: 'active-session' }),
@@ -41,6 +41,39 @@ try {
   assert.equal(replay.invoicesCreated, 0, 'Une exécution répétée ne crée pas une seconde facture');
   const invoices = await subscriptionRef.collection('invoices').get();
   assert.equal(invoices.size, 1);
+
+  const quarterlySlug = 'subscription-quarterly-emulator';
+  const quarterlyRef = db.collection('restaurantSubscriptions').doc(quarterlySlug);
+  const quarterlyRestaurant = db.collection('restaurants').doc(quarterlySlug);
+  await Promise.all([
+    quarterlyRestaurant.set({ slug: quarterlySlug, status: 'active', isOpen: true }),
+    quarterlyRef.set({
+      planName: 'Pro', priceFcfa: 30000, billingCycle: 'quarterly', status: 'active',
+      startsAt: now - 90 * 86400000, endsAt: now - 1000, nextBillingAt: now - 1000,
+      autoRenew: true, gracePeriodDays: 4
+    })
+  ]);
+  const quarterlyRun = await runSubscriptionBillingCycleWithDb(db, now);
+  assert.equal(quarterlyRun.invoicesCreated, 1, 'Une échéance trimestrielle produit une facture');
+  const quarterlySub = (await quarterlyRef.get()).data();
+  const quarterlyInvoiceRef = quarterlyRef.collection('invoices').doc(quarterlySub.currentInvoiceId);
+  const quarterlyInvoice = (await quarterlyInvoiceRef.get()).data();
+  assert.equal(quarterlyInvoice.baseAmountFcfa, 30000, 'La facture conserve le montant de base trimestriel');
+  assert.equal(quarterlyInvoice.discountPercent, 10, 'Le taux configuré est figé sur la facture');
+  assert.equal(quarterlyInvoice.discountAmountFcfa, 3000, 'La réduction trimestrielle est calculée côté serveur');
+  assert.equal(quarterlyInvoice.amountFcfa, 27000, 'Le montant net facturé tient compte de la réduction');
+  const quarterlyPaid = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: quarterlySlug, invoiceId: quarterlySub.currentInvoiceId,
+    amountFcfa: 27000, paymentReference: 'QUARTERLY-RECEIPT-001',
+    actorUid: 'super-admin-test', now: now + 1000
+  });
+  assert.equal(quarterlyPaid.success, true, 'Une facture trimestrielle peut être réglée');
+  const quarterlyRenewed = (await quarterlyRef.get()).data();
+  assert.equal(quarterlyRenewed.status, 'active', 'Le règlement réactive l’abonnement trimestriel');
+  const quarterlyEnd = new Date(quarterlyRenewed.endsAt);
+  const quarterlyStart = new Date(Math.max(Number(quarterlySub.endsAt || now), now));
+  assert.equal((quarterlyEnd.getUTCFullYear() - quarterlyStart.getUTCFullYear()) * 12 + quarterlyEnd.getUTCMonth() - quarterlyStart.getUTCMonth(), 3,
+    'Le renouvellement trimestriel ajoute exactement trois mois');
 
   const beforeGrace = await runSubscriptionBillingCycleWithDb(db, now + 6 * 86400000);
   assert.equal(beforeGrace.restaurantsSuspended, 0, 'Le restaurant reste accessible pendant le délai de grâce');
