@@ -36,6 +36,8 @@ try {
   const invoice = (await invoiceRef.get()).data();
   assert.equal(invoice.amountFcfa, 25000);
   assert.equal(invoice.status, 'open');
+  assert.equal(invoice.periodStartAt, now - 1000, 'La facture commence à la date de renouvellement prévue');
+  assert.equal(invoice.graceEndsAt, now + 7 * 86400000, 'La fin du délai de grâce est figée à la création de la facture');
 
   const replay = await runSubscriptionBillingCycleWithDb(db, now + 86400000);
   assert.equal(replay.invoicesCreated, 0, 'Une exécution répétée ne crée pas une seconde facture');
@@ -62,6 +64,7 @@ try {
   assert.equal(quarterlyInvoice.discountPercent, 10, 'Le taux configuré est figé sur la facture');
   assert.equal(quarterlyInvoice.discountAmountFcfa, 3000, 'La réduction trimestrielle est calculée côté serveur');
   assert.equal(quarterlyInvoice.amountFcfa, 27000, 'Le montant net facturé tient compte de la réduction');
+  assert.equal(quarterlyInvoice.periodEndAt > quarterlyInvoice.periodStartAt, true, 'La facture trimestrielle expose une période cohérente');
   const quarterlyPaid = await settleSubscriptionInvoiceWithDb(db, {
     restaurantSlug: quarterlySlug, invoiceId: quarterlySub.currentInvoiceId,
     amountFcfa: 27000, paymentReference: 'QUARTERLY-RECEIPT-001',
@@ -168,6 +171,9 @@ try {
   const renewed = (await subscriptionRef.get()).data();
   assert.equal(renewed.status, 'active');
   assert.equal(renewed.nextBillingAt, renewed.endsAt);
+  const settledInvoice = (await invoiceRef.get()).data();
+  assert.equal(settledInvoice.periodStartAt, renewed.startsAt, 'La facture réglée conserve la période réellement activée');
+  assert.equal(settledInvoice.periodEndAt, renewed.endsAt, 'La fin de période de la facture correspond à celle de l’abonnement renouvelé');
   assert.equal((await restaurantRef.get()).data().status, 'active', 'Un paiement réactive un restaurant suspendu uniquement pour impayé');
   const settlementReplay = await settleSubscriptionInvoiceWithDb(db, {
     restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
