@@ -241,7 +241,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const cookieHeader = String(req.headers?.cookie || '');
   const mfaCookie = cookieHeader.split(';').map((part: string) => part.trim())
     .find((part: string) => part.startsWith('restaumax_platform_mfa='))?.slice('restaumax_platform_mfa='.length) || '';
-  const mfaSessionVersion = Number((user as any).sessionVersion || (user as any).platformAdminSessionVersion || 1);
+  const mfaSessionVersion = Number(
+    user.role === 'platform_admin'
+      ? (user as any).platformAdminSessionVersion || 1
+      : (user as any).sessionVersion || 1
+  );
 
   const mfaActions = ['mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify', 'mfa_logout'];
   if (mfaActions.includes(action)) {
