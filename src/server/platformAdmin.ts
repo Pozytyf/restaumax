@@ -1,7 +1,7 @@
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { validateSubscriptionInput } from './subscriptionService.js';
-import { settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
+import { resolveSubscriptionInvoiceIdentity, settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
 import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.ts';
 import {
   beginPlatformAdminMfaEnrollment, confirmPlatformAdminMfaEnrollment,
@@ -1577,28 +1577,49 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 200) {
           return json(res, 400, { success: false, error: 'Taille de page de factures invalide (1 à 200).' });
         }
-        let query = db.collectionGroup('invoices').orderBy('issuedAt', 'desc').limit(requestedLimit + 1);
+        const baseQuery = db.collectionGroup('invoices').orderBy('issuedAt', 'desc');
+        let lastScanned: any = null;
         const cursor = String(req.query?.cursor || '').trim();
         if (cursor) {
           let parsed: any = null;
           try { parsed = JSON.parse(cursor); } catch { /* invalid cursor handled below */ }
           const slug = String(parsed?.slug || '');
           const invoiceId = String(parsed?.id || '');
-          if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(invoiceId)) {
+          if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^subinv_[a-f0-9]{32}$/.test(invoiceId)) {
             return json(res, 400, { success: false, error: 'Curseur de facturation invalide.' });
           }
           const cursorSnap = await db.collection('restaurantSubscriptions').doc(slug).collection('invoices').doc(invoiceId).get();
-          if (!cursorSnap.exists) return json(res, 400, { success: false, error: 'Curseur de facturation expiré.' });
-          query = query.startAfter(cursorSnap);
+          if (!cursorSnap.exists || !resolveSubscriptionInvoiceIdentity(cursorSnap.ref, cursorSnap.data() || {})) {
+            return json(res, 400, { success: false, error: 'Curseur de facturation expiré ou incohérent.' });
+          }
+          lastScanned = cursorSnap;
         }
-        const invoiceSnap = await query.get();
-        const hasMore = invoiceSnap.docs.length > requestedLimit;
-        const pageDocs = hasMore ? invoiceSnap.docs.slice(0, requestedLimit) : invoiceSnap.docs;
-        const invoices = pageDocs.map((invoiceDoc: any) => {
+
+        // Collection-group queries can also match unrelated "invoices" subcollections.
+        // Scan in stable pages and keep only documents physically stored under
+        // restaurantSubscriptions/{slug}/invoices/{invoiceId}.
+        const correlated: Array<{ doc: any; identity: { restaurantSlug: string; invoiceId: string } }> = [];
+        const scanLimit = Math.max(100, requestedLimit + 1);
+        let exhausted = false;
+        while (correlated.length <= requestedLimit && !exhausted) {
+          let scanQuery = baseQuery;
+          if (lastScanned) scanQuery = scanQuery.startAfter(lastScanned);
+          const scanSnap = await scanQuery.limit(scanLimit).get();
+          if (!scanSnap.docs.length) { exhausted = true; break; }
+          for (const invoiceDoc of scanSnap.docs) {
+            const identity = resolveSubscriptionInvoiceIdentity(invoiceDoc.ref, invoiceDoc.data() || {});
+            if (identity) correlated.push({ doc: invoiceDoc, identity });
+          }
+          lastScanned = scanSnap.docs[scanSnap.docs.length - 1];
+          if (scanSnap.docs.length < scanLimit) exhausted = true;
+        }
+
+        const hasMore = correlated.length > requestedLimit;
+        const pageRows = hasMore ? correlated.slice(0, requestedLimit) : correlated;
+        const invoices = pageRows.map(({ doc: invoiceDoc, identity }) => {
           const invoice = invoiceDoc.data() || {};
-          const restaurantSlug = invoiceDoc.ref.parent.parent?.id || String(invoice.restaurantSlug || '');
           return {
-            id: invoiceDoc.id, restaurantSlug,
+            id: identity.invoiceId, restaurantSlug: identity.restaurantSlug,
             planId: typeof invoice.planId === 'string' ? invoice.planId : '',
             planName: typeof invoice.planName === 'string' ? invoice.planName : '',
             amountFcfa: Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0,
@@ -1623,11 +1644,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             paymentReference: typeof invoice.paymentReference === 'string' ? invoice.paymentReference.slice(0, 80) : null
           };
         });
-        const lastDoc = pageDocs.length ? pageDocs[pageDocs.length - 1] : null;
-        const lastSlug = lastDoc?.ref.parent.parent?.id || '';
+        const lastRow = pageRows.length ? pageRows[pageRows.length - 1] : null;
         return json(res, 200, {
           success: true, invoices, gracePeriodDays, hasMore,
-          nextCursor: hasMore && lastDoc ? JSON.stringify({ slug: lastSlug, id: lastDoc.id }) : null
+          nextCursor: hasMore && lastRow ? JSON.stringify({ slug: lastRow.identity.restaurantSlug, id: lastRow.identity.invoiceId }) : null
         });
       }
 
@@ -1966,8 +1986,16 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           ? currentSubscriptionSnap.data() || {}
           : (restaurantSnap.data()?.subscription && typeof restaurantSnap.data()?.subscription === 'object' ? restaurantSnap.data().subscription : {});
         if (currentSubscription.currentInvoiceId) {
-          const outstandingInvoice = await subscriptionRef.collection('invoices').doc(String(currentSubscription.currentInvoiceId)).get();
-          if (outstandingInvoice.exists && !['paid', 'void'].includes(String(outstandingInvoice.data()?.status || ''))) {
+          const currentInvoiceId = String(currentSubscription.currentInvoiceId);
+          const outstandingInvoice = await subscriptionRef.collection('invoices').doc(currentInvoiceId).get();
+          if (!outstandingInvoice.exists) {
+            return json(res, 409, { success: false, error: 'Le lien de la facture courante est introuvable. Corrigez le rapprochement avant de modifier la formule ou la période.' });
+          }
+          const invoiceIdentity = resolveSubscriptionInvoiceIdentity(outstandingInvoice.ref, outstandingInvoice.data() || {});
+          if (!invoiceIdentity || invoiceIdentity.restaurantSlug !== slug || invoiceIdentity.invoiceId !== currentInvoiceId) {
+            return json(res, 409, { success: false, error: 'Le lien entre le restaurant, l’abonnement et sa facture courante est incohérent.' });
+          }
+          if (!['paid', 'void'].includes(String(outstandingInvoice.data()?.status || ''))) {
             return json(res, 409, { success: false, error: 'Une facture d’abonnement reste impayée. Régularisez-la avant de modifier la formule ou la période afin de préserver le lien entre contrat et facture.' });
           }
         }
