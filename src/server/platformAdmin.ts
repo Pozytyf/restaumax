@@ -239,6 +239,7 @@ export async function getPlatformAdminRole(db: any, user: DecodedIdToken, mfaSes
   if (record.active !== true || record.role !== role ||
       !Number.isSafeInteger(tokenVersion) || tokenVersion < 1 ||
       tokenVersion !== Number(record.sessionVersion || 0) ||
+      expectedPermissions.some((permission: string) => !PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole].includes(permission)) ||
       [...expectedPermissions].sort().join('|') !== [...tokenPermissions].sort().join('|')) return null;
   return role as PlatformAdminRole;
 }
@@ -250,7 +251,7 @@ export function canPlatformAdminPerform(role: PlatformAdminRole, action: string,
   const permissions = Array.isArray(assignedPermissions)
     ? assignedPermissions.filter((value): value is string => typeof value === 'string')
     : PLATFORM_ADMIN_ROLE_PERMISSIONS[role];
-  return permissions.includes(requiredPermission);
+  return PLATFORM_ADMIN_ROLE_PERMISSIONS[role].includes(requiredPermission) && permissions.includes(requiredPermission);
 }
 
 export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole: string): boolean {
