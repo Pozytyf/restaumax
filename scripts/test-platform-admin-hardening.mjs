@@ -102,6 +102,8 @@ assert(admin.includes('planId: selectedPlanId') && admin.includes('planFeatures:
 assert(admin.includes('subscriptionRef.collection(\'history\').doc()') &&
   admin.includes('billingAction: \'subscription_changed_no_invoice\''),
   'subscription changes are versioned and do not create an immediate or retroactive invoice');
+assert(admin.includes('Aucune facturation rétroactive ne sera déclenchée sans validation explicite'),
+  'active or trial subscriptions with past-due dates cannot trigger an unapproved retroactive invoice');
 assert(admin.includes('batch.set(subscriptionRef, updatedSubscription)') &&
   admin.includes('batch.create(historyRef') && admin.includes('batch.commit()'),
   'canonical subscription, history and audit are persisted atomically');
