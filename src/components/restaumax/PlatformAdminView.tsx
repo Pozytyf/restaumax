@@ -110,6 +110,15 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     return data;
   }, []);
 
+  const refreshSecurityStatus = useCallback(async () => {
+    const status = await request({ action: 'mfa_status' });
+    setMfaEnrolled(status.enrolled === true);
+    setRecoveryCodesRemaining(Number(status.recoveryCodesRemaining || 0));
+    setPasskeyCount(Number(status.passkeyCount || 0));
+    setTrustedSessionExpiresAt(Number(status.sessionExpiresAt || 0) || null);
+    setRecoveryContactEmail(String(status.recoveryContactEmail || ''));
+  }, [request]);
+
   const removeLegacyFirebaseFactors = useCallback(async () => {
     const currentUser = auth.currentUser;
     if (!currentUser) return;
@@ -662,6 +671,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         restaurants={restaurants}
         summary={summary}
         userEmail={user.email}
+        security={{ passkeyCount, mfaEnrolled, recoveryCodesRemaining, trustedSessionExpiresAt, recoveryContactEmail }}
+        onRefreshSecurity={refreshSecurityStatus}
         loading={loading}
         request={request}
         onRefresh={refresh}
