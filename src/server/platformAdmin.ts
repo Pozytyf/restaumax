@@ -1312,6 +1312,19 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             : billingSecretConfigured
               ? 'Secret CRON_SECRET présent, mais aucune exécution réussie récente n’est enregistrée.'
               : 'CRON_SECRET absent sur cet environnement : tâche planifiée non activable.';
+        const imageKitUploadEnabled = process.env.RESTAUMAX_IMAGEKIT_UPLOADS_ENABLED === 'true';
+        let imageKitEndpointValid = false;
+        try { imageKitEndpointValid = new URL(String(process.env.IMAGEKIT_URL_ENDPOINT || '')).protocol === 'https:'; } catch { imageKitEndpointValid = false; }
+        const imageKitConfigured = Boolean(process.env.IMAGEKIT_PRIVATE_KEY) && imageKitEndpointValid;
+        services.push({
+          id: 'imagekit', label: 'Photos des plats · ImageKit',
+          status: !imageKitUploadEnabled ? 'unavailable' : imageKitConfigured ? 'unknown' : 'degraded',
+          detail: !imageKitUploadEnabled
+            ? 'Les envois ImageKit sont désactivés par le feature flag de cet environnement.'
+            : imageKitConfigured
+              ? 'Le feature flag, la clé serveur et le endpoint HTTPS sont présents. Aucune requête de test n’est lancée : la disponibilité du fournisseur reste non mesurée.'
+              : 'Le feature flag ImageKit est activé, mais la clé privée ou le endpoint HTTPS manque. Aucun secret n’est exposé.'
+        });
         services.push({ id: 'billing', label: 'Facturation planifiée', status: billingStatus, detail: billingDetail });
         services.push({
           id: 'deployment', label: 'Déploiement', status: 'unknown',
