@@ -368,6 +368,15 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       const recoveryContactEmail = await getPlatformAdminRecoveryContact(db, user.uid);
       const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
       const sessionValid = Boolean(sessionDetails);
+      // Diagnostic only: never log the cookie, token hash, email, or recovery codes.
+      console.info('[RestauMax MFA] session status', {
+        cookiePresent: Boolean(mfaCookie),
+        sessionValid,
+        factorSource: sessionDetails?.factorSource || null,
+        sessionExpiresAt: sessionDetails?.expiresAt || null,
+        role: String(user.role || ''),
+        sessionVersion: mfaSessionVersion
+      });
       return json(res, 200, {
         success: true, ...status, recoveryContactEmail, sessionValid,
         sessionFactorSource: sessionDetails?.factorSource || null,
