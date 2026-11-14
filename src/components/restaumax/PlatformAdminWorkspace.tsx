@@ -125,6 +125,7 @@ type Props = {
   onRefresh: () => Promise<void>;
   onBack: () => void;
   onSignOut: () => void;
+  onSignOutAndRevoke: () => Promise<void>;
 };
 
 const NAV = [
@@ -947,7 +948,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between gap-3 border-b border-[#dbe3ee] bg-white/95 px-4 backdrop-blur md:px-7">
           <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#c2410c] text-sm font-black text-white lg:hidden">RM</div><div><p className="text-sm font-extrabold text-[#101d2d]">RestauMax · Administration centrale</p><p className="text-xs text-slate-500">Supervision multi-restaurants</p></div></div>
-          <div className="flex items-center gap-2"><button type="button" onClick={onBack} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-semibold text-slate-700">Accueil</button><button type="button" onClick={onSignOut} className="flex min-h-11 items-center gap-2 rounded-xl bg-[#101d2d] px-3 text-sm font-semibold text-white"><LogOut size={15}/> Déconnexion</button></div>
+          <div className="flex items-center gap-2"><button type="button" onClick={onBack} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-semibold text-slate-700">Accueil</button><button type="button" onClick={onSignOut} className="flex min-h-11 items-center gap-2 rounded-xl bg-[#101d2d] px-3 text-sm font-semibold text-white"><LogOut size={15}/> Déconnexion</button><button type="button" onClick={() => { if (window.confirm('Déconnecter ce navigateur et révoquer sa session MFA de confiance ? Les autres appareils resteront connectés.')) void onSignOutAndRevoke(); }} className="flex min-h-11 items-center gap-2 rounded-xl border border-rose-300 px-3 text-sm font-semibold text-rose-700 hover:bg-rose-50" title="Révoque uniquement la confiance MFA de cet appareil"><LockKeyhole size={15}/> Déconnecter et révoquer la confiance sur cet appareil</button></div>
         </header>
         <div className="sticky top-16 z-20 border-b border-slate-200 bg-white px-3 py-2 lg:hidden"><nav aria-label="Rubriques d’administration" className="flex gap-2 overflow-x-auto overscroll-x-contain">{NAV.map(item => <button key={item.id} type="button" onClick={() => setScreen(item.id)} aria-current={screen === item.id ? 'page' : undefined} className={`min-h-11 shrink-0 rounded-lg px-3 text-xs font-bold ${screen === item.id ? 'bg-[#101d2d] text-white' : 'bg-slate-100 text-slate-700'}`}>{item.label}</button>)}</nav></div>
         <main className="mx-auto max-w-[1600px] p-4 md:p-7">
