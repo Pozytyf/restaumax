@@ -126,6 +126,7 @@ type Props = {
   onBack: () => void;
   onSignOut: () => void;
   onSignOutAndRevoke: () => Promise<void>;
+  securityPanel: React.ReactNode;
 };
 
 const NAV = [
@@ -230,7 +231,7 @@ function mergePlatformConfig(current: PlatformConfig, incoming: any): PlatformCo
 
 
 export const PlatformAdminWorkspace: React.FC<Props> = ({
-  restaurants, summary, userEmail, security, onRefreshSecurity, loading, request, onRefresh, onBack, onSignOut
+  restaurants, summary, userEmail, security, onRefreshSecurity, securityPanel, loading, request, onRefresh, onBack, onSignOut
 }) => {
   const [screen, setScreen] = useState<Screen>('overview');
   const [platformRole, setPlatformRole] = useState<'full' | 'billing' | 'support' | 'read_only' | null>(null);
@@ -1030,7 +1031,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
 
           {screen === 'health' && <div className="space-y-5"><Panel><div className="mb-4 flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-extrabold">État réel des services</h3><p className="text-xs text-slate-500">Sondes serveur et télémétrie enregistrée · actualisé {health?.checkedAt?new Date(health.checkedAt).toLocaleString('fr-FR'):'—'}</p></div><button type="button" onClick={()=>void refreshCurrentScreen()} disabled={pageLoading} className="min-h-11 rounded-lg border px-3 text-xs font-bold">Relancer les sondes</button></div>{health?.services?.length?<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{health.services.map(service=><div key={service.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-2"><h4 className="font-bold">{service.label}</h4><Badge value={service.status==='operational'?'active':service.status==='degraded'?'past_due':service.status==='unavailable'?'suspended':'unknown'}>{service.status==='operational'?'Opérationnel':service.status==='degraded'?'Dégradé':service.status==='unavailable'?'Indisponible':'Non mesuré'}</Badge></div><p className="mt-2 text-sm text-slate-600">{service.detail}</p></div>)}</div>:<p className="py-6 text-sm text-slate-500">{pageLoading?'Sondes en cours…':'Aucune mesure disponible.'}</p>}</Panel><Panel><h3 className="mb-2 font-extrabold">Périmètre et limites des contrôles</h3><ul className="list-disc space-y-2 pl-5 text-sm text-slate-600"><li>Firestore et Firebase Authentication sont vérifiés depuis le serveur.</li><li>La facturation planifiée est contrôlée à partir de sa dernière exécution enregistrée et de la présence de CRON_SECRET.</li><li>Les paiements ne déclenchent aucun paiement réel pendant cette sonde ; le mode test ou l’absence de sonde fournisseur est indiqué.</li><li>Une sauvegarde n’est déclarée réussie que si un événement de sauvegarde est enregistré. Sans télémétrie, le statut reste « non mesuré ».</li><li>Les détails de configuration, les secrets et les données opérationnelles des restaurants ne sont jamais exposés.</li></ul></Panel></div>}
 
-          {screen === 'security' && <div className="grid gap-5 xl:grid-cols-2">
+          {screen === 'security' && <div className="space-y-5">{securityPanel}<div className="grid gap-5 xl:grid-cols-2">
             <Panel>
               <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><ShieldCheck size={20} className="text-emerald-700"/><h3 className="font-extrabold">Authentification multifacteur</h3></div><p className="mt-1 text-sm text-slate-500">État réel retourné par le serveur RestauMax.</p></div><Badge value={security.mfaEnrolled ? 'active' : 'suspended'}>{security.mfaEnrolled ? 'Protégé' : 'À configurer'}</Badge></div>
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -1047,7 +1048,7 @@ export const PlatformAdminWorkspace: React.FC<Props> = ({
               <button type="button" onClick={() => void sendOwnPasswordReset()} disabled={!userEmail || passwordResetBusy} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white disabled:opacity-50"><KeyRound size={16}/>{passwordResetBusy ? 'Envoi en cours…' : 'Recevoir un lien de réinitialisation'}</button>
               <p className="mt-3 text-xs text-slate-500">Après modification, reconnectez-vous avec le nouveau mot de passe. La protection MFA reste distincte et doit toujours être validée.</p>
             </Panel>
-          </div>}
+          </div></div>}
 
           {screen === 'settings' && <form onSubmit={savePlatformConfiguration} className="space-y-5">
             <div className="space-y-5"><Panel><h3 className="mb-4 font-extrabold">Paramètres généraux</h3><div className="space-y-4"><Field label="Devise de facturation"><input value="FCFA (XOF)" disabled className={inputClass}/></Field><Field label="Délai de grâce des factures (jours)"><input type="number" min={0} max={60} value={platformConfig.gracePeriodDays} onChange={e=>setPlatformConfig({...platformConfig,gracePeriodDays:Number(e.target.value)})} className={inputClass}/></Field><Field label="Réduction sur les abonnements trimestriels (%)"><input type="number" min={0} max={100} step={1} value={platformConfig.quarterlyDiscountPercent} onChange={e=>setPlatformConfig({...platformConfig,quarterlyDiscountPercent:Number(e.target.value)})} className={inputClass}/><span className="text-xs font-normal text-slate-500">Taux modifiable à tout moment. Le taux appliqué sera conservé sur chaque facture créée.</span></Field><label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 p-3 text-sm font-semibold"><input type="checkbox" checked={platformConfig.maintenanceMode} onChange={e=>setPlatformConfig({...platformConfig,maintenanceMode:e.target.checked})} className="h-5 w-5"/> Activer le mode maintenance global</label>{platformConfig.maintenanceMode&&<div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Le mode maintenance bloque les API métier de la plateforme. La santé, l’administration et les callbacks de règlement restent accessibles.</div>}</div></Panel>
