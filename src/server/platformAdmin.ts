@@ -1,8 +1,26 @@
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { validateSubscriptionInput } from './subscriptionService.js';
-import { settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
+import { resolveSubscriptionInvoiceIdentity, settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
 import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.ts';
+import {
+  beginPlatformAdminMfaEnrollment, confirmPlatformAdminMfaEnrollment,
+  createPlatformAdminMfaSession, getPlatformAdminMfaStatus, getPlatformAdminMfaSessionDetails, hasValidPlatformAdminMfaSession,
+  regeneratePlatformAdminRecoveryCodes, revokePlatformAdminMfaSessions, revokePlatformAdminMfaSession, verifyPlatformAdminMfaAndCreateSession
+} from './platformAdminMfa.js';
+import {
+  beginPlatformAdminPasskeyRegistration,
+  finishPlatformAdminPasskeyRegistration,
+  beginPlatformAdminPasskeyAuthentication,
+  finishPlatformAdminPasskeyAuthentication
+} from './platformAdminMfaPasskeys.js';
+import {
+  startPlatformAdminEmailRecovery,
+  verifyPlatformAdminEmailRecovery,
+  getPlatformAdminRecoveryContact,
+  startPlatformAdminRecoveryContactVerification,
+  verifyPlatformAdminRecoveryContact
+} from './platformAdminMfaRecoveryEmail.js';
 
 const PERMISSIONS = [
   'menu.view', 'menu.manage', 'orders.view', 'orders.manage', 'orders.serve',
@@ -81,6 +99,10 @@ function json(res: any, status: number, body: unknown) {
   return res.status(status).json(body);
 }
 
+function planIdentifier(name: string) {
+  return slugify(name).replace(/-/g, '_').slice(0, 60) || 'plan';
+}
+
 function slugify(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
@@ -95,6 +117,28 @@ function configuredSuperAdmins() {
     .split(',').map((email) => email.trim().toLowerCase()).filter(Boolean);
 }
 
+export async function countActivePlatformSuperAdmins(auth: any): Promise<number> {
+  const allowlisted = new Set(configuredSuperAdmins());
+  const active = new Set<string>();
+  let pageToken: string | undefined;
+  do {
+    const page = await auth.listUsers(1000, pageToken);
+    for (const account of page.users) {
+      const trustedClaim = account.customClaims?.role === 'super_admin';
+      const verifiedAllowlist = account.emailVerified === true &&
+        typeof account.email === 'string' && allowlisted.has(account.email.toLowerCase());
+      if (account.disabled !== true && (trustedClaim || verifiedAllowlist)) active.add(account.uid);
+    }
+    pageToken = page.pageToken;
+  } while (pageToken);
+  return active.size;
+}
+
+function isProtectedSuperAdminAccount(authUser: any): boolean {
+  const email = String(authUser?.email || '').trim().toLowerCase();
+  return authUser?.customClaims?.role === 'super_admin' || (!!email && configuredSuperAdmins().includes(email));
+}
+
 async function authenticate(req: any): Promise<DecodedIdToken | null> {
   const header = req.headers?.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
@@ -106,18 +150,108 @@ async function authenticate(req: any): Promise<DecodedIdToken | null> {
   }
 }
 
-export function isSuperAdmin(user: DecodedIdToken) {
-  // Trust only the server-issued Firebase custom claim or the verified bootstrap allowlist.
+function isSuperAdminIdentity(user: DecodedIdToken): boolean {
+  // Identity recognition is separate from the custom RestauMax MFA session proof.
   const hasTrustedSuperAdminClaim = user.role === 'super_admin';
   const verifiedAllowlistedEmail = user.email_verified === true &&
     typeof user.email === 'string' &&
     configuredSuperAdmins().includes(user.email.toLowerCase());
   if (!hasTrustedSuperAdminClaim && !verifiedAllowlistedEmail) return false;
-  if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true') {
-    const secondFactor = (user as any).firebase?.sign_in_second_factor;
-    return typeof secondFactor === 'string' && secondFactor.length > 0;
-  }
   return true;
+}
+
+export function isSuperAdmin(user: DecodedIdToken) {
+  // Identity recognition is separate from MFA proof. Protected actions require
+  // a server-validated RestauMax MFA session at the API boundary.
+  return isSuperAdminIdentity(user);
+}
+
+
+type PlatformAdminRole = 'full' | 'billing' | 'support' | 'read_only';
+const PLATFORM_ADMIN_ROLES: readonly PlatformAdminRole[] = ['full', 'billing', 'support', 'read_only'];
+const PLATFORM_ADMIN_ROLE_PERMISSIONS: Record<PlatformAdminRole, readonly string[]> = {
+  full: ['platform.*'],
+  billing: ['platform.overview', 'billing.read', 'billing.manage', 'audit.read'],
+  support: ['platform.overview', 'support.read', 'support.manage', 'support.access.request', 'support.access.diagnostics', 'accounts.read', 'health.read', 'audit.read', 'communication.read'],
+  read_only: ['platform.overview', 'support.read', 'health.read', 'audit.read', 'communication.read']
+};
+
+const PLATFORM_ADMIN_ACTION_PERMISSION: Record<string, string> = {
+  overview: 'platform.overview', platform_capabilities: 'platform.overview',
+  audit_list: 'audit.read',
+  billing_list: 'billing.read', billing_catalog_read: 'billing.read',
+  update_subscription: 'billing.manage', settle_subscription_invoice: 'billing.manage',
+  promotion_list: 'billing.read', promotion_save: 'billing.manage', promotion_toggle: 'billing.manage',
+  support_list: 'support.read', support_messages: 'support.read', support_create: 'support.manage', support_update: 'support.manage',
+  support_access_request: 'support.access.request', support_access_list: 'support.manage',
+  support_access_diagnostics: 'support.access.diagnostics',
+  platform_staff_list: 'accounts.read',
+  health_details: 'health.read', announcement_list: 'communication.read',
+  platform_admin_list: 'accounts.manage', platform_admin_create: 'accounts.manage',
+  platform_admin_update: 'accounts.manage', platform_admin_status: 'accounts.manage',
+  platform_admin_delete: 'accounts.manage', platform_admin_revoke_sessions: 'accounts.manage',
+  platform_account_password_reset: 'accounts.manage', mfa_reset: 'accounts.manage',
+  create_restaurant: 'platform.manage', set_restaurant_status: 'platform.manage',
+  delete_restaurant: 'platform.manage',
+  platform_owner_invite: 'accounts.manage', platform_staff_status: 'accounts.manage',
+  platform_staff_revoke_sessions: 'accounts.manage',
+  config_read: 'platform.manage', config_update: 'platform.manage',
+  promotion_manage: 'billing.manage', announcement_save: 'communication.manage',
+  announcement_publish: 'communication.manage', announcement_cancel: 'communication.manage'
+};
+
+function resolvePlatformAdminPermissions(role: Exclude<PlatformAdminRole, 'full'>, requested: unknown): string[] | null {
+  const ceiling = PLATFORM_ADMIN_ROLE_PERMISSIONS[role];
+  if (requested === undefined) return [...ceiling];
+  if (!Array.isArray(requested)) return null;
+  const permissions = [...new Set(requested.filter((value): value is string => typeof value === 'string'))];
+  if (permissions.length !== requested.length || !permissions.includes('platform.overview') ||
+      permissions.some(permission => !ceiling.includes(permission))) return null;
+  return permissions;
+}
+
+
+function platformAdminMfaSatisfied(_user: DecodedIdToken, mfaSessionValid: boolean): boolean {
+  return process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA !== 'true' || mfaSessionValid;
+}
+
+export async function getPlatformAdminRole(db: any, user: DecodedIdToken, mfaSessionValid = false): Promise<PlatformAdminRole | null> {
+  if (isSuperAdminIdentity(user)) {
+    if (db && typeof db.collection === 'function') {
+      const managedFull = await db.collection('platform_admins').doc(user.uid).get();
+      if (managedFull.exists && managedFull.data()?.role === 'full' && managedFull.data()?.active !== true) return null;
+    }
+    return platformAdminMfaSatisfied(user, mfaSessionValid) ? 'full' : null;
+  }
+  if (user.role !== 'platform_admin' || !platformAdminMfaSatisfied(user, mfaSessionValid)) return null;
+  const role = String((user as any).platformAdminRole || '');
+  if (!PLATFORM_ADMIN_ROLES.includes(role as PlatformAdminRole) || role === 'full') return null;
+  const snap = await db.collection('platform_admins').doc(user.uid).get();
+  if (!snap.exists) return null;
+  const record = snap.data() || {};
+  const tokenVersion = Number((user as any).platformAdminSessionVersion || 0);
+  const expectedPermissions = Array.isArray(record.permissions)
+    ? record.permissions
+    : PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole];
+  const tokenPermissions = Array.isArray((user as any).platformAdminPermissions)
+    ? (user as any).platformAdminPermissions
+    : PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole];
+  if (record.active !== true || record.role !== role ||
+      !Number.isSafeInteger(tokenVersion) || tokenVersion < 1 ||
+      tokenVersion !== Number(record.sessionVersion || 0) ||
+      expectedPermissions.some((permission: string) => !PLATFORM_ADMIN_ROLE_PERMISSIONS[role as PlatformAdminRole].includes(permission)) ||
+      [...expectedPermissions].sort().join('|') !== [...tokenPermissions].sort().join('|')) return null;
+  return role as PlatformAdminRole;
+}
+
+export function canPlatformAdminPerform(role: PlatformAdminRole, action: string, assignedPermissions?: unknown): boolean {
+  if (role === 'full') return true;
+  const requiredPermission = PLATFORM_ADMIN_ACTION_PERMISSION[action];
+  if (!requiredPermission) return false;
+  const permissions = Array.isArray(assignedPermissions)
+    ? assignedPermissions.filter((value): value is string => typeof value === 'string')
+    : PLATFORM_ADMIN_ROLE_PERMISSIONS[role];
+  return PLATFORM_ADMIN_ROLE_PERMISSIONS[role].includes(requiredPermission) && permissions.includes(requiredPermission);
 }
 
 export function canManageStaffMember(actorRole: 'owner' | 'manager', targetRole: string): boolean {
@@ -169,6 +303,8 @@ async function requireStaffAdministrator(db: any, user: DecodedIdToken, slug: st
 
 export async function handlePlatformAdmin(req: any, res: any, db: any) {
   res.setHeader?.('Cache-Control', 'no-store');
+  res.setHeader?.('Referrer-Policy', 'no-referrer');
+  res.setHeader?.('X-Content-Type-Options', 'nosniff');
   if (req.method !== 'GET' && req.method !== 'POST') {
     res.setHeader?.('Allow', 'GET, POST');
     return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
@@ -178,12 +314,511 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
   const user = await authenticate(req);
   if (!user) return json(res, 401, { success: false, error: 'Authentification requise.' });
 
-  // One Firebase identity cannot simultaneously be a restaurant member
-  // and a platform administrator. This check applies even to an already
-  // promoted super-admin, so a stale/legacy tenant membership cannot coexist.
+  const body = req.body || {};
+  const action = req.method === 'GET' ? String(req.query?.action || 'overview') : String(body.action || '');
+  const cookieHeader = String(req.headers?.cookie || '');
+  let mfaCookie = cookieHeader.split(';').map((part: string) => part.trim())
+    .find((part: string) => part.startsWith('restaumax_platform_mfa='))?.slice('restaumax_platform_mfa='.length) || '';
+  const mfaSessionVersion = Number(
+    user.role === 'platform_admin'
+      ? (user as any).platformAdminSessionVersion || 1
+      : (user as any).sessionVersion || 1
+  );
+
+  const firebaseSecondFactor = (user as any).firebase?.sign_in_second_factor;
+  const firebaseMfaIsRecent = typeof firebaseSecondFactor === 'string' && firebaseSecondFactor &&
+    Number(user.auth_time || 0) >= Math.floor(Date.now() / 1000) - 5 * 60;
+  const firebaseMfaAdminIdentity = isSuperAdminIdentity(user) ||
+    (user.role === 'platform_admin' && await getPlatformAdminRole(db, user, true) !== null);
+  if (process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true' && firebaseMfaIsRecent &&
+      firebaseMfaAdminIdentity &&
+      !(await hasValidPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, mfaCookie))) {
+    const firebaseSessionIsMigration = isSuperAdminIdentity(user);
+    const session = await createPlatformAdminMfaSession(
+      db, user.uid, mfaSessionVersion,
+      firebaseSessionIsMigration ? 'firebase-migration' : 'firebase',
+      firebaseSessionIsMigration ? 10 * 60 * 1000 : 90 * 24 * 60 * 60 * 1000
+    );
+    mfaCookie = session.token;
+    res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=' + (firebaseSessionIsMigration ? 600 : 7776000));
+    await db.collection('admin_audit_logs').add({
+      action: firebaseSessionIsMigration ? 'platform_admin_mfa_firebase_migration_started' : 'platform_admin_mfa_verified_firebase', actorUid: user.uid,
+      actorEmail: String(user.email || ''), factorId: firebaseSecondFactor,
+      expiresAt: session.expiresAt, createdAt: Date.now()
+    }).catch(() => undefined);
+  }
+
+  const mfaActions = [
+    'mfa_status', 'mfa_enroll_start', 'mfa_enroll_confirm', 'mfa_verify',
+    'mfa_accept_firebase', 'mfa_recovery_enroll_start', 'mfa_recovery_regenerate',
+    'mfa_recovery_contact_start', 'mfa_recovery_contact_verify',
+    'mfa_recovery_email_start', 'mfa_recovery_email_verify',
+    'mfa_passkey_register_options', 'mfa_passkey_register_verify',
+    'mfa_passkey_auth_options', 'mfa_passkey_auth_verify', 'mfa_logout', 'mfa_logout_device'
+  ];
+  if (mfaActions.includes(action)) {
+    const delegatedIdentity = user.role === 'platform_admin' &&
+      await getPlatformAdminRole(db, user, true) !== null;
+    if (!isSuperAdminIdentity(user) && !delegatedIdentity) {
+      return json(res, 403, { success: false, error: 'Compte administrateur plateforme requis.' });
+    }
+    if (action === 'mfa_status') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const status = await getPlatformAdminMfaStatus(db, user.uid);
+      const recoveryContactEmail = await getPlatformAdminRecoveryContact(db, user.uid);
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      const sessionValid = Boolean(sessionDetails);
+      // Diagnostic only: never log the cookie, token hash, email, or recovery codes.
+      console.info('[RestauMax MFA] session status', {
+        cookiePresent: Boolean(mfaCookie),
+        sessionValid,
+        factorSource: sessionDetails?.factorSource || null,
+        sessionExpiresAt: sessionDetails?.expiresAt || null,
+        role: String(user.role || ''),
+        sessionVersion: mfaSessionVersion
+      });
+      return json(res, 200, {
+        success: true, ...status, recoveryContactEmail, sessionValid,
+        sessionFactorSource: sessionDetails?.factorSource || null,
+        sessionExpiresAt: sessionDetails?.expiresAt || null,
+        recoverySession: sessionDetails?.factorSource === 'recovery',
+        firebaseMfaMigrationEligible: isSuperAdminIdentity(user)
+      });
+    }
+    if (action === 'mfa_accept_firebase') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const secondFactor = (user as any).firebase?.sign_in_second_factor;
+      const authTime = Number(user.auth_time || 0);
+      if (typeof secondFactor !== 'string' || !secondFactor || authTime < Math.floor(Date.now() / 1000) - 5 * 60) {
+        return json(res, 401, { success: false, error: 'Une authentification Firebase avec second facteur récente est requise.' });
+      }
+      const firebaseSessionIsMigration = isSuperAdminIdentity(user);
+      const session = await createPlatformAdminMfaSession(
+        db, user.uid, mfaSessionVersion,
+        firebaseSessionIsMigration ? 'firebase-migration' : 'firebase',
+        firebaseSessionIsMigration ? 10 * 60 * 1000 : 90 * 24 * 60 * 60 * 1000
+      );
+      res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=' + (firebaseSessionIsMigration ? 600 : 7776000));
+      await db.collection('admin_audit_logs').add({
+        action: firebaseSessionIsMigration ? 'platform_admin_mfa_firebase_migration_started' : 'platform_admin_mfa_verified_firebase', actorUid: user.uid,
+        actorEmail: String(user.email || ''), factorId: secondFactor, expiresAt: session.expiresAt, createdAt: Date.now()
+      }).catch(() => undefined);
+      return json(res, 200, { success: true, sessionExpiresAt: session.expiresAt });
+    }
+    if (action === 'mfa_recovery_enroll_start') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (sessionDetails?.factorSource !== 'recovery') return json(res, 403, { success: false, error: 'Une connexion par code de secours est requise pour remplacer le facteur perdu.' });
+      try {
+        const setup = await beginPlatformAdminMfaEnrollment(db, user.uid, String(user.email || user.uid), true);
+        await db.collection('admin_audit_logs').add({ action: 'platform_admin_mfa_recovery_enrollment_started', actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now() });
+        return json(res, 200, { success: true, ...setup, recoveryEnrollment: true });
+      } catch {
+        return json(res, 503, { success: false, error: 'Impossible de préparer le remplacement du facteur MFA.' });
+      }
+    }
+    if (action === 'mfa_enroll_start') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
+        return json(res, 401, { success: false, error: 'Reconnectez-vous avant de configurer le MFA.' });
+      }
+      const status = await getPlatformAdminMfaStatus(db, user.uid);
+      if (status.enrolled) return json(res, 409, { success: false, error: 'Un facteur MFA est déjà enrôlé.' });
+      try {
+        const setup = await beginPlatformAdminMfaEnrollment(db, user.uid, String(user.email || user.uid));
+        return json(res, 200, { success: true, ...setup });
+      } catch {
+        return json(res, 503, { success: false, error: 'Configuration de chiffrement MFA indisponible.' });
+      }
+    }
+    if (action === 'mfa_enroll_confirm') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const recoverySession = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      const recoveryCodes = await confirmPlatformAdminMfaEnrollment(db, user.uid, String(body.code || ''));
+      if (!recoveryCodes) return json(res, 400, { success: false, error: 'Code invalide, déjà utilisé ou enrôlement expiré.' });
+      const session = await createPlatformAdminMfaSession(db, user.uid, mfaSessionVersion, 'totp');
+      res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=7776000');
+      await db.collection('admin_audit_logs').add({
+        action: recoverySession?.factorSource === 'recovery' ? 'platform_admin_mfa_recovery_completed' : 'platform_admin_mfa_enrolled',
+        factorSource: recoverySession?.factorSource === 'recovery' ? 'recovery' : 'totp',
+        actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
+      }).catch(() => undefined);
+      return json(res, 200, {
+        success: true, enrolled: true, recoveryCodes, sessionExpiresAt: session.expiresAt,
+        firebaseMfaMigrationEligible: isSuperAdminIdentity(user)
+      });
+    }
+    if (action === 'mfa_recovery_regenerate') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (!sessionDetails || sessionDetails.factorSource === 'recovery') return json(res, 403, { success: false, error: 'Une session MFA normale et valide est requise pour renouveler les codes de secours.' });
+      const recoveryCodes = await regeneratePlatformAdminRecoveryCodes(db, user.uid, String(body.code || ''));
+      if (!recoveryCodes) return json(res, 401, { success: false, error: 'Code TOTP invalide, déjà utilisé ou temporairement bloqué.' });
+      await db.collection('admin_audit_logs').add({ action: 'platform_admin_mfa_recovery_codes_regenerated', actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now() }).catch(() => undefined);
+      return json(res, 200, { success: true, recoveryCodes, recoveryCodesRemaining: recoveryCodes.length });
+    }
+    if (action === 'mfa_verify') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      try {
+        const session = await verifyPlatformAdminMfaAndCreateSession(db, user.uid, String(body.code || ''), mfaSessionVersion);
+        if (!session) return json(res, 401, { success: false, error: 'Code MFA invalide, déjà utilisé ou temporairement bloqué.' });
+        res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=' + (session.recoveryUsed ? 600 : 7776000));
+        await db.collection('admin_audit_logs').add({
+          action: session.recoveryUsed ? 'platform_admin_mfa_recovery_code_used' : 'platform_admin_mfa_verified',
+          factorSource: session.recoveryUsed ? 'recovery' : 'totp',
+          actorUid: user.uid, actorEmail: String(user.email || ''),
+          expiresAt: session.expiresAt, createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, { success: true, expiresAt: session.expiresAt });
+      } catch {
+        return json(res, 503, { success: false, error: 'Service MFA temporairement indisponible.' });
+      }
+    }
+    if (action === 'mfa_recovery_contact_start') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
+        return json(res, 401, { success: false, error: 'Reconnectez-vous avec votre mot de passe avant de modifier l’adresse de récupération.' });
+      }
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (!sessionDetails || !['totp', 'passkey'].includes(sessionDetails.factorSource)) {
+        return json(res, 403, { success: false, error: 'Une session MFA RestauMax normale est requise pour configurer cette adresse.' });
+      }
+      try {
+        const delivery = await startPlatformAdminRecoveryContactVerification(db, user.uid, String(body.email || ''));
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_recovery_contact_verification_requested',
+          actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, {
+          success: true, sent: true, expiresInSeconds: 600,
+          testDeliveryOnly: delivery.testDeliveryOnly,
+          deliveredTo: delivery.testDeliveryOnly ? delivery.deliveredTo : undefined
+        });
+      } catch (error: any) {
+        const message = String(error?.message || '');
+        return json(res, message.includes('attendre') ? 429 : message.includes('déjà associée') ? 409 : 400, {
+          success: false, error: message || 'Impossible d’envoyer le code de vérification.'
+        });
+      }
+    }
+    if (action === 'mfa_recovery_contact_verify') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
+        return json(res, 401, { success: false, error: 'Reconnectez-vous avec votre mot de passe avant de valider cette adresse.' });
+      }
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (!sessionDetails || !['totp', 'passkey'].includes(sessionDetails.factorSource)) {
+        return json(res, 403, { success: false, error: 'Une session MFA RestauMax normale est requise pour confirmer cette adresse.' });
+      }
+      try {
+        const recoveryContactEmail = await verifyPlatformAdminRecoveryContact(db, user.uid, String(body.code || ''));
+        if (!recoveryContactEmail) return json(res, 401, { success: false, error: 'Code de vérification invalide, expiré ou déjà utilisé.' });
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_recovery_contact_verified',
+          actorUid: user.uid, actorEmail: String(user.email || ''), recoveryContactEmail, createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, { success: true, verified: true, recoveryContactEmail });
+      } catch (error: any) {
+        const message = String(error?.message || '');
+        return json(res, message.includes('déjà associée') ? 409 : 400, {
+          success: false, error: message || 'Impossible de confirmer cette adresse.'
+        });
+      }
+    }
+    if (action === 'mfa_recovery_email_start') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
+        return json(res, 401, { success: false, error: 'Reconnectez-vous avec votre mot de passe avant de demander une récupération MFA.' });
+      }
+      const status = await getPlatformAdminMfaStatus(db, user.uid);
+      if (!status.enrolled && Number(status.passkeyCount || 0) === 0) {
+        return json(res, 409, { success: false, error: 'Aucun facteur RestauMax à récupérer pour ce compte.' });
+      }
+      const recoveryContactEmail = await getPlatformAdminRecoveryContact(db, user.uid);
+      if (!recoveryContactEmail) {
+        return json(res, 409, { success: false, error: 'Aucune adresse de récupération vérifiée. Configurez-la dans votre espace administrateur avant tout incident.' });
+      }
+      try {
+        await startPlatformAdminEmailRecovery(db, user.uid, recoveryContactEmail);
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_email_recovery_requested',
+          actorUid: user.uid, actorEmail: String(user.email || ''), recoveryContactEmail, createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, { success: true, sent: true, expiresInSeconds: 600 });
+      } catch (error: any) {
+        const message = String(error?.message || '');
+        return json(res, message.includes('attendre') ? 429 : 503, {
+          success: false,
+          error: message || 'Impossible d’envoyer le code de récupération.'
+        });
+      }
+    }
+    if (action === 'mfa_recovery_email_verify') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      if (Number(user.auth_time || 0) < Math.floor(Date.now() / 1000) - 10 * 60) {
+        return json(res, 401, { success: false, error: 'Reconnectez-vous avec votre mot de passe avant de valider la récupération MFA.' });
+      }
+      const session = await verifyPlatformAdminEmailRecovery(db, user.uid, String(body.code || ''), mfaSessionVersion);
+      if (!session) return json(res, 401, { success: false, error: 'Code de récupération invalide, expiré ou déjà utilisé.' });
+      res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=600');
+      await db.collection('admin_audit_logs').add({
+        action: 'platform_admin_mfa_email_recovery_verified',
+        actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
+      }).catch(() => undefined);
+      return json(res, 200, { success: true, recoverySession: true, expiresAt: session.expiresAt });
+    }
+    if (action === 'mfa_passkey_register_options') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (!sessionDetails || !['totp', 'passkey'].includes(sessionDetails.factorSource)) {
+        return json(res, 403, { success: false, error: 'Une session MFA RestauMax récente est requise pour ajouter une passkey.' });
+      }
+      try {
+        const result = await beginPlatformAdminPasskeyRegistration(db, user.uid, String(user.email || user.uid), req);
+        return json(res, 200, { success: true, options: result.options });
+      } catch (error: any) {
+        return json(res, 400, { success: false, error: error?.message || 'Impossible de préparer la passkey.' });
+      }
+    }
+    if (action === 'mfa_passkey_register_verify') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const sessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+      if (!sessionDetails || !['totp', 'passkey'].includes(sessionDetails.factorSource)) {
+        return json(res, 403, { success: false, error: 'Une session MFA RestauMax récente est requise pour ajouter une passkey.' });
+      }
+      try {
+        const registered = await finishPlatformAdminPasskeyRegistration(db, user.uid, body.response, req, String(body.name || 'Passkey'));
+        if (!registered) return json(res, 400, { success: false, error: 'Enregistrement de la passkey non validé.' });
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_passkey_registered',
+          actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, { success: true, passkeyRegistered: true });
+      } catch (error: any) {
+        return json(res, 400, { success: false, error: error?.message || 'Impossible d’enregistrer la passkey.' });
+      }
+    }
+    if (action === 'mfa_passkey_auth_options') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      try {
+        const result = await beginPlatformAdminPasskeyAuthentication(db, user.uid, req);
+        return json(res, 200, { success: true, options: result.options });
+      } catch (error: any) {
+        return json(res, 400, { success: false, error: error?.message || 'Aucune passkey disponible.' });
+      }
+    }
+    if (action === 'mfa_passkey_auth_verify') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      try {
+        const session = await finishPlatformAdminPasskeyAuthentication(db, user.uid, mfaSessionVersion, body.response, req);
+        if (!session) return json(res, 401, { success: false, error: 'La passkey n’a pas pu être vérifiée.' });
+        res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=' + session.token + '; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=7776000');
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_verified_passkey',
+          actorUid: user.uid, actorEmail: String(user.email || ''), expiresAt: session.expiresAt, createdAt: Date.now()
+        }).catch(() => undefined);
+        return json(res, 200, { success: true, expiresAt: session.expiresAt, factorSource: 'passkey' });
+      } catch (error: any) {
+        return json(res, 401, { success: false, error: error?.message || 'La passkey n’a pas pu être vérifiée.' });
+      }
+    }
+    if (action === 'mfa_logout_device') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const revoked = await revokePlatformAdminMfaSession(db, user.uid, mfaCookie);
+      if (!revoked) return json(res, 409, { success: false, error: 'Aucune session de confiance active n’a été trouvée sur cet appareil.' });
+      res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=0');
+      await db.collection('admin_audit_logs').add({
+        action: 'platform_admin_mfa_device_trust_revoked', actorUid: user.uid,
+        actorEmail: String(user.email || ''), createdAt: Date.now()
+      }).catch(() => undefined);
+      return json(res, 200, { success: true, deviceTrustRevoked: true });
+    }
+    if (action === 'mfa_logout') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      await revokePlatformAdminMfaSessions(db, user.uid);
+      await db.collection('platform_admin_mfa_webauthn_challenges').doc(user.uid).delete().catch(() => undefined);
+      await db.collection('platform_admin_mfa_email_recovery').doc(user.uid).delete().catch(() => undefined);
+      res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=0');
+      await db.collection('admin_audit_logs').add({
+        action: 'platform_admin_mfa_logout', actorUid: user.uid,
+        actorEmail: String(user.email || ''), createdAt: Date.now()
+      }).catch(() => undefined);
+      return json(res, 200, { success: true });
+    }
+  }
+
+  const activeMfaSessionDetails = await getPlatformAdminMfaSessionDetails(db, user.uid, mfaSessionVersion, mfaCookie);
+  if (activeMfaSessionDetails?.factorSource === 'recovery') {
+    return json(res, 403, { success: false, error: 'Cette session de récupération est limitée au remplacement du facteur MFA. Terminez le nouvel enrôlement puis reconnectez-vous.' });
+  }
+  const mfaSessionValid = process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA !== 'true' ||
+    Boolean(activeMfaSessionDetails && (
+      ['totp', 'passkey'].includes(activeMfaSessionDetails.factorSource) ||
+      (activeMfaSessionDetails.factorSource === 'firebase' && !isSuperAdminIdentity(user))
+    ));
+
+  // Restaurant-side support and announcement reads are tenant-scoped. They
+  // intentionally run before the platform-admin membership exclusion below.
   const membershipRef = db.collection('managers').doc(user.uid);
   const membershipSnap = await membershipRef.get();
   const existingMembership = membershipSnap.exists ? (membershipSnap.data() || {}) : null;
+  if (['support_submit', 'support_my_tickets', 'support_reply', 'restaurant_announcements', 'support_access_requests', 'support_access_decision', 'support_access_revoke'].includes(action)) {
+    const member = existingMembership;
+    const slug = String(member?.restaurantSlug || '').trim();
+    if (!member || member.active !== true || !slug ||
+        !['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(String(member.role || '')) ||
+        Number(user.sessionVersion || 0) !== Number(member.sessionVersion || 0)) {
+      return json(res, 403, { success: false, error: 'Compte restaurant actif requis pour accéder au support.' });
+    }
+    const restaurantRef = db.collection('restaurants').doc(slug);
+    const restaurantSnap = await restaurantRef.get();
+    const restaurant = restaurantSnap.exists ? restaurantSnap.data() || {} : null;
+    if (!restaurant || restaurant.status !== 'active' || restaurant.deletedAt) {
+      return json(res, 403, { success: false, error: 'Ce restaurant ne peut pas accéder aux services de la plateforme.' });
+    }
+    const now = Date.now();
+    if (action === 'support_submit') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const subject = String(body.subject || '').trim();
+      const message = String(body.message || '').trim();
+      const priority = ['low', 'medium', 'high'].includes(String(body.priority)) ? String(body.priority) : 'medium';
+      if (subject.length < 5 || subject.length > 140 || message.length < 10 || message.length > 4000) {
+        return json(res, 400, { success: false, error: 'Le sujet doit contenir 5 à 140 caractères et le message 10 à 4 000 caractères.' });
+      }
+      const ticketRef = db.collection('platform_support_tickets').doc();
+      const ticket = {
+        id: ticketRef.id, restaurantSlug: slug, restaurantName: String(restaurant.name || slug),
+        subject, priority, status: 'open', source: 'restaurant_portal',
+        createdByUid: user.uid, createdByName: String(user.name || user.email || user.uid),
+        createdByEmail: typeof user.email === 'string' ? user.email : '',
+        createdAt: now, updatedAt: now, lastMessageAt: now, messageCount: 1
+      };
+      const batch = db.batch();
+      batch.create(ticketRef, ticket);
+      batch.create(ticketRef.collection('messages').doc(), {
+        authorUid: user.uid, authorRole: String(member.role), body: message,
+        visibility: 'public', createdAt: now
+      });
+      batch.create(db.collection('admin_audit_logs').doc(), {
+        action: 'support_ticket_created', restaurantSlug: slug, ticketId: ticketRef.id,
+        actorUid: user.uid, actorRole: String(member.role), createdAt: now
+      });
+      await batch.commit();
+      return json(res, 201, { success: true, ticket });
+    }
+    if (action === 'support_my_tickets') {
+      if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const snap = await db.collection('platform_support_tickets').where('restaurantSlug', '==', slug).limit(100).get();
+      const tickets = await Promise.all(snap.docs.map(async (doc: any) => {
+        const messages = await doc.ref.collection('messages').orderBy('createdAt', 'asc').limit(50).get();
+        return { ...doc.data(), messages: messages.docs.map((message: any) => ({ id: message.id, ...message.data() })).filter((message: any) => message.visibility !== 'internal') };
+      }));
+      tickets.sort((a: any, b: any) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+      return json(res, 200, { success: true, tickets: tickets.slice(0, 30) });
+    }
+    if (action === 'support_reply') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const ticketId = String(body.ticketId || '').trim();
+      const message = String(body.message || '').trim();
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(ticketId) || message.length < 2 || message.length > 4000) {
+        return json(res, 400, { success: false, error: 'Réponse invalide.' });
+      }
+      const ticketRef = db.collection('platform_support_tickets').doc(ticketId);
+      const ticketSnap = await ticketRef.get();
+      if (!ticketSnap.exists || ticketSnap.data()?.restaurantSlug !== slug || ['closed'].includes(String(ticketSnap.data()?.status))) {
+        return json(res, 404, { success: false, error: 'Ticket introuvable ou fermé.' });
+      }
+      const batch = db.batch();
+      batch.create(ticketRef.collection('messages').doc(), {
+        authorUid: user.uid, authorRole: String(member.role), body: message,
+        visibility: 'public', createdAt: now
+      });
+      batch.update(ticketRef, {
+        updatedAt: now, lastMessageAt: now, messageCount: Number(ticketSnap.data()?.messageCount || 0) + 1,
+        status: 'waiting_support'
+      });
+      batch.create(db.collection('admin_audit_logs').doc(), {
+        action: 'support_ticket_customer_reply', restaurantSlug: slug, ticketId,
+        actorUid: user.uid, actorRole: String(member.role), createdAt: now
+      });
+      await batch.commit();
+      return json(res, 200, { success: true });
+    }
+    if (action === 'support_access_requests' || action === 'support_access_decision' || action === 'support_access_revoke') {
+      if (action === 'support_access_decision' || action === 'support_access_revoke') {
+        const ownerUid = await getRestaurantOwnerUid(db, slug, undefined, restaurant);
+        if (member.role !== 'owner' || ownerUid !== user.uid) {
+          return json(res, 403, { success: false, error: 'Seul le propriétaire du restaurant peut gérer le consentement au diagnostic.' });
+        }
+      }
+      if (action === 'support_access_revoke') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const requestId = String(body.requestId || '').trim();
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) return json(res, 400, { success: false, error: 'Demande invalide.' });
+        const requestRef = db.collection('platform_support_access_requests').doc(requestId);
+        const requestSnap = await requestRef.get();
+        const requestData = requestSnap.exists ? requestSnap.data() || {} : null;
+        if (!requestData || requestData.restaurantSlug !== slug || requestData.status !== 'approved' || Number(requestData.accessExpiresAt || 0) <= now) {
+          return json(res, 409, { success: false, error: 'Accès déjà expiré ou demande introuvable.' });
+        }
+        await requestRef.update({ status: 'revoked', accessExpiresAt: now, revokedAt: now, revokedBy: user.uid, updatedAt: now });
+        await db.collection('admin_audit_logs').add({
+          action: 'revoke_support_diagnostic_access', restaurantSlug: slug,
+          supportAccessRequestId: requestId, actorUid: user.uid, createdAt: now
+        });
+        return json(res, 200, { success: true, status: 'revoked' });
+      }
+      if (action === 'support_access_requests') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_support_access_requests').where('restaurantSlug', '==', slug).limit(30).get();
+        const requests = snap.docs.map((doc: any) => doc.data()).filter((item: any) =>
+          (item.status === 'pending' && Number(item.requestExpiresAt || 0) > now) ||
+          (item.status === 'approved' && Number(item.accessExpiresAt || 0) > now)
+        ).sort((a: any, b: any) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+        return json(res, 200, { success: true, requests });
+      }
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const requestId = String(body.requestId || '').trim();
+      const approve = body.approve === true;
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId) || typeof body.approve !== 'boolean') {
+        return json(res, 400, { success: false, error: 'Décision de consentement invalide.' });
+      }
+      const requestRef = db.collection('platform_support_access_requests').doc(requestId);
+      const requestSnap = await requestRef.get();
+      const requestData = requestSnap.exists ? requestSnap.data() || {} : null;
+      if (!requestData || requestData.restaurantSlug !== slug || requestData.status !== 'pending' ||
+          Number(requestData.requestExpiresAt || 0) <= now) {
+        return json(res, 409, { success: false, error: 'Demande introuvable, expirée ou déjà traitée.' });
+      }
+      const patch = approve
+        ? { status: 'approved', approvedAt: now, approvedBy: user.uid, accessExpiresAt: now + 60 * 60 * 1000 }
+        : { status: 'denied', deniedAt: now, deniedBy: user.uid, accessExpiresAt: null };
+      await requestRef.update({ ...patch, updatedAt: now });
+      await db.collection('admin_audit_logs').add({
+        action: approve ? 'approve_support_diagnostic_access' : 'deny_support_diagnostic_access',
+        restaurantSlug: slug, supportAccessRequestId: requestId,
+        actorUid: user.uid, createdAt: now, accessDurationMinutes: approve ? 60 : 0
+      });
+      return json(res, 200, { success: true, status: approve ? 'approved' : 'denied', accessExpiresAt: approve ? now + 60 * 60 * 1000 : null });
+    }
+    if (action === 'restaurant_announcements') {
+      if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const [announcementsSnap, subscriptionSnap] = await Promise.all([
+        db.collection('platform_announcements').where('status', '==', 'published').limit(100).get(),
+        db.collection('restaurantSubscriptions').doc(slug).get()
+      ]);
+      const planName = String(subscriptionSnap.data()?.planName || restaurant.subscription?.planName || '');
+      const announcements = announcementsSnap.docs.map((doc: any) => doc.data()).filter((item: any) => {
+        const publishedAt = Number(item.publishedAt || item.scheduledAt || 0);
+        if (publishedAt > now) return false;
+        if (item.targetType === 'selected') return Array.isArray(item.restaurantSlugs) && item.restaurantSlugs.includes(slug);
+        if (item.targetType === 'plan') return String(item.planName || '') === planName;
+        return item.targetType === 'all';
+      }).sort((a: any, b: any) => Number(b.publishedAt || 0) - Number(a.publishedAt || 0)).slice(0, 10);
+      return json(res, 200, { success: true, announcements });
+    }
+  }
+
   if (
     existingMembership?.active === true &&
     ['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(String(existingMembership.role || '')) &&
@@ -231,13 +866,1287 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     });
   }
 
-  const body = req.body || {};
-  const action = req.method === 'GET' ? String(req.query?.action || 'overview') : String(body.action || '');
-
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (action === 'overview' || action === 'create_restaurant' || action === 'set_restaurant_status' || action === 'update_subscription' || action === 'settle_subscription_invoice' || action === 'delete_restaurant') {
-      if (!isSuperAdmin(user)) return json(res, 403, { success: false, error: 'Accès super-administrateur refusé.' });
+    if (['overview', 'billing_list', 'billing_catalog_read', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_admin_delete', 'platform_admin_revoke_sessions', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'promotion_list', 'promotion_save', 'promotion_toggle', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details', 'mfa_reset'].includes(action)) {
+      const platformRole = await getPlatformAdminRole(db, user, mfaSessionValid);
+      if (!platformRole || !canPlatformAdminPerform(platformRole, action, (user as any).platformAdminPermissions)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
+
+      if (action === 'mfa_reset') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        if (platformRole !== 'full') return json(res, 403, { success: false, error: 'Seul un Super-admin avec MFA validé peut réinitialiser un facteur MFA.' });
+        const targetUid = String(body.uid || '').trim();
+        if (!/^[A-Za-z0-9]{20,128}$/.test(targetUid) || targetUid === user.uid) {
+          return json(res, 400, { success: false, error: 'Compte cible invalide. Un autre Super-admin doit effectuer cette réinitialisation.' });
+        }
+        const auth = getAuth();
+        const targetAuthUser = await auth.getUser(targetUid);
+        const delegatedRef = db.collection('platform_admins').doc(targetUid);
+        const delegatedSnap = await delegatedRef.get();
+        const targetEmail = String(targetAuthUser.email || '').trim().toLowerCase();
+        const protectedSuperAdmin = targetAuthUser.customClaims?.role === 'super_admin' ||
+          (targetEmail && configuredSuperAdmins().includes(targetEmail));
+        if (!delegatedSnap.exists && !protectedSuperAdmin) {
+          return json(res, 404, { success: false, error: 'Compte administrateur plateforme introuvable.' });
+        }
+        const nextVersion = Math.max(
+          Number(targetAuthUser.customClaims?.sessionVersion || 0),
+          Number(targetAuthUser.customClaims?.platformAdminSessionVersion || 0),
+          Number(delegatedSnap.data()?.sessionVersion || 0)
+        ) + 1;
+        const nextClaims = { ...(targetAuthUser.customClaims || {}) };
+        if (protectedSuperAdmin) {
+          nextClaims.role = 'super_admin';
+          nextClaims.sessionVersion = nextVersion;
+        } else {
+          nextClaims.platformAdminSessionVersion = nextVersion;
+        }
+        await auth.setCustomUserClaims(targetUid, nextClaims);
+        await auth.revokeRefreshTokens(targetUid);
+        if (delegatedSnap.exists) await delegatedRef.update({ sessionVersion: nextVersion, updatedAt: Date.now(), mfaResetAt: Date.now(), mfaResetBy: user.uid });
+        await db.collection('platform_admin_mfa').doc(targetUid).delete().catch(() => undefined);
+        await db.collection('platform_admin_mfa_attempts').doc(targetUid).delete().catch(() => undefined);
+        await db.collection('platform_admin_mfa_email_recovery').doc(targetUid).delete().catch(() => undefined);
+        await db.collection('platform_admin_mfa_webauthn_challenges').doc(targetUid).delete().catch(() => undefined);
+        await revokePlatformAdminMfaSessions(db, targetUid);
+        await db.collection('admin_audit_logs').add({
+          action: 'platform_admin_mfa_reset', targetUid, targetEmail,
+          actorUid: user.uid, actorRole: 'super_admin', createdAt: Date.now()
+        });
+        return json(res, 200, { success: true, uid: targetUid, reauthenticationRequired: true, enrollmentRequired: true });
+      }
+
+      if (action === 'platform_capabilities') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const knownActions = [
+          'overview', 'billing_list', 'billing_catalog_read', 'audit_list', 'create_restaurant', 'set_restaurant_status',
+          'update_subscription', 'settle_subscription_invoice', 'delete_restaurant',
+          'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_admin_delete', 'platform_admin_revoke_sessions',
+          'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions',
+          'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update',
+          'support_access_request', 'support_access_list', 'support_access_diagnostics',
+          'config_read', 'config_update', 'promotion_list', 'promotion_save', 'promotion_toggle', 'announcement_list', 'announcement_save',
+          'announcement_publish', 'announcement_cancel', 'health_details'
+        ];
+        return json(res, 200, {
+          success: true, role: platformRole,
+          allowedActions: knownActions.filter((candidate: string) => canPlatformAdminPerform(platformRole, candidate, (user as any).platformAdminPermissions))
+        });
+      }
+
+      if (action === 'platform_admin_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_admins').orderBy('createdAt', 'desc').limit(100).get();
+        const admins = await Promise.all(snap.docs.map(async (doc: any) => {
+          const raw = doc.data() || {};
+          let authUser: any = null;
+          try { authUser = await getAuth().getUser(doc.id); } catch { /* report a disabled/unavailable identity */ }
+          const mfaSnap = await db.collection('platform_admin_mfa').doc(doc.id).get();
+          const mfaRecord = mfaSnap.exists ? mfaSnap.data() || {} : {};
+          return {
+            uid: doc.id, email: String(raw.email || authUser?.email || ''),
+            displayName: String(raw.displayName || authUser?.displayName || ''),
+            role: String(raw.role || 'read_only'), active: raw.active === true,
+            createdAt: Number(raw.createdAt || 0), updatedAt: Number(raw.updatedAt || 0),
+            lastSignInAt: authUser?.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null,
+            mfaEnrolled: mfaRecord.active === true,
+            recoveryCodesRemaining: Array.isArray(mfaRecord.recoveryCodeHashes) ? mfaRecord.recoveryCodeHashes.length : 0,
+            disabled: authUser?.disabled === true, isPrimary: raw.role === 'full' || authUser?.customClaims?.role === 'super_admin',
+            permissions: Array.isArray(raw.permissions) ? raw.permissions : (raw.role === 'full' ? ['platform.*'] : PLATFORM_ADMIN_ROLE_PERMISSIONS[String(raw.role || 'read_only') as PlatformAdminRole] || [])
+          };
+        }));
+        const knownUids = new Set(admins.map((admin: any) => admin.uid));
+        const trustedPrimaryUsers = new Map<string, any>();
+        // Include Firebase identities carrying the server-issued super_admin claim,
+        // even when they are not represented in platform_admins or the bootstrap allowlist.
+        let pageToken: string | undefined;
+        do {
+          const page = await getAuth().listUsers(1000, pageToken);
+          for (const authUser of page.users) {
+            if (authUser.customClaims?.role === 'super_admin') trustedPrimaryUsers.set(authUser.uid, authUser);
+          }
+          pageToken = page.pageToken;
+        } while (pageToken);
+        // Also include verified bootstrap allowlist identities, when provisioned.
+        for (const email of configuredSuperAdmins()) {
+          try {
+            const authUser = await getAuth().getUserByEmail(email);
+            trustedPrimaryUsers.set(authUser.uid, authUser);
+          } catch { /* a configured address without a Firebase identity is not presented as an account */ }
+        }
+        for (const authUser of trustedPrimaryUsers.values()) {
+          if (knownUids.has(authUser.uid)) continue;
+          const mfaSnap = await db.collection('platform_admin_mfa').doc(authUser.uid).get();
+          const mfaRecord = mfaSnap.exists ? mfaSnap.data() || {} : {};
+          admins.unshift({
+            uid: authUser.uid, email: String(authUser.email || ''),
+            displayName: String(authUser.displayName || 'Super-administrateur principal'),
+            role: 'full', active: authUser.disabled !== true, mfaEnrolled: mfaRecord.active === true,
+            recoveryCodesRemaining: Array.isArray(mfaRecord.recoveryCodeHashes) ? mfaRecord.recoveryCodeHashes.length : 0,
+            disabled: authUser.disabled === true, lastSignInAt: authUser.metadata?.lastSignInTime ? Date.parse(authUser.metadata.lastSignInTime) : null,
+            isPrimary: true
+          });
+        }
+        return json(res, 200, { success: true, admins });
+      }
+
+      if (action === 'platform_staff_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(req.query?.slug || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) return json(res, 400, { success: false, error: 'Restaurant invalide.' });
+        const restaurantSnap = await db.collection('restaurants').doc(slug).get();
+        if (!restaurantSnap.exists || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.status === 'deleted') {
+          return json(res, 404, { success: false, error: 'Restaurant introuvable ou supprimé.' });
+        }
+        const [staffSnap, managersSnap] = await Promise.all([
+          db.collection('restaurants').doc(slug).collection('staff').get(),
+          db.collection('managers').where('restaurantSlug', '==', slug).get()
+        ]);
+        const canSeeFullAccountDetails = platformRole === 'full';
+        const byUid = new Map<string, any>();
+        const addAccount = (raw: any) => {
+          const uid = String(raw?.uid || raw?.id || '').trim();
+          if (!uid) return;
+          const previous = byUid.get(uid) || {
+            uid, email: '', displayName: '', role: raw?.role || 'staff',
+            active: raw?.active === true, activeKnown: typeof raw?.active === 'boolean',
+            accountLinked: true, emailConflict: false, emailValues: []
+          };
+          const email = typeof raw?.email === 'string' ? raw.email.trim().toLowerCase() : '';
+          if (email && !previous.emailValues.includes(email)) previous.emailValues.push(email);
+          previous.emailConflict = previous.emailValues.length > 1;
+          previous.email = email || previous.email;
+          previous.displayName = String(raw?.displayName || raw?.ownerName || previous.displayName || '');
+          previous.role = raw?.role === 'owner' || previous.role === 'owner' ? 'owner' : (raw?.role || previous.role);
+          if (typeof raw?.active === 'boolean') { previous.active = raw.active; previous.activeKnown = true; }
+          byUid.set(uid, previous);
+        };
+        staffSnap.docs.forEach((doc: any) => addAccount({ ...doc.data(), uid: doc.id }));
+        managersSnap.docs.forEach((doc: any) => addAccount({ ...doc.data(), uid: doc.id }));
+        const ownership = await getRestaurantOwnership(db, slug, undefined, restaurantSnap.data() || {});
+        const ownerUid = String(ownership.ownerUid || '').trim();
+        const ownerEmail = typeof ownership.ownerEmail === 'string' ? ownership.ownerEmail.trim().toLowerCase() : '';
+        const ownerName = String(ownership.ownerName || '').trim();
+        if (ownerUid) {
+          addAccount({ uid: ownerUid, email: ownerEmail, displayName: ownerName, role: 'owner' });
+        } else if (ownerEmail || ownerName) {
+          byUid.set('unlinked-owner', {
+            uid: 'unlinked-owner', email: ownerEmail, displayName: ownerName,
+            role: 'owner', active: false, activeKnown: false, accountLinked: false,
+            emailConflict: false, emailValues: []
+          });
+        }
+        const staff = await Promise.all([...byUid.values()].map(async ({ emailValues, ...account }) => {
+          try {
+            const authUser = await getAuth().getUser(account.uid);
+            const authActive = authUser.disabled !== true;
+            const email = String(account.email || authUser.email || '');
+            const maskedEmail = email.includes('@') ? email.replace(/^(.).+(@.+)$/, '$1•••$2') : '';
+            return {
+              ...account,
+              email: canSeeFullAccountDetails ? email : maskedEmail,
+              displayName: String(account.displayName || authUser.displayName || ''),
+              active: account.activeKnown ? account.active && authActive : authActive,
+              activeKnown: true, accountLinked: true, readOnly: true
+            };
+          } catch {
+            const email = String(account.email || '');
+            const maskedEmail = email.includes('@') ? email.replace(/^(.).+(@.+)$/, '$1•••$2') : '';
+            return {
+              ...account,
+              email: canSeeFullAccountDetails ? email : maskedEmail,
+              active: false, activeKnown: false, accountLinked: false, readOnly: true
+            };
+          }
+        }));
+        return json(res, 200, {
+          success: true, staff, readOnly: !canSeeFullAccountDetails,
+          sources: ['restaurants/{slug}/staff', 'managers', 'restaurants.private.ownership']
+        });
+      }
+
+      if (action === 'platform_admin_create') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const email = String(body.email || '').trim().toLowerCase();
+        const displayName = String(body.displayName || '').trim();
+        const role = String(body.platformRole || '');
+        if (!validEmail(email) || displayName.length < 2 || displayName.length > 100 ||
+            !['full', 'billing', 'support', 'read_only'].includes(role)) {
+          return json(res, 400, { success: false, error: 'Nom, e-mail ou rôle administrateur invalide.' });
+        }
+        const permissions = role === 'full' ? null : resolvePlatformAdminPermissions(role as Exclude<PlatformAdminRole, 'full'>, body.permissions);
+        if (role !== 'full' && !permissions) return json(res, 400, { success: false, error: 'La sélection des permissions dépasse le plafond du rôle.' });
+        const auth = getAuth();
+        let created: any = null;
+        try {
+          created = await auth.createUser({ email, displayName, disabled: false, emailVerified: false });
+          const sessionVersion = 1;
+          await auth.setCustomUserClaims(created.uid, role === 'full'
+            ? { role: 'super_admin', sessionVersion }
+            : {
+                role: 'platform_admin', platformAdminRole: role,
+                platformAdminSessionVersion: sessionVersion,
+                platformAdminPermissions: permissions
+              });
+          const now = Date.now();
+          const record = {
+            uid: created.uid, email, displayName, role, active: true,
+            sessionVersion, createdAt: now, updatedAt: now, createdBy: user.uid,
+            ...(permissions ? { permissions } : {})
+          };
+          const batch = db.batch();
+          batch.create(db.collection('platform_admins').doc(created.uid), record);
+          batch.create(db.collection('admin_audit_logs').doc(), {
+            action: role === 'full' ? 'invite_full_super_admin' : 'create_platform_admin', targetUid: created.uid,
+            targetRole: role, actorUid: user.uid, actorEmail: String(user.email || ''), createdAt: now
+          });
+          await batch.commit();
+          return json(res, 201, { success: true, admin: { uid: created.uid, email, displayName, role, active: true, mfaEnrolled: false } });
+        } catch (error: any) {
+          if (created?.uid) await auth.deleteUser(created.uid).catch(() => undefined);
+          if (error?.code === 'auth/email-already-exists') return json(res, 409, { success: false, error: 'Cette adresse e-mail possède déjà un compte Firebase.' });
+          throw error;
+        }
+      }
+
+      if (action === 'platform_admin_update') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const uid = String(body.uid || '').trim();
+        const role = String(body.platformRole || '');
+        if (!uid || uid === user.uid || !['billing', 'support', 'read_only'].includes(role)) {
+          return json(res, 400, { success: false, error: 'Compte cible ou rôle invalide. Vous ne pouvez pas modifier votre propre rôle.' });
+        }
+        const permissions = resolvePlatformAdminPermissions(role as Exclude<PlatformAdminRole, 'full'>, body.permissions);
+        if (!permissions) return json(res, 400, { success: false, error: 'Permissions invalides ou supérieures au plafond du rôle.' });
+        const ref = db.collection('platform_admins').doc(uid);
+        const snap = await ref.get();
+        if (!snap.exists || snap.data()?.active !== true) return json(res, 404, { success: false, error: 'Compte délégué actif introuvable.' });
+        const tenantMembership = await db.collection('managers').doc(uid).get();
+        if (tenantMembership.exists && tenantMembership.data()?.active === true) return json(res, 409, { success: false, error: 'Ce compte possède une appartenance restaurant active et ne peut pas devenir administrateur de plateforme.' });
+        const auth = getAuth();
+        const authUser = await auth.getUser(uid);
+        if (isProtectedSuperAdminAccount(authUser)) return json(res, 403, { success: false, error: 'Le compte Super-admin principal est protégé et ne peut pas être modifié comme un compte délégué.' });
+        const sessionVersion = Number(snap.data()?.sessionVersion || 0) + 1;
+        await auth.setCustomUserClaims(uid, {
+          ...(authUser.customClaims || {}), role: 'platform_admin',
+          platformAdminRole: role, platformAdminSessionVersion: sessionVersion,
+          platformAdminPermissions: permissions
+        });
+        await auth.revokeRefreshTokens(uid);
+        const now = Date.now();
+        await ref.update({ role, permissions, sessionVersion, updatedAt: now, updatedBy: user.uid });
+        await db.collection('admin_audit_logs').add({
+          action: 'update_platform_admin_role', targetUid: uid, targetRole: role,
+          previousRole: String(snap.data()?.role || ''), newRole: role,
+          previousPermissions: Array.isArray(snap.data()?.permissions) ? snap.data()?.permissions : PLATFORM_ADMIN_ROLE_PERMISSIONS[String(snap.data()?.role || 'read_only') as PlatformAdminRole],
+          newPermissions: permissions, outcome: 'success', actorUid: user.uid, createdAt: now
+        });
+        return json(res, 200, { success: true, uid, role, requiresReauthentication: true });
+      }
+
+      if (action === 'platform_admin_status') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const uid = String(body.uid || '').trim();
+        const active = body.active === true;
+        if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Compte cible invalide. Vous ne pouvez pas suspendre votre propre session.' });
+        const ref = db.collection('platform_admins').doc(uid);
+        const snap = await ref.get();
+        if (snap.exists && snap.data()?.deleted === true) return json(res, 409, { success: false, error: 'Ce compte a déjà été supprimé.' });
+        const auth = getAuth();
+        let authUser: any;
+        try { authUser = await auth.getUser(uid); } catch { return json(res, 404, { success: false, error: 'Identité Firebase introuvable.' }); }
+        const isFullAccount = snap.data()?.role === 'full' || isProtectedSuperAdminAccount(authUser);
+        if (!snap.exists && !isFullAccount) return json(res, 404, { success: false, error: 'Compte délégué introuvable.' });
+        if (isFullAccount) {
+          const activeSuperAdmins = await countActivePlatformSuperAdmins(auth);
+          if (!active && authUser.disabled !== true && activeSuperAdmins <= 1) return json(res, 409, { success: false, error: 'Impossible de suspendre le dernier Super-admin actif.' });
+          const sessionVersion = Math.max(Number(snap.data()?.sessionVersion || 0), Number(authUser.customClaims?.sessionVersion || 0)) + 1;
+          await auth.setCustomUserClaims(uid, { ...(authUser.customClaims || {}), role: 'super_admin', sessionVersion });
+          await auth.updateUser(uid, { disabled: !active });
+          await auth.revokeRefreshTokens(uid);
+          if (snap.exists) await ref.update({ active, sessionVersion, updatedAt: Date.now(), updatedBy: user.uid });
+          else await ref.create({ uid, email: String(authUser.email || ''), displayName: String(authUser.displayName || ''), role: 'full', active, sessionVersion, createdAt: Date.now(), updatedAt: Date.now(), migratedFromTrustedIdentity: true });
+          await revokePlatformAdminMfaSessions(db, uid);
+          await db.collection('admin_audit_logs').add({ action: active ? 'reactivate_full_super_admin' : 'suspend_full_super_admin', targetUid: uid, targetRole: 'full', previousStatus: snap.data()?.active === true ? 'active' : 'suspended', newStatus: active ? 'active' : 'suspended', actorUid: user.uid, actorEmail: String(user.email || ''), outcome: 'success', createdAt: Date.now() });
+          return json(res, 200, { success: true, uid, active, requiresReauthentication: true });
+        }
+        if (isProtectedSuperAdminAccount(authUser)) return json(res, 403, { success: false, error: 'Le compte Super-admin principal est protégé et ne peut pas être suspendu depuis la gestion des comptes délégués.' });
+        const sessionVersion = Number(snap.data()?.sessionVersion || 0) + 1;
+        await auth.setCustomUserClaims(uid, {
+          ...(authUser.customClaims || {}), role: 'platform_admin',
+          platformAdminRole: String(snap.data()?.role || 'read_only'),
+          platformAdminSessionVersion: sessionVersion,
+          platformAdminPermissions: Array.isArray(snap.data()?.permissions) ? snap.data()?.permissions : PLATFORM_ADMIN_ROLE_PERMISSIONS[String(snap.data()?.role || 'read_only') as PlatformAdminRole]
+        });
+        await auth.updateUser(uid, { disabled: !active });
+        await auth.revokeRefreshTokens(uid);
+        const now = Date.now();
+        await ref.update({ active, sessionVersion, updatedAt: now, updatedBy: user.uid });
+        await db.collection('admin_audit_logs').add({
+          action: active ? 'reactivate_platform_admin' : 'suspend_platform_admin',
+          targetUid: uid, targetRole: String(snap.data()?.role || ''),
+          previousStatus: snap.data()?.active === true ? 'active' : 'suspended',
+          newStatus: active ? 'active' : 'suspended',
+          outcome: 'success', actorUid: user.uid, createdAt: now
+        });
+        return json(res, 200, { success: true, uid, active, requiresReauthentication: true });
+      }
+
+      if (action === 'platform_admin_revoke_sessions') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const uid = String(body.uid || '').trim();
+        if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Un autre administrateur doit révoquer cette session.' });
+        const ref = db.collection('platform_admins').doc(uid);
+        const snap = await ref.get();
+        const auth = getAuth();
+        let target: any;
+        try { target = await auth.getUser(uid); } catch { return json(res, 404, { success: false, error: 'Identité Firebase introuvable.' }); }
+        const full = snap.data()?.role === 'full' || isProtectedSuperAdminAccount(target);
+        if ((!snap.exists && !full) || (snap.exists && snap.data()?.active !== true) || target.disabled === true) {
+          return json(res, 404, { success: false, error: 'Administrateur actif introuvable.' });
+        }
+        const version = Math.max(Number(snap.data()?.sessionVersion || 0), Number(target.customClaims?.sessionVersion || 0), Number(target.customClaims?.platformAdminSessionVersion || 0)) + 1;
+        const claims = { ...(target.customClaims || {}) };
+        if (full) { claims.role = 'super_admin'; claims.sessionVersion = version; }
+        else { claims.platformAdminSessionVersion = version; }
+        await auth.setCustomUserClaims(uid, claims);
+        await auth.revokeRefreshTokens(uid);
+        if (snap.exists) await ref.update({ sessionVersion: version, updatedAt: Date.now(), updatedBy: user.uid });
+        else await ref.create({ uid, email: String(target.email || ''), displayName: String(target.displayName || ''), role: 'full', active: true, sessionVersion: version, createdAt: Date.now(), updatedAt: Date.now(), migratedFromTrustedIdentity: true });
+        await revokePlatformAdminMfaSessions(db, uid);
+        await db.collection('admin_audit_logs').add({ action: 'revoke_platform_admin_sessions', targetUid: uid, targetRole: full ? 'full' : String(snap.data()?.role || ''), actorUid: user.uid, actorEmail: String(user.email || ''), outcome: 'success', createdAt: Date.now() });
+        return json(res, 200, { success: true, uid, requiresReauthentication: true });
+      }
+
+      if (action === 'platform_admin_delete') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const uid = String(body.uid || '').trim();
+        if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Vous ne pouvez pas supprimer votre propre compte.' });
+        const ref = db.collection('platform_admins').doc(uid);
+        const snap = await ref.get();
+        if (snap.exists && snap.data()?.deleted === true) return json(res, 409, { success: false, error: 'Ce compte a déjà été supprimé.' });
+        const auth = getAuth();
+        let target: any;
+        try { target = await auth.getUser(uid); } catch { return json(res, 404, { success: false, error: 'Identité Firebase introuvable.' }); }
+        const full = snap.data()?.role === 'full' || isProtectedSuperAdminAccount(target);
+        if (!snap.exists && !full) return json(res, 404, { success: false, error: 'Administrateur introuvable.' });
+        if (full) {
+          const activeSuperAdmins = await countActivePlatformSuperAdmins(auth);
+          if (snap.data()?.active === true && target.disabled !== true && activeSuperAdmins <= 1) return json(res, 409, { success: false, error: 'Impossible de supprimer le dernier Super-admin actif.' });
+        }
+        const now = Date.now();
+        const version = Math.max(Number(snap.data()?.sessionVersion || 0), Number(target.customClaims?.sessionVersion || 0), Number(target.customClaims?.platformAdminSessionVersion || 0)) + 1;
+        await auth.setCustomUserClaims(uid, { ...(target.customClaims || {}), role: 'revoked_platform_admin', sessionVersion: version });
+        await auth.updateUser(uid, { disabled: true });
+        await auth.revokeRefreshTokens(uid);
+        await revokePlatformAdminMfaSessions(db, uid);
+        await Promise.all([
+          db.collection('platform_admin_mfa').doc(uid).delete().catch(() => undefined),
+          db.collection('platform_admin_mfa_attempts').doc(uid).delete().catch(() => undefined),
+          db.collection('platform_admin_mfa_email_recovery').doc(uid).delete().catch(() => undefined),
+          db.collection('platform_admin_mfa_webauthn_challenges').doc(uid).delete().catch(() => undefined)
+        ]);
+        if (snap.exists) await ref.update({ active: false, deleted: true, deletedAt: now, deletedBy: user.uid, sessionVersion: version, updatedAt: now });
+        else await ref.create({ uid, email: String(target.email || ''), displayName: String(target.displayName || ''), role: 'full', active: false, deleted: true, deletedAt: now, deletedBy: user.uid, sessionVersion: version, createdAt: now, updatedAt: now, migratedFromTrustedIdentity: true });
+        await db.collection('admin_audit_logs').add({ action: 'delete_platform_admin', targetUid: uid, targetRole: full ? 'full' : String(snap.data()?.role || ''), actorUid: user.uid, actorEmail: String(user.email || ''), outcome: 'success', createdAt: now });
+        await auth.deleteUser(uid);
+        return json(res, 200, { success: true, uid, deleted: true, auditRecordPreserved: true });
+      }
+
+      if (action === 'platform_account_password_reset') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const uid = String(body.uid || '').trim();
+        const slug = String(body.slug || '').trim();
+        if (!uid || uid === user.uid) return json(res, 400, { success: false, error: 'Compte cible invalide.' });
+        if (slug) {
+          const [memberSnap, staffSnap] = await Promise.all([
+            db.collection('managers').doc(uid).get(),
+            db.collection('restaurants').doc(slug).collection('staff').doc(uid).get()
+          ]);
+          if (!memberSnap.exists || !staffSnap.exists || memberSnap.data()?.restaurantSlug !== slug || staffSnap.data()?.restaurantSlug !== slug) {
+            return json(res, 404, { success: false, error: 'Compte restaurant introuvable ou non concordant.' });
+          }
+        } else {
+          const adminSnap = await db.collection('platform_admins').doc(uid).get();
+          if (adminSnap.exists && adminSnap.data()?.deleted === true) {
+            return json(res, 409, { success: false, error: 'Ce compte administrateur a été supprimé.' });
+          }
+          const targetAuthUser = await getAuth().getUser(uid);
+          const trustedFullIdentity = isProtectedSuperAdminAccount(targetAuthUser);
+          const managedPlatformAdmin = adminSnap.exists &&
+            ['full', 'billing', 'support', 'read_only'].includes(String(adminSnap.data()?.role || ''));
+          if (!managedPlatformAdmin && !trustedFullIdentity) {
+            return json(res, 404, { success: false, error: 'Compte administrateur plateforme introuvable.' });
+          }
+        }
+        const now = Date.now();
+        await db.collection('admin_audit_logs').add({
+          action: 'request_account_password_reset', targetUid: uid,
+          restaurantSlug: slug || '', actorUid: user.uid, createdAt: now
+        });
+        return json(res, 200, { success: true, audited: true });
+      }
+
+      if (action === 'platform_owner_invite') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(body.slug || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) return json(res, 400, { success: false, error: 'Restaurant invalide.' });
+        const restaurantRef = db.collection('restaurants').doc(slug);
+        const restaurantSnap = await restaurantRef.get();
+        if (!restaurantSnap.exists || restaurantSnap.data()?.status === 'deleted' || restaurantSnap.data()?.deletedAt) {
+          return json(res, 404, { success: false, error: 'Restaurant introuvable ou supprimé.' });
+        }
+        const ownershipRef = restaurantRef.collection('private').doc('ownership');
+        const [ownershipSnap, ownership] = await Promise.all([
+          ownershipRef.get(),
+          getRestaurantOwnership(db, slug, undefined, restaurantSnap.data())
+        ]);
+        if (String(ownership.ownerUid || ownershipSnap.data()?.ownerUid || '').trim()) {
+          return json(res, 409, { success: false, error: 'Un UID propriétaire est déjà lié. Utilisez la réinitialisation ou une procédure de rapprochement contrôlée.' });
+        }
+        const ownerEmail = String(ownership.ownerEmail || body.email || '').trim().toLowerCase();
+        const ownerName = String(ownership.ownerName || body.displayName || '').trim();
+        if (!validEmail(ownerEmail) || ownerName.length < 2 || ownerName.length > 100) {
+          return json(res, 400, { success: false, error: 'Les coordonnées du propriétaire doivent être complétées avant l’invitation.' });
+        }
+        const auth = getAuth();
+        let ownerUser: any = null;
+        let created = false;
+        let previousClaims: Record<string, any> = {};
+        let claimsUpdated = false;
+        try {
+          try { ownerUser = await auth.getUserByEmail(ownerEmail); }
+          catch (lookupError: any) { if (lookupError?.code !== 'auth/user-not-found') throw lookupError; }
+          if (ownerUser) {
+            previousClaims = { ...(ownerUser.customClaims || {}) };
+            if (ownerUser.disabled || previousClaims.role === 'super_admin' || previousClaims.role === 'admin' || previousClaims.role === 'platform_admin') {
+              return json(res, 409, { success: false, error: 'Le compte existant est désactivé ou réservé à une autre fonction.' });
+            }
+            const [membership, staffLink, ownershipLink] = await Promise.all([
+              db.collection('managers').doc(ownerUser.uid).get(),
+              db.collectionGroup('staff').where('uid', '==', ownerUser.uid).limit(1).get(),
+              db.collectionGroup('private').where('ownerUid', '==', ownerUser.uid).limit(1).get()
+            ]);
+            if (membership.exists || !staffLink.empty || !ownershipLink.empty ||
+                (typeof previousClaims.restaurantSlug === 'string' && previousClaims.restaurantSlug.trim())) {
+              return json(res, 409, { success: false, error: 'Cette identité est déjà rattachée à un restaurant. Rapprochement manuel requis.' });
+            }
+          } else {
+            ownerUser = await auth.createUser({ email: ownerEmail, displayName: ownerName, disabled: false, emailVerified: false });
+            created = true;
+          }
+          const sessionVersion = 1;
+          await auth.setCustomUserClaims(ownerUser.uid, {
+            ...previousClaims, role: 'owner', restaurantSlug: slug, sessionVersion
+          });
+          claimsUpdated = true;
+          const now = Date.now();
+          const batch = db.batch();
+          batch.set(ownershipRef, {
+            ownerUid: ownerUser.uid, ownerName, ownerEmail,
+            updatedAt: now, ownerLinkedBy: user.uid
+          }, { merge: true });
+          batch.set(db.collection('managers').doc(ownerUser.uid), {
+            uid: ownerUser.uid, email: ownerEmail, displayName: ownerName,
+            role: 'owner', restaurantSlug: slug, permissions: PERMISSIONS,
+            active: true, sessionVersion, createdAt: now, createdBy: user.uid
+          });
+          batch.set(restaurantRef.collection('staff').doc(ownerUser.uid), {
+            uid: ownerUser.uid, email: ownerEmail, displayName: ownerName,
+            role: 'owner', permissions: PERMISSIONS, active: true, sessionVersion,
+            createdAt: now, createdBy: user.uid
+          });
+          batch.create(db.collection('admin_audit_logs').doc(), {
+            action: 'invite_restaurant_owner', restaurantSlug: slug,
+            targetUid: ownerUser.uid, targetEmail: ownerEmail,
+            existingAccountReused: !created, actorUid: user.uid, createdAt: now
+          });
+          await batch.commit();
+          return json(res, 201, { success: true, owner: { uid: ownerUser.uid, email: ownerEmail, displayName: ownerName, existingAccount: !created } });
+        } catch (error: any) {
+          if (ownerUser?.uid && claimsUpdated) await auth.setCustomUserClaims(ownerUser.uid, previousClaims).catch(() => undefined);
+          if (created && ownerUser?.uid) await auth.deleteUser(ownerUser.uid).catch(() => undefined);
+          throw error;
+        }
+      }
+
+      if (action === 'platform_staff_status' || action === 'platform_staff_revoke_sessions') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(body.slug || '').trim();
+        const uid = String(body.uid || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !uid || uid === user.uid || (action === 'platform_staff_status' && typeof body.active !== 'boolean')) {
+          return json(res, 400, { success: false, error: 'Restaurant ou compte cible invalide.' });
+        }
+        const restaurantRef = db.collection('restaurants').doc(slug);
+        const memberRef = db.collection('managers').doc(uid);
+        const staffRef = restaurantRef.collection('staff').doc(uid);
+        const [restaurantSnap, memberSnap, staffSnap] = await Promise.all([
+          restaurantRef.get(), memberRef.get(), staffRef.get()
+        ]);
+        if (!restaurantSnap.exists || !memberSnap.exists || !staffSnap.exists) {
+          return json(res, 404, { success: false, error: 'Compte rattaché introuvable.' });
+        }
+        const member = memberSnap.data() || {};
+        const staff = staffSnap.data() || {};
+        if (member.restaurantSlug !== slug || staff.restaurantSlug !== slug ||
+            member.role !== staff.role || !['owner', 'manager', 'cashier', 'server', 'kitchen', 'staff'].includes(String(member.role))) {
+          return json(res, 409, { success: false, error: 'Les liens de compte ne concordent pas. Aucune modification appliquée.' });
+        }
+        const auth = getAuth();
+        const authUser = await auth.getUser(uid);
+        const nextVersion = Math.max(Number(member.sessionVersion || 0), Number(staff.sessionVersion || 0)) + 1;
+        const now = Date.now();
+        const nextActive = action === 'platform_staff_status' ? body.active === true : member.active === true;
+        const claims = { ...(authUser.customClaims || {}), role: String(member.role), restaurantSlug: slug, sessionVersion: nextVersion };
+        await auth.setCustomUserClaims(uid, claims);
+        if (action === 'platform_staff_status') await auth.updateUser(uid, { disabled: !nextActive });
+        await auth.revokeRefreshTokens(uid);
+
+        if (member.role === 'server' && !nextActive) {
+          const assigned = await restaurantRef.collection('tables').where('assignedWaiter', '==', uid).get();
+          for (let offset = 0; offset < assigned.docs.length; offset += 400) {
+            const batch = db.batch();
+            assigned.docs.slice(offset, offset + 400).forEach((doc: any) => batch.set(doc.ref, {
+              assignedWaiter: null, assignedWaiterName: null,
+              assignmentUpdatedAt: now, assignmentUpdatedBy: user.uid
+            }, { merge: true }));
+            await batch.commit();
+          }
+          for (const tableDoc of assigned.docs) {
+            const tableNumber = String(tableDoc.data()?.tableNumber || '').trim();
+            if (!tableNumber) continue;
+            const orders = await restaurantRef.collection('orders').where('tableNumber', '==', tableNumber).get();
+            const activeOrders = orders.docs.filter((doc: any) => ['pending', 'in_prep', 'ready'].includes(String(doc.data()?.status || '')));
+            for (let offset = 0; offset < activeOrders.length; offset += 400) {
+              const batch = db.batch();
+              activeOrders.slice(offset, offset + 400).forEach((doc: any) => batch.update(doc.ref, {
+                assignedWaiterUid: null, waiterAssignmentUpdatedAt: now, waiterAssignmentUpdatedBy: user.uid
+              }));
+              await batch.commit();
+            }
+          }
+        }
+
+        const batch = db.batch();
+        const patch = {
+          ...(action === 'platform_staff_status' ? { active: nextActive, status: nextActive ? 'active' : 'suspended' } : {}),
+          sessionVersion: nextVersion, updatedAt: now, updatedBy: user.uid
+        };
+        batch.set(memberRef, patch, { merge: true });
+        batch.set(staffRef, patch, { merge: true });
+        batch.create(db.collection('admin_audit_logs').doc(), {
+          action: action === 'platform_staff_status' ? (nextActive ? 'reactivate_restaurant_account' : 'suspend_restaurant_account') : 'revoke_restaurant_account_sessions',
+          restaurantSlug: slug, targetUid: uid, targetRole: String(member.role),
+          actorUid: user.uid, createdAt: now, serverAssignmentsReleased: member.role === 'server' && !nextActive
+        });
+        await batch.commit();
+        return json(res, 200, {
+          success: true, uid, active: nextActive, sessionVersion: nextVersion,
+          sessionsRevoked: true, requiresReauthentication: action === 'platform_staff_revoke_sessions' || nextActive
+        });
+      }
+
+      if (action === 'support_access_request') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(body.restaurantSlug || '').trim();
+        const reason = String(body.reason || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || reason.length < 15 || reason.length > 1000) {
+          return json(res, 400, { success: false, error: 'Restaurant ou motif de diagnostic invalide (15 à 1 000 caractères).' });
+        }
+        const restaurantSnap = await db.collection('restaurants').doc(slug).get();
+        if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
+        const pending = await db.collection('platform_support_access_requests')
+          .where('restaurantSlug', '==', slug).limit(30).get();
+        const activeRequest = pending.docs.find((doc: any) =>
+          doc.data()?.status === 'pending' && Number(doc.data()?.requestExpiresAt || 0) > Date.now()
+        );
+        if (activeRequest) return json(res, 409, { success: false, error: 'Une demande de diagnostic attend déjà le consentement du propriétaire.' });
+        const ref = db.collection('platform_support_access_requests').doc();
+        const now = Date.now();
+        const requestRecord = {
+          id: ref.id, restaurantSlug: slug,
+          restaurantName: String(restaurantSnap.data()?.name || slug),
+          reason, requestedBy: user.uid,
+          requestedByEmail: typeof user.email === 'string' ? user.email : '',
+          status: 'pending', createdAt: now,
+          requestExpiresAt: now + 24 * 60 * 60 * 1000,
+          accessDurationMinutes: 60,
+          scope: ['restaurant.profile.read', 'tables.metadata.read', 'staff.count.read'],
+          excluded: ['orders', 'payments', 'cash', 'customer_personal_data']
+        };
+        await ref.create(requestRecord);
+        await db.collection('admin_audit_logs').add({
+          action: 'request_support_diagnostic_access', restaurantSlug: slug,
+          supportAccessRequestId: ref.id, actorUid: user.uid, createdAt: now
+        });
+        return json(res, 201, { success: true, request: requestRecord });
+      }
+
+      if (action === 'support_access_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(req.query?.slug || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug)) return json(res, 400, { success: false, error: 'Restaurant invalide.' });
+        const snap = await db.collection('platform_support_access_requests').where('restaurantSlug', '==', slug).limit(30).get();
+        const requests = snap.docs.map((doc: any) => doc.data()).sort((a: any, b: any) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+        return json(res, 200, { success: true, requests });
+      }
+
+      if (action === 'support_access_diagnostics') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const requestId = String(req.query?.requestId || '').trim();
+        const ref = db.collection('platform_support_access_requests').doc(requestId);
+        const accessSnap = await ref.get();
+        const access = accessSnap.exists ? accessSnap.data() || {} : null;
+        const now = Date.now();
+        if (!access || access.status !== 'approved' || access.requestedBy !== user.uid ||
+            Number(access.accessExpiresAt || 0) <= now) {
+          return json(res, 403, { success: false, error: 'Le consentement du propriétaire est absent ou expiré.' });
+        }
+        const restaurantRef = db.collection('restaurants').doc(String(access.restaurantSlug));
+        const [restaurantSnap, tablesSnap, staffSnap] = await Promise.all([
+          restaurantRef.get(), restaurantRef.collection('tables').get(),
+          restaurantRef.collection('staff').get()
+        ]);
+        if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
+        const restaurant = restaurantSnap.data() || {};
+        await db.collection('admin_audit_logs').add({
+          action: 'view_support_diagnostic_data', restaurantSlug: String(access.restaurantSlug),
+          supportAccessRequestId: requestId, actorUid: user.uid, createdAt: now,
+          dataScope: 'profile_and_counts_only'
+        });
+        return json(res, 200, {
+          success: true, expiresAt: Number(access.accessExpiresAt),
+          diagnostics: {
+            restaurant: { name: String(restaurant.name || ''), status: String(restaurant.status || 'unknown'), isOpen: restaurant.isOpen === true, createdAt: Number(restaurant.createdAt || 0) || null },
+            tables: { total: tablesSnap.size, active: tablesSnap.docs.filter((doc: any) => doc.data()?.isActive === true).length },
+            staff: { total: staffSnap.size, active: staffSnap.docs.filter((doc: any) => doc.data()?.active === true).length }
+          }
+        });
+      }
+
+      if (action === 'support_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_support_tickets').limit(100).get();
+        const tickets = snap.docs.map((doc: any) => doc.data()).sort((a: any, b: any) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+        return json(res, 200, { success: true, tickets });
+      }
+
+      if (action === 'support_messages') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const ticketId = String(req.query?.ticketId || '').trim();
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(ticketId)) return json(res, 400, { success: false, error: 'Ticket invalide.' });
+        const ref = db.collection('platform_support_tickets').doc(ticketId);
+        const snap = await ref.get();
+        if (!snap.exists) return json(res, 404, { success: false, error: 'Ticket introuvable.' });
+        const messagesSnap = await ref.collection('messages').orderBy('createdAt', 'asc').limit(100).get();
+        return json(res, 200, { success: true, messages: messagesSnap.docs.map((doc: any) => ({ id: doc.id, ...doc.data() })) });
+      }
+
+      if (action === 'support_create') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const slug = String(body.restaurantSlug || '').trim();
+        const subject = String(body.subject || '').trim();
+        const message = String(body.message || '').trim();
+        const priority = ['low', 'medium', 'high'].includes(String(body.priority)) ? String(body.priority) : 'medium';
+        if (!slug || subject.length < 5 || subject.length > 140 || message.length < 10 || message.length > 4000) {
+          return json(res, 400, { success: false, error: 'Restaurant, sujet ou message invalide.' });
+        }
+        const restaurantSnap = await db.collection('restaurants').doc(slug).get();
+        if (!restaurantSnap.exists) return json(res, 404, { success: false, error: 'Restaurant introuvable.' });
+        const ticketRef = db.collection('platform_support_tickets').doc();
+        const now = Date.now();
+        const ticket = {
+          id: ticketRef.id, restaurantSlug: slug,
+          restaurantName: String(restaurantSnap.data()?.name || slug),
+          subject, priority, status: 'open', source: 'admin_console',
+          createdByUid: user.uid, createdByName: String(user.name || user.email || user.uid),
+          createdByEmail: typeof user.email === 'string' ? user.email : '',
+          createdAt: now, updatedAt: now, lastMessageAt: now, messageCount: 1
+        };
+        const batch = db.batch();
+        batch.create(ticketRef, ticket);
+        batch.create(ticketRef.collection('messages').doc(), {
+          authorUid: user.uid, authorRole: 'platform_admin', body: message,
+          visibility: 'public', createdAt: now
+        });
+        batch.create(db.collection('admin_audit_logs').doc(), {
+          action: 'support_ticket_created_by_admin', restaurantSlug: slug,
+          ticketId: ticketRef.id, actorUid: user.uid, createdAt: now
+        });
+        await batch.commit();
+        return json(res, 201, { success: true, ticket });
+      }
+
+      if (action === 'support_update') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const ticketId = String(body.ticketId || '').trim();
+        const status = String(body.status || '');
+        const priority = String(body.priority || '');
+        const reply = String(body.reply || '').trim();
+        const internalNote = String(body.internalNote || '').trim();
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(ticketId) ||
+            (status && !['open', 'in_progress', 'waiting_customer', 'waiting_support', 'resolved', 'closed'].includes(status)) ||
+            (priority && !['low', 'medium', 'high'].includes(priority)) ||
+            reply.length > 4000 || internalNote.length > 4000) {
+          return json(res, 400, { success: false, error: 'Mise à jour de ticket invalide.' });
+        }
+        const ref = db.collection('platform_support_tickets').doc(ticketId);
+        const snap = await ref.get();
+        if (!snap.exists) return json(res, 404, { success: false, error: 'Ticket introuvable.' });
+        const now = Date.now();
+        const patch: Record<string, unknown> = { updatedAt: now, updatedBy: user.uid };
+        if (status) patch.status = status;
+        if (priority) patch.priority = priority;
+        if (reply) { patch.lastMessageAt = now; patch.messageCount = Number(snap.data()?.messageCount || 0) + 1; }
+        const batch = db.batch();
+        batch.update(ref, patch);
+        if (reply) batch.create(ref.collection('messages').doc(), {
+          authorUid: user.uid, authorRole: 'platform_admin', body: reply,
+          visibility: 'public', createdAt: now
+        });
+        if (internalNote) batch.create(ref.collection('messages').doc(), {
+          authorUid: user.uid, authorRole: 'platform_admin', body: internalNote,
+          visibility: 'internal', createdAt: now
+        });
+        batch.create(db.collection('admin_audit_logs').doc(), {
+          action: 'support_ticket_updated', restaurantSlug: String(snap.data()?.restaurantSlug || ''),
+          ticketId, actorUid: user.uid, status: status || String(snap.data()?.status || ''),
+          priority: priority || String(snap.data()?.priority || ''), createdAt: now,
+          publicReplyAdded: Boolean(reply), internalNoteAdded: Boolean(internalNote)
+        });
+        await batch.commit();
+        return json(res, 200, { success: true, ticketId });
+      }
+
+      if (action === 'billing_catalog_read') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_config').doc('global').get();
+        const raw = snap.exists ? snap.data() || {} : {};
+        const plans = Array.isArray(raw.plans) ? raw.plans.map((plan: any) => ({
+          id: String(plan.id || planIdentifier(String(plan.name || ''))),
+          name: String(plan.name || ''), description: String(plan.description || ''),
+          active: plan.active === true, priceMonthlyFcfa: Number.isSafeInteger(plan.priceMonthlyFcfa) ? plan.priceMonthlyFcfa : 0,
+          features: plan.features && typeof plan.features === 'object' ? Object.fromEntries(
+            ['kitchenScreen', 'advancedReports', 'inventoryRecipes', 'loyalty', 'dishImages'].map(key => [key, plan.features[key] === true])
+          ) : {}
+        })) : [];
+        return json(res, 200, { success: true, config: {
+          currency: 'XOF', plans,
+          gracePeriodDays: Number.isInteger(raw.gracePeriodDays) ? raw.gracePeriodDays : 7,
+          quarterlyDiscountPercent: Number.isInteger(raw.quarterlyDiscountPercent) ? raw.quarterlyDiscountPercent : 0
+        } });
+      }
+
+      if (action === 'config_read') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_config').doc('global').get();
+        const config = snap.exists ? snap.data() : null;
+        return json(res, 200, { success: true, config: config || {
+          currency: 'XOF', gracePeriodDays: 7, quarterlyDiscountPercent: 0, maintenanceMode: false, version: 1,
+          plans: [
+            { name: 'Essentiel', description: 'Formule essentielle', active: true, priceMonthlyFcfa: 0, features: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false, dishImages: false } },
+            { name: 'Pro', description: 'Formule complète', active: true, priceMonthlyFcfa: 0, features: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true } }
+          ],
+          planFeatures: {
+            Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false, dishImages: false },
+            Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true }
+          },
+          emailTemplates: {
+            invitation: { subject: 'Bienvenue sur RestauMax', body: 'Votre compte RestauMax est prêt. Utilisez le lien sécurisé reçu par e-mail.' },
+            passwordReset: { subject: 'Réinitialisation de votre mot de passe', body: 'Suivez le lien sécurisé de Firebase Authentication pour choisir un nouveau mot de passe.' },
+            invoice: { subject: 'Votre facture RestauMax', body: 'Votre facture est disponible dans votre espace.' },
+            overdue: { subject: 'Rappel de paiement RestauMax', body: 'Une facture reste à régulariser dans votre espace.' }
+          }
+        } });
+      }
+
+      if (action === 'config_update') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const input = body.config && typeof body.config === 'object' ? body.config : {};
+        const gracePeriodDays = Number(input.gracePeriodDays);
+        const quarterlyDiscountPercent = Number(input.quarterlyDiscountPercent ?? 0);
+        if (input.currency !== 'XOF' || !Number.isInteger(gracePeriodDays) || gracePeriodDays < 0 || gracePeriodDays > 60 ||
+            !Number.isInteger(quarterlyDiscountPercent) || quarterlyDiscountPercent < 0 || quarterlyDiscountPercent > 100 ||
+            typeof input.maintenanceMode !== 'boolean') {
+          return json(res, 400, { success: false, error: 'Devise, délai de grâce ou mode maintenance invalide.' });
+        }
+        const featureKeys = ['kitchenScreen', 'advancedReports', 'inventoryRecipes', 'loyalty', 'dishImages'];
+        const legacyPlanNames = ['Essentiel', 'Pro'];
+        const planInput = Array.isArray(input.plans) ? input.plans :
+          legacyPlanNames.map(name => ({
+            name, description: '', active: true, priceMonthlyFcfa: 0,
+            features: input.planFeatures?.[name]
+          }));
+        if (planInput.length < 1 || planInput.length > 20) {
+          return json(res, 400, { success: false, error: 'Le catalogue doit contenir entre 1 et 20 formules.' });
+        }
+        const planNames = new Set<string>();
+        const normalizedPlans: Array<{ id: string; name: string; description: string; active: boolean; priceMonthlyFcfa: number; features: Record<string, boolean> }> = [];
+        const planFeatures: Record<string, Record<string, boolean>> = {};
+        for (const rawPlan of planInput) {
+          const name = String(rawPlan?.name || '').trim();
+          const normalizedName = name.toLocaleLowerCase('fr-FR');
+          const priceMonthlyFcfa = Number(rawPlan?.priceMonthlyFcfa ?? 0);
+          const features = rawPlan?.features || input.planFeatures?.[name];
+          if (name.length < 2 || name.length > 50 || planNames.has(normalizedName) ||
+              typeof rawPlan?.active !== 'boolean' ||
+              !Number.isSafeInteger(priceMonthlyFcfa) || priceMonthlyFcfa < 0 || priceMonthlyFcfa > 1000000000 ||
+              typeof rawPlan?.description !== 'string' || rawPlan.description.length > 240 ||
+              !features || featureKeys.some(key => typeof features[key] !== 'boolean')) {
+            return json(res, 400, { success: false, error: 'Une formule contient un nom, un tarif, un statut ou des droits invalides.' });
+          }
+          planNames.add(normalizedName);
+          const normalizedFeatures = Object.fromEntries(featureKeys.map(key => [key, features[key]]));
+          const id = String(rawPlan?.id || planIdentifier(name)).trim();
+          if (!/^[a-zA-Z0-9_-]{2,80}$/.test(id) || normalizedPlans.some(plan => plan.id === id)) {
+            return json(res, 400, { success: false, error: 'Identifiant de formule invalide ou dupliqué.' });
+          }
+          normalizedPlans.push({
+            id, name, description: rawPlan.description.trim(), active: rawPlan.active,
+            priceMonthlyFcfa, features: normalizedFeatures
+          });
+          planFeatures[name] = normalizedFeatures;
+        }
+        const emailTemplates = input.emailTemplates && typeof input.emailTemplates === 'object' ? input.emailTemplates : {};
+        const templateKeys = ['invitation', 'passwordReset', 'invoice', 'overdue'];
+        const normalizedTemplates: Record<string, { subject: string; body: string }> = {};
+        for (const key of templateKeys) {
+          const template = emailTemplates[key];
+          if (!template || typeof template.subject !== 'string' || typeof template.body !== 'string' ||
+              template.subject.length < 3 || template.subject.length > 160 ||
+              template.body.length < 10 || template.body.length > 3000) {
+            return json(res, 400, { success: false, error: 'Un modèle de message contient un contenu invalide.' });
+          }
+          normalizedTemplates[key] = { subject: template.subject.trim(), body: template.body.trim() };
+        }
+        const ref = db.collection('platform_config').doc('global');
+        const now = Date.now();
+        const saved = {
+          currency: 'XOF', gracePeriodDays, quarterlyDiscountPercent, maintenanceMode: input.maintenanceMode,
+          plans: normalizedPlans, planFeatures, emailTemplates: normalizedTemplates, updatedAt: now, updatedBy: user.uid
+        };
+        await db.runTransaction(async (tx: any) => {
+          const snap = await tx.get(ref);
+          tx.set(ref, { ...saved, version: Number(snap.data()?.version || 0) + 1, createdAt: snap.data()?.createdAt || now });
+        });
+        await db.collection('admin_audit_logs').add({
+          action: 'update_platform_configuration', actorUid: user.uid, createdAt: now,
+          gracePeriodDays, quarterlyDiscountPercent, maintenanceMode: input.maintenanceMode, currency: 'XOF'
+        });
+        return json(res, 200, { success: true, config: saved });
+      }
+
+      if (action === 'promotion_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_promotions').orderBy('createdAt', 'desc').limit(100).get();
+        const promotions = snap.docs.map((doc: any) => {
+          const raw = doc.data() || {};
+          return {
+            id: doc.id, name: String(raw.name || ''), code: String(raw.code || ''),
+            discountType: raw.discountType === 'fixed' ? 'fixed' : 'percentage',
+            value: Number(raw.value || 0), startsAt: Number(raw.startsAt || 0),
+            endsAt: Number(raw.endsAt || 0), eligiblePlans: Array.isArray(raw.eligiblePlans) ? raw.eligiblePlans : [],
+            maxUses: Number(raw.maxUses || 0), usedCount: Number(raw.usedCount || 0),
+            active: raw.active === true, createdAt: Number(raw.createdAt || 0)
+          };
+        });
+        return json(res, 200, { success: true, promotions });
+      }
+
+      if (action === 'promotion_save') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const id = String(body.id || '').trim();
+        const name = String(body.name || '').trim();
+        const code = String(body.code || '').trim().toUpperCase();
+        const discountType = String(body.discountType || '');
+        const value = Number(body.value);
+        const startsAt = Number(body.startsAt);
+        const endsAt = Number(body.endsAt);
+        const eligiblePlans = Array.isArray(body.eligiblePlans)
+          ? [...new Set<string>(body.eligiblePlans.map((item: unknown) => String(item).trim()).filter(Boolean))]
+          : [];
+        const maxUses = Number(body.maxUses);
+        if ((id && !/^[a-zA-Z0-9_-]{1,100}$/.test(id)) ||
+            name.length < 3 || name.length > 80 || !/^[A-Z0-9_-]{3,24}$/.test(code) ||
+            !['percentage', 'fixed'].includes(discountType) ||
+            !Number.isSafeInteger(value) || value < 1 ||
+            (discountType === 'percentage' ? value > 100 : value > 1000000000) ||
+            !Number.isSafeInteger(startsAt) || startsAt <= 0 ||
+            !Number.isSafeInteger(endsAt) || endsAt <= startsAt ||
+            eligiblePlans.length < 1 || eligiblePlans.length > 20 ||
+            !Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 1000000 ||
+            typeof body.active !== 'boolean') {
+          return json(res, 400, { success: false, error: 'Paramètres de promotion invalides. Vérifiez le code, la réduction, les dates, les formules et le quota.' });
+        }
+        const planConfig = await db.collection('platform_config').doc('global').get();
+        const knownPlans = Array.isArray(planConfig.data()?.plans) ? planConfig.data().plans.map((plan: any) => String(plan.name)) : ['Essentiel', 'Pro'];
+        if (eligiblePlans.some((plan: string) => !knownPlans.includes(plan))) {
+          return json(res, 400, { success: false, error: 'Une formule ciblée n’existe pas dans le catalogue.' });
+        }
+        const collection = db.collection('platform_promotions');
+        const duplicateSnap = await collection.where('code', '==', code).limit(5).get();
+        if (duplicateSnap.docs.some((doc: any) => doc.id !== id)) {
+          return json(res, 409, { success: false, error: 'Ce code promotionnel existe déjà.' });
+        }
+        const ref = id ? collection.doc(id) : collection.doc(`promo_${code.toLowerCase()}`);
+        const existing = await ref.get();
+        if (id && !existing.exists) return json(res, 404, { success: false, error: 'Promotion introuvable.' });
+        if (!id && existing.exists) return json(res, 409, { success: false, error: 'Ce code promotionnel existe déjà.' });
+        const previous = existing.exists ? existing.data() || {} : {};
+        if (body.active === true && (!id || previous.active !== true)) {
+          const activePromotions = await collection.where('active', '==', true).get();
+          if (activePromotions.size >= 100) return json(res, 409, { success: false, error: 'Limite de 100 promotions actives atteinte.' });
+        }
+        const now = Date.now();
+        const saved = {
+          name, code, discountType, value, startsAt, endsAt, eligiblePlans, maxUses,
+          usedCount: Number(previous.usedCount || 0), active: body.active,
+          createdAt: Number(previous.createdAt || now), updatedAt: now, updatedBy: user.uid
+        };
+        if (id) {
+          await ref.set(saved);
+        } else {
+          try { await ref.create(saved); }
+          catch (error: any) {
+            if (error?.code === 6 || String(error?.code || '').includes('ALREADY_EXISTS')) {
+              return json(res, 409, { success: false, error: 'Ce code promotionnel existe déjà.' });
+            }
+            throw error;
+          }
+        }
+        await db.collection('admin_audit_logs').add({
+          action: id ? 'update_platform_promotion' : 'create_platform_promotion',
+          actorUid: user.uid, promotionId: ref.id, promotionCode: code,
+          discountType, discountValue: value, eligiblePlans, active: body.active,
+          outcome: 'success', createdAt: now
+        });
+        return json(res, 200, { success: true, promotion: { id: ref.id, ...saved } });
+      }
+
+      if (action === 'promotion_toggle') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const id = String(body.id || '').trim();
+        if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id) || typeof body.active !== 'boolean') {
+          return json(res, 400, { success: false, error: 'Identifiant ou statut de promotion invalide.' });
+        }
+        const ref = db.collection('platform_promotions').doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return json(res, 404, { success: false, error: 'Promotion introuvable.' });
+        const now = Date.now();
+        await ref.update({ active: body.active, updatedAt: now, updatedBy: user.uid });
+        await db.collection('admin_audit_logs').add({
+          action: body.active ? 'activate_platform_promotion' : 'deactivate_platform_promotion',
+          actorUid: user.uid, promotionId: id, promotionCode: String(snap.data()?.code || ''),
+          outcome: 'success', createdAt: now
+        });
+        return json(res, 200, { success: true, active: body.active });
+      }
+
+      if (action === 'announcement_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const snap = await db.collection('platform_announcements').limit(100).get();
+        const announcements = snap.docs.map((doc: any) => doc.data()).sort((a: any, b: any) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+        return json(res, 200, { success: true, announcements });
+      }
+
+      if (action === 'announcement_save') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const title = String(body.title || '').trim();
+        const message = String(body.message || '').trim();
+        const targetType = String(body.targetType || 'all');
+        const planName = String(body.planName || '').trim();
+        const restaurantSlugs: string[] = Array.isArray(body.restaurantSlugs) ? [...new Set<string>(body.restaurantSlugs.map((v: unknown) => String(v).trim()).filter((v: string) => Boolean(v)))] : [];
+        if (title.length < 3 || title.length > 100 || message.length < 10 || message.length > 3000 ||
+            !['all', 'plan', 'selected'].includes(targetType) ||
+            (targetType === 'plan' && !['Essentiel', 'Pro'].includes(planName)) ||
+            (targetType === 'selected' && (restaurantSlugs.length < 1 || restaurantSlugs.length > 200))) {
+          return json(res, 400, { success: false, error: 'Contenu ou ciblage de l’annonce invalide.' });
+        }
+        if (targetType === 'selected') {
+          const checks = await Promise.all(restaurantSlugs.map((slug: string) => db.collection('restaurants').doc(slug).get()));
+          if (checks.some((snap: any) => !snap.exists)) return json(res, 400, { success: false, error: 'Une sélection contient un restaurant introuvable.' });
+        }
+        const ref = db.collection('platform_announcements').doc();
+        const now = Date.now();
+        const announcement = {
+          id: ref.id, title, message, targetType, planName: targetType === 'plan' ? planName : '',
+          restaurantSlugs: targetType === 'selected' ? restaurantSlugs : [],
+          status: 'draft', scheduledAt: null, publishedAt: null,
+          createdAt: now, updatedAt: now, createdBy: user.uid
+        };
+        await ref.create(announcement);
+        await db.collection('admin_audit_logs').add({
+          action: 'create_platform_announcement', announcementId: ref.id,
+          actorUid: user.uid, targetType, createdAt: now
+        });
+        return json(res, 201, { success: true, announcement });
+      }
+
+      if (action === 'announcement_publish') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const id = String(body.id || '').trim();
+        const scheduledAt = body.scheduledAt ? Date.parse(String(body.scheduledAt)) : Date.now();
+        if (!id || !Number.isFinite(scheduledAt) || scheduledAt < Date.now() - 60000) {
+          return json(res, 400, { success: false, error: 'Date de publication invalide.' });
+        }
+        const ref = db.collection('platform_announcements').doc(id);
+        const snap = await ref.get();
+        if (!snap.exists || ['cancelled', 'published'].includes(String(snap.data()?.status))) {
+          return json(res, 409, { success: false, error: 'Annonce introuvable ou déjà traitée.' });
+        }
+        const now = Date.now();
+        await ref.update({ status: 'published', scheduledAt, publishedAt: scheduledAt, updatedAt: now, publishedBy: user.uid });
+        await db.collection('admin_audit_logs').add({
+          action: 'publish_platform_announcement', announcementId: id,
+          actorUid: user.uid, scheduledAt, createdAt: now
+        });
+        return json(res, 200, { success: true, status: scheduledAt > now ? 'scheduled' : 'published' });
+      }
+
+      if (action === 'announcement_cancel') {
+        if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const id = String(body.id || '').trim();
+        if (!id) return json(res, 400, { success: false, error: 'Annonce manquante.' });
+        const ref = db.collection('platform_announcements').doc(id);
+        const snap = await ref.get();
+        if (!snap.exists || snap.data()?.status === 'cancelled') return json(res, 404, { success: false, error: 'Annonce introuvable.' });
+        const now = Date.now();
+        await ref.update({ status: 'cancelled', cancelledAt: now, cancelledBy: user.uid, updatedAt: now });
+        await db.collection('admin_audit_logs').add({ action: 'cancel_platform_announcement', announcementId: id, actorUid: user.uid, createdAt: now });
+        return json(res, 200, { success: true });
+      }
+
+      if (action === 'health_details') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const now = Date.now();
+        const services: any[] = [];
+        let databaseStatus = 'operational';
+        try {
+          await db.collection('platform_health').doc('probe').get();
+        } catch { databaseStatus = 'unavailable'; }
+        let authStatus = 'operational';
+        try { await getAuth().getUser(user.uid); } catch { authStatus = 'unavailable'; }
+        const [billingRunSnap, backupRunSnap] = await Promise.all([
+          db.collection('platform_job_runs').doc('subscription_billing').get().catch(() => null),
+          db.collection('platform_job_runs').doc('backup').get().catch(() => null)
+        ]);
+        const billingRun = billingRunSnap?.exists ? billingRunSnap.data() || {} : null;
+        const backupRun = backupRunSnap?.exists ? backupRunSnap.data() || {} : null;
+        const backupLastRunAt = Number(backupRun?.lastRunAt || 0) || null;
+        const backupFresh = Boolean(
+          backupRun?.lastStatus === 'success' && backupLastRunAt &&
+          backupLastRunAt <= now && now - backupLastRunAt <= 48 * 60 * 60 * 1000
+        );
+        const backupStatus = backupRun?.lastStatus === 'failed' || backupRun?.lastStatus === 'error'
+          ? 'unavailable' : backupFresh ? 'operational' : backupLastRunAt ? 'degraded' : 'unknown';
+        const billingLastRunAt = Number(billingRun?.lastRunAt || 0) || null;
+        const billingFresh = Boolean(billingLastRunAt && billingLastRunAt <= now && now - billingLastRunAt >= 0 && now - billingLastRunAt <= 36 * 60 * 60 * 1000 && billingRun?.lastStatus === 'success');
+        services.push({ id: 'auth', label: 'Authentification Firebase', status: authStatus, detail: authStatus === 'operational' ? 'Le compte administrateur courant est accessible dans Firebase Authentication.' : 'Lecture Firebase Authentication impossible.' });
+        const mfaPolicyEnabled = process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true';
+        const mfaOperational = mfaPolicyEnabled && mfaSessionValid;
+        services.push({
+          id: 'admin-access', label: 'Sécurité des accès administrateur',
+          status: mfaOperational ? 'operational' : 'degraded',
+          detail: mfaOperational
+            ? 'La vérification renforcée obligatoire est active et la session courante a été validée côté serveur. Chaque compte est contrôlé à sa connexion.'
+            : 'La politique de vérification renforcée ou la validation de la session courante n’est pas confirmée sur cet environnement.'
+        });
+        services.push({ id: 'email', label: 'Distribution des e-mails', status: 'unknown', detail: 'Les e-mails de réinitialisation sont gérés par Firebase Authentication. La livraison et les rebonds ne sont pas télémétrés par RestauMax.' });
+        services.push({ id: 'database', label: 'Firestore', status: databaseStatus, detail: databaseStatus === 'operational' ? 'Lecture de contrôle réussie.' : 'Firestore ne répond pas.' });
+        services.push({ id: 'payments', label: 'Paiements Mobile Money', status: 'unknown', detail: process.env.PAYDUNYA_LIVE_ENABLED === 'true' ? 'Production autorisée, mais aucun appel fournisseur ni paiement réel n’est lancé par cette sonde.' : 'Mode test / Production désactivée. La sonde ne déclenche aucune transaction et les identifiants restent propres à chaque restaurant.' });
+        const previewDeployment = process.env.VERCEL_ENV === 'preview';
+        const billingSecretConfigured = Boolean(process.env.CRON_SECRET);
+        const billingStatus = billingFresh ? 'operational' : previewDeployment ? 'unknown' : billingSecretConfigured ? 'degraded' : 'unavailable';
+        const billingDetail = billingFresh
+          ? `Dernière exécution : ${new Date(billingLastRunAt as number).toISOString()} · ${String(billingRun?.lastStatus || 'inconnue')}`
+          : previewDeployment
+            ? 'Contrôle Production non exécutable depuis une Preview : Vercel déclenche les tâches Cron sur les déploiements Production uniquement. Le secret Production reste isolé.'
+            : billingSecretConfigured
+              ? 'Secret CRON_SECRET présent, mais aucune exécution réussie récente n’est enregistrée.'
+              : 'CRON_SECRET absent sur cet environnement : tâche planifiée non activable.';
+        const imageKitUploadEnabled = process.env.RESTAUMAX_IMAGEKIT_UPLOADS_ENABLED === 'true';
+        let imageKitEndpointValid = false;
+        try { imageKitEndpointValid = new URL(String(process.env.IMAGEKIT_URL_ENDPOINT || '')).protocol === 'https:'; } catch { imageKitEndpointValid = false; }
+        const imageKitConfigured = Boolean(process.env.IMAGEKIT_PRIVATE_KEY) && imageKitEndpointValid;
+        services.push({
+          id: 'imagekit', label: 'Photos des plats · ImageKit',
+          status: !imageKitUploadEnabled ? 'unknown' : imageKitConfigured ? 'unknown' : 'degraded',
+          detail: !imageKitUploadEnabled
+            ? 'Les envois ImageKit sont désactivés par le feature flag de cet environnement.'
+            : imageKitConfigured
+              ? 'Le feature flag, la clé serveur et le endpoint HTTPS sont présents. Aucune requête de test n’est lancée : la disponibilité du fournisseur reste non mesurée.'
+              : 'Le feature flag ImageKit est activé, mais la clé privée ou le endpoint HTTPS manque. Aucun secret n’est exposé.'
+        });
+        services.push({ id: 'billing', label: 'Facturation planifiée', status: billingStatus, detail: billingDetail });
+        services.push({
+          id: 'deployment', label: 'Déploiement', status: 'unknown',
+          detail: process.env.VERCEL_ENV
+            ? `Métadonnées : ${process.env.VERCEL_ENV} · ${String(process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || 'SHA non exposé'}. Le statut Ready n’est pas vérifié par cette sonde.`
+            : 'Environnement Vercel non détecté.'
+        });
+        services.push({
+          id: 'backup', label: 'Sauvegardes', status: backupStatus,
+          detail: backupLastRunAt
+            ? `Dernière exécution enregistrée : ${new Date(backupLastRunAt).toISOString()} · ${backupFresh ? 'succès récent (moins de 48 h)' : backupStatus === 'unavailable' ? 'échec signalé' : 'résultat ancien ou non confirmé'}.`
+            : 'Aucune télémétrie de sauvegarde connectée.'
+        });
+        return json(res, 200, { success: true, checkedAt: now, services });
+      }
+
+      if (action === 'billing_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const configSnap = await db.collection('platform_config').doc('global').get();
+        const configuredGrace = Number(configSnap.data()?.gracePeriodDays);
+        const gracePeriodDays = Number.isInteger(configuredGrace) && configuredGrace >= 0 && configuredGrace <= 60 ? configuredGrace : 7;
+        const requestedLimit = Number(req.query?.limit || 100);
+        if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 200) {
+          return json(res, 400, { success: false, error: 'Taille de page de factures invalide (1 à 200).' });
+        }
+        const baseQuery = db.collectionGroup('invoices').orderBy('issuedAt', 'desc');
+        let lastScanned: any = null;
+        const cursor = String(req.query?.cursor || '').trim();
+        if (cursor) {
+          let parsed: any = null;
+          try { parsed = JSON.parse(cursor); } catch { /* invalid cursor handled below */ }
+          const slug = String(parsed?.slug || '');
+          const invoiceId = String(parsed?.id || '');
+          if (!/^[a-zA-Z0-9_-]{1,100}$/.test(slug) || !/^[a-zA-Z0-9_-]{1,160}$/.test(invoiceId)) {
+            return json(res, 400, { success: false, error: 'Curseur de facturation invalide.' });
+          }
+          const cursorSnap = await db.collection('restaurantSubscriptions').doc(slug).collection('invoices').doc(invoiceId).get();
+          if (!cursorSnap.exists || !resolveSubscriptionInvoiceIdentity(cursorSnap.ref, cursorSnap.data() || {})) {
+            return json(res, 400, { success: false, error: 'Curseur de facturation expiré ou incohérent.' });
+          }
+          lastScanned = cursorSnap;
+        }
+
+        // Collection-group queries can also match unrelated "invoices" subcollections.
+        // Scan in stable pages and keep only documents physically stored under
+        // restaurantSubscriptions/{slug}/invoices/{invoiceId}.
+        const correlated: Array<{ doc: any; identity: { restaurantSlug: string; invoiceId: string } }> = [];
+        const scanLimit = Math.max(100, requestedLimit + 1);
+        let exhausted = false;
+        while (correlated.length <= requestedLimit && !exhausted) {
+          let scanQuery = baseQuery;
+          if (lastScanned) scanQuery = scanQuery.startAfter(lastScanned);
+          const scanSnap = await scanQuery.limit(scanLimit).get();
+          if (!scanSnap.docs.length) { exhausted = true; break; }
+          for (const invoiceDoc of scanSnap.docs) {
+            const identity = resolveSubscriptionInvoiceIdentity(invoiceDoc.ref, invoiceDoc.data() || {});
+            if (identity) correlated.push({ doc: invoiceDoc, identity });
+          }
+          lastScanned = scanSnap.docs[scanSnap.docs.length - 1];
+          if (scanSnap.docs.length < scanLimit) exhausted = true;
+        }
+
+        const hasMore = correlated.length > requestedLimit;
+        const pageRows = hasMore ? correlated.slice(0, requestedLimit) : correlated;
+        const invoices = await Promise.all(pageRows.map(async ({ doc: invoiceDoc, identity }) => {
+          const invoice = invoiceDoc.data() || {};
+          const [restaurantSnap, subscriptionSnap] = await Promise.all([
+            db.collection('restaurants').doc(identity.restaurantSlug).get(),
+            db.collection('restaurantSubscriptions').doc(identity.restaurantSlug).get()
+          ]);
+          const restaurant = restaurantSnap.exists ? (restaurantSnap.data() || {}) : {};
+          const subscription = subscriptionSnap.exists ? (subscriptionSnap.data() || {}) : {};
+          return {
+            id: identity.invoiceId, restaurantSlug: identity.restaurantSlug,
+            restaurant: {
+              name: typeof restaurant.name === 'string' ? restaurant.name : identity.restaurantSlug,
+              slug: identity.restaurantSlug,
+              status: typeof restaurant.status === 'string' ? restaurant.status : 'unknown',
+              isOpen: restaurant.isOpen === true,
+              city: typeof restaurant.city === 'string' ? restaurant.city : '',
+              country: typeof restaurant.country === 'string' ? restaurant.country : '',
+              address: typeof restaurant.address === 'string' ? restaurant.address : (typeof restaurant.location === 'string' ? restaurant.location : ''),
+              phone: typeof restaurant.phone === 'string' ? restaurant.phone : (typeof restaurant.contactPhone === 'string' ? restaurant.contactPhone : ''),
+              email: typeof restaurant.email === 'string' ? restaurant.email : (typeof restaurant.contactEmail === 'string' ? restaurant.contactEmail : ''),
+              ownerName: typeof restaurant.ownerName === 'string' ? restaurant.ownerName : '',
+              createdAt: Number.isFinite(restaurant.createdAt) ? restaurant.createdAt : null,
+              subscriptionStatus: typeof subscription.status === 'string' ? subscription.status : 'unknown',
+              billingCycle: typeof subscription.billingCycle === 'string' ? subscription.billingCycle : '',
+              startsAt: Number.isFinite(subscription.startsAt) ? subscription.startsAt : null,
+              endsAt: Number.isFinite(subscription.endsAt) ? subscription.endsAt : null,
+              nextBillingAt: Number.isFinite(subscription.nextBillingAt) ? subscription.nextBillingAt : null,
+              autoRenew: subscription.autoRenew !== false
+            },
+            planId: typeof invoice.planId === 'string' ? invoice.planId : '',
+            planName: typeof invoice.planName === 'string' ? invoice.planName : '',
+            amountFcfa: Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0,
+            baseAmountFcfa: Number.isSafeInteger(invoice.baseAmountFcfa) ? invoice.baseAmountFcfa : Number(invoice.amountFcfa || 0),
+            discountPercent: Number.isInteger(invoice.discountPercent) ? invoice.discountPercent : 0,
+            discountAmountFcfa: Number.isSafeInteger(invoice.discountAmountFcfa) ? invoice.discountAmountFcfa : 0,
+            discountSource: typeof invoice.discountSource === 'string' ? invoice.discountSource : 'none',
+            discountType: typeof invoice.discountType === 'string' ? invoice.discountType : 'none',
+            discountValue: Number.isSafeInteger(invoice.discountValue) ? invoice.discountValue : 0,
+            promotionCode: typeof invoice.promotionCode === 'string' ? invoice.promotionCode : null,
+            promotionName: typeof invoice.promotionName === 'string' ? invoice.promotionName : null,
+            currency: 'FCFA',
+            status: invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= Date.now()
+              ? 'overdue' : (['open', 'paid', 'void', 'overdue'].includes(String(invoice.status)) ? invoice.status : 'unknown'),
+            issuedAt: Number.isFinite(invoice.issuedAt) ? invoice.issuedAt : null,
+            dueAt: Number.isFinite(invoice.dueAt) ? invoice.dueAt : null,
+            periodStartAt: Number.isFinite(invoice.periodStartAt) ? invoice.periodStartAt : null,
+            periodEndAt: Number.isFinite(invoice.periodEndAt) ? invoice.periodEndAt : null,
+            gracePeriodDays: Number.isSafeInteger(invoice.gracePeriodDays) ? invoice.gracePeriodDays : gracePeriodDays,
+            graceEndsAt: Number.isFinite(invoice.graceEndsAt) ? invoice.graceEndsAt : (Number(invoice.dueAt || 0) + (Number.isSafeInteger(invoice.gracePeriodDays) ? invoice.gracePeriodDays : gracePeriodDays) * 24 * 60 * 60 * 1000),
+            paidAt: Number.isFinite(invoice.paidAt) ? invoice.paidAt : null,
+            paymentReference: typeof invoice.paymentReference === 'string' ? invoice.paymentReference.slice(0, 80) : null
+          };
+        }));
+        const lastRow = pageRows.length ? pageRows[pageRows.length - 1] : null;
+        return json(res, 200, {
+          success: true, invoices, gracePeriodDays, hasMore,
+          nextCursor: hasMore && lastRow ? JSON.stringify({ slug: lastRow.identity.restaurantSlug, id: lastRow.identity.invoiceId }) : null
+        });
+      }
+
+      if (action === 'audit_list') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const requestedLimit = Number(req.query?.limit || 100);
+        if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 200) {
+          return json(res, 400, { success: false, error: 'Taille de page invalide (1 à 200 événements).' });
+        }
+        const cursor = String(req.query?.cursor || '').trim();
+        let query = db.collection('admin_audit_logs').orderBy('createdAt', 'desc').limit(requestedLimit + 1);
+        if (cursor) {
+          const cursorSnap = await db.collection('admin_audit_logs').doc(cursor).get();
+          if (!cursorSnap.exists) return json(res, 400, { success: false, error: 'Curseur d’audit invalide ou expiré.' });
+          query = db.collection('admin_audit_logs').orderBy('createdAt', 'desc').startAfter(cursorSnap).limit(requestedLimit + 1);
+        }
+        const auditSnap = await query.get();
+        const hasMore = auditSnap.docs.length > requestedLimit;
+        const pageDocs = hasMore ? auditSnap.docs.slice(0, requestedLimit) : auditSnap.docs;
+        const logs = pageDocs.map((doc: any) => {
+          const raw = doc.data() || {};
+          return {
+            id: doc.id,
+            action: typeof raw.action === 'string' ? raw.action : 'unknown',
+            actorUid: typeof raw.actorUid === 'string' ? raw.actorUid : '',
+            restaurantSlug: typeof raw.restaurantSlug === 'string' ? raw.restaurantSlug : '',
+            targetUid: typeof raw.targetUid === 'string' ? raw.targetUid.slice(0, 128) : '',
+            targetRole: typeof raw.targetRole === 'string' ? raw.targetRole.slice(0, 40) : '',
+            invoiceId: typeof raw.invoiceId === 'string' ? raw.invoiceId.slice(0, 128) : '',
+            amountFcfa: Number.isSafeInteger(raw.amountFcfa) ? raw.amountFcfa : null,
+            planName: typeof raw.planName === 'string' ? raw.planName.slice(0, 80) : '',
+            subscriptionStatus: typeof raw.subscriptionStatus === 'string' ? raw.subscriptionStatus.slice(0, 40) : '',
+            previousRole: typeof raw.previousRole === 'string' ? raw.previousRole.slice(0, 40) : '',
+            newRole: typeof raw.newRole === 'string' ? raw.newRole.slice(0, 40) : '',
+            previousStatus: typeof raw.previousStatus === 'string' ? raw.previousStatus.slice(0, 40) : '',
+            newStatus: typeof raw.newStatus === 'string' ? raw.newStatus.slice(0, 40) : '',
+            previousPlanName: typeof raw.previousPlanName === 'string' ? raw.previousPlanName.slice(0, 80) : '',
+            newPlanName: typeof raw.newPlanName === 'string' ? raw.newPlanName.slice(0, 80) : '',
+            outcome: ['success', 'denied', 'failed'].includes(String(raw.outcome || '')) ? String(raw.outcome) : '',
+            reasonCode: typeof raw.reasonCode === 'string' && /^[a-z0-9_.-]{1,80}$/i.test(raw.reasonCode) ? raw.reasonCode : '',
+            createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : null,
+            preservedBusinessData: raw.preservedBusinessData === true || raw.businessHistoryPreserved === true
+          };
+        });
+        return json(res, 200, {
+          success: true, logs, readOnly: true, hasMore,
+          nextCursor: hasMore && pageDocs.length ? pageDocs[pageDocs.length - 1].id : null
+        });
+      }
 
       if (action === 'overview') {
         const snap = await db.collection('restaurants').get();
@@ -250,6 +2159,10 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             ? (subscriptionSnap.data() || {})
             : (data.subscription && typeof data.subscription === 'object' ? data.subscription : {});
           const subscription = {
+            planId: typeof raw.planId === 'string' ? raw.planId : null,
+            planFeatures: raw.planFeatures && typeof raw.planFeatures === 'object' ? raw.planFeatures : {},
+            planPriceMonthlyFcfa: Number.isSafeInteger(raw.planPriceMonthlyFcfa) ? raw.planPriceMonthlyFcfa : null,
+            source: subscriptionSnap.exists ? 'canonical' : (data.subscription && typeof data.subscription === 'object' ? 'legacy_unmigrated' : 'none'),
             planName: typeof raw.planName === 'string' ? raw.planName : null,
             status: typeof raw.status === 'string' ? raw.status : 'unknown',
             billingCycle: typeof raw.billingCycle === 'string' ? raw.billingCycle : null,
@@ -282,10 +2195,59 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
               (Number.isFinite(r.subscription.endsAt) && r.subscription.endsAt < aggregationTime)) return sum;
           const amount = Number(r.subscription.priceFcfa || 0);
           if (r.subscription.billingCycle === 'monthly') return sum + amount;
+          if (r.subscription.billingCycle === 'quarterly') return sum + Math.round(amount / 3);
           if (r.subscription.billingCycle === 'yearly') return sum + Math.round(amount / 12);
+          if (r.subscription.billingCycle === 'custom' && r.subscription.startsAt && r.subscription.endsAt) {
+            const durationMonths = (r.subscription.endsAt - r.subscription.startsAt) / (30.4375 * 24 * 60 * 60 * 1000);
+            if (durationMonths > 0) return sum + Math.round(amount / durationMonths);
+          }
           return sum;
         }, 0);
+        const canReadFinancials = ['full', 'billing'].includes(String(await getPlatformAdminRole(db, user, mfaSessionValid) || ''));
+        let financialSummary: any = null;
+        if (canReadFinancials) {
+          const [invoiceFinancialSnap, paymentFinancialSnap] = await Promise.all([
+            db.collectionGroup('invoices').get(),
+            db.collectionGroup('payments').get()
+          ]);
+          const invoiceRows = invoiceFinancialSnap.docs.flatMap((doc: any) => {
+            const rawInvoice = doc.data() || {};
+            const identity = resolveSubscriptionInvoiceIdentity(doc.ref, rawInvoice);
+            return identity ? [{ ...rawInvoice, id: identity.invoiceId, restaurantSlug: identity.restaurantSlug }] : [];
+          });
+          const invoiceByKey = new Map(invoiceRows.map((invoice: any) => [`${invoice.restaurantSlug}/${invoice.id}`, invoice]));
+          const openInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && !(Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
+          const overdueInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'overdue' || (invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
+          const upcomingInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && Number(invoice.dueAt || 0) > aggregationTime && Number(invoice.dueAt) <= aggregationTime + 30 * 24 * 60 * 60 * 1000);
+          const sumInvoiceAmounts = (items: any[]) => items.reduce((total, invoice) => total + (Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0), 0);
+          const subscriptionPaymentDocs = paymentFinancialSnap.docs.filter((doc: any) => {
+            const segments = String(doc.ref.path || '').split('/');
+            if (segments.length !== 4 || segments[0] !== 'restaurantSubscriptions' || segments[2] !== 'payments') return false;
+            const restaurantSlug = segments[1];
+            const paymentId = segments[3];
+            const payment = doc.data() || {};
+            if (payment.restaurantSlug !== restaurantSlug || (payment.id && payment.id !== paymentId) ||
+                typeof payment.invoiceId !== 'string') return false;
+            const linkedInvoice: any = invoiceByKey.get(`${restaurantSlug}/${payment.invoiceId}`);
+            return Boolean(linkedInvoice && linkedInvoice.status === 'paid' &&
+              linkedInvoice.paymentReference === payment.paymentReference &&
+              Number(linkedInvoice.amountFcfa) === Number(payment.amountFcfa));
+          });
+          const collectedAmountFcfa = subscriptionPaymentDocs.reduce((total: number, doc: any) => {
+            const payment = doc.data() || {};
+            return total + (Number.isSafeInteger(payment.amountFcfa) ? payment.amountFcfa : 0);
+          }, 0);
+          financialSummary = {
+            openInvoicesCount: openInvoices.length, openAmountFcfa: sumInvoiceAmounts(openInvoices),
+            overdueInvoicesCount: overdueInvoices.length, overdueAmountFcfa: sumInvoiceAmounts(overdueInvoices),
+            collectedAmountFcfa, upcomingDueCount: upcomingInvoices.length,
+            upcomingDueAmountFcfa: sumInvoiceAmounts(upcomingInvoices),
+            invoicesScanned: invoiceRows.length, paymentsScanned: subscriptionPaymentDocs.length,
+            asOf: aggregationTime
+          };
+        }
         const summary = {
+          financialSummary,
           totalRestaurants: restaurants.length,
           activeRestaurants: restaurants.filter((r: any) => r.status === 'active').length,
           suspendedRestaurants: restaurants.filter((r: any) => r.status === 'suspended').length,
@@ -297,8 +2259,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           subscriptionsByPlan: restaurants.reduce((acc: Record<string, number>, r: any) => {
             const key = r.subscription.planName || 'unassigned'; acc[key] = (acc[key] || 0) + 1; return acc;
           }, {}),
-          monthlyRecurringRevenueFcfa,
-          recurringRevenueFcfa: monthlyRecurringRevenueFcfa
+          monthlyRecurringRevenueFcfa: canReadFinancials ? monthlyRecurringRevenueFcfa : null,
+          recurringRevenueFcfa: canReadFinancials ? monthlyRecurringRevenueFcfa : null
         };
         return json(res, 200, { success: true, restaurants, total: restaurants.length, summary });
       }
@@ -455,7 +2417,11 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             await batch.commit();
           }
         }
-        await db.collection('admin_audit_logs').add({ action: body.status === 'suspended' ? 'suspend_restaurant' : 'reactivate_restaurant', restaurantSlug: slug, actorUid: user.uid, createdAt: now });
+        await db.collection('admin_audit_logs').add({
+          action: body.status === 'suspended' ? 'suspend_restaurant' : 'reactivate_restaurant',
+          restaurantSlug: slug, previousStatus: String(restaurantSnap.data()?.status || 'unknown'),
+          newStatus: String(body.status), outcome: 'success', actorUid: user.uid, createdAt: now
+        });
         return json(res, 200, { success: true, status: body.status });
       }
 
@@ -472,27 +2438,112 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           return json(res, 404, { success: false, error: 'Restaurant introuvable ou supprimé.' });
         }
         const now = Date.now();
+        if (['active', 'trial'].includes(validation.subscription.status) && validation.subscription.nextBillingAt <= now) {
+          return json(res, 409, { success: false, error: 'Une formule active ou en essai doit avoir une prochaine échéance future. Aucune facturation rétroactive ne sera déclenchée sans validation explicite.' });
+        }
         const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
         const currentSubscriptionSnap = await subscriptionRef.get();
+        const currentSubscription = currentSubscriptionSnap.exists
+          ? currentSubscriptionSnap.data() || {}
+          : (restaurantSnap.data()?.subscription && typeof restaurantSnap.data()?.subscription === 'object' ? restaurantSnap.data().subscription : {});
+        if (currentSubscription.currentInvoiceId) {
+          const currentInvoiceId = String(currentSubscription.currentInvoiceId);
+          const outstandingInvoice = await subscriptionRef.collection('invoices').doc(currentInvoiceId).get();
+          if (!outstandingInvoice.exists) {
+            return json(res, 409, { success: false, error: 'Le lien de la facture courante est introuvable. Corrigez le rapprochement avant de modifier la formule ou la période.' });
+          }
+          const currentInvoiceData = outstandingInvoice.data() || {};
+          const invoiceIdentity = resolveSubscriptionInvoiceIdentity(outstandingInvoice.ref, currentInvoiceData);
+          if (!invoiceIdentity || invoiceIdentity.restaurantSlug !== slug || invoiceIdentity.invoiceId !== currentInvoiceId ||
+              (currentInvoiceData.planId && currentSubscription.planId && String(currentInvoiceData.planId) !== String(currentSubscription.planId)) ||
+              (currentInvoiceData.billingCycle && currentSubscription.billingCycle && String(currentInvoiceData.billingCycle) !== String(currentSubscription.billingCycle))) {
+            return json(res, 409, { success: false, error: 'Le lien entre le restaurant, la formule, l’abonnement et sa facture courante est incohérent.' });
+          }
+          if (!['paid', 'void'].includes(String(currentInvoiceData.status || ''))) {
+            return json(res, 409, { success: false, error: 'Une facture d’abonnement reste impayée. Régularisez-la avant de modifier la formule ou la période afin de préserver le lien entre contrat et facture.' });
+          }
+        }
+        const platformConfigSnap = await db.collection('platform_config').doc('global').get();
+        const configuredPlans = Array.isArray(platformConfigSnap.data()?.plans) ? platformConfigSnap.data().plans : [];
+        if (configuredPlans.length) {
+          const requestedPlanId = String(body.subscription?.planId || '').trim();
+          const selectedPlan = configuredPlans.find((plan: any) => requestedPlanId
+            ? String(plan?.id || planIdentifier(String(plan?.name || ''))) === requestedPlanId && String(plan?.name || '') === validation.subscription.planName
+            : String(plan?.name || '') === validation.subscription.planName
+          );
+          const existingPlanName = String(currentSubscription.planName || '');
+          if (requestedPlanId && !selectedPlan) {
+            return json(res, 400, { success: false, error: 'L’identifiant de formule ne correspond pas au nom de l’offre sélectionnée.' });
+          }
+          if (!selectedPlan && validation.subscription.planName !== existingPlanName) {
+            return json(res, 400, { success: false, error: 'Choisissez une formule existante dans le catalogue. Une formule historique peut être conservée, mais ne peut pas être réattribuée.' });
+          }
+          if (selectedPlan) {
+            if (selectedPlan.active !== true) return json(res, 400, { success: false, error: 'Cette formule est désactivée et ne peut plus être attribuée.' });
+            const monthlyPrice = Number(selectedPlan.priceMonthlyFcfa || 0);
+            if (validation.subscription.billingCycle !== 'custom') {
+              const multiplier = validation.subscription.billingCycle === 'quarterly' ? 3 :
+                validation.subscription.billingCycle === 'yearly' ? 12 : 1;
+              if (validation.subscription.priceFcfa !== monthlyPrice * multiplier) {
+                return json(res, 400, { success: false, error: 'Le tarif ne correspond pas au prix mensuel configuré pour cette formule et sa périodicité.' });
+              }
+            }
+          }
+        }
         const requestedNotes = typeof body.subscription?.notes === 'string'
           ? body.subscription.notes.trim().slice(0, 500) : '';
-        const preservedNotes = requestedNotes || String(currentSubscriptionSnap.data()?.notes || '');
+        const preservedNotes = requestedNotes || String(currentSubscription.notes || '');
+        const requestedPlanId = String(body.subscription?.planId || '').trim();
+        const selectedPlan = configuredPlans.find((plan: any) => requestedPlanId
+          ? String(plan?.id || planIdentifier(String(plan?.name || ''))) === requestedPlanId && String(plan?.name || '') === validation.subscription.planName
+          : String(plan?.name || '') === validation.subscription.planName
+        );
+        const cycleMultiplier = validation.subscription.billingCycle === 'quarterly' ? 3 :
+          validation.subscription.billingCycle === 'yearly' ? 12 : 1;
+        const selectedPlanId = selectedPlan
+          ? String(selectedPlan.id || planIdentifier(String(selectedPlan.name || '')))
+          : String(currentSubscription.planId || 'legacy');
+        const selectedPlanFeatures = selectedPlan && selectedPlan.features && typeof selectedPlan.features === 'object'
+          ? Object.fromEntries(['kitchenScreen', 'advancedReports', 'inventoryRecipes', 'loyalty', 'dishImages'].map(key => [key, selectedPlan.features[key] === true]))
+          : (currentSubscription.planFeatures && typeof currentSubscription.planFeatures === 'object' ? currentSubscription.planFeatures : {});
+        const selectedMonthlyPrice = selectedPlan ? Number(selectedPlan.priceMonthlyFcfa || 0) : Number(currentSubscription.planPriceMonthlyFcfa || 0);
+        const effectivePrice = selectedPlan && validation.subscription.billingCycle !== 'custom' && selectedMonthlyPrice > 0
+          ? selectedMonthlyPrice * cycleMultiplier : validation.subscription.priceFcfa;
         const updatedSubscription = {
-          ...validation.subscription, notes: preservedNotes, updatedAt: now, updatedBy: user.uid
+          ...validation.subscription,
+          planId: selectedPlanId,
+          planFeatures: selectedPlanFeatures,
+          planPriceMonthlyFcfa: selectedMonthlyPrice,
+          planSnapshotAt: now,
+          priceFcfa: effectivePrice,
+          gracePeriodOverride: body.subscription?.gracePeriodOverride === false ? false : true,
+          notes: preservedNotes, updatedAt: now, updatedBy: user.uid,
+          version: Number(currentSubscription.version || 0) + 1
         };
-        await subscriptionRef.set(updatedSubscription, { merge: true });
-        if (restaurantSnap.data()?.subscription !== undefined) {
-          await restaurantRef.update({ subscription: FieldValue.delete() });
-        }
-        await db.collection('admin_audit_logs').add({
-          action: 'update_restaurant_subscription', restaurantSlug: slug, actorUid: user.uid,
-          planName: validation.subscription.planName,
-          priceFcfa: validation.subscription.priceFcfa,
-          billingCycle: validation.subscription.billingCycle,
-          subscriptionStatus: validation.subscription.status,
-          endsAt: validation.subscription.endsAt,
-          createdAt: now
+        const auditRef = db.collection('admin_audit_logs').doc();
+        const historyRef = subscriptionRef.collection('history').doc();
+        const batch = db.batch();
+        batch.set(subscriptionRef, updatedSubscription);
+        if (restaurantSnap.data()?.subscription !== undefined) batch.update(restaurantRef, { subscription: FieldValue.delete() });
+        batch.create(historyRef, {
+          restaurantSlug: slug, version: updatedSubscription.version,
+          previous: Object.keys(currentSubscription).length ? currentSubscription : null,
+          next: updatedSubscription, actorUid: user.uid, createdAt: now,
+          billingAction: 'subscription_changed_no_invoice'
         });
+        batch.set(auditRef, {
+          action: 'update_restaurant_subscription', restaurantSlug: slug, actorUid: user.uid,
+          previousPlanName: String(currentSubscription.planName || ''),
+          newPlanName: validation.subscription.planName, planId: selectedPlanId,
+          planName: validation.subscription.planName,
+          previousStatus: String(currentSubscription.status || 'unknown'),
+          newStatus: validation.subscription.status,
+          priceFcfa: effectivePrice, billingCycle: validation.subscription.billingCycle,
+          subscriptionStatus: validation.subscription.status,
+          outcome: 'success', endsAt: validation.subscription.endsAt,
+          invoiceCreated: false, billingPolicy: 'next_scheduled_cycle_only', createdAt: now
+        });
+        await batch.commit();
         return json(res, 200, { success: true, subscription: updatedSubscription });
       }
 
@@ -555,7 +2606,8 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     }
 
     // Super-admin account audit is deliberately read-only and limited to identity/linkage fields.
-    if (action === 'staff_list' && isSuperAdmin(user)) {
+    if (action === 'staff_list' && ['full', 'support'].includes(String(await getPlatformAdminRole(db, user, mfaSessionValid) || ''))) {
+      const canSeeFullAccountDetails = await getPlatformAdminRole(db, user, mfaSessionValid) === 'full';
       const slug = String(req.method === 'GET' ? req.query?.slug || '' : body.slug || '').trim();
       if (!slug) return json(res, 400, { success: false, error: 'Restaurant manquant.' });
       const restaurantSnap = await db.collection('restaurants').doc(slug).get();
@@ -599,8 +2651,23 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
           sources: ['restaurants.owner'], emailValues: ownerEmail ? [ownerEmail] : []
         });
       }
-      const accounts = [...byUid.values()].map(({ emailValues, ...account }) => ({
-        ...account, readOnly: true
+      const accounts = await Promise.all([...byUid.values()].map(async ({ emailValues, ...account }) => {
+        const email = String(account.email || '');
+        const maskedEmail = email.includes('@') ? email.replace(/^(.).+(@.+)$/, '$1•••$2') : '';
+        try {
+          const authUser = await getAuth().getUser(account.uid);
+          const authActive = authUser.disabled !== true;
+          return {
+            ...account, email: canSeeFullAccountDetails ? email : maskedEmail,
+            active: account.activeKnown ? account.active && authActive : authActive,
+            activeKnown: true, accountLinked: true, readOnly: true
+          };
+        } catch {
+          return {
+            ...account, email: canSeeFullAccountDetails ? email : maskedEmail,
+            active: false, activeKnown: false, accountLinked: false, readOnly: true
+          };
+        }
       }));
       return json(res, 200, {
         success: true, actorRole: 'super_admin', restaurant: {
@@ -974,7 +3041,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     const message = code === 'auth/email-already-exists'
       ? 'Cette adresse e-mail possède déjà un compte RestauMax.'
       : 'Une erreur est survenue pendant l’opération administrative.';
-    console.error('[RestauMax Admin]', code || error?.message || 'unknown');
+    const diagnostic = {
+      action: String(action || 'unknown').slice(0, 80),
+      code: String(code || 'unknown').slice(0, 80),
+      message: String(error?.message || 'unknown').replace(/[\\r\\n]+/g, ' ').slice(0, 500)
+    };
+    console.error('[RestauMax Admin]', diagnostic);
     return json(res, 500, { success: false, error: message });
   }
 }

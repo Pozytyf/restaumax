@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { runSubscriptionBillingCycleWithDb, settleSubscriptionInvoiceWithDb } from '../src/server/subscriptionBillingService.ts';
+import { resolveSubscriptionInvoiceIdentity, runSubscriptionBillingCycleWithDb, settleSubscriptionInvoiceWithDb } from '../src/server/subscriptionBillingService.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   console.error('ÉCHEC : Firestore Emulator requis pour les tests de facturation récurrente.');
@@ -10,17 +10,29 @@ if (!process.env.FIRESTORE_EMULATOR_HOST) {
 const app = initializeApp({ projectId: 'demo-restaumax' }, 'subscription-billing-emulator-test');
 const db = getFirestore(app);
 const now = Date.now();
+assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurantSubscriptions/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, {}).restaurantSlug, 'correlation-a',
+  'Une facture placée sous son abonnement canonique est correctement corrélée');
+assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurantSubscriptions/correlation-a/invoices/legacy-invoice-2026-01' }, {}).invoiceId, 'legacy-invoice-2026-01',
+  'Les anciennes factures canoniques restent consultables même si leur identifiant historique diffère du format courant');
+assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurants/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, {}), null,
+  'Une facture d’une autre collection ne peut pas entrer dans le panel Abonnements');
+assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurantSubscriptions/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, { restaurantSlug: 'correlation-b' }), null,
+  'Une facture dont le restaurant déclaré contredit son chemin Firestore est rejetée');
+assert.equal(resolveSubscriptionInvoiceIdentity({ path: 'restaurantSubscriptions/correlation-a/invoices/subinv_0123456789abcdef0123456789abcdef' }, { id: 'subinv_ffffffffffffffffffffffffffffffff' }), null,
+  'Un identifiant de facture différent de son identifiant Firestore est rejeté');
 const slug = 'subscription-cycle-emulator';
 const subscriptionRef = db.collection('restaurantSubscriptions').doc(slug);
 const restaurantRef = db.collection('restaurants').doc(slug);
 
 try {
+  await db.collection('platform_config').doc('global').set({ gracePeriodDays: 4, quarterlyDiscountPercent: 10 }, { merge: true });
   await Promise.all([
     restaurantRef.set({ slug, status: 'active', isOpen: true, ownerUid: 'owner-subscription-test', tableSessionVersion: 3 }),
     restaurantRef.collection('table_sessions').doc('active-session').set({ status: 'active', sessionHash: 'active-session' }),
     restaurantRef.collection('table_qr_tokens').doc('active-token').set({ status: 'active', tokenHash: 'active-token', tableId: 'table-4' }),
     subscriptionRef.set({
-      planName: 'Pro', priceFcfa: 25000, currency: 'XOF', billingCycle: 'monthly',
+      planId: 'pro-stable-id', planName: 'Pro', planPriceMonthlyFcfa: 25000,
+      priceFcfa: 25000, currency: 'XOF', billingCycle: 'monthly',
       status: 'active', startsAt: now - 30 * 86400000, endsAt: now - 1000,
       nextBillingAt: now - 1000, autoRenew: true, gracePeriodDays: 7
     })
@@ -34,12 +46,132 @@ try {
   const invoiceRef = subscriptionRef.collection('invoices').doc(subscription.currentInvoiceId);
   const invoice = (await invoiceRef.get()).data();
   assert.equal(invoice.amountFcfa, 25000);
+  await invoiceRef.update({ restaurantSlug: 'another-restaurant' });
+  const mismatchedRestaurantSettlement = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
+    amountFcfa: 25000, paymentReference: 'MISMATCH-RECEIPT-001',
+    actorUid: 'super-admin-test', now: now + 500
+  });
+  assert.equal(mismatchedRestaurantSettlement.success, false, 'Une facture dont le restaurant déclaré ne correspond pas à son chemin est impossible à rapprocher');
+  await invoiceRef.update({ restaurantSlug: slug, planId: 'different-plan-id' });
+  const mismatchedPlanSettlement = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
+    amountFcfa: 25000, paymentReference: 'MISMATCH-PLAN-001',
+    actorUid: 'super-admin-test', now: now + 600
+  });
+  assert.equal(mismatchedPlanSettlement.success, false, 'Une facture rattachée à une autre formule est refusée');
+  await invoiceRef.update({ restaurantSlug: slug, planId: 'pro-stable-id' });
+  assert.equal(invoice.planId, 'pro-stable-id', 'La facture conserve l’identifiant stable de l’offre souscrite');
   assert.equal(invoice.status, 'open');
+  assert.equal(invoice.periodStartAt, now - 1000, 'La facture commence à la date de renouvellement prévue');
+  assert.equal(invoice.graceEndsAt, now + 7 * 86400000, 'La fin du délai de grâce est figée à la création de la facture');
 
   const replay = await runSubscriptionBillingCycleWithDb(db, now + 86400000);
   assert.equal(replay.invoicesCreated, 0, 'Une exécution répétée ne crée pas une seconde facture');
   const invoices = await subscriptionRef.collection('invoices').get();
   assert.equal(invoices.size, 1);
+
+  const quarterlySlug = 'subscription-quarterly-emulator';
+  const quarterlyRef = db.collection('restaurantSubscriptions').doc(quarterlySlug);
+  const quarterlyRestaurant = db.collection('restaurants').doc(quarterlySlug);
+  await Promise.all([
+    quarterlyRestaurant.set({ slug: quarterlySlug, status: 'active', isOpen: true }),
+    quarterlyRef.set({
+      planName: 'Pro', priceFcfa: 30000, billingCycle: 'quarterly', status: 'active',
+      startsAt: now - 90 * 86400000, endsAt: now - 1000, nextBillingAt: now - 1000,
+      autoRenew: true, gracePeriodDays: 4
+    })
+  ]);
+  const quarterlyRun = await runSubscriptionBillingCycleWithDb(db, now);
+  assert.equal(quarterlyRun.invoicesCreated, 1, 'Une échéance trimestrielle produit une facture');
+  const quarterlySub = (await quarterlyRef.get()).data();
+  const quarterlyInvoiceRef = quarterlyRef.collection('invoices').doc(quarterlySub.currentInvoiceId);
+  const quarterlyInvoice = (await quarterlyInvoiceRef.get()).data();
+  assert.equal(quarterlyInvoice.baseAmountFcfa, 30000, 'La facture conserve le montant de base trimestriel');
+  assert.equal(quarterlyInvoice.discountPercent, 10, 'Le taux configuré est figé sur la facture');
+  assert.equal(quarterlyInvoice.discountAmountFcfa, 3000, 'La réduction trimestrielle est calculée côté serveur');
+  assert.equal(quarterlyInvoice.amountFcfa, 27000, 'Le montant net facturé tient compte de la réduction');
+  assert.equal(quarterlyInvoice.periodEndAt > quarterlyInvoice.periodStartAt, true, 'La facture trimestrielle expose une période cohérente');
+  const quarterlyPaid = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: quarterlySlug, invoiceId: quarterlySub.currentInvoiceId,
+    amountFcfa: 27000, paymentReference: 'QUARTERLY-RECEIPT-001',
+    actorUid: 'super-admin-test', now: now + 1000
+  });
+  assert.equal(quarterlyPaid.success, true, 'Une facture trimestrielle peut être réglée');
+  const quarterlyRenewed = (await quarterlyRef.get()).data();
+  assert.equal(quarterlyRenewed.status, 'active', 'Le règlement réactive l’abonnement trimestriel');
+  const quarterlyEnd = new Date(quarterlyRenewed.endsAt);
+  const quarterlyStart = new Date(Math.max(Number(quarterlySub.endsAt || now), now));
+  assert.equal((quarterlyEnd.getUTCFullYear() - quarterlyStart.getUTCFullYear()) * 12 + quarterlyEnd.getUTCMonth() - quarterlyStart.getUTCMonth(), 3,
+    'Le renouvellement trimestriel ajoute exactement trois mois');
+
+  await db.collection('platform_config').doc('global').set({
+    plans: [{ name: 'Pro', description: 'Pro', active: true, priceMonthlyFcfa: 20000,
+      features: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true } }]
+  }, { merge: true });
+  const promotionRef = db.collection('platform_promotions').doc('promotion-single-use');
+  await promotionRef.set({
+    name: 'Bienvenue 20%', code: 'WELCOME20', discountType: 'percentage', value: 20,
+    startsAt: now - 1000, endsAt: now + 86400000, eligiblePlans: ['Pro'],
+    maxUses: 1, usedCount: 0, active: true, createdAt: now - 1000
+  });
+  const futureSlug = 'subscription-future-no-retroactive';
+  const futureRef = db.collection('restaurantSubscriptions').doc(futureSlug);
+  await Promise.all([
+    db.collection('restaurants').doc(futureSlug).set({ slug: futureSlug, status: 'active', isOpen: true }),
+    futureRef.set({
+      planId: 'pro', planName: 'Pro', priceFcfa: 12000, planPriceMonthlyFcfa: 12000,
+      billingCycle: 'monthly', status: 'active', startsAt: now, endsAt: now + 60 * 86400000,
+      nextBillingAt: now + 60 * 86400000, autoRenew: true
+    })
+  ]);
+  const futureRun = await runSubscriptionBillingCycleWithDb(db, now);
+  assert.equal(futureRun.invoicesCreated, 0, 'Une échéance future ne génère aucune facture avant sa date');
+  assert.equal((await futureRef.collection('invoices').get()).size, 0, 'Aucune facture anticipée n’est créée pour un abonnement futur');
+
+  const promoSlugs = ['subscription-promo-a', 'subscription-promo-b'];
+  const promoRefs = promoSlugs.map(value => db.collection('restaurantSubscriptions').doc(value));
+  await Promise.all(promoRefs.map((ref, index) => Promise.all([
+    db.collection('restaurants').doc(promoSlugs[index]).set({ slug: promoSlugs[index], status: 'active', isOpen: true }),
+    ref.set({
+      planId: 'pro', planName: 'Pro', priceFcfa: index === 0 ? 36000 : 12000, planPriceMonthlyFcfa: 12000, billingCycle: index === 0 ? 'quarterly' : 'monthly',
+      status: 'active', startsAt: now - 90000000, endsAt: now - 1000, nextBillingAt: now - 1000,
+      autoRenew: true, gracePeriodDays: 60
+    })
+  ])));
+  const promoRun = await runSubscriptionBillingCycleWithDb(db, now + 2000);
+  assert.equal(promoRun.invoicesCreated, 2, 'Deux abonnements éligibles produisent leurs factures');
+  const promoInvoices = await Promise.all(promoRefs.map(async ref => {
+    const sub = (await ref.get()).data();
+    return (await ref.collection('invoices').doc(sub.currentInvoiceId).get()).data();
+  }));
+  assert.equal(promoInvoices.filter(invoice => invoice.discountSource === 'promotion').length, 1,
+    'Une promotion limitée à un usage n’est appliquée qu’une seule fois');
+  assert.equal((await promotionRef.get()).data().usedCount, 1, 'Le quota de promotion est incrémenté atomiquement');
+  for (let index = 0; index < promoRefs.length; index++) {
+    const invoice = promoInvoices[index];
+    const expectedBaseAmount = invoice.billingCycle === 'quarterly' ? 36000 : 12000;
+    assert.equal(invoice.baseAmountFcfa, expectedBaseAmount, 'La facture respecte le tarif contractuel figé dans l’abonnement, sans repricing silencieux du catalogue');
+    const expectedAmount = invoice.discountSource === 'promotion' ? Math.round(expectedBaseAmount * 0.8) :
+      (invoice.billingCycle === 'quarterly' ? Math.round(expectedBaseAmount * 0.9) : expectedBaseAmount);
+    assert.equal(invoice.amountFcfa, expectedAmount, 'Une promotion et la réduction trimestrielle ne se cumulent jamais');
+    const sub = (await promoRefs[index].get()).data();
+    const payment = await settleSubscriptionInvoiceWithDb(db, {
+      restaurantSlug: promoSlugs[index], invoiceId: sub.currentInvoiceId,
+      amountFcfa: invoice.amountFcfa, paymentReference: `PROMO-RECEIPT-00${index + 1}`,
+      actorUid: 'super-admin-test', now: now + 3000 + index
+    });
+    assert.equal(payment.success, true, 'Les factures avec ou sans promotion restent réglables');
+  }
+
+  for (let index = 0; index < promoRefs.length; index++) {
+    const ownPayments = await promoRefs[index].collection('payments').get();
+    assert.equal(ownPayments.size, 1, 'Chaque restaurant possède uniquement son propre règlement d’abonnement');
+    assert.equal(ownPayments.docs[0].data().restaurantSlug, promoSlugs[index], 'Le paiement reste lié au bon restaurant');
+    const otherIndex = index === 0 ? 1 : 0;
+    assert.equal((await promoRefs[otherIndex].collection('payments').get()).docs.some(doc => doc.data().restaurantSlug === promoSlugs[index]), false,
+      'Aucun paiement ne traverse la frontière entre deux restaurants');
+  }
 
   const beforeGrace = await runSubscriptionBillingCycleWithDb(db, now + 6 * 86400000);
   assert.equal(beforeGrace.restaurantsSuspended, 0, 'Le restaurant reste accessible pendant le délai de grâce');
@@ -56,6 +188,7 @@ try {
   assert.equal((await restaurantRef.collection('table_qr_tokens').doc('active-token').get()).data().status, 'revoked',
     'Les anciens QR sont révoqués pour empêcher leur réutilisation après réactivation');
 
+  await invoiceRef.update({ status: 'overdue' });
   const settled = await settleSubscriptionInvoiceWithDb(db, {
     restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
     amountFcfa: 25000, paymentReference: 'TRANSFER-RECEIPT-2026-001',
@@ -65,6 +198,9 @@ try {
   const renewed = (await subscriptionRef.get()).data();
   assert.equal(renewed.status, 'active');
   assert.equal(renewed.nextBillingAt, renewed.endsAt);
+  const settledInvoice = (await invoiceRef.get()).data();
+  assert.equal(settledInvoice.periodStartAt, renewed.startsAt, 'La facture réglée conserve la période réellement activée');
+  assert.equal(settledInvoice.periodEndAt, renewed.endsAt, 'La fin de période de la facture correspond à celle de l’abonnement renouvelé');
   assert.equal((await restaurantRef.get()).data().status, 'active', 'Un paiement réactive un restaurant suspendu uniquement pour impayé');
   const settlementReplay = await settleSubscriptionInvoiceWithDb(db, {
     restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
@@ -72,6 +208,12 @@ try {
     actorUid: 'super-admin-test', now: now + 8 * 86400000 + 2000
   });
   assert.equal(settlementReplay.success && settlementReplay.idempotentReplay, true, 'Le rapprochement est idempotent');
+  const wrongAmountReplay = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
+    amountFcfa: 24999, paymentReference: 'TRANSFER-RECEIPT-2026-001',
+    actorUid: 'super-admin-test', now: now + 8 * 86400000 + 3000
+  });
+  assert.equal(wrongAmountReplay.success, false, 'Un rejeu idempotent avec un montant différent est refusé');
   const subscriptionPayments = await subscriptionRef.collection('payments').get();
   assert.equal(subscriptionPayments.size, 1, 'Le règlement possède une seule écriture financière append-only');
   assert.equal(subscriptionPayments.docs[0].data().method, 'manual');
@@ -105,7 +247,40 @@ try {
   assert.equal((await freeRef.get()).data().status, 'active');
   assert.equal((await freeRef.collection('invoices').get()).size, 0);
 
-  console.log('Subscription billing Firestore Emulator tests passed: 27 assertions.');
+  const globalGraceSlug = 'subscription-global-grace-emulator';
+  const globalGraceRef = db.collection('restaurantSubscriptions').doc(globalGraceSlug);
+  const globalGraceRestaurant = db.collection('restaurants').doc(globalGraceSlug);
+  const overrideGraceSlug = 'subscription-override-grace-emulator';
+  const overrideGraceRef = db.collection('restaurantSubscriptions').doc(overrideGraceSlug);
+  const overrideGraceRestaurant = db.collection('restaurants').doc(overrideGraceSlug);
+  await Promise.all([
+    globalGraceRestaurant.set({ slug: globalGraceSlug, status: 'active', isOpen: true }),
+    globalGraceRef.set({
+      planName: 'Pro', priceFcfa: 12000, billingCycle: 'monthly', status: 'active',
+      startsAt: now, endsAt: now + 9 * 86400000, nextBillingAt: now + 9 * 86400000,
+      autoRenew: true, gracePeriodDays: 7, gracePeriodOverride: false
+    }),
+    overrideGraceRestaurant.set({ slug: overrideGraceSlug, status: 'active', isOpen: true }),
+    overrideGraceRef.set({
+      planName: 'Pro', priceFcfa: 12000, billingCycle: 'monthly', status: 'active',
+      startsAt: now, endsAt: now + 9 * 86400000, nextBillingAt: now + 9 * 86400000,
+      autoRenew: true, gracePeriodDays: 2, gracePeriodOverride: true
+    })
+  ]);
+  await runSubscriptionBillingCycleWithDb(db, now + 9 * 86400000);
+  assert.equal((await globalGraceRef.collection('invoices').get()).docs[0].data().gracePeriodDays, 4,
+    'La configuration globale du délai de grâce est appliquée aux abonnements sans dérogation');
+  assert.equal((await overrideGraceRef.collection('invoices').get()).docs[0].data().gracePeriodDays, 2,
+    'Une dérogation de délai propre à un abonnement est conservée');
+  const mixedGrace = await runSubscriptionBillingCycleWithDb(db, now + 12 * 86400000);
+  assert.equal(mixedGrace.restaurantsSuspended, 1, 'Seul l’abonnement dont le délai personnalisé est écoulé est suspendu');
+  assert.equal((await globalGraceRestaurant.get()).data().status, 'active');
+  assert.equal((await overrideGraceRestaurant.get()).data().status, 'suspended');
+  await runSubscriptionBillingCycleWithDb(db, now + 14 * 86400000);
+  assert.equal((await globalGraceRestaurant.get()).data().status, 'suspended',
+    'Le délai global est respecté avant suspension');
+
+  console.log('Subscription billing Firestore Emulator tests passed.');
 } finally {
   await app.delete();
 }

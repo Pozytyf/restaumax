@@ -3,7 +3,7 @@ name: RestauMax CI
 
 on:
   push:
-    branches: [main, fix/authorization-refunds-platform-audit, fix/functional-hardening-modules-2026-11-10, feat/new-dish-form-preview, feat/imagekit-free-photo-storage]
+    branches: [main, fix/authorization-refunds-platform-audit, fix/functional-hardening-modules-2026-11-10, feat/new-dish-form-preview, feat/imagekit-free-photo-storage, feat/super-admin-nine-screen-workspace]
   pull_request:
     branches: [main, fix/separate-platform-admin-login, fix/qr-table-session-diagnostics]
 

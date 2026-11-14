@@ -16,5 +16,5 @@ assert(rules.includes("data.stockQuantity is int && data.stockQuantity >= 0"), '
 assert(rules.includes("data.get('trackStock', false) != true || (data.keys().hasAny(['stockQuantity'])"), 'stock tracking requires a persisted quantity');
 assert(rules.includes("hasRestaurantPermission(restaurantSlug, 'inventory.view')") &&
   rules.includes("hasRestaurantPermission(restaurantSlug, 'inventory.manage')"), 'only inventory-authorized restaurant staff can read customization recipes');
-assert(rules.includes('allow create, update: if false;'), 'customization recipes can only be written through the trusted server API');
+assert(rules.includes('allow create, update: if !isPlatformMaintenanceMode() && false;'), 'customization recipes can only be written through the trusted server API');
 console.log('Firestore owner and role rule checks passed');

@@ -546,16 +546,16 @@ async function runTests() {
   assert(rulesContent.includes('isManagerOfRestaurant(targetSlug)'), 'Définit la fonction de vérification avec portée restaurant (isManagerOfRestaurant)');
 
   // Test 4.1b: Les mutations de stock passent exclusivement par le backend Admin SDK.
-  assert(rulesContent.includes('allow create, update, delete: if false;'), 'Les articles de stock ne sont plus modifiables directement via le SDK client');
+  assert(rulesContent.includes('allow create, update, delete: if !isPlatformMaintenanceMode() && false;'), 'Les articles de stock ne sont plus modifiables directement via le SDK client');
   assert(rulesContent.includes('// Append-only from the trusted Admin SDK transaction; no client writes.'), 'Le journal de stock est en écriture backend uniquement');
 
   // Test 4.2: Protection multi-tenant sur restaurants et sous-collections
-  assert(rulesContent.includes("allow create: if hasRestaurantPermission(restaurantSlug, 'settings.manage')"), 'Écritures restaurants restreintes au gérant autorisé');
-  assert(rulesContent.includes("allow list: if (hasRestaurantPermission(restaurantSlug, 'orders.view')"), 'Liste des commandes privée et réservée au gérant du restaurant');
+  assert(rulesContent.includes("allow create: if !isPlatformMaintenanceMode() && hasRestaurantPermission(restaurantSlug, 'settings.manage')"), 'Écritures restaurants restreintes au gérant autorisé');
+  assert(rulesContent.includes("hasRestaurantPermission(restaurantSlug, 'orders.view')") && rulesContent.includes("hasPlatformFeature(restaurantSlug, 'kitchenScreen')"), 'Liste des commandes privée et réservée au gérant du restaurant');
 
   // Test 4.3: Restriction stricte des modifications d'ordres KDS
-  assert(rulesContent.includes('allow update: if false;'), 'Les transitions de commande sont interdites au SDK client et passent par le backend transactionnel');
-  assert(rulesContent.includes('allow update: if false;'), 'Le SDK client ne peut modifier aucun champ d’une commande, notamment les montants');
+  assert(rulesContent.includes('allow update: if !isPlatformMaintenanceMode() && false;'), 'Les transitions de commande sont interdites au SDK client et passent par le backend transactionnel');
+  assert(rulesContent.includes('allow update: if !isPlatformMaintenanceMode() && false;'), 'Le SDK client ne peut modifier aucun champ d’une commande, notamment les montants');
 
   // ==========================================================================
   // SECTION 5 : CORRECTION E — Tables réelles uniquement dans le générateur QR
@@ -579,7 +579,7 @@ async function runTests() {
   // Scénario 1: Rejet d'une écriture directe de commande depuis le client
   assert(
     rulesContent.includes('match /orders/{orderId}') &&
-    rulesContent.includes('allow create: if false;'),
+    rulesContent.includes('allow create: if !isPlatformMaintenanceMode() && false;'),
     'Scénario 1 : firestore.rules interdit formellement la création directe de commande par le client (allow create: if false)'
   );
 
@@ -828,7 +828,7 @@ async function runTests() {
   // Scénario 8: Règles Firestore multi-tenant et mise à jour KDS préservées
   assert(
     rulesContent.includes("hasRestaurantPermission(restaurantSlug, 'orders.view')") &&
-    rulesContent.includes('allow update: if false;') &&
+    rulesContent.includes('allow update: if !isPlatformMaintenanceMode() && false;') &&
     fs.readFileSync(path.resolve('server.ts'), 'utf-8').includes("app.post('/api/order-status'") &&
     fs.readFileSync(path.resolve('src/server/orderLifecycleService.ts'), 'utf-8').includes('transitionOrderStatusWithDb'),
     'Scénario 8 : Multi-tenant préservé et transitions KDS transactionnelles côté serveur'

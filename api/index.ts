@@ -52,6 +52,26 @@ export default async function handler(req: any, res: any) {
     return methodNotAllowed(res, route.methods);
   }
 
+  const maintenanceExemptRoutes = new Set([
+    'health', 'platform-admin', 'paydunya-callback',
+    'paydunya-disbursement-callback', 'subscription-billing-cycle',
+    'customer-paydunya-reconcile'
+  ]);
+  if (!maintenanceExemptRoutes.has(route.id) && adminDb) {
+    try {
+      const configSnap = await adminDb.collection('platform_config').doc('global').get();
+      if (configSnap.exists && configSnap.data()?.maintenanceMode === true) {
+        setPrivateApiHeaders(res);
+        return res.status(503).json({
+          success: false, maintenance: true,
+          error: 'RestauMax est temporairement en maintenance. Les opérations métier sont momentanément suspendues.'
+        });
+      }
+    } catch {
+      // A transient configuration read must not falsely lock out restaurant operations.
+    }
+  }
+
   if (route.id === 'health') {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     if (!adminDb) return res.status(503).json({ status: 'unavailable' });

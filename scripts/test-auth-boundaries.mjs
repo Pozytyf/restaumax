@@ -38,11 +38,13 @@ assert.match(adminView, /useState<User \| null>\(auth\.currentUser\)/,
   'an already-open Firebase session is evaluated when /admin mounts');
 assert.match(adminView, /onAuthStateChanged\(auth, \(nextUser\)/,
   'a restored or changed Firebase session is revalidated on /admin');
-assert.match(adminView, /token\.claims\.role !== 'super_admin'/,
-  'an existing owner/staff session must not be silently promoted by the admin allowlist');
-assert.match(adminView, /adminLoginInProgress\.current = true[\s\S]*?const data = await request\(\)/,
-  'the dedicated admin login explicitly authenticates before requesting platform access');
-assert.match(adminView, /\(!user \|\| needsPlatformAdminLogin\) \? \(mfaResolver \?/,
+assert.match(adminView, /!\['super_admin', 'platform_admin'\]\.includes\(String\(token\.claims\.role \|\| ''\)\)/,
+  'only super-admin and delegated platform-admin claims can restore the platform console session');
+assert.match(adminView, /adminLoginInProgress\.current = true[\s\S]*?await signInWithEmailAndPassword\(auth, email\.trim\(\), password\)[\s\S]*?await continueAfterAuthentication\(\)/,
+  'the dedicated admin login explicitly authenticates before continuing through MFA');
+assert.match(adminView, /const continueAfterAuthentication = useCallback[\s\S]*?request\(\{ action: 'mfa_status' \}\)/,
+  'platform access is requested only after the MFA session status is checked');
+assert.match(adminView, /\(!user \|\| needsPlatformAdminLogin\) \? \([\s\S]*?mfaResolver \?/,
   'a pre-existing non-platform Firebase session remains behind the dedicated admin login boundary');
 assert.match(adminView, /: <form onSubmit=\{login\}/,
   'the dedicated admin login form remains available when no MFA challenge is pending');
@@ -56,7 +58,7 @@ assert.match(adminView, /response\.status === 401 \|\| response\.status === 403/
   'platform API rejection is explicitly handled');
 assert.match(adminView, /await signOut\(auth\)/,
   'a rejected owner/staff Firebase session is closed after platform API denial');
-assert.match(adminView, /!isPlatformAdminAuthorized \? <section/,
+assert.match(adminView, /!isPlatformAdminAuthorized \? \([\s\S]*?<section/,
   'platform dashboard is not rendered before server authorization');
 assert.doesNotMatch(adminView, /onOpenRestaurant/,
   'platform administration cannot navigate into a restaurant operations workspace');

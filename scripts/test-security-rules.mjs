@@ -34,19 +34,23 @@ const table = (db, slug, id='table-1') => doc(db, 'restaurants', slug, 'tables',
 try {
   await env.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
-    for (const slug of ['rest-a', 'rest-b', 'rest-suspended', 'rest-provisioning']) {
+    for (const slug of ['rest-a', 'rest-b', 'rest-suspended', 'rest-provisioning', 'rest-essentiel', 'rest-legacy']) {
       await setDoc(doc(db, 'restaurants', slug), {
         slug, name: slug, isOpen: true,
         status: slug === 'rest-suspended' ? 'suspended' : slug === 'rest-provisioning' ? 'provisioning' : 'active',
       });
       await setDoc(doc(db, 'restaurants', slug, 'private', 'ownership'), {
-        ownerUid: slug === 'rest-b' ? 'owner-b' : 'owner-a',
-        ownerEmail: slug === 'rest-b' ? 'owner-b@example.test' : 'owner@example.test'
+        ownerUid: slug === 'rest-b' ? 'owner-b' : slug === 'rest-essentiel' ? 'owner-essentiel' : slug === 'rest-legacy' ? 'owner-legacy' : 'owner-a',
+        ownerEmail: slug === 'rest-b' ? 'owner-b@example.test' : slug === 'rest-essentiel' ? 'owner-essentiel@example.test' : slug === 'rest-legacy' ? 'owner-legacy@example.test' : 'owner@example.test'
       });
     }
     const members = [
       ['owner-a','rest-a','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage','inventory.view','inventory.manage']],
       ['owner-b','rest-b','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage','inventory.view','inventory.manage']],
+      ['owner-essentiel','rest-essentiel','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage','inventory.view','inventory.manage']],
+      ['owner-legacy','rest-legacy','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage','inventory.view','inventory.manage']],
+      ['owner-orphan','rest-orphan','owner',['menu.manage','orders.manage','tables.manage','settings.manage','staff.manage','inventory.view','inventory.manage']],
+      ['kitchen-essentiel','rest-essentiel','kitchen',['orders.view','kitchen.access']],
       ['manager-b','rest-b','manager',['menu.manage','orders.manage','orders.view','tables.view','tables.manage','pos.access','cash.view','cash.manage','reports.view','staff.manage','settings.view','inventory.view','inventory.manage']],
       ['manager-a','rest-a','manager',['menu.manage','orders.manage','orders.view','tables.view','tables.manage','pos.access','cash.view','cash.manage','reports.view','staff.manage','settings.view','inventory.view','inventory.manage']],
       ['cashier-a','rest-a','cashier',['pos.access','cash.view','cash.manage','orders.view']],
@@ -87,17 +91,24 @@ try {
       itemId:'rice',itemName:'Riz',unit:'kg',quantityBefore:0,delta:10,quantityAfter:10,reason:'Stock initial'
     });
     await setDoc(doc(db,'restaurants/rest-a/menuItems/dish-1'),{
-      id:'dish-1',restaurantSlug:'rest-a',name:'Plat A',category:'plats',price:1000,available:true
+      id:'dish-1',restaurantSlug:'rest-a',name:'Plat A',category:'entrees',price:1000,available:true
     });
     await setDoc(doc(db,'restaurants/rest-a/menuRecipes/dish-1'),{
       menuItemId:'dish-1', ingredients:[{itemId:'rice',quantityPerDish:0.2,unit:'kg'}]
     });
     await setDoc(doc(db,'restaurants/rest-b/menuItems/dish-1'),{
-      id:'dish-1',restaurantSlug:'rest-b',name:'Plat B',category:'plats',price:1200,available:true
+      id:'dish-1',restaurantSlug:'rest-b',name:'Plat B',category:'entrees',price:1200,available:true
     });
     await setDoc(doc(db,'restaurants/rest-a/customers/customer-1'), { name: 'Client A', phone: '+2250700000000', loyaltyPoints: 0, createdAt: 1 });
     await setDoc(doc(db,'restaurants/rest-b/inventoryItems/rice'),{
       id:'rice',name:'Riz B',unit:'kg',quantity:7,minQuantity:1,unitCost:900,active:true
+    });
+    await setDoc(doc(db,'restaurants/rest-legacy/inventoryItems/rice'),{
+      id:'rice',name:'Riz historique',unit:'kg',quantity:5,minQuantity:1,unitCost:700,active:true
+    });
+    // Deliberately create an orphaned subcollection document without its restaurant parent.
+    await setDoc(doc(db,'restaurants/rest-orphan/inventoryItems/rice'),{
+      id:'rice',name:'Stock orphelin',unit:'kg',quantity:3,minQuantity:1,unitCost:500,active:true
     });
     await setDoc(doc(db,'restaurants/rest-b/menuRecipes/dish-1'),{
       menuItemId:'dish-1',menuItemName:'Plat B',lines:[{inventoryItemId:'rice',itemName:'Riz B',unit:'kg',quantityPerDish:0.3}]
@@ -105,7 +116,31 @@ try {
     await setDoc(doc(db,'restaurants/rest-a/staff/manager-b'),{
       uid:'manager-b',role:'manager',active:true,restaurantSlug:'rest-a'
     });
+    await setDoc(doc(db, 'restaurants/rest-essentiel/tables/table-1'), tableData);
+    await setDoc(doc(db, 'restaurants/rest-essentiel/orders/order-1'), { ...orderData, restaurantSlug: 'rest-essentiel' });
+    await setDoc(doc(db, 'restaurants/rest-essentiel/inventoryItems/rice'), {
+      id:'rice',name:'Riz',unit:'kg',quantity:10,minQuantity:2,unitCost:500,active:true
+    });
+    await setDoc(doc(db, 'restaurants/rest-essentiel/menuRecipes/dish-1'), {
+      menuItemId:'dish-1', ingredients:[{itemId:'rice',quantityPerDish:0.2,unit:'kg'}]
+    });
+    await setDoc(doc(db, 'restaurantSubscriptions/rest-essentiel'), {
+      planName: 'Essentiel', priceFcfa: 15000, currency: 'XOF',
+      billingCycle: 'monthly', status: 'active', startsAt: 1793836800000, endsAt: 1795046400000
+    });
+    await setDoc(doc(db, 'platform_config/global'), {
+      maintenanceMode: false,
+      planFeatures: {
+        Essentiel: { kitchenScreen: false, advancedReports: false, inventoryRecipes: false, loyalty: false },
+        Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true }
+      }
+    });
     await setDoc(doc(db, 'restaurantSubscriptions/rest-a'), {
+      planName: 'Pro', priceFcfa: 15000, currency: 'XOF',
+      billingCycle: 'monthly', status: 'active',
+      startsAt: 1793836800000, endsAt: 1795046400000
+    });
+    await setDoc(doc(db, 'restaurantSubscriptions/rest-b'), {
       planName: 'Pro', priceFcfa: 15000, currency: 'XOF',
       billingCycle: 'monthly', status: 'active',
       startsAt: 1793836800000, endsAt: 1795046400000
@@ -141,9 +176,14 @@ try {
   await denies(deleteDoc(table(a('manager-a'),'rest-b')), 'Restaurant A ne peut pas supprimer dans B');
 
   // 1b. Inventory is readable by authorized staff, but every mutation is backend-only.
+  await denies(getDocs(collection(a('owner-essentiel'),'restaurants/rest-essentiel/inventoryItems')), 'La formule Essentiel ne peut pas lire le stock lorsque le droit est désactivé');
+  await denies(getDoc(doc(a('owner-essentiel'),'restaurants/rest-essentiel/menuRecipes/dish-1')), 'La formule Essentiel ne peut pas lire les fiches recettes lorsque le droit est désactivé');
+  await denies(getDocs(collection(a('kitchen-essentiel'),'restaurants/rest-essentiel/orders')), 'Le rôle cuisine ne peut pas lire les commandes si l’écran cuisine est désactivé par la formule');
   await allows(getDocs(collection(a('owner-a'),'restaurants/rest-a/inventoryItems')), 'Le propriétaire peut consulter le catalogue de stock');
   await allows(getDocs(collection(a('manager-a'),'restaurants/rest-a/inventoryItems')), 'Le manager avec inventory.view peut consulter le stock');
-  await allows(getDocs(collection(a('owner-b'),'restaurants/rest-b/inventoryItems')), 'Le propriétaire B consulte uniquement son stock');
+  await allows(getDocs(collection(a('owner-b'),'restaurants/rest-b/inventoryItems')), 'Le propriétaire B consulte uniquement son stock avec sa formule Pro explicite');
+  await denies(getDocs(collection(a('owner-legacy'),'restaurants/rest-legacy/inventoryItems')), 'Un restaurant historique sans formule ne reçoit pas le stock premium par défaut');
+  await denies(getDocs(collection(a('owner-orphan'),'restaurants/rest-orphan/inventoryItems')), 'Une sous-collection orpheline reste inaccessible lorsque le document parent du restaurant est absent');
   await denies(getDocs(collection(a('owner-a'),'restaurants/rest-b/inventoryItems')), 'Le propriétaire A ne peut pas lister le stock B');
   await denies(getDocs(collection(a('manager-a'),'restaurants/rest-b/inventoryItems')), 'Le manager A ne peut pas lister le stock B');
   await allows(getDoc(doc(a('owner-a'),'restaurants/rest-a/menuRecipes/dish-1')), 'Le propriétaire A consulte sa fiche technique privée');
@@ -190,23 +230,23 @@ try {
   const managerDish = doc(a('manager-a'), 'restaurants/rest-a/menuItems/dish-manager-created');
   await allows(setDoc(managerDish, {
     id:'dish-manager-created', restaurantSlug:'rest-a', name:'Plat manager',
-    category:'plats', price:2500, available:true, description:'Test', imageUrl:'',
+    category:'entrees', price:2500, available:true, description:'Test', imageUrl:'',
     prepTimeMinutes:15, lowStockThreshold:4, allergens:['arachides','lait'], spiceLevel:2,
     pairings:['attiéké','alloco'], translations:{en:{name:'Manager dish',description:'Test description'},pt:{name:'Prato do gerente'}}
   }), 'Un manager autorisé peut créer un plat avec allergènes, piquant, accompagnements et traductions');
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-spice'),{
-    id:'dish-invalid-spice',restaurantSlug:'rest-a',name:'Piment invalide',category:'plats',price:2500,available:true,spiceLevel:4
+    id:'dish-invalid-spice',restaurantSlug:'rest-a',name:'Piment invalide',category:'entrees',price:2500,available:true,spiceLevel:4
   }), 'Le catalogue refuse un niveau de piquant hors plage');
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-invalid-translation'),{
-    id:'dish-invalid-translation',restaurantSlug:'rest-a',name:'Traduction invalide',category:'plats',price:2500,available:true,
+    id:'dish-invalid-translation',restaurantSlug:'rest-a',name:'Traduction invalide',category:'entrees',price:2500,available:true,
     translations:{en:{name:'x'.repeat(201)}}
   }), 'Le catalogue refuse une traduction trop longue');
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-b/menuItems/dish-cross-tenant'),{
-    id:'dish-cross-tenant',restaurantSlug:'rest-b',name:'Plat croisé',category:'plats',price:2500,available:true
+    id:'dish-cross-tenant',restaurantSlug:'rest-b',name:'Plat croisé',category:'entrees',price:2500,available:true
   }), 'Le manager A ne peut pas créer un plat dans le catalogue B');
   await allows(updateDoc(doc(a('owner-b'),'restaurants/rest-b/menuItems/dish-1'),{price:1300}), 'Le propriétaire B peut modifier le prix de son propre menu');
   await denies(updateDoc(doc(a('owner-a'),'restaurants/rest-b/menuItems/dish-1'),{price:1}), 'Le propriétaire A ne peut pas modifier le prix du menu B');
-  const invalidMenuBase = { restaurantSlug:'rest-a', name:'Plat invalide', category:'plats', price:2500, available:true };
+  const invalidMenuBase = { restaurantSlug:'rest-a', name:'Plat invalide', category:'entrees', price:2500, available:true };
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-a/menuItems/dish-float-price'),{
     ...invalidMenuBase, id:'dish-float-price', price:2500.5
   }), 'Le catalogue refuse un prix FCFA non entier');
@@ -296,6 +336,22 @@ try {
   await denies(getDoc(table(a('manager-a'),'rest-provisioning')), 'Un restaurant provisioning ne permet aucun accès opérationnel');
   await denies(setDoc(doc(a('manager-a'),'restaurants/rest-provisioning/table_sessions/session-1'),{status:'active'}), 'Un client ne peut pas créer une session QR dans un restaurant provisioning');
   await denies(getDoc(table(a('manager-a'),'rest-suspended')), 'Un restaurant suspendu ne permet aucun accès opérationnel');
+
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'restaurants/rest-a/menuItems/dish-1'), {
+      id: 'dish-1', restaurantSlug: 'rest-a', name: 'Plat A',
+      category: 'entrees', price: 1000, available: true
+    });
+  });
+  await allows(updateDoc(doc(a('owner-a'),'restaurants/rest-a/menuItems/dish-1'), { price: 1050 }), 'Le propriétaire peut modifier son menu avant la maintenance');
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'platform_config/global'), { maintenanceMode: true }, { merge: true });
+  });
+  await denies(updateDoc(doc(a('owner-a'),'restaurants/rest-a/menuItems/dish-1'), { price: 1100 }), 'Le mode maintenance bloque les écritures directes Firestore');
+  await allows(getDoc(doc(a('owner-a'),'restaurants/rest-a/menuItems/dish-1')), 'Le mode maintenance conserve les lectures autorisées');
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'platform_config/global'), { maintenanceMode: false }, { merge: true });
+  });
 
   console.log('\nRésultat tests règles Firestore : ' + passed + ' réussis / ' + failed + ' échoués.');
   if (failed) process.exitCode = 1;

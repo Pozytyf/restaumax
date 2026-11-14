@@ -85,9 +85,9 @@ assert(hubView.includes("permissions.includes('tables.manage') && <button") &&
   'QR administration entry points are restricted to members with tables.manage');
 
 const firestoreRules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
-assert(firestoreRules.includes('allow create: if false;') && firestoreRules.includes('Customer creation is server-only'),
+assert(firestoreRules.includes('allow create: if !isPlatformMaintenanceMode() && false;') && firestoreRules.includes('Customer creation is server-only'),
   'customer creation is restricted to the transactional server endpoint');
-assert(firestoreRules.includes("allow delete: if false;") && firestoreRules.includes("'archivedAt', 'archivedByUid'"),
+assert(firestoreRules.includes("allow delete: if !isPlatformMaintenanceMode() && false;") && firestoreRules.includes("'archivedAt', 'archivedByUid'"),
   'customer deletion is replaced by an authorized archive that preserves loyalty history');
 const customerModuleSource = fs.readFileSync(new URL('../src/components/restaumax/RestaurantAdminModuleView.tsx', import.meta.url), 'utf8');
 assert(customerModuleSource.includes('archivedAt: Date.now()') && customerModuleSource.includes('Son historique de fidélité sera conservé') &&

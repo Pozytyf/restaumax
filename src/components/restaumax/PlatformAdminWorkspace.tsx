@@ -1,0 +1,1069 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { auth, requestManagerPasswordReset } from '../../lib/firebase';
+import {
+  Activity, Bell, Building2, ChevronRight, CircleHelp, ClipboardList,
+  CreditCard, LayoutDashboard, LogOut, Plus, RefreshCw, Search, Settings,
+  Users, X, AlertTriangle, ShieldCheck, KeyRound, LockKeyhole
+} from 'lucide-react';
+
+type Subscription = {
+  planId?: string; planFeatures?: Partial<PlanFeatureFlags>; planPriceMonthlyFcfa?: number; source?: string;
+  planName?: string; priceFcfa?: number; currency?: string;
+  billingCycle?: 'monthly' | 'quarterly' | 'yearly' | 'custom';
+  status?: 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled';
+  startsAt?: number; endsAt?: number; nextBillingAt?: number; autoRenew?: boolean;
+  gracePeriodDays?: number; gracePeriodOverride?: boolean; currentInvoiceId?: string | null;
+  currentInvoiceAmountFcfa?: number | null; pastDueAt?: number | null;
+};
+type Restaurant = {
+  slug: string; name: string; status?: string; isOpen?: boolean;
+  city?: string; country?: string; createdAt?: number | null;
+  subscription?: Subscription;
+};
+type Invoice = {
+  id: string; restaurantSlug: string; planId?: string; planName: string; amountFcfa: number;
+  baseAmountFcfa?: number; discountPercent?: number; discountAmountFcfa?: number;
+  discountSource?: string; discountType?: string; discountValue?: number;
+  promotionCode?: string | null; promotionName?: string | null;
+  currency: string; status: string; issuedAt: number | null; dueAt: number | null;
+  paidAt: number | null; paymentReference?: string | null;
+  periodStartAt?: number | null; periodEndAt?: number | null;
+  gracePeriodDays?: number; graceEndsAt?: number | null;
+  restaurant?: {
+    name: string; slug: string; status: string; isOpen: boolean;
+    city: string; country: string; address: string; phone: string; email: string;
+    ownerName: string; createdAt: number | null;
+    subscriptionStatus: string; billingCycle: string; startsAt: number | null; endsAt: number | null;
+    nextBillingAt: number | null; autoRenew: boolean;
+  };
+};
+type PlatformPromotion = {
+  id: string; name: string; code: string; discountType: 'percentage' | 'fixed'; value: number;
+  startsAt: number; endsAt: number; eligiblePlans: string[]; maxUses: number; usedCount: number;
+  active: boolean; createdAt: number;
+};
+type AuditEntry = {
+  id: string; action: string; actorUid: string; restaurantSlug: string;
+  targetUid: string; targetRole: string; invoiceId: string; amountFcfa: number | null;
+  planName: string; subscriptionStatus: string; previousRole: string; newRole: string;
+  previousStatus: string; newStatus: string; previousPlanName: string; newPlanName: string;
+  outcome: string; reasonCode: string;
+  createdAt: number | null; preservedBusinessData: boolean;
+};
+type Account = {
+  uid: string; email: string; displayName: string; role: string;
+  active: boolean; activeKnown: boolean; accountLinked: boolean; emailConflict: boolean;
+};
+type PlatformAdmin = {
+  uid: string; email: string; displayName: string; role: 'full' | 'billing' | 'support' | 'read_only';
+  active: boolean; disabled: boolean; isPrimary?: boolean; lastSignInAt?: number | null; permissions?: string[];
+};
+const PLATFORM_ADMIN_PERMISSION_OPTIONS: Record<Exclude<PlatformAdmin['role'], 'full'>, { value: string; label: string }[]> = {
+  billing: [
+    { value: 'platform.overview', label: 'Vue d’ensemble' },
+    { value: 'billing.read', label: 'Lire les abonnements et factures' },
+    { value: 'billing.manage', label: 'Modifier les abonnements et règlements' },
+    { value: 'audit.read', label: 'Consulter le journal d’audit' }
+  ],
+  support: [
+    { value: 'platform.overview', label: 'Vue d’ensemble' },
+    { value: 'support.read', label: 'Lire les tickets support' },
+    { value: 'support.manage', label: 'Gérer les tickets support' },
+    { value: 'support.access.request', label: 'Demander un diagnostic' },
+    { value: 'support.access.diagnostics', label: 'Consulter les diagnostics autorisés' },
+    { value: 'accounts.read', label: 'Lire les identités liées aux restaurants' },
+    { value: 'health.read', label: 'Consulter la santé plateforme' },
+    { value: 'audit.read', label: 'Consulter le journal d’audit' },
+    { value: 'communication.read', label: 'Lire les annonces' }
+  ],
+  read_only: [
+    { value: 'platform.overview', label: 'Vue d’ensemble' },
+    { value: 'support.read', label: 'Lire les tickets support' },
+    { value: 'health.read', label: 'Consulter la santé plateforme' },
+    { value: 'audit.read', label: 'Consulter le journal d’audit' },
+    { value: 'communication.read', label: 'Lire les annonces' }
+  ]
+};
+const permissionOptionsForRole = (role: PlatformAdmin['role']): { value: string; label: string }[] =>
+  role === 'full' ? [] : PLATFORM_ADMIN_PERMISSION_OPTIONS[role];
+type SupportMessage = { id: string; body: string; authorRole: string; authorUid: string; visibility: string; createdAt: number };
+type SupportAccessRequest = { id: string; restaurantSlug: string; restaurantName: string; reason: string; status: string; requestedByEmail: string; createdAt: number; requestExpiresAt: number; accessExpiresAt?: number | null };
+type SupportTicket = {
+  id: string; restaurantSlug: string; restaurantName: string; subject: string;
+  priority: 'low' | 'medium' | 'high'; status: string; createdAt: number; updatedAt: number;
+  messageCount: number; source: string;
+};
+type PlanFeatureKey = 'kitchenScreen' | 'advancedReports' | 'inventoryRecipes' | 'loyalty' | 'dishImages';
+type PlanFeatureFlags = Record<PlanFeatureKey, boolean>;
+type PlanDefinition = {
+  id?: string; name: string; description: string; active: boolean; priceMonthlyFcfa: number; features: PlanFeatureFlags;
+};
+type PlatformConfig = {
+  currency: 'XOF'; gracePeriodDays: number; quarterlyDiscountPercent: number; maintenanceMode: boolean; version: number;
+  plans: PlanDefinition[];
+  planFeatures: Record<string, PlanFeatureFlags>;
+  emailTemplates: Record<'invitation' | 'passwordReset' | 'invoice' | 'overdue', { subject: string; body: string }>;
+};
+type HealthService = { id: string; label: string; status: string; detail: string };
+type PlatformAnnouncement = {
+  id: string; title: string; message: string; targetType: string; planName: string;
+  restaurantSlugs: string[]; status: string; createdAt: number; publishedAt?: number | null; scheduledAt?: number | null;
+};
+type SecuritySummary = { passkeyCount: number; mfaEnrolled: boolean; recoveryCodesRemaining: number; trustedSessionExpiresAt: number | null; recoveryContactEmail: string };
+type Props = {
+  restaurants: Restaurant[];
+  summary: {
+    totalRestaurants: number; activeRestaurants: number; suspendedRestaurants: number;
+    monthlyRecurringRevenueFcfa: number | null; subscriptionsByStatus?: Record<string, number>;
+    financialSummary?: { openInvoicesCount: number; openAmountFcfa: number; overdueInvoicesCount: number; overdueAmountFcfa: number; collectedAmountFcfa: number; upcomingDueCount: number; upcomingDueAmountFcfa: number; asOf: number };
+  } | null;
+  userEmail?: string | null;
+  security: SecuritySummary;
+  onRefreshSecurity: () => Promise<void>;
+  loading: boolean;
+  request: (body?: Record<string, unknown>) => Promise<any>;
+  onRefresh: () => Promise<void>;
+  onBack: () => void;
+  onSignOut: () => void;
+  onSignOutAndRevoke: () => Promise<void>;
+  securityPanel: React.ReactNode;
+};
+
+const NAV = [
+  { id: 'overview', label: 'Vue d’ensemble', icon: LayoutDashboard },
+  { id: 'restaurants', label: 'Restaurants', icon: Building2 },
+  { id: 'billing', label: 'Abonnements et factures', icon: CreditCard },
+  { id: 'accounts', label: 'Comptes et accès', icon: Users },
+  { id: 'support', label: 'Support', icon: CircleHelp },
+  { id: 'audit', label: 'Journal d’audit', icon: ClipboardList },
+  { id: 'health', label: 'Santé de la plateforme', icon: Activity },
+  { id: 'security', label: 'Sécurité', icon: ShieldCheck },
+  { id: 'settings', label: 'Configuration', icon: Settings },
+  { id: 'communication', label: 'Communication', icon: Bell }
+] as const;
+type Screen = typeof NAV[number]['id'];
+
+const money = (value: number) => `${Math.round(value || 0).toLocaleString('fr-FR')} FCFA`;
+const date = (value?: number | null) => value ? new Date(value).toLocaleDateString('fr-FR') : '—';
+const expectedSubscriptionEnd = (startDate: string, cycle: string) => {
+  if (!startDate || cycle === 'custom') return '';
+  const [year, month, day] = startDate.split('-').map(Number);
+  const target = new Date(Date.UTC(year, month - 1, 1));
+  target.setUTCMonth(target.getUTCMonth() + (cycle === 'monthly' ? 1 : cycle === 'quarterly' ? 3 : 12));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return target.toISOString().slice(0, 10);
+};
+
+const auditActionLabel = (action?: string) => ({
+  assign_server_tables: 'Affectation des tables à un serveur',
+  cancel_platform_announcement: 'Annulation d’une annonce plateforme',
+  create_platform_admin: 'Création d’un compte administrateur délégué',
+  create_platform_announcement: 'Création d’une annonce plateforme',
+  create_restaurant: 'Création d’un restaurant',
+  delete_restaurant_logical: 'Archivage logique d’un restaurant',
+  delete_user_account: 'Suppression d’un compte utilisateur',
+  invite_restaurant_owner: 'Invitation du propriétaire d’un restaurant',
+  publish_platform_announcement: 'Publication d’une annonce plateforme',
+  request_account_password_reset: 'Demande de réinitialisation du mot de passe',
+  request_support_diagnostic_access: 'Demande d’accès au diagnostic support',
+  revoke_support_diagnostic_access: 'Révocation de l’accès au diagnostic support',
+  support_ticket_created: 'Création d’un ticket de support',
+  support_ticket_created_by_admin: 'Création d’un ticket par un administrateur',
+  support_ticket_customer_reply: 'Réponse du client au ticket de support',
+  support_ticket_updated: 'Mise à jour d’un ticket de support',
+  update_platform_admin_role: 'Modification du rôle d’un administrateur délégué',
+  update_platform_configuration: 'Modification de la configuration plateforme',
+  update_restaurant_subscription: 'Modification de l’abonnement d’un restaurant',
+  view_support_diagnostic_data: 'Consultation des données de diagnostic support'
+}[action || ''] || (action ? action.replaceAll('_', ' ') : 'Opération non identifiée'));
+
+const auditRoleLabel = (role?: string) => ({
+  full: 'Administrateur complet', billing: 'Facturation', support: 'Support',
+  read_only: 'Lecture seule', owner: 'Propriétaire', manager: 'Gérant',
+  cashier: 'Caissier', server: 'Serveur', kitchen: 'Cuisine / Bar'
+}[role || ''] || role || '—');
+
+const statusLabel = (value?: string) => ({
+  active: 'Actif', trial: 'Essai', past_due: 'En retard', suspended: 'Suspendu',
+  cancelled: 'Résilié', deleted: 'Archivé', unknown: 'Non défini'
+}[value || ''] || value || 'Non défini');
+const statusClass = (value?: string) => ({
+  active: 'bg-emerald-100 text-emerald-800', paid: 'bg-emerald-100 text-emerald-800',
+  trial: 'bg-sky-100 text-sky-800', past_due: 'bg-amber-100 text-amber-900',
+  suspended: 'bg-rose-100 text-rose-800', cancelled: 'bg-slate-200 text-slate-700',
+  deleted: 'bg-slate-200 text-slate-700', open: 'bg-amber-100 text-amber-900'
+}[value || ''] || 'bg-slate-100 text-slate-700');
+
+function DemoPill() {
+  return <span className="inline-flex min-h-7 items-center rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-[11px] font-bold text-amber-950">Maquette · valeurs d’exemple</span>;
+}
+function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <section className={`rounded-2xl border border-[#dbe3ee] bg-white p-5 shadow-sm ${className}`}>{children}</section>;
+}
+function Badge({ children, value }: { children?: React.ReactNode; value?: string }) {
+  return <span className={`inline-flex min-h-7 items-center rounded-full px-3 py-1 text-xs font-semibold ${statusClass(value)}`}>{children || statusLabel(value)}</span>;
+}
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="flex min-w-0 flex-col gap-1.5 text-sm font-semibold text-slate-700">{label}{children}</label>;
+}
+const inputClass = 'min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-[#c2410c] focus:ring-2 focus:ring-orange-100';
+
+function mergePlatformConfig(current: PlatformConfig, incoming: any): PlatformConfig {
+  const templates = ['invitation', 'passwordReset', 'invoice', 'overdue'] as const;
+  const plans = Array.isArray(incoming?.plans) ? incoming.plans.map((plan: PlanDefinition) => ({
+    ...plan, features: { ...current.plans.find(currentPlan => currentPlan.name === plan.name)?.features, ...plan.features }
+  })) : current.plans.map((plan: PlanDefinition) => ({
+    ...plan, features: { ...plan.features, ...(incoming?.planFeatures?.[plan.name] || {}) }
+  }));
+  const planFeatures = incoming?.planFeatures && typeof incoming.planFeatures === 'object'
+    ? incoming.planFeatures : Object.fromEntries(plans.map((plan: PlanDefinition) => [plan.name, plan.features]));
+  return {
+    ...current, ...incoming, currency: 'XOF', plans, planFeatures,
+    quarterlyDiscountPercent: Number.isInteger(incoming?.quarterlyDiscountPercent)
+      ? incoming.quarterlyDiscountPercent : current.quarterlyDiscountPercent,
+    emailTemplates: Object.fromEntries(templates.map(key => [key, {
+      subject: typeof incoming?.emailTemplates?.[key]?.subject === 'string' ? incoming.emailTemplates[key].subject : current.emailTemplates[key].subject,
+      body: typeof incoming?.emailTemplates?.[key]?.body === 'string' ? incoming.emailTemplates[key].body : current.emailTemplates[key].body
+    }])) as PlatformConfig['emailTemplates']
+  };
+}
+
+
+export const PlatformAdminWorkspace: React.FC<Props> = ({
+  restaurants, summary, userEmail, security, onRefreshSecurity, securityPanel, loading, request, onRefresh, onBack, onSignOut, onSignOutAndRevoke
+}) => {
+  const [screen, setScreen] = useState<Screen>('overview');
+  const [platformRole, setPlatformRole] = useState<'full' | 'billing' | 'support' | 'read_only' | null>(null);
+  const [allowedActions, setAllowedActions] = useState<string[]>([]);
+  const [capabilitiesReady, setCapabilitiesReady] = useState(false);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [selected, setSelected] = useState<Restaurant | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoiceCursor, setInvoiceCursor] = useState<string | null>(null);
+  const [invoiceHasMore, setInvoiceHasMore] = useState(false);
+  const [globalGracePeriodDays, setGlobalGracePeriodDays] = useState(7);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [expandedAuditId, setExpandedAuditId] = useState<string | null>(null);
+  const [auditCursor, setAuditCursor] = useState<string | null>(null);
+  const [auditHasMore, setAuditHasMore] = useState(false);
+  const [auditFilters, setAuditFilters] = useState({ actor: '', action: '', restaurant: '', from: '', to: '' });
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountRestaurant, setAccountRestaurant] = useState('');
+  const [pageLoading, setPageLoading] = useState(false);
+  const [passwordResetBusy, setPasswordResetBusy] = useState(false);
+  const [pageError, setPageError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({ name: '', ownerName: '', ownerEmail: '' });
+  const [subscriptionTarget, setSubscriptionTarget] = useState<Restaurant | null>(null);
+  const [subscriptionForm, setSubscriptionForm] = useState({ planName: '', priceFcfa: '0', billingCycle: 'monthly', status: 'trial', startsOn: '', endsOn: '', gracePeriodDays: '7', useGlobalGracePeriod: true, autoRenew: true });
+  const [paymentReference, setPaymentReference] = useState('');
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [invoiceDetails, setInvoiceDetails] = useState<Invoice | null>(null);
+  const [promotions, setPromotions] = useState<PlatformPromotion[]>([]);
+  const [editingPromotionId, setEditingPromotionId] = useState<string | null>(null);
+  const [promotionFormActive, setPromotionFormActive] = useState(true);
+  const [promotionForm, setPromotionForm] = useState({
+    name: '', code: '', discountType: 'percentage', value: '10',
+    startsOn: '', endsOn: '', eligiblePlans: ['Essentiel'] as string[], maxUses: '100'
+  });
+  const [health, setHealth] = useState<{ checkedAt: number; services: HealthService[] } | null>(null);
+  const [platformAdmins, setPlatformAdmins] = useState<PlatformAdmin[]>([]);
+  const [platformAdminForm, setPlatformAdminForm] = useState({ displayName: '', email: '', platformRole: 'support' });
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
+  const [ticketMessages, setTicketMessages] = useState<SupportMessage[]>([]);
+  const [ticketReply, setTicketReply] = useState('');
+  const [ticketInternalNote, setTicketInternalNote] = useState('');
+  const [ticketStatus, setTicketStatus] = useState('in_progress');
+  const [ticketPriority, setTicketPriority] = useState('medium');
+  const [supportAccessRequests, setSupportAccessRequests] = useState<SupportAccessRequest[]>([]);
+  const [supportAccessReason, setSupportAccessReason] = useState('');
+  const [supportDiagnostic, setSupportDiagnostic] = useState<any | null>(null);
+  const [supportDraft, setSupportDraft] = useState({ restaurantSlug: '', subject: '', message: '', priority: 'medium' });
+  const [platformConfig, setPlatformConfig] = useState<PlatformConfig>({
+    currency: 'XOF', gracePeriodDays: 7, quarterlyDiscountPercent: 0, maintenanceMode: false, version: 1,
+    plans: [
+      { name: 'Essentiel', description: 'Formule essentielle', active: true, priceMonthlyFcfa: 0, features: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false, dishImages: false } },
+      { name: 'Pro', description: 'Formule complète', active: true, priceMonthlyFcfa: 0, features: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true } }
+    ],
+    planFeatures: {
+      Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false, dishImages: false },
+      Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true }
+    },
+    emailTemplates: {
+      invitation: { subject: 'Bienvenue sur RestauMax', body: 'Votre compte RestauMax est prêt. Utilisez le lien sécurisé reçu par e-mail.' },
+      passwordReset: { subject: 'Réinitialisation de votre mot de passe', body: 'Suivez le lien sécurisé de Firebase Authentication pour choisir un nouveau mot de passe.' },
+      invoice: { subject: 'Votre facture RestauMax', body: 'Votre facture est disponible dans votre espace.' },
+      overdue: { subject: 'Rappel de paiement RestauMax', body: 'Une facture reste à régulariser dans votre espace.' }
+    }
+  });
+  const [announcements, setAnnouncements] = useState<PlatformAnnouncement[]>([]);
+  const [announcement, setAnnouncement] = useState({ title: '', message: '', targetType: 'all', planName: 'Essentiel', restaurantSlugs: [] as string[], schedule: '' });
+  const [announcementPreview, setAnnouncementPreview] = useState(false);
+  const [newPlanForm, setNewPlanForm] = useState({
+    name: '', description: '', priceMonthlyFcfa: '0',
+    features: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false, dishImages: false } as PlanFeatureFlags
+  });
+
+  const read = async (action: string, params: Record<string, string> = {}) => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) throw new Error('Session super-administrateur expirée.');
+    const token = await currentUser.getIdToken(true);
+    const query = new URLSearchParams({ action, ...params });
+    const response = await fetch(`/api/platform-admin?${query.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` }, cache: 'no-store'
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) throw new Error(data.error || 'Lecture impossible.');
+    return data;
+  };
+
+  useEffect(() => {
+    let active = true;
+    void read('platform_capabilities').then(data => {
+      if (active) { setPlatformRole(data.role || null); setAllowedActions(data.allowedActions || []); }
+    }).catch((e: any) => { if (active) setPageError(e.message || 'Permissions plateforme indisponibles.'); })
+      .finally(() => { if (active) setCapabilitiesReady(true); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if ((screen === 'billing' || screen === 'overview') && allowedActions.includes('billing_list')) {
+      setPageLoading(true); setPageError('');
+      void read('billing_list', { limit: '100' }).then(data => { if (active) { setInvoices(data.invoices || []); setInvoiceCursor(data.nextCursor || null); setInvoiceHasMore(data.hasMore === true); setGlobalGracePeriodDays(Number.isInteger(data.gracePeriodDays) ? data.gracePeriodDays : 7); } })
+        .catch(e => { if (active) setPageError(e.message); })
+        .finally(() => { if (active) setPageLoading(false); });
+    }
+    if (screen === 'audit') {
+      setPageLoading(true); setPageError('');
+      void read('audit_list', { limit: '100' }).then(data => {
+        if (active) { setAudit(data.logs || []); setAuditCursor(data.nextCursor || null); setAuditHasMore(data.hasMore === true); }
+      }).catch(e => { if (active) setPageError(e.message); })
+        .finally(() => { if (active) setPageLoading(false); });
+    }
+    if (screen === 'overview') {
+      void read('audit_list', { limit: '100' }).then(data => {
+        if (active) { setAudit(data.logs || []); setAuditCursor(data.nextCursor || null); setAuditHasMore(data.hasMore === true); }
+      }).catch(() => undefined);
+    }
+    const load = async (action: string, apply: (data: any) => void) => {
+      setPageLoading(true); setPageError('');
+      try { const data = await read(action); if (active) apply(data); }
+      catch (e: any) { if (active) setPageError(e.message || 'Chargement impossible.'); }
+      finally { if (active) setPageLoading(false); }
+    };
+    if (screen === 'billing' && allowedActions.includes('promotion_list')) void load('promotion_list', data => setPromotions(data.promotions || []));
+    if (screen === 'accounts' && allowedActions.includes('platform_admin_list')) void load('platform_admin_list', data => setPlatformAdmins(data.admins || []));
+    if (screen === 'support') void load('support_list', data => setSupportTickets(data.tickets || []));
+    if (screen === 'health') void load('health_details', data => setHealth({ checkedAt: data.checkedAt, services: data.services || [] }));
+    if (screen === 'settings') void load('config_read', data => { if (data.config) setPlatformConfig(current => mergePlatformConfig(current, data.config)); });
+    if (screen === 'security') void onRefreshSecurity().catch((e: any) => { if (active) setPageError(e?.message || 'Actualisation de la sécurité impossible.'); });
+    if (screen === 'communication') void load('announcement_list', data => setAnnouncements(data.announcements || []));
+    const refreshTimer = (screen === 'billing' || screen === 'overview') && allowedActions.includes('billing_list')
+      ? setInterval(() => {
+          void read('billing_list', { limit: '100' }).then(data => {
+            if (active) { setInvoices(data.invoices || []); setInvoiceCursor(data.nextCursor || null); setInvoiceHasMore(data.hasMore === true); }
+          }).catch(() => undefined);
+          if (screen === 'overview') void onRefresh();
+        }, 60_000)
+      : null;
+    return () => { active = false; if (refreshTimer) clearInterval(refreshTimer); };
+  }, [screen, allowedActions, onRefresh, onRefreshSecurity]);
+
+  const can = (action: string) => allowedActions.includes(action);
+  const visibleNav = useMemo(() => !capabilitiesReady ? NAV.filter(item => item.id === 'overview') : NAV.filter(item => {
+    const actionByScreen: Record<Screen, string> = {
+      overview: 'overview', restaurants: 'overview', billing: 'billing_list',
+      accounts: can('platform_admin_list') ? 'platform_admin_list' : can('platform_staff_list') ? 'platform_staff_list' : 'accounts.read',
+      support: 'support_list', audit: 'audit_list', health: 'health_details',
+      settings: 'config_read', security: 'overview', communication: 'announcement_list'
+    };
+    return can(actionByScreen[item.id]);
+  }), [allowedActions, capabilitiesReady]);
+  const filteredRestaurants = useMemo(() => restaurants.filter(r => {
+    const term = search.trim().toLowerCase();
+    const matchesText = !term || r.name.toLowerCase().includes(term) || r.slug.toLowerCase().includes(term);
+    const matchesStatus = statusFilter === 'all' || (r.status || 'unknown') === statusFilter;
+    return matchesText && matchesStatus;
+  }), [restaurants, search, statusFilter]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const refreshed = restaurants.find(restaurant => restaurant.slug === selected.slug);
+    if (refreshed && refreshed !== selected) setSelected(refreshed);
+  }, [restaurants, selected?.slug]);
+
+  const openAccounts = async (restaurant: Restaurant) => {
+    setAccountRestaurant(restaurant.slug); setAccounts([]); setPageLoading(true); setPageError('');
+    try {
+      const data = await read('platform_staff_list', { slug: restaurant.slug });
+      setAccounts(data.staff || []);
+    } catch (e: any) { setPageError(e.message || 'Chargement des comptes impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const sendOwnPasswordReset = async () => {
+    if (!userEmail || passwordResetBusy) return;
+    if (!window.confirm('Envoyer un lien sécurisé de réinitialisation à ' + userEmail + ' ?')) return;
+    setPasswordResetBusy(true); setPageError(''); setNotice('');
+    try {
+      const result = await requestManagerPasswordReset(userEmail);
+      if (!result.success) throw new Error(result.error || 'Envoi du lien impossible.');
+      setNotice('Un lien de réinitialisation a été envoyé à ' + userEmail + '. Vérifiez également vos courriers indésirables.');
+    } catch (e: any) { setPageError(e?.message || 'Impossible d’envoyer le lien de réinitialisation.'); }
+    finally { setPasswordResetBusy(false); }
+  };
+
+  const resetAccountPassword = async (account: Account) => {
+    if (!account.email || account.accountLinked === false) return;
+    setPageLoading(true); setPageError(''); setNotice('');
+    try {
+      await request({ action: 'platform_account_password_reset', uid: account.uid, slug: accountRestaurant });
+      const result = await requestManagerPasswordReset(account.email);
+      if (!result.success) throw new Error(result.error || 'Envoi du lien impossible.');
+      setNotice(`E-mail de réinitialisation envoyé à ${account.email}.`);
+    } catch (e: any) { setPageError(e.message || 'Envoi du lien impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const createPlatformAdmin = async (event: React.FormEvent) => {
+    event.preventDefault(); setPageLoading(true); setPageError(''); setNotice('');
+    try {
+      const result = await request({ action: 'platform_admin_create', ...platformAdminForm });
+      const reset = await requestManagerPasswordReset(platformAdminForm.email);
+      setNotice(reset.success
+        ? `Compte ${platformAdminForm.email} créé. Le lien de définition du mot de passe a été envoyé.`
+        : `Compte créé, mais l’e-mail n’a pas été envoyé : ${reset.error || 'utilisez « Mot de passe oublié ».'}`);
+      setPlatformAdminForm({ displayName: '', email: '', platformRole: 'support' });
+      const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []);
+      if (!result.success) throw new Error('Création du compte non confirmée.');
+    } catch (e: any) { setPageError(e.message || 'Création du compte impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const resetPlatformAdminPassword = async (admin: PlatformAdmin) => {
+    setPageLoading(true); setPageError(''); setNotice('');
+    try {
+      await request({ action: 'platform_account_password_reset', uid: admin.uid });
+      const result = await requestManagerPasswordReset(admin.email);
+      if (!result.success) throw new Error(result.error || 'E-mail de réinitialisation non envoyé.');
+      setNotice(`Lien de réinitialisation envoyé à ${admin.email}.`);
+    } catch (e: any) { setPageError(e.message || 'Réinitialisation impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const changePlatformAdminRole = async (admin: PlatformAdmin, platformRole: string) => {
+    if (platformRole === admin.role || !window.confirm(`Modifier le rôle de ${admin.email} ? Sa session actuelle sera révoquée.`)) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'platform_admin_update', uid: admin.uid, platformRole });
+      const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []);
+      setNotice(`Rôle mis à jour pour ${admin.email}. Reconnexion obligatoire.`);
+    } catch (e: any) { setPageError(e.message || 'Modification du rôle impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const changePlatformAdminPermissions = async (admin: PlatformAdmin, permission: string, enabled: boolean) => {
+    if (admin.role === 'full' || permission === 'platform.overview') return;
+    const defaults = permissionOptionsForRole(admin.role).map(item => item.value);
+    const current = admin.permissions || defaults;
+    const permissions = enabled
+      ? [...new Set([...current, permission])]
+      : current.filter(item => item !== permission);
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'platform_admin_update', uid: admin.uid, platformRole: admin.role, permissions });
+      const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []);
+      setNotice('Permissions mises à jour pour ' + admin.email + '. Sa session a été révoquée.');
+    } catch (e: any) { setPageError(e.message || 'Modification des permissions impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const changePlatformAdminStatus = async (admin: PlatformAdmin) => {
+    const active = !admin.active;
+    if (!window.confirm(`${active ? 'Réactiver' : 'Suspendre'} le compte ${admin.email} ? Toutes ses sessions seront révoquées.`)) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'platform_admin_status', uid: admin.uid, active });
+      const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []);
+      setNotice(`Compte ${admin.email} ${active ? 'réactivé' : 'suspendu'}.`);
+    } catch (e: any) { setPageError(e.message || 'Changement de statut impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const revokePlatformAdminSessions = async (admin: PlatformAdmin) => {
+    if (!window.confirm('Révoquer toutes les sessions de ' + admin.email + ' ? Une reconnexion et une nouvelle validation MFA seront nécessaires.')) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'platform_admin_revoke_sessions', uid: admin.uid });
+      setNotice('Sessions révoquées pour ' + admin.email + '.');
+    } catch (e: any) { setPageError(e.message || 'Révocation des sessions impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const deletePlatformAdmin = async (admin: PlatformAdmin) => {
+    if (!window.confirm('Supprimer définitivement l’accès de ' + admin.email + ' ? Le compte sera désactivé, ses facteurs MFA supprimés et l’opération journalisée. Cette action est irréversible.')) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'platform_admin_delete', uid: admin.uid });
+      const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []);
+      setNotice('Accès supprimé pour ' + admin.email + '.');
+    } catch (e: any) { setPageError(e.message || 'Suppression impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const inviteUnlinkedOwner = async (account: Account) => {
+    if (account.uid !== 'unlinked-owner' || !account.email || !account.displayName || !accountRestaurant) return;
+    if (!window.confirm(`Créer et rattacher le compte propriétaire ${account.email} à ${accountRestaurant} ?`)) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'platform_owner_invite', slug: accountRestaurant });
+      const reset = await requestManagerPasswordReset(account.email);
+      const restaurant = restaurants.find(item => item.slug === accountRestaurant);
+      if (restaurant) await openAccounts(restaurant);
+      setNotice(reset.success
+        ? `Compte propriétaire créé et invitation envoyée à ${account.email}.`
+        : `Compte créé et rattaché. L’e-mail d’invitation n’a pas été envoyé : ${reset.error || 'utilisez la réinitialisation du mot de passe'}.`);
+    } catch (e: any) { setPageError(e.message || 'Invitation du propriétaire impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const changeRestaurantAccountStatus = async (account: Account) => {
+    if (!accountLinkedForAction(account)) return;
+    const active = !account.active;
+    if (!window.confirm(`${active?'Réactiver':'Suspendre'} le compte ${account.email || account.displayName} ?`)) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'platform_staff_status', slug: accountRestaurant, uid: account.uid, active });
+      const restaurant = restaurants.find(item => item.slug === accountRestaurant);
+      if (restaurant) await openAccounts(restaurant);
+      setNotice(`Compte ${account.email || account.uid} ${active?'réactivé':'suspendu'} ; les anciennes sessions sont révoquées.`);
+    } catch (e: any) { setPageError(e.message || 'Modification du compte impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const revokeRestaurantAccountSessions = async (account: Account) => {
+    if (!accountLinkedForAction(account) || !window.confirm(`Révoquer toutes les sessions de ${account.email || account.displayName} ?`)) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'platform_staff_revoke_sessions', slug: accountRestaurant, uid: account.uid });
+      const restaurant = restaurants.find(item => item.slug === accountRestaurant);
+      if (restaurant) await openAccounts(restaurant);
+      setNotice(`Sessions révoquées pour ${account.email || account.uid}. Reconnexion obligatoire.`);
+    } catch (e: any) { setPageError(e.message || 'Révocation des sessions impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const accountLinkedForAction = (account: Account) =>
+    Boolean(account.uid && account.accountLinked !== false && account.activeKnown);
+
+  const createSupportTicket = async (event: React.FormEvent) => {
+    event.preventDefault(); setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'support_create', ...supportDraft });
+      setSupportDraft({ restaurantSlug: '', subject: '', message: '', priority: 'medium' });
+      const data = await read('support_list'); setSupportTickets(data.tickets || []);
+      setNotice('Ticket enregistré dans la file de support.');
+    } catch (e: any) { setPageError(e.message || 'Création du ticket impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const openSupportTicket = async (ticket: SupportTicket) => {
+    setSelectedTicket(ticket); setTicketMessages([]); setTicketReply(''); setTicketInternalNote('');
+    setTicketStatus(ticket.status); setTicketPriority(ticket.priority); setPageLoading(true); setPageError('');
+    try {
+      const data = await read('support_messages', { ticketId: ticket.id });
+      setTicketMessages(data.messages || []);
+      if (allowedActions.includes('support_access_list')) {
+        const accessData = await read('support_access_list', { slug: ticket.restaurantSlug });
+        setSupportAccessRequests(accessData.requests || []);
+      } else setSupportAccessRequests([]);
+      setSupportDiagnostic(null);
+    } catch (e: any) { setPageError(e.message || 'Conversation indisponible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const requestSupportDiagnosticAccess = async () => {
+    if (!selectedTicket || supportAccessReason.trim().length < 15) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'support_access_request', restaurantSlug: selectedTicket.restaurantSlug, reason: supportAccessReason.trim() });
+      setSupportAccessReason('');
+      const data = await read('support_access_list', { slug: selectedTicket.restaurantSlug });
+      setSupportAccessRequests(data.requests || []);
+      setNotice('Demande transmise au propriétaire. Aucun accès n’est accordé avant son consentement.');
+    } catch (e: any) { setPageError(e.message || 'Demande d’accès impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const loadSupportDiagnostics = async (access: SupportAccessRequest) => {
+    setPageLoading(true); setPageError('');
+    try {
+      const data = await read('support_access_diagnostics', { requestId: access.id });
+      setSupportDiagnostic(data.diagnostics);
+      setNotice(`Diagnostic autorisé jusqu’au ${new Date(data.expiresAt).toLocaleString('fr-FR')}.`);
+    } catch (e: any) { setPageError(e.message || 'Diagnostic non autorisé ou expiré.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const updateSupportTicket = async (event: React.FormEvent) => {
+    event.preventDefault(); if (!selectedTicket) return;
+    if (!ticketReply.trim() && !ticketInternalNote.trim() && ticketStatus === selectedTicket.status && ticketPriority === selectedTicket.priority) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({
+        action: 'support_update', ticketId: selectedTicket.id,
+        status: ticketStatus, priority: ticketPriority,
+        reply: ticketReply.trim(), internalNote: ticketInternalNote.trim()
+      });
+      setTicketReply(''); setTicketInternalNote('');
+      const [list, messages] = await Promise.all([
+        read('support_list'), read('support_messages', { ticketId: selectedTicket.id })
+      ]);
+      setSupportTickets(list.tickets || []); setTicketMessages(messages.messages || []);
+      const updated = (list.tickets || []).find((item: SupportTicket) => item.id === selectedTicket.id);
+      if (updated) setSelectedTicket(updated);
+      setNotice('Ticket mis à jour et action journalisée.');
+    } catch (e: any) { setPageError(e.message || 'Mise à jour du ticket impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const updatePlanDefinition = (name: string, patch: Partial<PlanDefinition>) => {
+    setPlatformConfig(current => {
+      const plans = current.plans.map(plan => plan.name === name ? { ...plan, ...patch } : plan);
+      const updated = plans.find(plan => plan.name === name);
+      return {
+        ...current, plans,
+        planFeatures: updated ? { ...current.planFeatures, [name]: updated.features } : current.planFeatures
+      };
+    });
+  };
+
+  const addPlanDefinition = () => {
+    const name = newPlanForm.name.trim();
+    const priceMonthlyFcfa = Number(newPlanForm.priceMonthlyFcfa);
+    if (name.length < 2 || name.length > 50 || platformConfig.plans.some(plan => plan.name.toLocaleLowerCase('fr-FR') === name.toLocaleLowerCase('fr-FR')) ||
+        !Number.isSafeInteger(priceMonthlyFcfa) || priceMonthlyFcfa < 0 || priceMonthlyFcfa > 1000000000 ||
+        platformConfig.plans.length >= 20) {
+      setPageError('Nom unique (2 à 50 caractères), tarif entier valide et maximum de 20 formules requis.');
+      return;
+    }
+    const plan: PlanDefinition = {
+      name, description: newPlanForm.description.trim().slice(0, 240), active: true,
+      priceMonthlyFcfa, features: { ...newPlanForm.features }
+    };
+    setPlatformConfig(current => ({
+      ...current, plans: [...current.plans, plan],
+      planFeatures: { ...current.planFeatures, [name]: plan.features }
+    }));
+    setNewPlanForm({
+      name: '', description: '', priceMonthlyFcfa: '0',
+      features: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false, dishImages: false }
+    });
+    setPageError('');
+  };
+
+  const savePlatformConfiguration = async (event: React.FormEvent) => {
+    event.preventDefault(); setPageLoading(true); setPageError('');
+    try {
+      const data = await request({ action: 'config_update', config: platformConfig });
+      setPlatformConfig(current => ({ ...current, ...data.config }));
+      setNotice('Configuration plateforme enregistrée.');
+    } catch (e: any) { setPageError(e.message || 'Enregistrement de la configuration impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const saveAnnouncement = async (publish: boolean) => {
+    const scheduledAt = announcement.schedule ? Date.parse(announcement.schedule) : Date.now();
+    if (publish && (!Number.isFinite(scheduledAt) || scheduledAt < Date.now() - 60000)) {
+      setPageError('Choisissez une date de publication valide.'); return;
+    }
+    setPageLoading(true); setPageError(''); setNotice('');
+    try {
+      const result = await request({
+        action: 'announcement_save', title: announcement.title, message: announcement.message,
+        targetType: announcement.targetType, planName: announcement.planName,
+        restaurantSlugs: announcement.restaurantSlugs
+      });
+      if (publish) await request({ action: 'announcement_publish', id: result.announcement.id, scheduledAt: new Date(scheduledAt).toISOString() });
+      const data = await read('announcement_list'); setAnnouncements(data.announcements || []);
+      setAnnouncement({ title: '', message: '', targetType: 'all', planName: 'Essentiel', restaurantSlugs: [], schedule: '' });
+      setAnnouncementPreview(false);
+      setNotice(publish ? (scheduledAt > Date.now() ? 'Annonce programmée. Elle sera visible à la date prévue.' : 'Annonce publiée et disponible dans les espaces de gestion ciblés.') : 'Brouillon enregistré.');
+    } catch (e: any) { setPageError(e.message || 'Enregistrement de l’annonce impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const cancelAnnouncement = async (item: PlatformAnnouncement) => {
+    if (!window.confirm(`Annuler l’annonce « ${item.title} » ?`)) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'announcement_cancel', id: item.id });
+      const data = await read('announcement_list'); setAnnouncements(data.announcements || []);
+      setNotice('Annonce annulée.');
+    } catch (e: any) { setPageError(e.message || 'Annulation impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const createRestaurant = async (event: React.FormEvent) => {
+    event.preventDefault(); setPageLoading(true); setPageError(''); setNotice('');
+    try {
+      const result = await request({ action: 'create_restaurant', ...createForm });
+      const ownerEmail = String(result.owner?.email || createForm.ownerEmail).trim();
+      const reset = await requestManagerPasswordReset(ownerEmail);
+      setNotice(reset.success ? `Restaurant créé. Le propriétaire recevra un e-mail sécurisé à ${ownerEmail}.` : `Restaurant créé. L’envoi du lien sécurisé a échoué pour ${ownerEmail}; le propriétaire devra utiliser « Mot de passe oublié ». `);
+      setCreateForm({ name: '', ownerName: '', ownerEmail: '' }); setCreateOpen(false); await onRefresh();
+    } catch (e: any) { setPageError(e.message || 'Création impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const savePromotion = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const startsAt = Date.parse(`${promotionForm.startsOn}T00:00:00.000Z`);
+    const endsAt = Date.parse(`${promotionForm.endsOn}T23:59:59.999Z`);
+    const value = Number(promotionForm.value);
+    const maxUses = Number(promotionForm.maxUses);
+    if (!promotionForm.eligiblePlans.length || !Number.isSafeInteger(value) || value < 1 ||
+        (promotionForm.discountType === 'percentage' && value > 100) ||
+        (promotionForm.discountType === 'fixed' && value > 1000000000) ||
+        !Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt ||
+        !Number.isSafeInteger(maxUses) || maxUses < 1) {
+      setPageError('Vérifiez le montant, la période, les formules et le quota de la promotion.'); return;
+    }
+    setPageLoading(true); setPageError('');
+    try {
+      await request({
+        action: 'promotion_save', ...(editingPromotionId ? { id: editingPromotionId } : {}), name: promotionForm.name, code: promotionForm.code.toUpperCase(),
+        discountType: promotionForm.discountType, value, startsAt, endsAt,
+        eligiblePlans: promotionForm.eligiblePlans, maxUses, active: promotionFormActive
+      });
+      const data = await read('promotion_list'); setPromotions(data.promotions || []);
+      setPromotionForm({ name: '', code: '', discountType: 'percentage', value: '10', startsOn: '', endsOn: '', eligiblePlans: ['Essentiel'], maxUses: '100' }); setEditingPromotionId(null); setPromotionFormActive(true);
+      setNotice('Promotion enregistrée. Elle sera appliquée automatiquement aux prochaines factures éligibles, sans cumul avec la remise trimestrielle.');
+    } catch (e: any) { setPageError(e.message || 'Enregistrement de la promotion impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const editPromotion = (promotion: PlatformPromotion) => {
+    setEditingPromotionId(promotion.id);
+    setPromotionFormActive(promotion.active);
+    setPromotionForm({
+      name: promotion.name, code: promotion.code, discountType: promotion.discountType,
+      value: String(promotion.value),
+      startsOn: new Date(promotion.startsAt).toISOString().slice(0, 10),
+      endsOn: new Date(promotion.endsAt).toISOString().slice(0, 10),
+      eligiblePlans: [...promotion.eligiblePlans], maxUses: String(promotion.maxUses)
+    });
+    setPageError('');
+  };
+
+  const togglePromotion = async (promotion: PlatformPromotion) => {
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'promotion_toggle', id: promotion.id, active: !promotion.active });
+      const data = await read('promotion_list'); setPromotions(data.promotions || []);
+      setNotice('Promotion ' + promotion.code + (promotion.active ? ' désactivée.' : ' activée.'));
+    } catch (e: any) { setPageError(e.message || 'Modification de la promotion impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const saveSubscription = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!subscriptionTarget) return;
+    const startsAt = Date.parse(`${subscriptionForm.startsOn}T00:00:00.000Z`);
+    const endsAt = Date.parse(`${subscriptionForm.endsOn}T23:59:59.999Z`);
+    const priceFcfa = Number(subscriptionForm.priceFcfa);
+    const expectedEnd = expectedSubscriptionEnd(subscriptionForm.startsOn, subscriptionForm.billingCycle);
+    if (expectedEnd && subscriptionForm.endsOn !== expectedEnd) {
+      setPageError(`La fin de période doit être le ${expectedEnd} pour une périodicité ${subscriptionForm.billingCycle === 'monthly' ? 'mensuelle' : subscriptionForm.billingCycle === 'quarterly' ? 'trimestrielle' : 'annuelle'}.`);
+      return;
+    }
+    if (!Number.isSafeInteger(priceFcfa) || priceFcfa < 0 || !Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) {
+      setPageError('Vérifiez le tarif et les dates de validité.'); return;
+    }
+    setPageLoading(true); setPageError('');
+    try {
+      const selectedPlan = platformConfig.plans.find(plan => plan.name === subscriptionForm.planName);
+      if (!selectedPlan && subscriptionForm.planName) throw new Error('La formule choisie n’est plus présente dans le catalogue. Rechargez le catalogue avant de modifier cet abonnement.');
+      await request({ action: 'update_subscription', slug: subscriptionTarget.slug, subscription: {
+        planId: selectedPlan?.id || subscriptionForm.planName.toLocaleLowerCase('fr-FR').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
+        planName: subscriptionForm.planName.trim(), priceFcfa, billingCycle: subscriptionForm.billingCycle,
+        status: subscriptionForm.status, startsAt, endsAt, nextBillingAt: endsAt,
+        autoRenew: subscriptionForm.billingCycle === 'custom' ? false : subscriptionForm.autoRenew,
+        gracePeriodDays: Number(subscriptionForm.gracePeriodDays), gracePeriodOverride: !subscriptionForm.useGlobalGracePeriod
+      }});
+      setNotice(`Abonnement de ${subscriptionTarget.name} mis à jour.`); setSubscriptionTarget(null); await onRefresh();
+    } catch (e: any) { setPageError(e.message || 'Mise à jour impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const startSubscriptionEdit = async (restaurant: Restaurant) => {
+    setPageLoading(true); setPageError('');
+    try {
+      const configData = await read('billing_catalog_read');
+      if (configData.config) setPlatformConfig(current => mergePlatformConfig(current, configData.config));
+      const sub = restaurant.subscription || {};
+      const configuredPlan = (configData.config?.plans || platformConfig.plans).find((plan: PlanDefinition) =>
+        (sub.planId && (plan.id || plan.name.toLocaleLowerCase('fr-FR').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')) === sub.planId) || plan.name === sub.planName
+      );
+      setSubscriptionTarget(restaurant);
+    setSubscriptionForm({
+      planName: configuredPlan?.name || sub.planName || '', priceFcfa: String(sub.priceFcfa ?? (configuredPlan?.priceMonthlyFcfa || 0)),
+      billingCycle: sub.billingCycle || 'monthly', status: sub.status || 'trial',
+      startsOn: sub.startsAt ? new Date(sub.startsAt).toISOString().slice(0, 10) : '',
+      endsOn: sub.endsAt ? new Date(sub.endsAt).toISOString().slice(0, 10) : '',
+      gracePeriodDays: String(sub.gracePeriodDays ?? platformConfig.gracePeriodDays), useGlobalGracePeriod: sub.gracePeriodOverride === false || !Number.isSafeInteger(sub.gracePeriodDays), autoRenew: sub.autoRenew !== false
+    });
+    } catch (e: any) { setPageError(e.message || 'Chargement du catalogue impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const setRestaurantStatus = async (restaurant: Restaurant) => {
+    const next = restaurant.status === 'suspended' ? 'active' : 'suspended';
+    if (!window.confirm(`${next === 'active' ? 'Réactiver' : 'Suspendre'} ${restaurant.name} ?`)) return;
+    setPageLoading(true); setPageError('');
+    try { await request({ action: 'set_restaurant_status', slug: restaurant.slug, status: next }); await onRefresh(); setSelected({...restaurant,status:next}); setNotice(`${restaurant.name} : ${statusLabel(next)}.`); }
+    catch (e: any) { setPageError(e.message || 'Action impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const archiveRestaurant = async (restaurant: Restaurant) => {
+    const confirmation = window.prompt(`Suppression logique de ${restaurant.name}. Les historiques métier seront conservés. Saisissez exactement : ${restaurant.slug}`);
+    if (confirmation !== restaurant.slug) return;
+    setPageLoading(true); setPageError('');
+    try { await request({ action: 'delete_restaurant', slug: restaurant.slug, confirmation }); setSelected(null); await onRefresh(); setNotice('Restaurant archivé logiquement. Historique conservé.'); }
+    catch (e: any) { setPageError(e.message || 'Archivage impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const settleInvoice = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedInvoice) return;
+    setPageLoading(true); setPageError('');
+    try {
+      await request({ action: 'settle_subscription_invoice', slug: selectedInvoice.restaurantSlug, invoiceId: selectedInvoice.id, amountFcfa: selectedInvoice.amountFcfa, paymentReference: paymentReference.trim() });
+      setNotice('Paiement de facture confirmé et journalisé.'); setSelectedInvoice(null); setPaymentReference('');
+      const data = await read('billing_list', { limit: '100' }); setInvoices(data.invoices || []); setInvoiceCursor(data.nextCursor || null); setInvoiceHasMore(data.hasMore === true); setGlobalGracePeriodDays(Number.isInteger(data.gracePeriodDays) ? data.gracePeriodDays : 7); await onRefresh();
+    } catch (e: any) { setPageError(e.message || 'Règlement impossible.'); }
+    finally { setPageLoading(false); }
+  };
+
+  const title = NAV.find(item => item.id === screen)?.label || 'Vue d’ensemble';
+  const unpaidInvoices = invoices.filter(i => i.status === 'open' || i.status === 'overdue');
+  const filteredAudit = audit.filter(entry => {
+    const actor = auditFilters.actor.trim().toLowerCase();
+    const action = auditFilters.action.trim().toLowerCase();
+    const restaurant = auditFilters.restaurant.trim().toLowerCase();
+    const timestamp = entry.createdAt || 0;
+    const from = auditFilters.from ? Date.parse(auditFilters.from + 'T00:00:00') : 0;
+    const to = auditFilters.to ? Date.parse(auditFilters.to + 'T23:59:59') : Number.MAX_SAFE_INTEGER;
+    return (!actor || entry.actorUid.toLowerCase().includes(actor)) &&
+      (!action || entry.action.toLowerCase().includes(action)) &&
+      (!restaurant || entry.restaurantSlug.toLowerCase().includes(restaurant)) &&
+      timestamp >= from && timestamp <= to;
+  });
+  const unpaidTotal = unpaidInvoices.reduce((sum, invoice) => sum + invoice.amountFcfa, 0);
+  const mockupOnly = false;
+
+  const exportAudit = async () => {
+    setPageLoading(true); setPageError(''); setNotice('');
+    try {
+      const all: AuditEntry[] = [];
+      let cursor: string | null = null;
+      let hasMore = true;
+      while (hasMore && all.length < 10000) {
+        const params: Record<string, string> = { limit: '200' };
+        if (cursor) params.cursor = cursor;
+        const data = await read('audit_list', params);
+        all.push(...(data.logs || []));
+        cursor = data.nextCursor || null;
+        hasMore = data.hasMore === true;
+      }
+      const actor = auditFilters.actor.trim().toLowerCase();
+      const action = auditFilters.action.trim().toLowerCase();
+      const restaurant = auditFilters.restaurant.trim().toLowerCase();
+      const from = auditFilters.from ? Date.parse(auditFilters.from + 'T00:00:00') : 0;
+      const to = auditFilters.to ? Date.parse(auditFilters.to + 'T23:59:59') : Number.MAX_SAFE_INTEGER;
+      const rows = all.filter(entry => {
+        const timestamp = entry.createdAt || 0;
+        return (!actor || entry.actorUid.toLowerCase().includes(actor)) &&
+          (!action || entry.action.toLowerCase().includes(action)) &&
+          (!restaurant || entry.restaurantSlug.toLowerCase().includes(restaurant)) &&
+          timestamp >= from && timestamp <= to;
+      });
+      const csv = ['date,action,acteur,restaurant,role,montant'];
+      rows.forEach(entry => csv.push([date(entry.createdAt), auditActionLabel(entry.action), entry.actorUid, entry.restaurantSlug, auditRoleLabel(entry.targetRole), entry.amountFcfa ?? '']
+        .map(value => `"${String(value).replaceAll('"', '""')}"`).join(',')));
+      const blob = new Blob(['\\uFEFF' + csv.join('\\n')], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = 'restaumax-audit-complet.csv'; link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice(`${rows.length} événement(s) exporté(s)${hasMore ? ' · export plafonné à 10 000 événements' : ''}.`);
+    } catch (e: any) {
+      setPageError(e.message || 'Export complet du journal impossible.');
+    } finally { setPageLoading(false); }
+  };
+
+  const refreshCurrentScreen = async () => {
+    setPageError(''); setNotice('');
+    await onRefresh();
+    if (screen === 'security') await onRefreshSecurity();
+    if ((screen === 'billing' || screen === 'overview') && allowedActions.includes('billing_list')) { try { const data = await read('billing_list', { limit: '100' }); setInvoices(data.invoices || []); setInvoiceCursor(data.nextCursor || null); setInvoiceHasMore(data.hasMore === true); setGlobalGracePeriodDays(Number.isInteger(data.gracePeriodDays) ? data.gracePeriodDays : 7); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'audit' || screen === 'overview') { try {
+      const data = await read('audit_list', { limit: '100' });
+      setAudit(data.logs || []); setAuditCursor(data.nextCursor || null); setAuditHasMore(data.hasMore === true);
+    } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'accounts' && allowedActions.includes('platform_admin_list')) { try { const data = await read('platform_admin_list'); setPlatformAdmins(data.admins || []); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'support') { try { const data = await read('support_list'); setSupportTickets(data.tickets || []); if (selectedTicket) { const messages = await read('support_messages', { ticketId: selectedTicket.id }); setTicketMessages(messages.messages || []); if (allowedActions.includes('support_access_list')) { const access = await read('support_access_list', { slug: selectedTicket.restaurantSlug }); setSupportAccessRequests(access.requests || []); } } } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'health') { try { const data = await read('health_details'); setHealth({ checkedAt: data.checkedAt, services: data.services || [] }); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'settings') { try { const data = await read('config_read'); if (data.config) setPlatformConfig(current => mergePlatformConfig(current, data.config)); } catch (e: any) { setPageError(e.message); } }
+    if (screen === 'communication') { try { const data = await read('announcement_list'); setAnnouncements(data.announcements || []); } catch (e: any) { setPageError(e.message); } }
+  };
+
+  const pageHeader = <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+    <div><p className="text-xs font-semibold text-slate-500">Plateforme <span className="px-1">›</span> {title}</p><h2 className="mt-1 text-2xl font-extrabold tracking-tight text-[#101d2d]">{title}</h2></div>
+    <div className="flex flex-wrap items-center gap-2"><span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600">{mockupOnly ? 'Maquette · valeurs d’exemple' : 'Vue plateforme sécurisée'}</span>
+      <button type="button" onClick={() => { void refreshCurrentScreen(); }} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50" disabled={loading || pageLoading}><RefreshCw size={15}/> Actualiser</button>
+    </div>
+  </div>;
+
+  const tableShell = 'w-full min-w-[720px] text-left text-sm';
+  return <div className="min-h-screen bg-[#f4f7fb] text-[#101d2d]" style={{ fontFamily: "Inter, sans-serif" }}>
+    <div className="flex min-h-screen">
+      <aside className="sticky top-0 hidden h-screen w-[280px] shrink-0 flex-col bg-[#101d2d] text-white lg:flex">
+        <div className="border-b border-white/10 px-5 py-6">
+          <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#c2410c] text-lg font-black">RM</div><div><p className="text-lg font-extrabold">RestauMax</p><p className="text-xs text-slate-300">Super-administration</p></div></div>
+        </div>
+        <nav aria-label="Navigation super-administrateur" className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-4 [scrollbar-gutter:stable]">
+          {visibleNav.map(item => { const Icon = item.icon; return <button key={item.id} type="button" onClick={() => { setScreen(item.id); setPageError(''); setNotice(''); }} aria-current={screen === item.id ? 'page' : undefined} className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors ${screen === item.id ? 'bg-white/15 text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}>
+            <Icon size={17}/><span className="min-w-0 flex-1">{item.label}</span>
+          </button>; })}
+        </nav>
+        <div className="border-t border-white/10 p-4 text-[11px] text-slate-300"><p className="break-all">{userEmail || 'Compte super-administrateur'}</p></div>
+      </aside>
+      <div className="min-w-0 flex-1">
+        <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between gap-3 border-b border-[#dbe3ee] bg-white/95 px-4 backdrop-blur md:px-7">
+          <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#c2410c] text-sm font-black text-white lg:hidden">RM</div><div><p className="text-sm font-extrabold text-[#101d2d]">RestauMax · Administration centrale</p><p className="text-xs text-slate-500">Supervision multi-restaurants</p></div></div>
+          <div className="flex items-center gap-2"><button type="button" onClick={onBack} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-semibold text-slate-700">Accueil</button><button type="button" onClick={onSignOut} className="flex min-h-11 items-center gap-2 rounded-xl bg-[#101d2d] px-3 text-sm font-semibold text-white"><LogOut size={15}/> Déconnexion</button><button type="button" onClick={() => { if (window.confirm('Déconnecter ce navigateur et révoquer sa session MFA de confiance ? Les autres appareils resteront connectés.')) void onSignOutAndRevoke(); }} className="flex min-h-11 items-center gap-2 rounded-xl border border-rose-300 px-3 text-sm font-semibold text-rose-700 hover:bg-rose-50" title="Révoque uniquement la confiance MFA de cet appareil"><LockKeyhole size={15}/> Déconnecter et révoquer la confiance sur cet appareil</button></div>
+        </header>
+        <div className="sticky top-16 z-20 border-b border-slate-200 bg-white px-3 py-2 lg:hidden"><nav aria-label="Rubriques d’administration" className="flex gap-2 overflow-x-auto overscroll-x-contain">{NAV.map(item => <button key={item.id} type="button" onClick={() => setScreen(item.id)} aria-current={screen === item.id ? 'page' : undefined} className={`min-h-11 shrink-0 rounded-lg px-3 text-xs font-bold ${screen === item.id ? 'bg-[#101d2d] text-white' : 'bg-slate-100 text-slate-700'}`}>{item.label}</button>)}</nav></div>
+        <main className="mx-auto max-w-[1600px] p-4 md:p-7">
+          {pageHeader}
+          {pageError && <div role="alert" className="mb-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900"><AlertTriangle size={17}/>{pageError}</div>}
+          {notice && <div role="status" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</div>}
+          {screen === 'overview' && <>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              {[
+                ['Restaurants actifs', summary?.activeRestaurants ?? 0, 'bg-emerald-50'],
+                ['En essai', summary?.subscriptionsByStatus?.trial ?? 0, 'bg-sky-50'],
+                ['Suspendus', summary?.suspendedRestaurants ?? 0, 'bg-rose-50'],
+                ['Revenu récurrent mensuel', money(summary?.monthlyRecurringRevenueFcfa || 0), 'bg-orange-50'],
+                ['Factures ouvertes', summary?.financialSummary?.openInvoicesCount ?? 0, 'bg-amber-50']
+              ].filter(([label]) => can('billing_list') || !['Revenu récurrent mensuel', 'Factures ouvertes'].includes(String(label))).map(([label, value, color]) => <Panel key={String(label)} className={String(color)}><p className="text-sm font-semibold text-slate-600">{label}</p><p className="mt-2 text-3xl font-extrabold tabular-nums">{value}</p></Panel>)}
+            </div>
+            {can('billing_list') && <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <Panel><p className="text-xs font-semibold text-slate-500">Montant ouvert</p><p className="mt-2 text-xl font-extrabold">{money(summary?.financialSummary?.openAmountFcfa || 0)}</p></Panel>
+              <Panel><p className="text-xs font-semibold text-slate-500">Factures en retard</p><p className="mt-2 text-xl font-extrabold">{summary?.financialSummary?.overdueInvoicesCount || 0} · {money(summary?.financialSummary?.overdueAmountFcfa || 0)}</p></Panel>
+              <Panel><p className="text-xs font-semibold text-slate-500">Montants encaissés</p><p className="mt-2 text-xl font-extrabold">{money(summary?.financialSummary?.collectedAmountFcfa || 0)}</p></Panel>
+              <Panel><p className="text-xs font-semibold text-slate-500">Échéances sous 30 jours</p><p className="mt-2 text-xl font-extrabold">{summary?.financialSummary?.upcomingDueCount || 0} · {money(summary?.financialSummary?.upcomingDueAmountFcfa || 0)}</p></Panel>
+              <Panel><p className="text-xs font-semibold text-slate-500">Calcul arrêté au</p><p className="mt-2 text-sm font-bold">{summary?.financialSummary?.asOf ? new Date(summary.financialSummary.asOf).toLocaleString('fr-FR') : '—'}</p></Panel>
+            </div>}
+            <div className="mt-5 grid gap-5 xl:grid-cols-[1.6fr_1fr]">
+              <Panel><div className="mb-4 flex items-center justify-between gap-3"><h3 className="font-extrabold">Restaurants récents</h3><button type="button" onClick={() => setScreen('restaurants')} className="min-h-11 text-sm font-bold text-[#9a3412]">Voir tous <ChevronRight className="inline" size={15}/></button></div>
+                <div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Échéance</th></tr></thead><tbody className="divide-y divide-slate-100">{restaurants.slice(0,5).map(r=><tr key={r.slug}><td className="px-3 py-3 font-semibold">{r.name}</td><td className="px-3 py-3">{r.subscription?.planName || 'Non configuré'}</td><td className="px-3 py-3"><Badge value={r.status}/></td><td className="px-3 py-3">{date(r.subscription?.nextBillingAt || r.subscription?.endsAt)}</td></tr>)}</tbody></table></div>
+              </Panel>
+              <Panel><h3 className="mb-3 font-extrabold">À traiter</h3><ul className="space-y-3 text-sm">{can('billing_list')&&<li className="flex items-start justify-between gap-3"><span>Factures en attente de régularisation</span><button type="button" onClick={() => setScreen('billing')} className="min-h-11 font-bold text-[#9a3412]">Ouvrir</button></li>}{(can('staff_list')||can('platform_admin_list'))&&<li className="flex items-start justify-between gap-3"><span>Comptes propriétaires à vérifier</span><button type="button" onClick={() => setScreen('accounts')} className="min-h-11 font-bold text-[#9a3412]">Ouvrir</button></li>}{can('health_details')&&<li className="flex items-start justify-between gap-3"><span>État technique des services</span><button type="button" onClick={() => setScreen('health')} className="min-h-11 font-bold text-[#9a3412]">Ouvrir</button></li>}</ul><p className="mt-5 border-t border-slate-100 pt-3 text-xs text-slate-500">Les indicateurs agrègent les données de plateforme. Aucun détail de commande ou de caisse restaurant n’est accessible ici.</p></Panel><Panel className="xl:col-span-2"><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Activité récente</h3><button type="button" onClick={() => setScreen('audit')} className="min-h-11 font-bold text-[#9a3412]">Journal complet</button></div>{audit.slice(0,3).length ? <ul className="divide-y divide-slate-100">{audit.slice(0,3).map(entry=><li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"><span className="font-semibold">{entry.action.replaceAll('_',' ')}</span><span className="text-xs text-slate-500">{entry.restaurantSlug || 'Plateforme'} · {entry.createdAt ? new Date(entry.createdAt).toLocaleString('fr-FR') : '—'}</span></li>)}</ul> : <p className="py-4 text-sm text-slate-500">Aucun événement récent retourné.</p>}</Panel>
+            </div>
+          </>}
+
+          {screen === 'restaurants' && <>
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div className="flex flex-wrap gap-2"><Field label="Rechercher"><span className="relative"><Search className="absolute left-3 top-3 text-slate-400" size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Nom ou identifiant" className={`${inputClass} pl-9`}/></span></Field><Field label="Statut"><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className={inputClass}><option value="all">Tous</option><option value="active">Actif</option><option value="suspended">Suspendu</option><option value="deleted">Archivé</option></select></Field></div>{platformRole === 'full' && <button type="button" onClick={() => setCreateOpen(v=>!v)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#c2410c] px-4 text-sm font-bold text-white"><Plus size={16}/> Créer un restaurant</button>}</div>
+            {platformRole === 'full' && createOpen && <Panel className="mb-4"><div className="mb-4 flex items-center justify-between"><h3 className="font-extrabold">Créer un restaurant</h3><button type="button" aria-label="Fermer" onClick={() => setCreateOpen(false)} className="min-h-11 min-w-11 rounded-lg hover:bg-slate-100"><X size={17}/></button></div><form onSubmit={createRestaurant} className="grid gap-3 md:grid-cols-3"><Field label="Nom du restaurant"><input required maxLength={100} value={createForm.name} onChange={e=>setCreateForm({...createForm,name:e.target.value})} className={inputClass}/></Field><Field label="Nom du propriétaire"><input required maxLength={100} value={createForm.ownerName} onChange={e=>setCreateForm({...createForm,ownerName:e.target.value})} className={inputClass}/></Field><Field label="E-mail du propriétaire"><input required type="email" value={createForm.ownerEmail} onChange={e=>setCreateForm({...createForm,ownerEmail:e.target.value})} className={inputClass}/></Field><div className="md:col-span-3 flex flex-wrap gap-2"><button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-5 text-sm font-bold text-white">{pageLoading?'Création…':'Créer et inviter'}</button><p className="self-center text-xs text-slate-500">Le propriétaire définit son mot de passe via un e-mail sécurisé.</p></div></form></Panel>}
+            <Panel><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div className="font-extrabold">Restaurants ({filteredRestaurants.length})</div><span className="text-xs text-slate-500">Plan modifiable en cliquant sur son nom</span></div><div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Tarif</th><th className="px-3 py-3">Échéance</th><th className="px-3 py-3">Ouverture</th><th className="px-3 py-3">Suspendre</th><th className="px-3 py-3">Archiver</th></tr></thead><tbody className="divide-y divide-slate-100">{filteredRestaurants.map(r=><tr key={r.slug} className={`hover:bg-slate-50 ${selected?.slug===r.slug?'bg-orange-50':''}`}><td className="px-3 py-3 font-semibold"><button type="button" onClick={()=>setSelected(r)} className="min-h-10 text-left hover:underline">{r.name}<span className="block text-[11px] font-normal text-slate-500">{r.slug} · {[r.city,r.country].filter(Boolean).join(', ') || 'Localisation non renseignée'}</span></button></td><td className="px-3 py-3"><button type="button" disabled={!(platformRole==='full'||platformRole==='billing')} onClick={()=>void startSubscriptionEdit(r)} className="min-h-10 text-left font-semibold text-[#9a3412] underline-offset-2 hover:underline disabled:text-slate-700 disabled:no-underline">{r.subscription?.planName || 'Non configuré'}</button><span className="block text-[11px] text-slate-500">{r.subscription?.billingCycle || 'Période non définie'}</span></td><td className="px-3 py-3"><Badge value={r.status}/><span className="block text-[11px] text-slate-500">{statusLabel(r.subscription?.status)}</span></td><td className="px-3 py-3 font-bold">{r.subscription?.priceFcfa == null ? 'Non configuré' : money(r.subscription.priceFcfa)}</td><td className="px-3 py-3">{date(r.subscription?.nextBillingAt || r.subscription?.endsAt)}</td><td className="px-3 py-3"><Badge value={r.isOpen?'active':'unknown'}>{r.isOpen?'Ouvert':'Fermé'}</Badge></td><td className="px-3 py-3">{platformRole==='full'?<button type="button" disabled={pageLoading || r.status==='deleted'} onClick={()=>void setRestaurantStatus(r)} className="min-h-10 rounded-lg border border-slate-300 px-3 text-xs font-bold disabled:opacity-50">{r.status==='suspended'?'Réactiver':'Suspendre'}</button>:'—'}</td><td className="px-3 py-3">{platformRole==='full'?<button type="button" disabled={pageLoading || r.status==='deleted'} onClick={()=>void archiveRestaurant(r)} className="min-h-10 rounded-lg border border-rose-300 px-3 text-xs font-bold text-rose-800 disabled:opacity-50">Archiver</button>:'—'}</td></tr>)}</tbody></table></div>{selected&&<div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-extrabold">{selected.name}</h3><p className="text-xs text-slate-500">{selected.slug} · {[selected.city,selected.country].filter(Boolean).join(', ') || 'Localisation non renseignée'}</p></div><div className="flex flex-wrap gap-2">{can('staff_list')&&<button type="button" onClick={()=>void openAccounts(selected)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold">Comptes liés</button>}<button type="button" onClick={()=>setSelected(null)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold">Fermer</button></div></div><dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3"><div><dt className="text-slate-500">Formule</dt><dd className="font-bold">{selected.subscription?.planName || 'Non configuré'}</dd></div><div><dt className="text-slate-500">Tarif</dt><dd className="font-bold">{selected.subscription?.priceFcfa == null?'Non configuré':money(selected.subscription.priceFcfa)}</dd></div><div><dt className="text-slate-500">Périodicité</dt><dd className="font-bold">{selected.subscription?.billingCycle || 'Non configurée'}</dd></div><div><dt className="text-slate-500">Début</dt><dd className="font-bold">{date(selected.subscription?.startsAt)}</dd></div><div><dt className="text-slate-500">Fin / échéance</dt><dd className="font-bold">{date(selected.subscription?.endsAt)}</dd></div><div><dt className="text-slate-500">Renouvellement</dt><dd className="font-bold">{selected.subscription?.autoRenew===false?'Manuel':'Automatique'}</dd></div></dl><p className="mt-3 text-xs text-slate-500">L’archivage coupe les accès mais conserve l’historique métier.</p></div>}</Panel>
+            {subscriptionTarget && (platformRole==='full'||platformRole==='billing') && <Panel className="mt-4"><h3 className="mb-4 font-extrabold">Abonnement · {subscriptionTarget.name}</h3><form onSubmit={saveSubscription} className="grid gap-3 md:grid-cols-3"><Field label="Formule souscrite"><select required value={subscriptionForm.planName} onChange={e=>{const selected=platformConfig.plans.find(plan=>plan.name===e.target.value);const multiplier=subscriptionForm.billingCycle==='quarterly'?3:subscriptionForm.billingCycle==='yearly'?12:1;setSubscriptionForm({...subscriptionForm,planName:e.target.value,...(selected&&subscriptionForm.billingCycle!=='custom'?{priceFcfa:String(selected.priceMonthlyFcfa*multiplier)}:{})});}} className={inputClass}><option value="">Choisir une formule</option>{platformConfig.plans.filter(plan=>plan.active).map(plan=><option key={plan.name} value={plan.name}>{plan.name} · {money(plan.priceMonthlyFcfa)}/mois</option>)}{subscriptionForm.planName&&!platformConfig.plans.some(plan=>plan.name===subscriptionForm.planName)&&<option value={subscriptionForm.planName}>{subscriptionForm.planName} · formule historique (droits limités)</option>}</select></Field><Field label="Tarif FCFA"><input required type="number" min="0" step="1" value={subscriptionForm.priceFcfa} onChange={e=>setSubscriptionForm({...subscriptionForm,priceFcfa:e.target.value})} className={inputClass}/></Field><Field label="Périodicité"><select value={subscriptionForm.billingCycle} onChange={e=>{const cycle=e.target.value;const selected=platformConfig.plans.find(plan=>plan.name===subscriptionForm.planName);const multiplier=cycle==='quarterly'?3:cycle==='yearly'?12:1;const expectedEnd=expectedSubscriptionEnd(subscriptionForm.startsOn,cycle);setSubscriptionForm({...subscriptionForm,billingCycle:cycle,...(expectedEnd?{endsOn:expectedEnd}:{}),...(selected&&cycle!=='custom'?{priceFcfa:String(selected.priceMonthlyFcfa*multiplier)}:{})});}} className={inputClass}><option value="monthly">Mensuelle</option><option value="quarterly">Trimestrielle</option><option value="yearly">Annuelle</option><option value="custom">Personnalisée</option></select></Field><Field label="Statut"><select value={subscriptionForm.status} onChange={e=>setSubscriptionForm({...subscriptionForm,status:e.target.value})} className={inputClass}><option value="trial">Essai</option><option value="active">Actif</option><option value="past_due">En retard</option><option value="suspended">Suspendu</option><option value="cancelled">Résilié</option></select></Field><Field label="Début"><input required type="date" value={subscriptionForm.startsOn} onChange={e=>{const startsOn=e.target.value;const expectedEnd=expectedSubscriptionEnd(startsOn,subscriptionForm.billingCycle);setSubscriptionForm({...subscriptionForm,startsOn,...(expectedEnd?{endsOn:expectedEnd}:{})});}} className={inputClass}/></Field><Field label="Fin"><input required type="date" disabled={subscriptionForm.billingCycle!=='custom'} value={subscriptionForm.endsOn} onChange={e=>setSubscriptionForm({...subscriptionForm,endsOn:e.target.value})} className={inputClass}/>{subscriptionForm.billingCycle!=='custom'&&<span className="text-xs font-normal text-slate-500">Fin calculée automatiquement selon la périodicité.</span>}</Field><label className="flex min-h-11 items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={subscriptionForm.useGlobalGracePeriod} onChange={e=>setSubscriptionForm({...subscriptionForm,useGlobalGracePeriod:e.target.checked,gracePeriodDays:e.target.checked?String(platformConfig.gracePeriodDays):subscriptionForm.gracePeriodDays})}/> Utiliser le délai global ({platformConfig.gracePeriodDays} jours)</label><Field label="Délai propre à cet abonnement (jours)"><input type="number" min="0" max="60" disabled={subscriptionForm.useGlobalGracePeriod} value={subscriptionForm.gracePeriodDays} onChange={e=>setSubscriptionForm({...subscriptionForm,gracePeriodDays:e.target.value})} className={inputClass}/></Field><label className="flex min-h-11 items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={subscriptionForm.autoRenew} disabled={subscriptionForm.billingCycle==='custom'} onChange={e=>setSubscriptionForm({...subscriptionForm,autoRenew:e.target.checked})}/> Renouvellement automatique</label><div className="flex items-end gap-2"><button disabled={pageLoading} className="min-h-11 rounded-lg bg-[#101d2d] px-4 text-sm font-bold text-white">Enregistrer</button><button type="button" onClick={()=>setSubscriptionTarget(null)} className="min-h-11 rounded-lg border px-4 text-sm">Annuler</button></div></form></Panel>}
+            {accountRestaurant && <Panel className="mt-4"><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Comptes rattachés · {accountRestaurant}</h3><button type="button" onClick={()=>setAccountRestaurant('')} className="min-h-11 min-w-11 rounded-lg hover:bg-slate-100" aria-label="Fermer"><X size={17}/></button></div>{pageLoading?'Chargement…':accounts.length===0?'Aucun compte lié trouvé.':<div className="overflow-x-auto"><table className={tableShell}><thead><tr><th className="px-3 py-2">Compte</th><th className="px-3 py-2">Rôle</th><th className="px-3 py-2">État</th><th className="px-3 py-2">Accès</th></tr></thead><tbody>{accounts.map(a=><tr key={a.uid} className="border-t"><td className="px-3 py-2">{a.displayName}<span className="block text-xs text-slate-500">{a.email}</span></td><td className="px-3 py-2">{a.role}</td><td className="px-3 py-2">{a.accountLinked===false?'Non lié':a.activeKnown?(a.active?'Actif':'Inactif'):'À vérifier'}</td><td className="px-3 py-2">{platformRole==='full'?<div className="flex flex-wrap gap-2">{a.uid==='unlinked-owner'&&<button type="button" disabled={pageLoading||!a.email||!a.displayName} onClick={()=>void inviteUnlinkedOwner(a)} className="min-h-11 rounded-lg border border-[#c2410c] px-3 text-xs font-bold text-[#9a3412]">Créer le compte propriétaire</button>}{a.email&&a.accountLinked!==false&&<button type="button" disabled={pageLoading} onClick={()=>void resetAccountPassword(a)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">Réinitialiser</button>}{accountLinkedForAction(a)&&<><button type="button" disabled={pageLoading} onClick={()=>void changeRestaurantAccountStatus(a)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">{a.active?'Suspendre':'Réactiver'}</button><button type="button" disabled={pageLoading} onClick={()=>void revokeRestaurantAccountSessions(a)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">Révoquer sessions</button></>}</div>:<span className="text-xs text-slate-500">Lecture seule</span>}</td></tr>)}</tbody></table></div>}<p className="mt-3 text-xs text-slate-500">Lecture seule. Aucune commande ni donnée financière du restaurant n’est exposée.</p></Panel>}
+          </>}
+
+          {screen === 'billing' && <>
+            <div className="mb-5 grid gap-4 sm:grid-cols-3"><Panel><p className="text-sm text-slate-500">Montant des factures ouvertes affichées</p><p className="mt-2 text-2xl font-extrabold">{money(unpaidTotal)}</p></Panel><Panel><p className="text-sm text-slate-500">Factures à régulariser affichées</p><p className="mt-2 text-2xl font-extrabold">{unpaidInvoices.length}</p></Panel><Panel><p className="text-sm text-slate-500">Délai de grâce standard</p><p className="mt-2 text-2xl font-extrabold">{globalGracePeriodDays} jours</p></Panel></div>
+            <Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Factures d’abonnement</h3><span className="text-xs text-slate-500">{invoices.length} facture(s) chargée(s){invoiceHasMore?' · d’autres sont disponibles':''}</span></div><div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-3 py-3">Facture</th><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Plan</th><th className="px-3 py-3">Montant</th><th className="px-3 py-3">Période facturée</th><th className="px-3 py-3">Émise</th><th className="px-3 py-3">Échéance</th><th className="px-3 py-3">Fin de grâce</th><th className="px-3 py-3">Statut</th><th className="px-3 py-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{invoices.map(i=><tr key={i.id}><td className="px-3 py-3 font-semibold">{i.id.slice(0,14)}</td><td className="px-3 py-3"><button type="button" onClick={()=>setInvoiceDetails(i)} className="min-h-10 text-left font-semibold text-[#9a3412] hover:underline">{i.restaurant?.name || restaurants.find(r=>r.slug===i.restaurantSlug)?.name || i.restaurantSlug}<span className="block text-[11px] font-normal text-slate-500">{i.restaurant?.slug || i.restaurantSlug}</span></button><span className="block text-[11px] text-slate-500">{[i.restaurant?.city,i.restaurant?.country].filter(Boolean).join(', ')}</span></td><td className="px-3 py-3">{i.planName}<span className="block text-[11px] text-slate-500">{i.planId || 'Offre historique'}</span></td><td className="px-3 py-3 font-bold">{money(i.amountFcfa)}{(i.discountAmountFcfa||0)>0&&<span className="block text-[11px] font-medium text-emerald-700">{i.discountType==='fixed'?'Remise fixe':'-'+(i.discountPercent||0)+' %'} · économie {money(i.discountAmountFcfa||0)}</span>}{i.promotionCode&&<span className="block text-[11px] font-medium text-sky-700">Promo {i.promotionCode}</span>}</td><td className="px-3 py-3">{date(i.periodStartAt)} – {date(i.periodEndAt)}</td><td className="px-3 py-3">{date(i.issuedAt)}</td><td className="px-3 py-3">{date(i.dueAt)}</td><td className="px-3 py-3">{date(i.graceEndsAt)}</td><td className="px-3 py-3"><Badge value={i.status}/></td><td className="px-3 py-3"><div className="flex flex-col items-start gap-1"><button type="button" onClick={()=>setInvoiceDetails(i)} className="min-h-9 text-xs font-bold text-[#9a3412] underline">Détails</button>{['open','overdue'].includes(i.status)&&<button type="button" onClick={()=>setSelectedInvoice(i)} className="min-h-9 rounded-lg border border-slate-300 px-2 text-xs font-bold">Enregistrer paiement</button>}</div></td></tr>)}</tbody></table></div>{pageLoading&&<p className="mt-3 text-sm text-slate-500">Chargement des factures…</p>}{invoices.length===0&&!pageLoading&&<p className="py-8 text-center text-sm text-slate-500">Aucune facture d’abonnement trouvée.</p>}{invoiceHasMore&&<div className="mt-4 flex justify-center"><button type="button" disabled={pageLoading||!invoiceCursor} onClick={async()=>{if(!invoiceCursor)return;setPageLoading(true);setPageError('');try{const data=await read('billing_list',{limit:'100',cursor:invoiceCursor});setInvoices(current=>[...current,...(data.invoices||[])]);setInvoiceCursor(data.nextCursor||null);setInvoiceHasMore(data.hasMore===true);}catch(e:any){setPageError(e.message||'Chargement des factures suivantes impossible.');}finally{setPageLoading(false);}}} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-bold">Charger les factures suivantes</button></div>}</Panel>
+            {can('promotion_list')&&<div className="mt-5 grid gap-5 xl:grid-cols-2">
+              <Panel><h3 className="mb-3 font-extrabold">Politique de promotion</h3><p className="mb-4 text-xs text-slate-500">Les promotions sont appliquées automatiquement aux prochaines factures des formules ciblées, pendant la période définie. Une seule réduction est retenue : la meilleure entre la promotion et la remise trimestrielle. Les quotas sont contrôlés dans une transaction serveur.</p>
+                <form onSubmit={savePromotion} className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2"><Field label="Nom"><input required minLength={3} maxLength={80} value={promotionForm.name} onChange={e=>setPromotionForm({...promotionForm,name:e.target.value})} className={inputClass}/></Field><Field label="Code de suivi"><input required minLength={3} maxLength={24} pattern="[A-Za-z0-9_-]+" value={promotionForm.code} onChange={e=>setPromotionForm({...promotionForm,code:e.target.value.toUpperCase()})} className={inputClass}/></Field></div>
+                  <div className="grid gap-3 sm:grid-cols-2"><Field label="Type de réduction"><select value={promotionForm.discountType} onChange={e=>setPromotionForm({...promotionForm,discountType:e.target.value})} className={inputClass}><option value="percentage">Pourcentage (%)</option><option value="fixed">Montant fixe (FCFA)</option></select></Field><Field label={promotionForm.discountType==='percentage'?'Réduction (%)':'Réduction (FCFA)'}><input required type="number" min={1} max={promotionForm.discountType==='percentage'?100:1000000000} value={promotionForm.value} onChange={e=>setPromotionForm({...promotionForm,value:e.target.value})} className={inputClass}/></Field></div>
+                  <div className="grid gap-3 sm:grid-cols-2"><Field label="Début"><input required type="date" value={promotionForm.startsOn} onChange={e=>setPromotionForm({...promotionForm,startsOn:e.target.value})} className={inputClass}/></Field><Field label="Fin"><input required type="date" value={promotionForm.endsOn} onChange={e=>setPromotionForm({...promotionForm,endsOn:e.target.value})} className={inputClass}/></Field></div>
+                  <Field label="Nombre maximum d’utilisations"><input required type="number" min={1} max={1000000} value={promotionForm.maxUses} onChange={e=>setPromotionForm({...promotionForm,maxUses:e.target.value})} className={inputClass}/></Field><label className="flex min-h-11 items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={promotionFormActive} onChange={e=>setPromotionFormActive(e.target.checked)} className="h-4 w-4"/> Promotion active</label>
+                  <div><p className="mb-2 text-sm font-semibold text-slate-700">Formules éligibles</p><div className="flex flex-wrap gap-2">{platformConfig.plans.map(plan=><label key={plan.name} className="flex min-h-10 items-center gap-2 rounded-lg border px-3 text-xs font-semibold"><input type="checkbox" checked={promotionForm.eligiblePlans.includes(plan.name)} onChange={e=>setPromotionForm({...promotionForm,eligiblePlans:e.target.checked?[...promotionForm.eligiblePlans,plan.name]:promotionForm.eligiblePlans.filter(name=>name!==plan.name)})} className="h-4 w-4"/>{plan.name}</label>)}</div></div>
+                  <button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white">{editingPromotionId?'Enregistrer les modifications':'Créer la promotion'}</button>
+                </form>
+              </Panel>
+              <Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Promotions configurées</h3><span className="text-xs text-slate-500">{promotions.length} promotion(s)</span></div>
+                <div className="space-y-3">{promotions.map(promotion=><div key={promotion.id} className="rounded-xl border border-slate-200 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold">{promotion.name} · {promotion.code}</p><p className="text-xs text-slate-500">{promotion.discountType==='percentage'?promotion.value+' %':money(promotion.value)} · {date(promotion.startsAt)} au {date(promotion.endsAt)}</p></div><div className="flex gap-2"><button type="button" disabled={pageLoading} onClick={()=>editPromotion(promotion)} className="min-h-10 rounded-lg border px-3 text-xs font-bold">Modifier</button><button type="button" disabled={pageLoading} onClick={()=>void togglePromotion(promotion)} className="min-h-10 rounded-lg border px-3 text-xs font-bold">{promotion.active?'Désactiver':'Réactiver'}</button></div></div><p className="mt-2 text-xs text-slate-600">Formules : {promotion.eligiblePlans.join(', ')} · Utilisations : {promotion.usedCount}/{promotion.maxUses}</p></div>)}</div>
+                {promotions.length===0&&<p className="py-8 text-center text-sm text-slate-500">Aucune promotion configurée.</p>}
+              </Panel>
+            </div>}
+            {invoiceDetails&&<Panel className="mt-4"><div className="mb-4 flex flex-wrap items-start justify-between gap-2"><div><h3 className="font-extrabold">Détail de la facture · {invoiceDetails.id}</h3><p className="text-xs text-slate-500">Restaurant et abonnement associés à cette facture</p></div><button type="button" onClick={()=>setInvoiceDetails(null)} className="min-h-10 rounded-lg border border-slate-300 px-3 text-xs font-bold">Fermer</button></div><div className="grid gap-4 lg:grid-cols-2"><section className="rounded-xl border border-slate-200 p-4"><h4 className="mb-3 font-bold">Restaurant</h4><dl className="grid grid-cols-2 gap-3 text-sm"><div><dt className="text-slate-500">Nom</dt><dd className="font-semibold">{invoiceDetails.restaurant?.name || restaurants.find(r=>r.slug===invoiceDetails.restaurantSlug)?.name || 'Non renseigné'}</dd></div><div><dt className="text-slate-500">Identifiant</dt><dd className="break-all font-semibold">{invoiceDetails.restaurantSlug}</dd></div><div><dt className="text-slate-500">Ville / pays</dt><dd className="font-semibold">{[invoiceDetails.restaurant?.city,invoiceDetails.restaurant?.country].filter(Boolean).join(', ') || 'Non renseigné'}</dd></div><div><dt className="text-slate-500">Adresse</dt><dd className="font-semibold">{invoiceDetails.restaurant?.address || 'Non renseignée'}</dd></div><div><dt className="text-slate-500">Téléphone</dt><dd className="font-semibold">{invoiceDetails.restaurant?.phone || 'Non renseigné'}</dd></div><div><dt className="text-slate-500">E-mail</dt><dd className="break-all font-semibold">{invoiceDetails.restaurant?.email || 'Non renseigné'}</dd></div><div><dt className="text-slate-500">Propriétaire</dt><dd className="font-semibold">{invoiceDetails.restaurant?.ownerName || 'Non renseigné'}</dd></div><div><dt className="text-slate-500">État / ouverture</dt><dd className="font-semibold">{statusLabel(invoiceDetails.restaurant?.status)} · {invoiceDetails.restaurant?.isOpen?'Ouvert':'Fermé'}</dd></div></dl></section><section className="rounded-xl border border-slate-200 p-4"><h4 className="mb-3 font-bold">Abonnement et facture</h4><dl className="grid grid-cols-2 gap-3 text-sm"><div><dt className="text-slate-500">Plan</dt><dd className="font-semibold">{invoiceDetails.planName || 'Non renseigné'}</dd></div><div><dt className="text-slate-500">Identifiant du plan</dt><dd className="break-all font-semibold">{invoiceDetails.planId || 'Historique'}</dd></div><div><dt className="text-slate-500">Montant</dt><dd className="font-semibold">{money(invoiceDetails.amountFcfa)}</dd></div><div><dt className="text-slate-500">Statut facture</dt><dd className="font-semibold">{statusLabel(invoiceDetails.status)}</dd></div><div><dt className="text-slate-500">Période</dt><dd className="font-semibold">{date(invoiceDetails.periodStartAt)} – {date(invoiceDetails.periodEndAt)}</dd></div><div><dt className="text-slate-500">Émise / échéance</dt><dd className="font-semibold">{date(invoiceDetails.issuedAt)} / {date(invoiceDetails.dueAt)}</dd></div><div><dt className="text-slate-500">Fin de grâce</dt><dd className="font-semibold">{date(invoiceDetails.graceEndsAt)}</dd></div><div><dt className="text-slate-500">Abonnement</dt><dd className="font-semibold">{statusLabel(invoiceDetails.restaurant?.subscriptionStatus)} · {invoiceDetails.restaurant?.billingCycle || 'Période inconnue'}</dd></div><div><dt className="text-slate-500">Référence règlement</dt><dd className="break-all font-semibold">{invoiceDetails.paymentReference || 'Aucun règlement enregistré'}</dd></div><div><dt className="text-slate-500">Payée le</dt><dd className="font-semibold">{date(invoiceDetails.paidAt)}</dd></div></dl></section></div></Panel>}
+            {selectedInvoice&&<Panel className="mt-4"><h3 className="mb-2 font-extrabold">Confirmer le règlement · {selectedInvoice.id}</h3><p className="mb-3 text-sm text-slate-600">Montant exact attendu : <strong>{money(selectedInvoice.amountFcfa)}</strong>. Confirmez uniquement un paiement effectivement reçu.</p><form onSubmit={settleInvoice} className="flex flex-wrap gap-2"><Field label="Référence du paiement"><input required minLength={4} maxLength={128} value={paymentReference} onChange={e=>setPaymentReference(e.target.value)} className={inputClass}/></Field><button disabled={pageLoading} className="min-h-11 self-end rounded-lg bg-[#101d2d] px-4 text-sm font-bold text-white">Confirmer le paiement</button><button type="button" onClick={()=>setSelectedInvoice(null)} className="min-h-11 self-end rounded-lg border px-4 text-sm">Annuler</button></form></Panel>}
+          </>}
+
+          {screen === 'accounts' && <div className="space-y-5">
+            <div className="grid gap-5 xl:grid-cols-2">
+              <Panel><h3 className="mb-3 font-extrabold">Comptes propriétaires et équipes</h3><p className="mb-4 text-sm text-slate-600">Accès aux identités et à l’état des comptes rattachés. Les mots de passe ne sont jamais visibles ni modifiables depuis l’administration.</p><div className="space-y-2">{restaurants.map(r=><div key={r.slug} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3"><div><p className="font-semibold">{r.name}</p><p className="text-xs text-slate-500">{r.slug}</p></div><button type="button" onClick={()=>void openAccounts(r)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">Voir les comptes</button></div>)}</div></Panel>
+              {platformRole === 'full' && <Panel><h3 className="mb-3 font-extrabold">Inviter un administrateur plateforme</h3><form onSubmit={createPlatformAdmin} className="space-y-3"><Field label="Nom complet"><input required minLength={2} maxLength={100} value={platformAdminForm.displayName} onChange={e=>setPlatformAdminForm({...platformAdminForm,displayName:e.target.value})} className={inputClass}/></Field><Field label="Adresse e-mail"><input required type="email" value={platformAdminForm.email} onChange={e=>setPlatformAdminForm({...platformAdminForm,email:e.target.value})} className={inputClass}/></Field><Field label="Rôle"><select value={platformAdminForm.platformRole} onChange={e=>setPlatformAdminForm({...platformAdminForm,platformRole:e.target.value})} className={inputClass}><option value="full">Super-admin complet · tous les droits plateforme</option><option value="billing">Facturation · abonnements et règlements</option><option value="support">Support · tickets et comptes en lecture</option><option value="read_only">Lecture seule · santé et audit</option></select></Field><button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white">{pageLoading?'Création…':'Créer et envoyer l’invitation'}</button></form><p className="mt-3 text-xs text-slate-500">Seul un Super-admin actif avec MFA peut inviter un autre Super-admin complet. Les invitations envoient un lien Firebase de définition du mot de passe.</p></Panel>}
+            </div>
+            {platformRole === 'full' && <Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Comptes plateforme</h3><span className="text-xs text-slate-500">{platformAdmins.length} compte(s)</span></div><div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs"><tr><th className="px-3 py-3">Compte</th><th className="px-3 py-3">Rôle</th><th className="px-3 py-3">Dernière connexion</th><th className="px-3 py-3">État</th><th className="px-3 py-3">Actions</th></tr></thead><tbody>{platformAdmins.map(admin=><tr key={admin.uid} className="border-t"><td className="px-3 py-3 font-semibold">{admin.displayName}<span className="block text-xs font-normal text-slate-500">{admin.email}</span></td><td className="px-3 py-3">{admin.isPrimary||admin.role==='full'?<Badge value="active">Super-admin complet</Badge>:<div className="space-y-2"><select aria-label={`Rôle de ${admin.email}`} value={admin.role} onChange={e=>void changePlatformAdminRole(admin,e.target.value)} className="min-h-11 rounded-lg border border-slate-300 px-2 text-xs"><option value="billing">Facturation</option><option value="support">Support</option><option value="read_only">Lecture seule</option></select><details className="min-w-48"><summary className="cursor-pointer text-xs font-semibold text-[#9a3412]">Modifier les permissions ({(admin.permissions||permissionOptionsForRole(admin.role).map(item=>item.value)).length})</summary><div className="mt-2 max-h-64 space-y-2 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3">{permissionOptionsForRole(admin.role).map(permission=><label key={permission.value} className="flex items-start gap-2 text-xs"><input type="checkbox" checked={(admin.permissions||permissionOptionsForRole(admin.role).map(item=>item.value)).includes(permission.value)} disabled={pageLoading||permission.value==='platform.overview'} onChange={e=>void changePlatformAdminPermissions(admin,permission.value,e.target.checked)} className="mt-0.5 h-4 w-4"/><span>{permission.label}{permission.value==='platform.overview'?' · obligatoire':''}</span></label>)}</div></details></div>}</td><td className="px-3 py-3">{admin.lastSignInAt?new Date(admin.lastSignInAt).toLocaleString('fr-FR'):'Jamais'}</td><td className="px-3 py-3"><Badge value={admin.active&&!admin.disabled?'active':'suspended'}>{admin.active&&!admin.disabled?'Actif':'Suspendu'}</Badge></td><td className="px-3 py-3">{admin.uid===auth.currentUser?.uid||admin.email.trim().toLowerCase()===String(userEmail||'').trim().toLowerCase()?<span className="text-xs text-slate-500">Session actuelle</span>:<div className="flex flex-wrap gap-2"><button type="button" disabled={pageLoading} onClick={()=>void changePlatformAdminStatus(admin)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">{admin.active?'Suspendre':'Réactiver'}</button><button type="button" disabled={pageLoading||!admin.active} onClick={()=>void revokePlatformAdminSessions(admin)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">Révoquer sessions</button><button type="button" disabled={pageLoading} onClick={()=>void resetPlatformAdminPassword(admin)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">Réinitialiser le mot de passe</button><button type="button" disabled={pageLoading} onClick={()=>void deletePlatformAdmin(admin)} className="min-h-11 rounded-lg border border-rose-300 px-3 text-xs font-bold text-rose-700">Supprimer</button></div>}</td></tr>)}</tbody></table></div><p className="mt-3 text-xs text-slate-500">La suspension désactive le compte Firebase et révoque ses sessions. Les modifications de rôle exigent une reconnexion.</p></Panel>}
+            {platformRole === 'full' && <Panel><h3 className="mb-3 font-extrabold">Matrice des permissions déléguées</h3><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><div className="rounded-xl border p-3"><p className="font-bold">Full</p><p className="mt-1 text-xs text-slate-600">Toutes les opérations plateforme, gestion de l’équipe et des permissions. La création d’autres Super-admins est réservée à un Super-admin habilité.</p></div><div className="rounded-xl border p-3"><p className="font-bold">Facturation</p><p className="mt-1 text-xs text-slate-600">Abonnements, factures, règlements de factures et audit. Aucun accès aux tickets ou aux opérations restaurant.</p></div><div className="rounded-xl border p-3"><p className="font-bold">Support</p><p className="mt-1 text-xs text-slate-600">Tickets, comptes en lecture et diagnostics limités après consentement du propriétaire. Aucune commande ni caisse.</p></div><div className="rounded-xl border p-3"><p className="font-bold">Lecture seule</p><p className="mt-1 text-xs text-slate-600">Vue d’ensemble, santé, audit et lecture du support. Aucune écriture ni révocation.</p></div></div><p className="mt-3 text-xs text-slate-500">Les droits sont vérifiés par l’API à chaque requête. Les rôles délégués définissent un plafond de permissions. Un Super-admin peut retirer des droits individuels dans ce plafond ; la vue d’ensemble reste obligatoire. Les comptes complets peuvent être suspendus ou supprimés par un autre Super-admin, avec protection du dernier compte actif.</p></Panel>}
+          </div>}{accountRestaurant && <Panel className="mt-5"><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">Comptes liés · {accountRestaurant}</h3><button type="button" onClick={()=>setAccountRestaurant('')} aria-label="Fermer les comptes" className="min-h-11 min-w-11 rounded-lg hover:bg-slate-100"><X size={16}/></button></div>{pageLoading?'Chargement des comptes…':accounts.length===0?'Aucun compte rattaché trouvé.':<div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs"><tr><th className="px-3 py-3">Identité</th><th className="px-3 py-3">Rôle</th><th className="px-3 py-3">État</th><th className="px-3 py-3">Concordance</th><th className="px-3 py-3">Accès</th></tr></thead><tbody>{accounts.map(a=><tr key={a.uid} className="border-t"><td className="px-3 py-3">{a.displayName||'Identité non renseignée'}<span className="block text-xs text-slate-500">{a.email||'E-mail non renseigné'}</span></td><td className="px-3 py-3">{a.role}</td><td className="px-3 py-3">{a.accountLinked===false?'Non lié':a.activeKnown?(a.active?'Actif':'Inactif'):'À vérifier'}</td><td className="px-3 py-3">{a.emailConflict?'Conflit e-mail':'Concordance non signalée'}</td><td className="px-3 py-3">{platformRole === 'full' ? <div className="flex flex-wrap gap-2">{a.uid==='unlinked-owner'&&<button type="button" disabled={pageLoading||!a.email||!a.displayName} onClick={()=>void inviteUnlinkedOwner(a)} className="min-h-11 rounded-lg border border-[#c2410c] px-3 text-xs font-bold text-[#9a3412]">Créer le compte propriétaire</button>}{a.email&&a.accountLinked!==false&&<button type="button" disabled={pageLoading} onClick={()=>void resetAccountPassword(a)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">Réinitialiser</button>}{accountLinkedForAction(a)&&<><button type="button" disabled={pageLoading} onClick={()=>void changeRestaurantAccountStatus(a)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">{a.active?'Suspendre':'Réactiver'}</button><button type="button" disabled={pageLoading} onClick={()=>void revokeRestaurantAccountSessions(a)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">Révoquer sessions</button></>}</div> : <span className="text-xs text-slate-500">Lecture seule</span>}</td></tr>)}</tbody></table></div>}<p className="mt-3 text-xs text-slate-500">Données d’identité limitées et en lecture seule. Les données métier ne sont pas exposées.</p></Panel>}
+
+          {screen === 'support' && <div className="grid gap-5 xl:grid-cols-[1fr_1.5fr]">
+            {(platformRole === 'full' || platformRole === 'support') && <Panel><h3 className="mb-3 font-extrabold">Ouvrir un ticket pour un restaurant</h3><form onSubmit={createSupportTicket} className="space-y-3"><Field label="Restaurant"><select required value={supportDraft.restaurantSlug} onChange={e=>setSupportDraft({...supportDraft,restaurantSlug:e.target.value})} className={inputClass}><option value="">Choisir un restaurant</option>{restaurants.map(r=><option key={r.slug} value={r.slug}>{r.name}</option>)}</select></Field><Field label="Sujet"><input required minLength={5} maxLength={140} value={supportDraft.subject} onChange={e=>setSupportDraft({...supportDraft,subject:e.target.value})} className={inputClass}/></Field><Field label="Priorité"><select value={supportDraft.priority} onChange={e=>setSupportDraft({...supportDraft,priority:e.target.value})} className={inputClass}><option value="low">Faible</option><option value="medium">Moyenne</option><option value="high">Élevée</option></select></Field><Field label="Description"><textarea required minLength={10} maxLength={4000} rows={5} value={supportDraft.message} onChange={e=>setSupportDraft({...supportDraft,message:e.target.value})} className={inputClass}/></Field><button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white">Créer le ticket</button></form><p className="mt-3 text-xs text-slate-500">Les tickets créés ici sont persistés et visibles dans l’espace de gestion du restaurant.</p></Panel>}
+            <div className="space-y-5"><Panel><div className="mb-3 flex items-center justify-between"><h3 className="font-extrabold">File de support</h3><span className="text-xs text-slate-500">{supportTickets.length} ticket(s)</span></div>{supportTickets.length===0?<p className="py-6 text-sm text-slate-500">Aucun ticket enregistré.</p>:<div className="space-y-2">{supportTickets.map(ticket=><button type="button" key={ticket.id} onClick={()=>void openSupportTicket(ticket)} className={`flex min-h-16 w-full items-center justify-between gap-3 rounded-xl border p-3 text-left ${selectedTicket?.id===ticket.id?'border-orange-400 bg-orange-50':'border-slate-200 hover:bg-slate-50'}`}><span className="min-w-0"><span className="block truncate font-bold">{ticket.subject}</span><span className="block text-xs text-slate-500">{ticket.restaurantName} · {ticket.id}</span></span><span className="shrink-0 text-right"><Badge value={ticket.priority==='high'?'past_due':ticket.status==='resolved'||ticket.status==='closed'?'active':'open'}>{ticket.priority==='high'?'Priorité élevée':ticket.priority==='low'?'Priorité faible':'Priorité moyenne'}</Badge><span className="mt-1 block text-xs text-slate-500">{ticket.status} · {ticket.messageCount} message(s)</span></span></button>)}</div>}</Panel>
+            {selectedTicket&&<Panel><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-extrabold">{selectedTicket.subject}</h3><p className="text-xs text-slate-500">{selectedTicket.restaurantName} · {selectedTicket.id}</p></div><button type="button" onClick={()=>setSelectedTicket(null)} className="min-h-11 rounded-lg border px-3 text-xs font-bold">Fermer</button></div><div className="max-h-80 space-y-3 overflow-y-auto rounded-xl bg-slate-50 p-3">{ticketMessages.map(message=><div key={message.id} className="rounded-lg border border-slate-200 bg-white p-3"><div className="mb-1 flex justify-between gap-2 text-xs text-slate-500"><span>{message.authorRole==='platform_admin'?'Équipe RestauMax':message.authorRole} · {message.visibility==='internal'?'Note interne':'Visible restaurant'}</span><span>{new Date(message.createdAt).toLocaleString('fr-FR')}</span></div><p className="whitespace-pre-wrap text-sm">{message.body}</p></div>)}{ticketMessages.length===0&&<p className="text-sm text-slate-500">Aucun message.</p>}</div>{(platformRole === 'full' || platformRole === 'support') && <form onSubmit={updateSupportTicket} className="mt-4 space-y-3"><div className="grid gap-3 sm:grid-cols-2"><Field label="Statut"><select value={ticketStatus} onChange={e=>setTicketStatus(e.target.value)} className={inputClass}><option value="open">Ouvert</option><option value="in_progress">En cours</option><option value="waiting_customer">En attente du restaurant</option><option value="waiting_support">En attente support</option><option value="resolved">Résolu</option><option value="closed">Fermé</option></select></Field><Field label="Priorité"><select value={ticketPriority} onChange={e=>setTicketPriority(e.target.value)} className={inputClass}><option value="low">Faible</option><option value="medium">Moyenne</option><option value="high">Élevée</option></select></Field></div><Field label="Réponse au restaurant"><textarea rows={3} maxLength={4000} value={ticketReply} onChange={e=>setTicketReply(e.target.value)} className={inputClass} placeholder="Réponse visible dans son espace de gestion"/></Field><Field label="Note interne (non visible au restaurant)"><textarea rows={2} maxLength={4000} value={ticketInternalNote} onChange={e=>setTicketInternalNote(e.target.value)} className={inputClass}/></Field><button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white">Enregistrer la réponse</button></form>}{(platformRole === 'full' || platformRole === 'support') && <div className="mt-5 border-t border-slate-100 pt-4"><h4 className="font-extrabold">Accès de diagnostic temporaire</h4><p className="mt-1 text-xs text-slate-500">Accès limité à une heure, uniquement après consentement explicite du propriétaire. Les commandes, paiements et données de caisse sont exclus.</p><Field label="Motif précis de la demande"><textarea rows={2} minLength={15} maxLength={1000} value={supportAccessReason} onChange={e=>setSupportAccessReason(e.target.value)} className={inputClass}/></Field><button type="button" disabled={pageLoading||supportAccessReason.trim().length<15} onClick={()=>void requestSupportDiagnosticAccess()} className="mt-2 min-h-11 rounded-xl border border-slate-300 px-3 text-xs font-bold">Demander l’accès au propriétaire</button>{supportAccessRequests.map(access=><div key={access.id} className="mt-3 rounded-lg border border-slate-200 p-3"><div className="flex items-center justify-between gap-2"><span className="text-sm font-bold">{access.status==='pending'?'En attente du propriétaire':access.status==='approved'?'Consentement accordé':access.status==='denied'?'Refusé':'Expiré'}</span><span className="text-xs text-slate-500">{access.requestedByEmail}</span></div><p className="mt-1 text-xs text-slate-500">{access.reason}</p>{access.status==='approved'&&Number(access.accessExpiresAt||0)>Date.now()&&<button type="button" disabled={pageLoading} onClick={()=>void loadSupportDiagnostics(access)} className="mt-2 min-h-11 rounded-lg border px-3 text-xs font-bold">Consulter le diagnostic autorisé</button>}</div>)}{supportDiagnostic&&<div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm"><p className="font-bold">{supportDiagnostic.restaurant?.name} · {supportDiagnostic.restaurant?.status}</p><p className="mt-1">Tables : {supportDiagnostic.tables?.active}/{supportDiagnostic.tables?.total} actives · Personnel : {supportDiagnostic.staff?.active}/{supportDiagnostic.staff?.total} actifs</p><p className="mt-2 text-xs text-slate-500">Données de diagnostic limitées et journalisées. Aucun accès aux commandes ou à la caisse.</p></div>}</div>}</Panel>}</div>
+          </div>}
+
+          {screen === 'audit' && <Panel><div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Field label="Acteur"><input value={auditFilters.actor} onChange={e=>setAuditFilters({...auditFilters,actor:e.target.value})} placeholder="Identifiant de l’acteur" className={inputClass}/></Field><Field label="Nature de l’opération"><input value={auditFilters.action} onChange={e=>setAuditFilters({...auditFilters,action:e.target.value})} placeholder="Rechercher une opération" className={inputClass}/></Field><Field label="Restaurant"><input value={auditFilters.restaurant} onChange={e=>setAuditFilters({...auditFilters,restaurant:e.target.value})} placeholder="Identifiant du restaurant" className={inputClass}/></Field><Field label="Du"><input type="date" value={auditFilters.from} onChange={e=>setAuditFilters({...auditFilters,from:e.target.value})} className={inputClass}/></Field><Field label="Au"><input type="date" value={auditFilters.to} min={auditFilters.from || undefined} onChange={e=>setAuditFilters({...auditFilters,to:e.target.value})} className={inputClass}/></Field></div><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className="font-extrabold">Journal d’audit plateforme</h3><button type="button" disabled={pageLoading} onClick={()=>void exportAudit()} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Exporter le journal complet</button></div><div className="overflow-x-auto"><table className={tableShell}><thead className="bg-slate-50 text-xs"><tr><th className="px-3 py-3">Date</th><th className="px-3 py-3">Action</th><th className="px-3 py-3">Acteur (identifiant)</th><th className="px-3 py-3">Restaurant</th><th className="px-3 py-3">Détails</th></tr></thead><tbody>{filteredAudit.map(a=><React.Fragment key={a.id}><tr className="border-t"><td className="px-3 py-3">{a.createdAt?new Date(a.createdAt).toLocaleString('fr-FR'):'—'}</td><td className="px-3 py-3 font-semibold">{auditActionLabel(a.action)}</td><td className="px-3 py-3 font-mono text-xs">{a.actorUid||'—'}</td><td className="px-3 py-3">{a.restaurantSlug||'Plateforme'}</td><td className="px-3 py-3"><button type="button" aria-expanded={expandedAuditId===a.id} onClick={()=>setExpandedAuditId(current=>current===a.id?null:a.id)} className="min-h-10 rounded-lg border border-slate-300 px-3 text-xs font-semibold">{a.amountFcfa!==null?money(a.amountFcfa):auditRoleLabel(a.targetRole) || (a.preservedBusinessData?'Historique conservé':'Voir les détails')} · {expandedAuditId===a.id?'Masquer':'Détails'}</button></td></tr>{expandedAuditId===a.id&&<tr className="border-t bg-slate-50"><td colSpan={5} className="px-4 py-4"><div className="grid gap-3 text-xs sm:grid-cols-2 xl:grid-cols-3"><div><span className="block font-bold text-slate-500">UID cible</span><span className="break-all">{a.targetUid||'Non enregistré'}</span></div><div><span className="block font-bold text-slate-500">Rôle précédent → nouveau</span><span>{a.previousRole||'—'} → {a.newRole||a.targetRole||'—'}</span></div><div><span className="block font-bold text-slate-500">Statut précédent → nouveau</span><span>{a.previousStatus||'—'} → {a.newStatus||'—'}</span></div><div><span className="block font-bold text-slate-500">Formule précédente → nouvelle</span><span>{a.previousPlanName||'—'} → {a.newPlanName||a.planName||'—'}</span></div><div><span className="block font-bold text-slate-500">Statut d’abonnement</span><span>{a.subscriptionStatus||'—'}</span></div><div><span className="block font-bold text-slate-500">Résultat / code motif</span><span>{a.outcome||'Non enregistré'} · {a.reasonCode||'—'}</span></div><div><span className="block font-bold text-slate-500">Facture</span><span>{a.invoiceId||'—'}</span></div><div><span className="block font-bold text-slate-500">Montant</span><span>{a.amountFcfa!==null?money(a.amountFcfa):'—'}</span></div></div>{!a.targetUid&&!a.previousRole&&!a.newRole&&!a.previousStatus&&!a.newStatus&&!a.previousPlanName&&!a.newPlanName&&!a.planName&&!a.subscriptionStatus&&!a.outcome&&!a.reasonCode&&!a.invoiceId&&a.amountFcfa===null&&<p className="mt-3 text-xs text-slate-500">Aucun détail complémentaire n’avait été enregistré pour cet événement historique.</p>}</td></tr>}</React.Fragment>)}</tbody></table></div><p className="mt-3 text-xs text-slate-500">Consultation en lecture seule. Les événements ne peuvent être ni modifiés ni supprimés depuis cette interface. {filteredAudit.length} résultat(s) affiché(s).</p>{pageLoading&&<p className="mt-3 text-sm text-slate-500">Chargement…</p>}{filteredAudit.length===0&&!pageLoading&&<p className="py-8 text-center text-sm text-slate-500">Aucun événement d’audit retourné.</p>}{auditHasMore&&<div className="mt-4 flex justify-center"><button type="button" disabled={pageLoading||!auditCursor} onClick={async()=>{if(!auditCursor)return;setPageLoading(true);setPageError('');try{const data=await read('audit_list',{limit:'100',cursor:auditCursor});setAudit(current=>[...current,...(data.logs||[])]);setAuditCursor(data.nextCursor||null);setAuditHasMore(data.hasMore===true);}catch(e:any){setPageError(e.message||'Chargement des événements suivant impossible.');}finally{setPageLoading(false);}}} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-bold">Charger les événements suivants</button></div>}</Panel>}
+
+          {screen === 'health' && <div className="space-y-5"><Panel><div className="mb-4 flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-extrabold">État réel des services</h3><p className="text-xs text-slate-500">Sondes serveur et télémétrie enregistrée · actualisé {health?.checkedAt?new Date(health.checkedAt).toLocaleString('fr-FR'):'—'}</p></div><button type="button" onClick={()=>void refreshCurrentScreen()} disabled={pageLoading} className="min-h-11 rounded-lg border px-3 text-xs font-bold">Relancer les sondes</button></div>{health?.services?.length?<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{health.services.map(service=><div key={service.id} className="rounded-xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-2"><h4 className="font-bold">{service.label}</h4><Badge value={service.status==='operational'?'active':service.status==='degraded'?'past_due':service.status==='unavailable'?'suspended':'unknown'}>{service.status==='operational'?'Opérationnel':service.status==='degraded'?'Dégradé':service.status==='unavailable'?'Indisponible':'Non mesuré'}</Badge></div><p className="mt-2 text-sm text-slate-600">{service.detail}</p></div>)}</div>:<p className="py-6 text-sm text-slate-500">{pageLoading?'Sondes en cours…':'Aucune mesure disponible.'}</p>}</Panel><Panel><h3 className="mb-2 font-extrabold">Périmètre et limites des contrôles</h3><ul className="list-disc space-y-2 pl-5 text-sm text-slate-600"><li>Firestore et Firebase Authentication sont vérifiés depuis le serveur.</li><li>La facturation planifiée est contrôlée à partir de sa dernière exécution enregistrée et de la présence de CRON_SECRET.</li><li>Les paiements ne déclenchent aucun paiement réel pendant cette sonde ; le mode test ou l’absence de sonde fournisseur est indiqué.</li><li>Une sauvegarde n’est déclarée réussie que si un événement de sauvegarde est enregistré. Sans télémétrie, le statut reste « non mesuré ».</li><li>Les détails de configuration, les secrets et les données opérationnelles des restaurants ne sont jamais exposés.</li></ul></Panel></div>}
+
+          {screen === 'security' && <div className="space-y-5">{securityPanel}<div className="grid gap-5 xl:grid-cols-2">
+            <Panel>
+              <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><ShieldCheck size={20} className="text-emerald-700"/><h3 className="font-extrabold">Authentification multifacteur</h3></div><p className="mt-1 text-sm text-slate-500">État réel retourné par le serveur RestauMax.</p></div><Badge value={security.mfaEnrolled ? 'active' : 'suspended'}>{security.mfaEnrolled ? 'Protégé' : 'À configurer'}</Badge></div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 p-4"><p className="text-sm font-semibold text-slate-500">Passkeys enregistrées</p><p className="mt-2 text-4xl font-extrabold tabular-nums">{security.passkeyCount}</p><p className="mt-1 text-xs text-slate-500">Clés d’accès associées à ce compte.</p></div>
+                <div className="rounded-xl border border-slate-200 p-4"><p className="text-sm font-semibold text-slate-500">Codes de secours restants</p><p className="mt-2 text-4xl font-extrabold tabular-nums">{security.recoveryCodesRemaining}</p><p className="mt-1 text-xs text-slate-500">Codes à usage unique disponibles.</p></div>
+              </div>
+              <div className="mt-4 space-y-2 text-sm"><p><strong>Google Authenticator :</strong> {security.mfaEnrolled ? 'Enrôlé' : 'Non enrôlé'}</p><p><strong>Adresse de récupération :</strong> {security.recoveryContactEmail || 'Non configurée'}</p><p><strong>Session de confiance :</strong> {security.trustedSessionExpiresAt && security.trustedSessionExpiresAt > Date.now() ? 'Active jusqu’au ' + new Date(security.trustedSessionExpiresAt).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' }) : 'Non confirmée par le serveur'}</p></div>
+              <button type="button" onClick={() => { void onRefreshSecurity().catch((e: any) => setPageError(e?.message || 'Actualisation impossible.')); }} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700"><RefreshCw size={15}/> Actualiser les facteurs</button>
+            </Panel>
+            <Panel>
+              <div className="flex items-center gap-2"><LockKeyhole size={20} className="text-[#9a3412]"/><h3 className="font-extrabold">Mot de passe administrateur</h3></div>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Recevez un lien personnel et temporaire pour choisir un nouveau mot de passe. Le lien est envoyé à l’adresse de connexion de ce compte ; aucun mot de passe n’est affiché ni transmis dans l’administration.</p>
+              <div className="mt-4 rounded-xl bg-slate-50 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Adresse du compte</p><p className="mt-1 break-all font-bold">{userEmail || 'Adresse indisponible'}</p></div>
+              <button type="button" onClick={() => void sendOwnPasswordReset()} disabled={!userEmail || passwordResetBusy} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white disabled:opacity-50"><KeyRound size={16}/>{passwordResetBusy ? 'Envoi en cours…' : 'Recevoir un lien de réinitialisation'}</button>
+              <p className="mt-3 text-xs text-slate-500">Après modification, reconnectez-vous avec le nouveau mot de passe. La protection MFA reste distincte et doit toujours être validée.</p>
+            </Panel>
+          </div></div>}
+
+          {screen === 'settings' && <form onSubmit={savePlatformConfiguration} className="space-y-5">
+            <div className="space-y-5"><Panel><h3 className="mb-4 font-extrabold">Paramètres généraux</h3><div className="space-y-4"><Field label="Devise de facturation"><input value="FCFA (XOF)" disabled className={inputClass}/></Field><Field label="Délai de grâce des factures (jours)"><input type="number" min={0} max={60} value={platformConfig.gracePeriodDays} onChange={e=>setPlatformConfig({...platformConfig,gracePeriodDays:Number(e.target.value)})} className={inputClass}/></Field><Field label="Réduction sur les abonnements trimestriels (%)"><input type="number" min={0} max={100} step={1} value={platformConfig.quarterlyDiscountPercent} onChange={e=>setPlatformConfig({...platformConfig,quarterlyDiscountPercent:Number(e.target.value)})} className={inputClass}/><span className="text-xs font-normal text-slate-500">Taux modifiable à tout moment. Le taux appliqué sera conservé sur chaque facture créée.</span></Field><label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 p-3 text-sm font-semibold"><input type="checkbox" checked={platformConfig.maintenanceMode} onChange={e=>setPlatformConfig({...platformConfig,maintenanceMode:e.target.checked})} className="h-5 w-5"/> Activer le mode maintenance global</label>{platformConfig.maintenanceMode&&<div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Le mode maintenance bloque les API métier de la plateforme. La santé, l’administration et les callbacks de règlement restent accessibles.</div>}</div></Panel>
+            <Panel><div className="mb-4 flex items-center justify-between gap-3"><div><h3 className="font-extrabold">Catalogue des formules et droits</h3><p className="mt-1 text-xs text-slate-500">Crée tes propres formules, définis le tarif mensuel et active les droits réellement contrôlés côté serveur.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">{platformConfig.plans.length}/20</span></div>
+              <div className="space-y-3">{platformConfig.plans.map(plan=><div key={plan.name} className="rounded-xl border border-slate-200 p-4"><div className="grid gap-3 md:grid-cols-[1fr_1fr_160px_auto] md:items-end"><Field label="Nom de la formule"><input value={plan.name} readOnly className={inputClass}/></Field><Field label="Description"><input maxLength={240} value={plan.description} onChange={e=>updatePlanDefinition(plan.name,{description:e.target.value})} className={inputClass}/></Field><Field label="Prix mensuel (FCFA)"><input type="number" min={0} max={1000000000} step={1} value={plan.priceMonthlyFcfa} onChange={e=>updatePlanDefinition(plan.name,{priceMonthlyFcfa:Number(e.target.value)})} className={inputClass}/></Field><label className="flex min-h-11 items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={plan.active} onChange={e=>updatePlanDefinition(plan.name,{active:e.target.checked})} className="h-5 w-5"/> Formule active</label></div><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{([{key:'kitchenScreen',label:'Écran cuisine / bar'},{key:'advancedReports',label:'Rapports avancés'},{key:'inventoryRecipes',label:'Stocks et recettes'},{key:'loyalty',label:'Fidélité'},{key:'dishImages',label:'Photos des plats (stockage sécurisé)'}] as const).map(feature=><label key={feature.key} className="flex min-h-11 items-center gap-2 rounded-lg bg-slate-50 px-3 text-xs font-semibold"><input type="checkbox" checked={plan.features[feature.key]} onChange={e=>updatePlanDefinition(plan.name,{features:{...plan.features,[feature.key]:e.target.checked}})} className="h-4 w-4"/>{feature.label}</label>)}</div></div>)}</div>
+              <div className="mt-4 rounded-xl border border-dashed border-slate-300 p-4"><h4 className="mb-3 font-bold">Créer une formule personnalisée</h4><div className="grid gap-3 md:grid-cols-3"><Field label="Nom"><input maxLength={50} value={newPlanForm.name} onChange={e=>setNewPlanForm({...newPlanForm,name:e.target.value})} className={inputClass} placeholder="Ex. Premium Plus"/></Field><Field label="Description"><input maxLength={240} value={newPlanForm.description} onChange={e=>setNewPlanForm({...newPlanForm,description:e.target.value})} className={inputClass} placeholder="Description courte"/></Field><Field label="Prix mensuel (FCFA)"><input type="number" min={0} max={1000000000} value={newPlanForm.priceMonthlyFcfa} onChange={e=>setNewPlanForm({...newPlanForm,priceMonthlyFcfa:e.target.value})} className={inputClass}/></Field></div><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{([{key:'kitchenScreen',label:'Écran cuisine / bar'},{key:'advancedReports',label:'Rapports avancés'},{key:'inventoryRecipes',label:'Stocks et recettes'},{key:'loyalty',label:'Fidélité'},{key:'dishImages',label:'Photos des plats (stockage sécurisé)'}] as const).map(feature=><label key={feature.key} className="flex min-h-11 items-center gap-2 rounded-lg bg-slate-50 px-3 text-xs font-semibold"><input type="checkbox" checked={newPlanForm.features[feature.key]} onChange={e=>setNewPlanForm({...newPlanForm,features:{...newPlanForm.features,[feature.key]:e.target.checked}})} className="h-4 w-4"/>{feature.label}</label>)}</div><button type="button" onClick={addPlanDefinition} disabled={platformConfig.plans.length>=20} className="mt-3 min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white disabled:opacity-50"><Plus size={15} className="mr-2 inline"/>Ajouter cette formule</button></div>
+              <p className="mt-3 text-xs text-slate-500">Les quatre droits affichés sont appliqués côté serveur et dans les règles Firestore. Les nouvelles formules personnalisées héritent du refus par défaut pour tout droit non explicitement activé. La distribution automatique nécessite encore un fournisseur d’envoi configuré ; aucun e-mail n’est envoyé depuis cet éditeur.</p></Panel></div>
+            <Panel><h3 className="mb-2 font-extrabold">Textes modèles</h3><p className="mb-4 text-xs text-slate-500">Ces textes sont stockés dans la configuration RestauMax. Les e-mails transactionnels Firebase (invitation et réinitialisation) continuent d’utiliser les modèles définis dans Firebase Authentication ; aucun envoi e-mail n’est déclenché par cette édition.</p><div className="grid gap-4 md:grid-cols-2">{([{key:'invitation',label:'Invitation'},{key:'passwordReset',label:'Réinitialisation du mot de passe'},{key:'invoice',label:'Facture'},{key:'overdue',label:'Rappel d’impayé'}] as const).map(template=><div key={template.key} className="space-y-2 rounded-xl border border-slate-200 p-3"><h4 className="font-bold">{template.label}</h4><Field label="Objet"><input maxLength={160} value={platformConfig.emailTemplates[template.key].subject} onChange={e=>setPlatformConfig({...platformConfig,emailTemplates:{...platformConfig.emailTemplates,[template.key]:{...platformConfig.emailTemplates[template.key],subject:e.target.value}}})} className={inputClass}/></Field><Field label="Contenu"><textarea rows={3} maxLength={3000} value={platformConfig.emailTemplates[template.key].body} onChange={e=>setPlatformConfig({...platformConfig,emailTemplates:{...platformConfig.emailTemplates,[template.key]:{...platformConfig.emailTemplates[template.key],body:e.target.value}}})} className={inputClass}/></Field></div>)}</div></Panel>
+            <div className="flex justify-end"><button disabled={pageLoading} className="min-h-11 rounded-xl bg-[#101d2d] px-5 text-sm font-bold text-white">{pageLoading?'Enregistrement…':'Enregistrer la configuration'}</button></div>
+          </form>}
+
+          {screen === 'communication' && <div className="grid gap-5 xl:grid-cols-[1.1fr_1fr]">{platformRole === 'full' && <Panel><h3 className="mb-4 font-extrabold">Nouvelle annonce plateforme</h3><form onSubmit={e=>{e.preventDefault();setAnnouncementPreview(true);}} className="space-y-3"><Field label="Titre"><input required minLength={3} maxLength={100} value={announcement.title} onChange={e=>setAnnouncement({...announcement,title:e.target.value})} className={inputClass}/></Field><Field label="Message"><textarea required minLength={10} rows={5} maxLength={3000} value={announcement.message} onChange={e=>setAnnouncement({...announcement,message:e.target.value})} className={inputClass}/></Field><Field label="Destinataires"><select value={announcement.targetType} onChange={e=>setAnnouncement({...announcement,targetType:e.target.value})} className={inputClass}><option value="all">Tous les restaurants actifs</option><option value="plan">Par formule</option><option value="selected">Restaurants sélectionnés</option></select></Field>{announcement.targetType==='plan'&&<Field label="Formule"><select value={announcement.planName} onChange={e=>setAnnouncement({...announcement,planName:e.target.value})} className={inputClass}><option value="Essentiel">Essentiel</option><option value="Pro">Pro</option></select></Field>}{announcement.targetType==='selected'&&<div><p className="mb-2 text-sm font-semibold text-slate-700">Restaurants destinataires</p><div className="max-h-44 space-y-2 overflow-y-auto rounded-xl border border-slate-200 p-3">{restaurants.map(r=><label key={r.slug} className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={announcement.restaurantSlugs.includes(r.slug)} onChange={e=>setAnnouncement({...announcement,restaurantSlugs:e.target.checked?[...announcement.restaurantSlugs,r.slug]:announcement.restaurantSlugs.filter(slug=>slug!==r.slug)})} className="h-5 w-5"/>{r.name}</label>)}</div></div>}<Field label="Date et heure de diffusion (laisser vide pour maintenant)"><input type="datetime-local" value={announcement.schedule} onChange={e=>setAnnouncement({...announcement,schedule:e.target.value})} className={inputClass}/></Field><div className="flex flex-wrap gap-2"><button type="submit" className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-bold">Prévisualiser</button><button type="button" disabled={pageLoading} onClick={()=>void saveAnnouncement(false)} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-bold">Enregistrer brouillon</button><button type="button" disabled={pageLoading} onClick={()=>void saveAnnouncement(true)} className="min-h-11 rounded-xl bg-[#101d2d] px-4 text-sm font-bold text-white">{announcement.schedule?'Programmer':'Publier maintenant'}</button></div></form>{announcementPreview&&<div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4"><p className="font-bold">{announcement.title}</p><p className="mt-2 whitespace-pre-wrap text-sm">{announcement.message}</p><p className="mt-3 text-xs text-amber-950">Ciblage : {announcement.targetType==='all'?'Tous les restaurants':announcement.targetType==='plan'?announcement.planName:`${announcement.restaurantSlugs.length} restaurant(s)`}</p></div>}<p className="mt-4 text-xs text-slate-500">Les annonces publiées apparaissent dans le centre de gestion des restaurants. Elles ne sont pas envoyées par e-mail ou SMS.</p></Panel>}
+            <Panel><div className="mb-4 flex items-center justify-between"><h3 className="font-extrabold">Annonces enregistrées</h3><span className="text-xs text-slate-500">{announcements.length}</span></div>{announcements.length===0?<p className="py-6 text-sm text-slate-500">Aucune annonce enregistrée.</p>:<div className="space-y-3">{announcements.map(item=><div key={item.id} className="rounded-xl border border-slate-200 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-bold">{item.title}</p><p className="mt-1 text-xs text-slate-500">{item.targetType==='all'?'Tous les restaurants':item.targetType==='plan'?item.planName:`${item.restaurantSlugs?.length||0} restaurant(s)`} · {item.createdAt?new Date(item.createdAt).toLocaleString('fr-FR'):'—'}</p></div><Badge value={item.status==='published'?'active':item.status==='cancelled'?'suspended':item.status==='draft'?'unknown':'past_due'}>{item.status==='published'?(item.publishedAt&&item.publishedAt>Date.now()?'Programmée':'Publiée'):item.status==='cancelled'?'Annulée':item.status==='draft'?'Brouillon':item.status}</Badge></div><p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{item.message}</p>{platformRole === 'full' && item.status!=='cancelled'&&<button type="button" disabled={pageLoading} onClick={()=>void cancelAnnouncement(item)} className="mt-3 min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold">Annuler l’annonce</button>}</div>)}</div>}</Panel></div>}
+        </main>
+      </div>
+    </div>
+  </div>;
+};

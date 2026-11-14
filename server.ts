@@ -930,6 +930,35 @@ export function getServerHealth() {
   return { status: 'ok', serverTime: Date.now() };
 }
 
+const DEFAULT_PLAN_FEATURES: Record<string, Record<string, boolean>> = {
+  Essentiel: { kitchenScreen: true, advancedReports: false, inventoryRecipes: false, loyalty: false, dishImages: false },
+  Pro: { kitchenScreen: true, advancedReports: true, inventoryRecipes: true, loyalty: true, dishImages: true }
+};
+
+async function isPlatformFeatureEnabled(db: any, restaurantSlug: string, feature: string): Promise<boolean> {
+  const [configSnap, subscriptionSnap, restaurantSnap] = await Promise.all([
+    db.collection('platform_config').doc('global').get(),
+    db.collection('restaurantSubscriptions').doc(restaurantSlug).get(),
+    db.collection('restaurants').doc(restaurantSlug).get()
+  ]);
+  if (!restaurantSnap.exists || restaurantSnap.data()?.deletedAt || restaurantSnap.data()?.status === 'deleted') return false;
+  const subscription = subscriptionSnap.exists
+    ? subscriptionSnap.data() || {}
+    : restaurantSnap.data()?.subscription || {};
+  const planName = String(subscription.planName || '').trim();
+  // Legacy records without a plan retain only the baseline kitchen screen.
+  // Unknown plan names must be explicitly configured; never grant premium features by default.
+  if (!planName) return feature === 'kitchenScreen';
+  const snapshotFeature = subscription.planFeatures && typeof subscription.planFeatures === 'object'
+    ? subscription.planFeatures[feature] : undefined;
+  if (typeof snapshotFeature === 'boolean') return snapshotFeature;
+  const configured = configSnap.exists ? configSnap.data()?.planFeatures?.[planName]?.[feature] : undefined;
+  if (typeof configured === 'boolean') return configured;
+  const defaultValue = DEFAULT_PLAN_FEATURES[planName]?.[feature];
+  // Unmapped plans retain the baseline kitchen screen only; premium features require an explicit grant.
+  return typeof defaultValue === 'boolean' ? defaultValue : feature === 'kitchenScreen';
+}
+
 export async function handleResolveTableQr(token: string, req?: any): Promise<{ statusCode: number; body: any; cookies?: string[]; location?: string }> {
   if (req && !isTrustedQrNavigation(req)) {
     console.warn('[RestauMax QR] Navigation rejetée par la politique de confiance.', {
@@ -1965,10 +1994,30 @@ export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<
   if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
     return { statusCode: 401, body: { success: false, error: 'Authentification de la tâche planifiée refusée.' } };
   }
+  const runRef = adminDb.collection('platform_job_runs').doc('subscription_billing');
+  const startedAt = Date.now();
   try {
-    const result = await runSubscriptionBillingCycleWithDb(adminDb, Date.now());
+    const result = await runSubscriptionBillingCycleWithDb(adminDb, startedAt);
+    const completedAt = Date.now();
+    await runRef.set({
+      job: 'subscription_billing', lastStatus: 'success', lastRunAt: completedAt,
+      startedAt, durationMs: completedAt - startedAt,
+      summary: {
+        invoicesCreated: Number(result.invoicesCreated || 0),
+        freePlansRenewed: Number(result.freePlansRenewed || 0),
+        restaurantsSuspended: Number(result.restaurantsSuspended || 0),
+        skipped: Number(result.skipped || 0)
+      }, updatedAt: completedAt
+    }, { merge: true });
     return { statusCode: 200, body: result };
   } catch (error: any) {
+    const failedAt = Date.now();
+    await runRef.set({
+      job: 'subscription_billing', lastStatus: 'failed', lastRunAt: failedAt,
+      startedAt, durationMs: failedAt - startedAt,
+      errorCode: String(error?.code || 'billing_cycle_failed').slice(0, 80),
+      updatedAt: failedAt
+    }, { merge: true }).catch(() => undefined);
     console.error('[RestauMax subscription billing] Error:', error?.message || String(error));
     return { statusCode: 500, body: { success: false, error: 'Le cycle de facturation des abonnements a échoué.' } };
   }
@@ -2087,6 +2136,9 @@ export async function handleRestaurantReportsRequest(req?: any): Promise<{ statu
     if (!['period', 'daily'].includes(reportType)) {
       return { statusCode: 400, body: { success: false, error: 'Type de rapport invalide.' } };
     }
+    if (reportType === 'period' && periodDays > 7 && !(await isPlatformFeatureEnabled(adminDb, restaurantSlug, 'advancedReports'))) {
+      return { statusCode: 403, body: { success: false, error: 'Les rapports avancés sur période longue ne sont pas inclus dans la formule de ce restaurant.' } };
+    }
     const selectedDate = typeof req.query?.date === 'string' ? req.query.date : undefined;
     const closureSnap = reportType === 'daily' && selectedDate
       ? await restaurantRef.collection('dailyRevenueClosures').doc(selectedDate).get()
@@ -2132,6 +2184,7 @@ export async function handleInventoryRequest(payload: unknown, req?: any): Promi
     const input = payload && typeof payload === 'object' ? { ...(payload as any) } : {};
     const restaurantSlug = typeof input.restaurantSlug === 'string' ? input.restaurantSlug.trim() : '';
     if (!/^[a-zA-Z0-9_-]{1,100}$/.test(restaurantSlug)) return { statusCode: 400, body: { success: false, error: 'Restaurant invalide.' } };
+    if (!(await isPlatformFeatureEnabled(adminDb, restaurantSlug, 'inventoryRecipes'))) return { statusCode: 403, body: { success: false, error: 'La gestion des stocks et recettes n’est pas incluse dans la formule de ce restaurant.' } };
     const result = await manageInventoryWithDb(adminDb, {
       ...input, restaurantSlug, actorUid: decoded.uid,
       sessionVersion: Number(decoded.sessionVersion || 0)
@@ -2192,6 +2245,7 @@ export async function handleCustomerLoyaltyAdjustmentRequest(payload: unknown, r
         !/^[a-zA-Z0-9_-]{1,128}$/.test(customerId)) {
       return { statusCode: 400, body: { success: false, error: 'Restaurant ou fiche client invalide.' } };
     }
+    if (!(await isPlatformFeatureEnabled(adminDb, restaurantSlug, 'loyalty'))) return { statusCode: 403, body: { success: false, error: 'Le programme de fidélité n’est pas inclus dans la formule de ce restaurant.' } };
     const result = await adjustCustomerLoyaltyPointsWithDb(adminDb, {
       restaurantSlug, customerId, delta: input.delta,
       reason: input.reason, idempotencyKey: input.idempotencyKey,
@@ -2298,6 +2352,7 @@ export async function handleKitchenItemRequest(payload: unknown, req?: any): Pro
       return { statusCode: 400, body: { success: false, error: 'Données de préparation invalides.' } };
     }
 
+    if (!(await isPlatformFeatureEnabled(adminDb, restaurantSlug, 'kitchenScreen'))) return { statusCode: 403, body: { success: false, error: 'L’écran cuisine n’est pas inclus dans la formule de ce restaurant.' } };
     const result = await updateKitchenItemCompletionWithDb(adminDb, {
       restaurantSlug,
       orderId,
@@ -2315,6 +2370,31 @@ export async function handleKitchenItemRequest(payload: unknown, req?: any): Pro
     return { statusCode: 500, body: { success: false, error: 'Erreur interne pendant la mise à jour cuisine.' } };
   }
 }
+
+// Enforce the persisted platform maintenance switch on business APIs while
+// preserving health, platform administration and payment settlement callbacks.
+app.use('/api', async (req: any, res: any, next: any) => {
+  const path = String(req.path || '').replace(/^\/+|\/+$/g, '');
+  const alwaysAvailable = new Set([
+    'health', 'platform-admin', 'payments/paydunya-callback',
+    'payments/paydunya-disbursement-callback', 'subscriptions/billing-cycle',
+    'payments/customer-paydunya-reconcile'
+  ]);
+  if (alwaysAvailable.has(path) || !adminDb) return next();
+  try {
+    const config = await adminDb.collection('platform_config').doc('global').get();
+    if (config.exists && config.data()?.maintenanceMode === true) {
+      return res.status(503).json({
+        success: false, maintenance: true,
+        error: 'RestauMax est temporairement en maintenance. Les opérations métier sont momentanément suspendues.'
+      });
+    }
+    return next();
+  } catch {
+    // A failed config read must not create a false maintenance lockout.
+    return next();
+  }
+});
 
 // Shared platform administration handler used by Express and Vercel.
 export async function handlePlatformAdmin(req: any, res: any, db: any = adminDb) {

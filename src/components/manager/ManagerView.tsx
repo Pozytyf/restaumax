@@ -6,6 +6,7 @@ import { sounds } from '../../utils/audio';
 import { PayDunyaAccountSettings } from './PayDunyaAccountSettings';
 import { ClosedCashSessionsHistory } from './ClosedCashSessionsHistory';
 import { auth, db, listClosedCashSessionsWithServerValidation, type CashSessionApiRecord } from '../../lib/firebase';
+import { PlatformMessagesCenter } from './PlatformMessagesCenter';
 import type { RestauOrder } from '../../types/restaumax';
 import { 
   TrendingUp, 
@@ -418,7 +419,7 @@ export const ManagerView: React.FC<ManagerViewProps> = ({
   return (
     <div className="flex-1 flex flex-col h-[calc(100vh-60px)] overflow-y-auto bg-[#f4f7fb] p-4 lg:p-8">
       <div className="max-w-7xl mx-auto w-full space-y-6">
-        
+        <PlatformMessagesCenter restaurantSlug={restaurantSlug} isOwner={isOwner}/>
 
         {/* Supervision header */}
         <header className="flex flex-col gap-2">
