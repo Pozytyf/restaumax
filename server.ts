@@ -1997,11 +1997,13 @@ export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<
   const runRef = adminDb.collection('platform_job_runs').doc('subscription_billing');
   const startedAt = Date.now();
   try {
+    await runRef.set({ job: 'subscription_billing', lastStatus: 'running', lastRunAt: startedAt, lastAttemptStartedAt: startedAt, updatedAt: startedAt }, { merge: true });
     const result = await runSubscriptionBillingCycleWithDb(adminDb, startedAt);
     const completedAt = Date.now();
     await runRef.set({
       job: 'subscription_billing', lastStatus: 'success', lastRunAt: completedAt,
-      startedAt, durationMs: completedAt - startedAt,
+      lastSuccessAt: completedAt, lastAttemptStartedAt: startedAt, lastAttemptCompletedAt: completedAt,
+      lastResult: 'success', startedAt, durationMs: completedAt - startedAt,
       summary: {
         invoicesCreated: Number(result.invoicesCreated || 0),
         freePlansRenewed: Number(result.freePlansRenewed || 0),
@@ -2014,8 +2016,9 @@ export async function handleSubscriptionBillingCycleRequest(req?: any): Promise<
     const failedAt = Date.now();
     await runRef.set({
       job: 'subscription_billing', lastStatus: 'failed', lastRunAt: failedAt,
-      startedAt, durationMs: failedAt - startedAt,
-      errorCode: String(error?.code || 'billing_cycle_failed').slice(0, 80),
+      lastFailureAt: failedAt, lastAttemptStartedAt: startedAt, lastAttemptCompletedAt: failedAt,
+      lastResult: 'failed', startedAt, durationMs: failedAt - startedAt,
+      lastErrorCode: String(error?.code || 'billing_cycle_failed').slice(0, 80), errorCode: String(error?.code || 'billing_cycle_failed').slice(0, 80),
       updatedAt: failedAt
     }, { merge: true }).catch(() => undefined);
     console.error('[RestauMax subscription billing] Error:', error?.message || String(error));
