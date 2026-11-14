@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { resolveSubscriptionInvoiceIdentity, runSubscriptionBillingCycleWithDb, settleSubscriptionInvoiceWithDb } from '../src/server/subscriptionBillingService.ts';
+import { getActiveTableQr, resolveTableQr } from '../src/server/tableSecurityService.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   console.error('ÉCHEC : Firestore Emulator requis pour les tests de facturation récurrente.');
   process.exit(1);
 }
+process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY = 'a'.repeat(64);
+process.env.TABLE_QR_TOKEN_ENCRYPTION_KEY_VERSION = '1';
 const app = initializeApp({ projectId: 'demo-restaumax' }, 'subscription-billing-emulator-test');
 const db = getFirestore(app);
 const now = Date.now();
@@ -28,6 +31,7 @@ try {
   await db.collection('platform_config').doc('global').set({ gracePeriodDays: 4, quarterlyDiscountPercent: 10 }, { merge: true });
   await Promise.all([
     restaurantRef.set({ slug, status: 'active', isOpen: true, ownerUid: 'owner-subscription-test', tableSessionVersion: 3 }),
+    restaurantRef.collection('tables').doc('table-4').set({ tableNumber: '4', isActive: true, qrVersion: 1 }),
     restaurantRef.collection('table_sessions').doc('active-session').set({ status: 'active', sessionHash: 'active-session' }),
     restaurantRef.collection('table_qr_tokens').doc('active-token').set({ status: 'active', tokenHash: 'active-token', tableId: 'table-4' }),
     subscriptionRef.set({
@@ -202,6 +206,15 @@ try {
   assert.equal(settledInvoice.periodStartAt, renewed.startsAt, 'La facture réglée conserve la période réellement activée');
   assert.equal(settledInvoice.periodEndAt, renewed.endsAt, 'La fin de période de la facture correspond à celle de l’abonnement renouvelé');
   assert.equal((await restaurantRef.get()).data().status, 'active', 'Un paiement réactive un restaurant suspendu uniquement pour impayé');
+  assert.equal((await restaurantRef.collection('table_sessions').doc('active-session').get()).data().status, 'revoked', 'Les anciennes sessions restent révoquées après paiement');
+  assert.equal((await restaurantRef.collection('table_qr_tokens').doc('active-token').get()).data().status, 'revoked', 'Les anciens QR restent révoqués après paiement');
+  const reissuedQr = await getActiveTableQr(db, slug, 'table-4', 'https://restaumax.test');
+  assert.ok(reissuedQr?.token, 'Un nouveau QR chiffré est réémis après règlement');
+  const resolvedNewQr = await resolveTableQr(db, reissuedQr.token);
+  assert.equal(resolvedNewQr.restaurantSlug, slug, 'Le nouveau QR résout vers le bon restaurant');
+  assert.equal(resolvedNewQr.tableId, 'table-4', 'Le nouveau QR résout vers la bonne table');
+  const oldQrResolution = await resolveTableQr(db, 'active-token'.padEnd(40, 'x')).then(() => true).catch(() => false);
+  assert.equal(oldQrResolution, false, 'Un ancien QR ne peut pas créer une nouvelle session après réactivation');
   const settlementReplay = await settleSubscriptionInvoiceWithDb(db, {
     restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
     amountFcfa: 25000, paymentReference: 'TRANSFER-RECEIPT-2026-001',
