@@ -437,13 +437,13 @@ export async function settleSubscriptionInvoiceWithDb(
   const origin = String(input.origin || process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\\/+$/, '');
   try {
     const tables = await restaurantRef.collection('tables').where('isActive', '==', true).get();
-    const issued: Array<{ tableId: string; url: string }> = [];
+    let issuedCount = 0;
     for (const tableDoc of tables.docs) {
       const qr = await issueTableQr(db, slug, tableDoc.id, origin);
-      issued.push({ tableId: tableDoc.id, url: qr.url });
+      if (qr.token && qr.url) issuedCount++;
     }
-    await invoiceRef.update({ reactivationQrPending: false, reactivationQrIssuedAt: now, reactivationQrCount: issued.length });
-    return { ...settlement, qrReissued: true, qrCount: issued.length, qrUrls: issued };
+    await invoiceRef.update({ reactivationQrPending: false, reactivationQrIssuedAt: now, reactivationQrCount: issuedCount });
+    return { ...settlement, qrReissued: true, qrCount: issuedCount };
   } catch (error: any) {
     await invoiceRef.update({ reactivationQrPending: true, reactivationQrLastError: String(error?.message || 'qr_reissue_failed').slice(0, 160) }).catch(() => undefined);
     return { ...settlement, qrReissued: false, qrReissuePending: true };
@@ -481,7 +481,7 @@ export async function reconcileSubscriptionBillingWithDb(db: any) {
     for (const paymentDoc of paymentsSnap.docs) {
       const payment = paymentDoc.data() || {};
       const reference = String(payment.paymentReference || '').normalize('NFKC').trim().toLocaleUpperCase('en-US');
-      const row = { id: paymentDoc.id, restaurantSlug: slug, ...payment };
+      const row = { ...payment, id: paymentDoc.id, restaurantSlug: slug };
       paymentRows.push(row);
       if (reference) {
         const rows = duplicateReferences.get(reference) || [];
