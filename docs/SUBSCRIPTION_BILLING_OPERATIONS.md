@@ -6,6 +6,7 @@
 - Le moteur crée une facture récurrente déterministe à l'échéance d'un abonnement mensuel, trimestriel ou annuel.
 - La création de facture est idempotente : un rejeu ne crée pas une deuxième facture.
 - Le statut passe à `past_due` pendant le délai de grâce configuré (7 jours par défaut, de 0 à 60 jours).
+- Une facture reste affichée comme `open` pendant ce délai ; le panel et les agrégats financiers ne la classent `overdue` qu’à partir de `graceEndsAt`. Les échéances à venir sont calculées sur cette même date de fin de grâce.
 - À la fin du délai, un abonnement impayé est suspendu ; le restaurant est fermé et sa version de session de table est incrémentée. Les sessions QR actives sont révoquées.
 - Un abonnement gratuit mensuel/trimestriel/annuel est renouvelé sans facture.
 - Un abonnement sans renouvellement automatique est suspendu à son échéance.
