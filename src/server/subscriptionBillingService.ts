@@ -378,7 +378,7 @@ export async function settleSubscriptionInvoiceWithDb(
           paymentSnap.exists && recordedPayment.invoiceId === invoiceId &&
           recordedPayment.restaurantSlug === slug && recordedPayment.paymentReference === paymentReference &&
           Number(recordedPayment.amountFcfa) === input.amountFcfa) {
-        return { success: true, idempotentReplay: true, invoice };
+        return { success: true, idempotentReplay: true, invoice, reactivated: false };
       }
       return { success: false, conflict: true, error: 'Cette facture est déjà réglée ou le règlement enregistré ne correspond pas.' };
     }
@@ -395,7 +395,8 @@ export async function settleSubscriptionInvoiceWithDb(
     const updatedInvoice = {
       ...invoice, status: 'paid', paidAt: now, paymentReference,
       periodStartAt: periodStart, periodEndAt: periodEnd,
-      amountPaidFcfa: input.amountFcfa, paidBy: input.actorUid
+      amountPaidFcfa: input.amountFcfa, paidBy: input.actorUid,
+      reactivationQrPending: restaurant.status === 'suspended' && restaurant.suspensionReason === 'subscription_past_due'
     };
     tx.update(invoiceRef, { ...updatedInvoice, paymentMethod: 'manual' });
     tx.create(paymentRef, {
