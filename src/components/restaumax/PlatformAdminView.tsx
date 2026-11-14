@@ -88,7 +88,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         'mfa_recovery_regenerate', 'mfa_recovery_contact_start', 'mfa_recovery_contact_verify',
         'mfa_recovery_email_start', 'mfa_recovery_email_verify',
         'mfa_passkey_register_options', 'mfa_passkey_register_verify',
-        'mfa_passkey_auth_options', 'mfa_passkey_auth_verify'
+        'mfa_passkey_auth_options', 'mfa_passkey_auth_verify', 'mfa_logout_device'
       ].includes(String(body?.action || ''))) {
         setIsPlatformAdminAuthorized(false);
         setRestaurants([]);
@@ -105,7 +105,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
       'mfa_recovery_enroll_start', 'mfa_recovery_regenerate', 'mfa_recovery_contact_start',
       'mfa_recovery_contact_verify', 'mfa_recovery_email_start',
       'mfa_recovery_email_verify', 'mfa_passkey_register_options', 'mfa_passkey_register_verify',
-      'mfa_passkey_auth_options', 'mfa_passkey_auth_verify', 'mfa_logout'
+      'mfa_passkey_auth_options', 'mfa_passkey_auth_verify', 'mfa_logout', 'mfa_logout_device'
     ].includes(String(body?.action || ''))) {
       setIsPlatformAdminAuthorized(true);
     }
