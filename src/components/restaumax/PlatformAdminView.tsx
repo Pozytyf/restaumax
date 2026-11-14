@@ -626,60 +626,60 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         </>}
       </section></div>
     ) : <>
-      {mfaEnrolled && <div className="mx-auto w-full max-w-7xl px-4 pt-4">
-        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-64 flex-1"><strong>Sécurité du compte · Protection MFA RestauMax</strong><p className="mt-1">Google Authenticator : enrôlé · {passkeyCount} passkey(s) enregistrée(s) · {recoveryCodesRemaining} code(s) de secours disponible(s).</p><p className="mt-1 text-xs text-amber-800">{trustedSessionExpiresAt && trustedSessionExpiresAt > Date.now() ? <>Session de confiance active jusqu’au <strong>{new Date(trustedSessionExpiresAt).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })}</strong> (90 jours maximum).</> : 'Session de confiance de 90 jours non confirmée par le serveur.'}</p><p className="mt-1 text-xs text-amber-800">Adresse de récupération : <strong>{recoveryContactEmail || "non configurée"}</strong>. Elle est indépendante de l’adresse de connexion Firebase.</p></div>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={passkeyBusy} onClick={() => void registerPasskey()} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold disabled:opacity-50">{passkeyBusy ? 'Passkey…' : 'Ajouter une passkey'}</button>
-              <button type="button" onClick={() => { setRecoveryRotationOpen(value => !value); setRecoveryRotationCodes([]); setError(''); }} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold">Renouveler les 10 codes de secours</button>
-              <button type="button" disabled={emailRecoveryBusy || emailRecoveryRequested} onClick={() => void startEmailRecovery()} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold disabled:opacity-50">{emailRecoveryBusy ? 'Envoi…' : 'Récupération MFA par e-mail'}</button>
-            </div>
-          </div>
-          <div className="mt-3 rounded-lg border border-amber-300 bg-white p-3">
-            <p className="font-semibold">Adresse e-mail de récupération indépendante</p>
-            <p className="mt-1 text-xs text-slate-600">Cette adresse ne change pas votre identifiant Firebase. Elle sera utilisée uniquement pour récupérer le MFA après vérification de sa propriété.</p>
-            {!recoveryContactPending ? <form onSubmit={event => { event.preventDefault(); void startRecoveryContactVerification(); }} className="mt-2 flex flex-wrap items-end gap-2">
-              <label className="min-w-56 flex-1 font-semibold">Nouvelle adresse de récupération
-                <input required type="email" maxLength={254} autoComplete="email" value={recoveryContactInput} onChange={event => setRecoveryContactInput(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 px-3"/>
-              </label>
-              <button disabled={recoveryContactBusy || !recoveryContactInput.trim()} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{recoveryContactBusy ? 'Envoi…' : 'Vérifier cette adresse'}</button>
-            </form> : <form onSubmit={verifyRecoveryContact} className="mt-2 flex flex-wrap items-end gap-2">
-              <label className="min-w-56 flex-1 font-semibold">Code à 8 chiffres envoyé à {recoveryContactInput}
-                <input required inputMode="numeric" pattern="[0-9]{8}" maxLength={8} autoComplete="one-time-code" value={recoveryContactCode} onChange={event => setRecoveryContactCode(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 px-3 tracking-widest"/>
-              </label>
-              <button disabled={recoveryContactBusy} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{recoveryContactBusy ? 'Vérification…' : 'Confirmer l’adresse'}</button>
-              <button type="button" disabled={recoveryContactBusy} onClick={() => { setRecoveryContactPending(false); setRecoveryContactCode(''); }} className="min-h-10 rounded-lg border px-3 font-semibold">Annuler</button>
-            </form>}
-          </div>
-          {emailRecoveryRequested && <form onSubmit={completeEmailRecovery} className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-amber-300 bg-white p-3">
-            <label className="min-w-56 flex-1 font-semibold">Code à 8 chiffres reçu par e-mail
-              <input required inputMode="numeric" pattern="[0-9]{8}" maxLength={8} autoComplete="one-time-code" value={emailRecoveryCode} onChange={event => setEmailRecoveryCode(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 px-3 tracking-widest"/>
-            </label>
-            <button disabled={emailRecoveryBusy} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{emailRecoveryBusy ? 'Vérification…' : 'Vérifier le code'}</button>
-            <button type="button" disabled={emailRecoveryBusy} onClick={() => { setEmailRecoveryRequested(false); setEmailRecoveryCode(''); }} className="min-h-10 rounded-lg border px-3 font-semibold">Annuler</button>
-          </form>}
-          {recoveryRotationOpen && <form onSubmit={regenerateRecoveryCodes} className="mt-3 flex flex-wrap items-end gap-2">
-            <label className="min-w-56 flex-1 font-semibold">Code courant de votre authentificateur TOTP
-              <input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" value={recoveryRotationCode} onChange={event => setRecoveryRotationCode(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 bg-white px-3 tracking-widest"/>
-            </label>
-            <button disabled={recoveryRotationBusy} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{recoveryRotationBusy ? 'Renouvellement…' : 'Confirmer avec MFA'}</button>
-          </form>}
-          {recoveryRotationCodes.length > 0 && <div className="mt-3 rounded-lg border border-amber-300 bg-white p-3">
-            <p className="font-semibold">Les nouveaux codes sont affichés une seule fois. Tous les anciens codes sont maintenant invalides.</p>
-            <div className="mt-2 grid grid-cols-2 gap-2 font-mono">{recoveryRotationCodes.map(code => <code key={code}>{code}</code>)}</div>
-            <button type="button" onClick={() => setRecoveryRotationCodes([])} className="mt-3 rounded-lg bg-[#101d2d] px-3 py-2 font-semibold text-white">J’ai sauvegardé les nouveaux codes</button>
-          </div>}
-          {error && <p role="alert" className="mt-2 text-rose-800">{error}</p>}
-          {mfaNotice && <p role="status" className="mt-2 rounded-lg bg-emerald-50 p-2 text-emerald-900">{mfaNotice}</p>}
-        </section>
-      </div>}
-      <PlatformAdminWorkspace
+            <PlatformAdminWorkspace
         restaurants={restaurants}
         summary={summary}
         userEmail={user.email}
         security={{ passkeyCount, mfaEnrolled, recoveryCodesRemaining, trustedSessionExpiresAt, recoveryContactEmail }}
         onRefreshSecurity={refreshSecurityStatus}
+        securityPanel={      {mfaEnrolled && <div className="mx-auto w-full max-w-7xl px-4 pt-4">
+                <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-64 flex-1"><strong>Sécurité du compte · Protection MFA RestauMax</strong><p className="mt-1">Google Authenticator : enrôlé · {passkeyCount} passkey(s) enregistrée(s) · {recoveryCodesRemaining} code(s) de secours disponible(s).</p><p className="mt-1 text-xs text-amber-800">{trustedSessionExpiresAt && trustedSessionExpiresAt > Date.now() ? <>Session de confiance active jusqu’au <strong>{new Date(trustedSessionExpiresAt).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })}</strong> (90 jours maximum).</> : 'Session de confiance de 90 jours non confirmée par le serveur.'}</p><p className="mt-1 text-xs text-amber-800">Adresse de récupération : <strong>{recoveryContactEmail || "non configurée"}</strong>. Elle est indépendante de l’adresse de connexion Firebase.</p></div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" disabled={passkeyBusy} onClick={() => void registerPasskey()} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold disabled:opacity-50">{passkeyBusy ? 'Passkey…' : 'Ajouter une passkey'}</button>
+                      <button type="button" onClick={() => { setRecoveryRotationOpen(value => !value); setRecoveryRotationCodes([]); setError(''); }} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold">Renouveler les 10 codes de secours</button>
+                      <button type="button" disabled={emailRecoveryBusy || emailRecoveryRequested} onClick={() => void startEmailRecovery()} className="rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold disabled:opacity-50">{emailRecoveryBusy ? 'Envoi…' : 'Récupération MFA par e-mail'}</button>
+                    </div>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-amber-300 bg-white p-3">
+                    <p className="font-semibold">Adresse e-mail de récupération indépendante</p>
+                    <p className="mt-1 text-xs text-slate-600">Cette adresse ne change pas votre identifiant Firebase. Elle sera utilisée uniquement pour récupérer le MFA après vérification de sa propriété.</p>
+                    {!recoveryContactPending ? <form onSubmit={event => { event.preventDefault(); void startRecoveryContactVerification(); }} className="mt-2 flex flex-wrap items-end gap-2">
+                      <label className="min-w-56 flex-1 font-semibold">Nouvelle adresse de récupération
+                        <input required type="email" maxLength={254} autoComplete="email" value={recoveryContactInput} onChange={event => setRecoveryContactInput(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 px-3"/>
+                      </label>
+                      <button disabled={recoveryContactBusy || !recoveryContactInput.trim()} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{recoveryContactBusy ? 'Envoi…' : 'Vérifier cette adresse'}</button>
+                    </form> : <form onSubmit={verifyRecoveryContact} className="mt-2 flex flex-wrap items-end gap-2">
+                      <label className="min-w-56 flex-1 font-semibold">Code à 8 chiffres envoyé à {recoveryContactInput}
+                        <input required inputMode="numeric" pattern="[0-9]{8}" maxLength={8} autoComplete="one-time-code" value={recoveryContactCode} onChange={event => setRecoveryContactCode(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 px-3 tracking-widest"/>
+                      </label>
+                      <button disabled={recoveryContactBusy} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{recoveryContactBusy ? 'Vérification…' : 'Confirmer l’adresse'}</button>
+                      <button type="button" disabled={recoveryContactBusy} onClick={() => { setRecoveryContactPending(false); setRecoveryContactCode(''); }} className="min-h-10 rounded-lg border px-3 font-semibold">Annuler</button>
+                    </form>}
+                  </div>
+                  {emailRecoveryRequested && <form onSubmit={completeEmailRecovery} className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-amber-300 bg-white p-3">
+                    <label className="min-w-56 flex-1 font-semibold">Code à 8 chiffres reçu par e-mail
+                      <input required inputMode="numeric" pattern="[0-9]{8}" maxLength={8} autoComplete="one-time-code" value={emailRecoveryCode} onChange={event => setEmailRecoveryCode(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 px-3 tracking-widest"/>
+                    </label>
+                    <button disabled={emailRecoveryBusy} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{emailRecoveryBusy ? 'Vérification…' : 'Vérifier le code'}</button>
+                    <button type="button" disabled={emailRecoveryBusy} onClick={() => { setEmailRecoveryRequested(false); setEmailRecoveryCode(''); }} className="min-h-10 rounded-lg border px-3 font-semibold">Annuler</button>
+                  </form>}
+                  {recoveryRotationOpen && <form onSubmit={regenerateRecoveryCodes} className="mt-3 flex flex-wrap items-end gap-2">
+                    <label className="min-w-56 flex-1 font-semibold">Code courant de votre authentificateur TOTP
+                      <input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" value={recoveryRotationCode} onChange={event => setRecoveryRotationCode(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 bg-white px-3 tracking-widest"/>
+                    </label>
+                    <button disabled={recoveryRotationBusy} className="min-h-10 rounded-lg bg-[#101d2d] px-4 font-bold text-white disabled:opacity-50">{recoveryRotationBusy ? 'Renouvellement…' : 'Confirmer avec MFA'}</button>
+                  </form>}
+                  {recoveryRotationCodes.length > 0 && <div className="mt-3 rounded-lg border border-amber-300 bg-white p-3">
+                    <p className="font-semibold">Les nouveaux codes sont affichés une seule fois. Tous les anciens codes sont maintenant invalides.</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 font-mono">{recoveryRotationCodes.map(code => <code key={code}>{code}</code>)}</div>
+                    <button type="button" onClick={() => setRecoveryRotationCodes([])} className="mt-3 rounded-lg bg-[#101d2d] px-3 py-2 font-semibold text-white">J’ai sauvegardé les nouveaux codes</button>
+                  </div>}
+                  {error && <p role="alert" className="mt-2 text-rose-800">{error}</p>}
+                  {mfaNotice && <p role="status" className="mt-2 rounded-lg bg-emerald-50 p-2 text-emerald-900">{mfaNotice}</p>}
+                </section>
+              </div>}}
         loading={loading}
         request={request}
         onRefresh={refresh}
