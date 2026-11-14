@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { issueTableQr } from './tableSecurityService.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32);
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -332,7 +333,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
 
 export async function settleSubscriptionInvoiceWithDb(
   db: any,
-  input: { restaurantSlug: string; invoiceId: string; amountFcfa: number; paymentReference: string; actorUid: string; now?: number }
+  input: { restaurantSlug: string; invoiceId: string; amountFcfa: number; paymentReference: string; actorUid: string; now?: number; origin?: string }
 ) {
   if (!db) return { success: false, error: 'Firestore indisponible.' };
   const slug = String(input.restaurantSlug || '').trim();
@@ -349,9 +350,11 @@ export async function settleSubscriptionInvoiceWithDb(
   const invoiceRef = subscriptionRef.collection('invoices').doc(invoiceId);
   const paymentId = `subpay_${hash(slug + ':' + invoiceId + ':' + paymentReference)}`;
   const paymentRef = subscriptionRef.collection('payments').doc(paymentId);
-  return db.runTransaction(async (tx: any) => {
-    const [subSnap, restaurantSnap, invoiceSnap, paymentSnap] = await Promise.all([
-      tx.get(subscriptionRef), tx.get(restaurantRef), tx.get(invoiceRef), tx.get(paymentRef)
+  const referenceKey = hash(paymentReference.normalize('NFKC').toLocaleUpperCase('en-US'));
+  const referenceIndexRef = db.collection('subscription_payment_reference_index').doc(referenceKey);
+  const settlement = await db.runTransaction(async (tx: any) => {
+    const [subSnap, restaurantSnap, invoiceSnap, paymentSnap, referenceIndexSnap] = await Promise.all([
+      tx.get(subscriptionRef), tx.get(restaurantRef), tx.get(invoiceRef), tx.get(paymentRef), tx.get(referenceIndexRef)
     ]);
     if (!subSnap.exists || !restaurantSnap.exists || !invoiceSnap.exists) {
       return { success: false, error: 'Abonnement ou facture introuvable.' };
@@ -364,6 +367,10 @@ export async function settleSubscriptionInvoiceWithDb(
         (invoice.planId && sub.planId && String(invoice.planId) !== String(sub.planId)) ||
         (invoice.billingCycle && sub.billingCycle && String(invoice.billingCycle) !== String(sub.billingCycle))) {
       return { success: false, conflict: true, error: 'Le lien entre le restaurant, la formule, l’abonnement et la facture est incohérent.' };
+    }
+    const referenceIndex = referenceIndexSnap.exists ? referenceIndexSnap.data() || {} : null;
+    if (referenceIndex && (referenceIndex.restaurantSlug !== slug || referenceIndex.invoiceId !== invoiceId || referenceIndex.paymentId !== paymentId)) {
+      return { success: false, conflict: true, error: 'Cette référence de paiement est déjà utilisée pour une autre facture.' };
     }
     if (invoice.status === 'paid') {
       const recordedPayment = paymentSnap.data() || {};
@@ -396,13 +403,18 @@ export async function settleSubscriptionInvoiceWithDb(
       amountFcfa: input.amountFcfa, currency: 'XOF', method: 'manual',
       paymentReference, paidAt: now, recordedBy: input.actorUid
     });
+    tx.create(referenceIndexRef, {
+      referenceHash: referenceKey, paymentReferenceNormalized: paymentReference.normalize('NFKC').toLocaleUpperCase('en-US'),
+      restaurantSlug: slug, invoiceId, paymentId, amountFcfa: input.amountFcfa, createdAt: now
+    });
     tx.update(subscriptionRef, {
       status: 'active', startsAt: periodStart, endsAt: periodEnd, nextBillingAt: periodEnd,
       currentInvoiceId: null, currentInvoiceAmountFcfa: null, pastDueAt: null, suspendedAt: null,
       suspensionReason: null, lastInvoicePaidAt: now, lastPaymentReference: paymentReference,
       updatedAt: now, updatedBy: input.actorUid
     });
-    if (restaurant.status === 'suspended' && restaurant.suspensionReason === 'subscription_past_due') {
+    const reactivated = restaurant.status === 'suspended' && restaurant.suspensionReason === 'subscription_past_due';
+    if (reactivated) {
       tx.update(restaurantRef, {
         status: 'active', isOpen: restaurant.isOpenBeforeSuspension === true,
         isOpenBeforeSuspension: null, suspendedAt: null, suspensionReason: null,
@@ -415,6 +427,24 @@ export async function settleSubscriptionInvoiceWithDb(
     });
     return { success: true, idempotentReplay: false, invoice: updatedInvoice, subscription: {
       status: 'active', startsAt: periodStart, endsAt: periodEnd, nextBillingAt: periodEnd
-    } };
+    }, reactivated };
   });
+
+  if (!settlement.success) return settlement;
+  const shouldReissueQr = settlement.reactivated === true || settlement.invoice?.reactivationQrPending === true;
+  if (!shouldReissueQr) return settlement;
+  const origin = String(input.origin || process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\\/+$/, '');
+  try {
+    const tables = await restaurantRef.collection('tables').where('isActive', '==', true).get();
+    const issued: Array<{ tableId: string; url: string }> = [];
+    for (const tableDoc of tables.docs) {
+      const qr = await issueTableQr(db, slug, tableDoc.id, origin);
+      issued.push({ tableId: tableDoc.id, url: qr.url });
+    }
+    await invoiceRef.update({ reactivationQrPending: false, reactivationQrIssuedAt: now, reactivationQrCount: issued.length });
+    return { ...settlement, qrReissued: true, qrCount: issued.length, qrUrls: issued };
+  } catch (error: any) {
+    await invoiceRef.update({ reactivationQrPending: true, reactivationQrLastError: String(error?.message || 'qr_reissue_failed').slice(0, 160) }).catch(() => undefined);
+    return { ...settlement, qrReissued: false, qrReissuePending: true };
+  }
 }
