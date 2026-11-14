@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { validateSubscriptionInput } from '../src/server/subscriptionService.ts';
 import { calculateSubscriptionMetrics } from '../src/lib/subscriptionMetrics.ts';
+import { resolveSubscriptionInvoiceGraceEndsAt, resolveSubscriptionInvoiceStatus } from '../src/server/subscriptionBillingService.ts';
 
 let passed = 0;
 let failed = 0;
@@ -18,6 +19,23 @@ const valid = {
   endsAt: 1796515199999,
   notes: 'Essai commercial'
 };
+
+const invoiceIssuedAt = 1_800_000_000_000;
+const graceInvoice = { status: 'open', dueAt: invoiceIssuedAt, gracePeriodDays: 7 };
+assert(resolveSubscriptionInvoiceStatus(graceInvoice, invoiceIssuedAt) === 'open',
+  'Une facture reste ouverte le jour de son émission pendant le délai de grâce');
+assert(resolveSubscriptionInvoiceStatus(graceInvoice, invoiceIssuedAt + 6 * 86400000) === 'open',
+  'Une facture n’est pas en retard avant la fin du délai de grâce');
+assert(resolveSubscriptionInvoiceStatus(graceInvoice, invoiceIssuedAt + 7 * 86400000) === 'overdue',
+  'Une facture passe en retard à la fin exacte du délai de grâce');
+assert(resolveSubscriptionInvoiceGraceEndsAt(graceInvoice) === invoiceIssuedAt + 7 * 86400000,
+  'La date de fin de grâce est calculée de façon identique au statut');
+assert(resolveSubscriptionInvoiceStatus({ ...graceInvoice, gracePeriodDays: 0 }, invoiceIssuedAt) === 'overdue',
+  'Un délai de grâce nul rend la facture en retard dès son échéance');
+assert(resolveSubscriptionInvoiceStatus({ ...graceInvoice, graceEndsAt: invoiceIssuedAt + 10 * 86400000 }, invoiceIssuedAt + 7 * 86400000) === 'open',
+  'La fin de grâce persistée prévaut sur un recalcul implicite');
+assert(resolveSubscriptionInvoiceStatus({ ...graceInvoice, status: 'paid' }, invoiceIssuedAt + 20 * 86400000) === 'paid',
+  'Une facture réglée conserve son statut payé après la fin de grâce');
 
 console.log('\n--- Validation des abonnements plateforme ---');
 const validResult = validateSubscriptionInput(valid);
