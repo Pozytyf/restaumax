@@ -2,10 +2,6 @@ name: Firestore owner binding emulator regression
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'firestore.rules'
-      - 'scripts/test-owner-uid-emulator.mjs'
-      - '.github/workflows/firestore-owner-binding.yml'
   workflow_dispatch:
 permissions:
   contents: read
