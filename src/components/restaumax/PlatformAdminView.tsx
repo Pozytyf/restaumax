@@ -685,6 +685,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         onRefresh={refresh}
         onBack={onBack}
         onSignOut={async () => { await signOut(auth); }}
+        onSignOutAndRevoke={async () => { await request({ action: 'mfa_logout_device' }); await signOut(auth); }}
       />
     </>}
   </div>;
