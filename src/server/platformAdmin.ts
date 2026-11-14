@@ -2148,7 +2148,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       }
 
       if (action === 'overview') {
-        const snap = await db.collection('restaurants').get();
+        const [snap, billingConfigSnap] = await Promise.all([
+          db.collection('restaurants').get(), db.collection('platform_config').doc('global').get()
+        ]);
+        const configuredGracePeriod = Number(billingConfigSnap.data()?.gracePeriodDays);
+        const overviewGracePeriodDays = Number.isInteger(configuredGracePeriod) && configuredGracePeriod >= 0 && configuredGracePeriod <= 60
+          ? configuredGracePeriod : 7;
         const restaurants = await Promise.all(snap.docs.map(async (d: any) => {
           const data = d.data() || {};
           // Dashboard reads are strictly read-only. Legacy metadata migration must
@@ -2215,12 +2220,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             return identity ? [{ ...rawInvoice, id: identity.invoiceId, restaurantSlug: identity.restaurantSlug }] : [];
           });
           const invoiceByKey = new Map(invoiceRows.map((invoice: any) => [`${invoice.restaurantSlug}/${invoice.id}`, invoice]));
-          const effectiveInvoiceStatus = (invoice: any) => resolveSubscriptionInvoiceStatus(invoice, aggregationTime);
+          const effectiveInvoiceStatus = (invoice: any) => resolveSubscriptionInvoiceStatus(invoice, aggregationTime, overviewGracePeriodDays);
           const openInvoices = invoiceRows.filter((invoice: any) => effectiveInvoiceStatus(invoice) === 'open');
           const overdueInvoices = invoiceRows.filter((invoice: any) => effectiveInvoiceStatus(invoice) === 'overdue');
           const upcomingInvoices = invoiceRows.filter((invoice: any) => {
             if (effectiveInvoiceStatus(invoice) !== 'open') return false;
-            const graceEndsAt = resolveSubscriptionInvoiceGraceEndsAt(invoice);
+            const graceEndsAt = resolveSubscriptionInvoiceGraceEndsAt(invoice, overviewGracePeriodDays);
             return graceEndsAt !== null && graceEndsAt > aggregationTime &&
               graceEndsAt <= aggregationTime + 30 * 24 * 60 * 60 * 1000;
           });
