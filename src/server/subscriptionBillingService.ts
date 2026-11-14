@@ -464,6 +464,8 @@ export async function reconcileSubscriptionBillingWithDb(db: any) {
   const paidInvoicesWithoutPayment: any[] = [];
   const orphanPayments: any[] = [];
   const amountMismatches: any[] = [];
+  const paymentReferenceMismatches: any[] = [];
+  const multiplePaymentsForInvoice: any[] = [];
   const duplicateReferences = new Map<string, any[]>();
 
   for (const subscriptionDoc of subscriptions.docs) {
@@ -504,14 +506,21 @@ export async function reconcileSubscriptionBillingWithDb(db: any) {
     rows.push(payment);
     paymentsByInvoice.set(key, rows);
     const invoice = invoiceByKey.get(key);
-    if (Number.isSafeInteger(invoice.amountFcfa) && Number.isSafeInteger(payment.amountFcfa) &&
-        invoice.amountFcfa !== payment.amountFcfa) {
-      amountMismatches.push({ restaurantSlug: slug, invoiceId, invoiceAmountFcfa: invoice.amountFcfa, paymentId: payment.id, paymentAmountFcfa: payment.amountFcfa });
+    if (!Number.isSafeInteger(invoice.amountFcfa) || !Number.isSafeInteger(payment.amountFcfa) || invoice.amountFcfa !== payment.amountFcfa) {
+      amountMismatches.push({ restaurantSlug: slug, invoiceId, invoiceAmountFcfa: invoice.amountFcfa ?? null, paymentId: payment.id, paymentAmountFcfa: payment.amountFcfa ?? null });
+    }
+    const invoiceReference = String(invoice.paymentReference || '').normalize('NFKC').trim().toLocaleUpperCase('en-US');
+    const paymentReference = String(payment.paymentReference || '').normalize('NFKC').trim().toLocaleUpperCase('en-US');
+    if (invoiceReference && paymentReference && invoiceReference !== paymentReference) {
+      paymentReferenceMismatches.push({ restaurantSlug: slug, invoiceId, invoiceReference, paymentId: payment.id, paymentReference });
     }
   }
 
   for (const [key, invoice] of invoiceByKey.entries()) {
     const payments = paymentsByInvoice.get(key) || [];
+    if (payments.length > 1) {
+      multiplePaymentsForInvoice.push({ restaurantSlug: invoice.restaurantSlug, invoiceId: invoice.id, paymentCount: payments.length, paymentIds: payments.map(payment => payment.id) });
+    }
     if (['open', 'overdue'].includes(String(invoice.status)) && payments.length === 0) {
       unmatchedInvoices.push({ restaurantSlug: invoice.restaurantSlug, invoiceId: invoice.id, status: invoice.status, amountFcfa: invoice.amountFcfa ?? null, issuedAt: invoice.issuedAt ?? null });
     }
@@ -537,6 +546,8 @@ export async function reconcileSubscriptionBillingWithDb(db: any) {
     summary: {
       duplicatePaymentReferences: duplicatePaymentReferences.length,
       amountMismatches: amountMismatches.length,
+      paymentReferenceMismatches: paymentReferenceMismatches.length,
+      multiplePaymentsForInvoice: multiplePaymentsForInvoice.length,
       orphanPayments: orphanPayments.length,
       unmatchedInvoices: unmatchedInvoices.length,
       paidInvoicesWithoutPayment: paidInvoicesWithoutPayment.length
@@ -544,6 +555,8 @@ export async function reconcileSubscriptionBillingWithDb(db: any) {
     anomalies: {
       duplicatePaymentReferences: duplicatePaymentReferences.slice(0, 500),
       amountMismatches: amountMismatches.slice(0, 500),
+      paymentReferenceMismatches: paymentReferenceMismatches.slice(0, 500),
+      multiplePaymentsForInvoice: multiplePaymentsForInvoice.slice(0, 500),
       orphanPayments: orphanPayments.slice(0, 500),
       unmatchedInvoices: unmatchedInvoices.slice(0, 500),
       paidInvoicesWithoutPayment: paidInvoicesWithoutPayment.slice(0, 500)
