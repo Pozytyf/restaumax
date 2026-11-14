@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { resolveSubscriptionInvoiceIdentity, runSubscriptionBillingCycleWithDb, settleSubscriptionInvoiceWithDb } from '../src/server/subscriptionBillingService.ts';
-import { getActiveTableQr, resolveTableQr } from '../src/server/tableSecurityService.ts';
+import { getActiveTableQr, issueTableQr, resolveTableQr } from '../src/server/tableSecurityService.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   console.error('ÉCHEC : Firestore Emulator requis pour les tests de facturation récurrente.');
@@ -42,6 +42,7 @@ try {
     })
   ]);
 
+  const originalQr = await issueTableQr(db, slug, 'table-4', 'https://restaumax.test');
   const first = await runSubscriptionBillingCycleWithDb(db, now);
   assert.equal(first.invoicesCreated, 1, 'Une facture récurrente est créée à échéance');
   const subscription = (await subscriptionRef.get()).data();
@@ -213,7 +214,7 @@ try {
   const resolvedNewQr = await resolveTableQr(db, reissuedQr.token);
   assert.equal(resolvedNewQr.restaurantSlug, slug, 'Le nouveau QR résout vers le bon restaurant');
   assert.equal(resolvedNewQr.tableId, 'table-4', 'Le nouveau QR résout vers la bonne table');
-  const oldQrResolution = await resolveTableQr(db, 'active-token'.padEnd(40, 'x')).then(() => true).catch(() => false);
+  const oldQrResolution = await resolveTableQr(db, originalQr.token).then(() => true).catch(() => false);
   assert.equal(oldQrResolution, false, 'Un ancien QR ne peut pas créer une nouvelle session après réactivation');
   const settlementReplay = await settleSubscriptionInvoiceWithDb(db, {
     restaurantSlug: slug, invoiceId: subscription.currentInvoiceId,
