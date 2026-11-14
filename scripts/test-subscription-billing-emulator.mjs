@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { resolveSubscriptionInvoiceIdentity, runSubscriptionBillingCycleWithDb, settleSubscriptionInvoiceWithDb } from '../src/server/subscriptionBillingService.ts';
+import { reconcileSubscriptionBillingWithDb, resolveSubscriptionInvoiceIdentity, runSubscriptionBillingCycleWithDb, settleSubscriptionInvoiceWithDb } from '../src/server/subscriptionBillingService.ts';
 import { getActiveTableQr, issueTableQr, resolveTableQr } from '../src/server/tableSecurityService.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
@@ -230,7 +230,62 @@ try {
   assert.equal(wrongAmountReplay.success, false, 'Un rejeu idempotent avec un montant différent est refusé');
   const subscriptionPayments = await subscriptionRef.collection('payments').get();
   assert.equal(subscriptionPayments.size, 1, 'Le règlement possède une seule écriture financière append-only');
+
   assert.equal(subscriptionPayments.docs[0].data().method, 'manual');
+
+  const duplicateRefSlug = 'subscription-duplicate-reference-emulator';
+  const duplicateRef = db.collection('restaurantSubscriptions').doc(duplicateRefSlug);
+  const duplicateInvoiceId = 'subinv_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  await Promise.all([
+    db.collection('restaurants').doc(duplicateRefSlug).set({ slug: duplicateRefSlug, status: 'active', isOpen: true }),
+    duplicateRef.set({ planId: 'pro-stable-id', planName: 'Pro', billingCycle: 'monthly', status: 'past_due', currentInvoiceId: duplicateInvoiceId, endsAt: now }),
+    duplicateRef.collection('invoices').doc(duplicateInvoiceId).set({
+      id: duplicateInvoiceId, restaurantSlug: duplicateRefSlug, planId: 'pro-stable-id',
+      billingCycle: 'monthly', amountFcfa: 25000, status: 'open', issuedAt: now
+    })
+  ]);
+  const reusedReference = await settleSubscriptionInvoiceWithDb(db, {
+    restaurantSlug: duplicateRefSlug, invoiceId: duplicateInvoiceId, amountFcfa: 25000,
+    paymentReference: 'TRANSFER-RECEIPT-2026-001', actorUid: 'super-admin-test', now: now + 9000
+  });
+  assert.equal(reusedReference.success, false, 'Une référence déjà utilisée sur une autre facture est refusée globalement');
+
+  const auditSlug = 'subscription-reconciliation-audit';
+  const auditRef = db.collection('restaurantSubscriptions').doc(auditSlug);
+  await auditRef.set({ status: 'active' });
+  await Promise.all([
+    auditRef.collection('invoices').doc('legacy-paid-without-payment').set({
+      id: 'legacy-paid-without-payment', restaurantSlug: auditSlug, status: 'paid', amountFcfa: 10000, paymentReference: 'LEGACY-PAID-001'
+    }),
+    auditRef.collection('invoices').doc('legacy-open-unmatched').set({
+      id: 'legacy-open-unmatched', restaurantSlug: auditSlug, status: 'open', amountFcfa: 12000, issuedAt: now
+    }),
+    auditRef.collection('invoices').doc('legacy-amount-mismatch').set({
+      id: 'legacy-amount-mismatch', restaurantSlug: auditSlug, status: 'paid', amountFcfa: 15000
+    }),
+    auditRef.collection('payments').doc('legacy-payment-a').set({
+      invoiceId: 'legacy-amount-mismatch', restaurantSlug: auditSlug, paymentReference: 'DUPLICATE-LEGACY-REF', amountFcfa: 14900
+    }),
+    auditRef.collection('payments').doc('legacy-payment-b').set({
+      invoiceId: 'legacy-amount-mismatch', restaurantSlug: auditSlug, paymentReference: 'DUPLICATE-LEGACY-REF', amountFcfa: 15000
+    }),
+    auditRef.collection('payments').doc('orphan-payment').set({
+      invoiceId: 'invoice-does-not-exist', restaurantSlug: auditSlug, paymentReference: 'ORPHAN-REF', amountFcfa: 5000
+    })
+  ]);
+  const reconciliation = await reconcileSubscriptionBillingWithDb(db);
+  assert.equal(reconciliation.readOnly, true, 'Le rapprochement historique est strictement en lecture seule');
+  assert.ok(reconciliation.anomalies.duplicatePaymentReferences.some(row => row.reference === 'DUPLICATE-LEGACY-REF'),
+    'Le rapprochement détecte les références de paiement dupliquées');
+  assert.ok(reconciliation.anomalies.amountMismatches.some(row => row.invoiceId === 'legacy-amount-mismatch'),
+    'Le rapprochement détecte les montants incorrects');
+  assert.ok(reconciliation.anomalies.orphanPayments.some(row => row.paymentId === 'orphan-payment'),
+    'Le rapprochement détecte les paiements orphelins');
+  assert.ok(reconciliation.anomalies.unmatchedInvoices.some(row => row.invoiceId === 'legacy-open-unmatched'),
+    'Le rapprochement liste les factures historiques ouvertes sans paiement');
+  assert.ok(reconciliation.anomalies.paidInvoicesWithoutPayment.some(row => row.invoiceId === 'legacy-paid-without-payment'),
+    'Le rapprochement détecte les factures payées sans écriture de paiement correspondante');
+
 
   const nonRenewSlug = 'subscription-no-renew-emulator';
   const nonRenewRef = db.collection('restaurantSubscriptions').doc(nonRenewSlug);
