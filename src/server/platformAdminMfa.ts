@@ -96,6 +96,17 @@ export function hashMfaToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+export async function revokePlatformAdminMfaSession(db: any, uid: string, token: string): Promise<boolean> {
+  if (!token || token.length > 128) return false;
+  const ref = db.collection(SESSION_COLLECTION).doc(hashMfaToken(token));
+  const snap = await ref.get();
+  if (!snap.exists) return false;
+  const session = snap.data() || {};
+  if (session.uid !== uid || session.revokedAt != null) return false;
+  await ref.update({ revokedAt: Date.now() });
+  return true;
+}
+
 async function consumeAttempt(db: any, uid: string): Promise<boolean> {
   const ref = db.collection(ATTEMPT_COLLECTION).doc(uid);
   const now = Date.now();
