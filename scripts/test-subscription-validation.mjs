@@ -30,6 +30,10 @@ assert(resolveSubscriptionInvoiceStatus(graceInvoice, invoiceIssuedAt + 7 * 8640
   'Une facture passe en retard à la fin exacte du délai de grâce');
 assert(resolveSubscriptionInvoiceGraceEndsAt(graceInvoice) === invoiceIssuedAt + 7 * 86400000,
   'La date de fin de grâce est calculée de façon identique au statut');
+assert(resolveSubscriptionInvoiceStatus({ status: 'open', dueAt: invoiceIssuedAt }, invoiceIssuedAt + 4 * 86400000, 4) === 'open',
+  'Les factures historiques sans délai enregistré utilisent le délai global configuré');
+assert(resolveSubscriptionInvoiceStatus({ status: 'open', dueAt: invoiceIssuedAt }, invoiceIssuedAt + 4 * 86400000, 3) === 'overdue',
+  'Le délai global configuré est aussi appliqué aux factures historiques');
 assert(resolveSubscriptionInvoiceStatus({ ...graceInvoice, gracePeriodDays: 0 }, invoiceIssuedAt) === 'overdue',
   'Un délai de grâce nul rend la facture en retard dès son échéance');
 assert(resolveSubscriptionInvoiceStatus({ ...graceInvoice, graceEndsAt: invoiceIssuedAt + 10 * 86400000 }, invoiceIssuedAt + 7 * 86400000) === 'open',
