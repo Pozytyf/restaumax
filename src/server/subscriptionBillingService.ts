@@ -434,7 +434,7 @@ export async function settleSubscriptionInvoiceWithDb(
   if (!settlement.success) return settlement;
   const shouldReissueQr = settlement.reactivated === true || settlement.invoice?.reactivationQrPending === true;
   if (!shouldReissueQr) return settlement;
-  const origin = String(input.origin || process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\\/+$/, '');
+  const origin = String(input.origin || process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\/+$/, '');
   try {
     const tables = await restaurantRef.collection('tables').where('isActive', '==', true).get();
     let issuedCount = 0;
