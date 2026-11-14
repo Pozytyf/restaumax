@@ -449,3 +449,104 @@ export async function settleSubscriptionInvoiceWithDb(
     return { ...settlement, qrReissued: false, qrReissuePending: true };
   }
 }
+
+
+/**
+ * Read-only audit of historical subscription invoices and payment records.
+ * It reports anomalies only; it never repairs or mutates financial history.
+ */
+export async function reconcileSubscriptionBillingWithDb(db: any) {
+  if (!db) throw new Error('Firestore indisponible.');
+  const subscriptions = await db.collection('restaurantSubscriptions').get();
+  const invoiceByKey = new Map<string, any>();
+  const paymentRows: any[] = [];
+  const unmatchedInvoices: any[] = [];
+  const paidInvoicesWithoutPayment: any[] = [];
+  const orphanPayments: any[] = [];
+  const amountMismatches: any[] = [];
+  const duplicateReferences = new Map<string, any[]>();
+
+  for (const subscriptionDoc of subscriptions.docs) {
+    const slug = subscriptionDoc.id;
+    const [invoicesSnap, paymentsSnap] = await Promise.all([
+      subscriptionDoc.ref.collection('invoices').get(),
+      subscriptionDoc.ref.collection('payments').get()
+    ]);
+    for (const invoiceDoc of invoicesSnap.docs) {
+      const invoice = invoiceDoc.data() || {};
+      const identity = resolveSubscriptionInvoiceIdentity(invoiceDoc.ref, invoice);
+      if (!identity || identity.restaurantSlug !== slug || identity.invoiceId !== invoiceDoc.id) continue;
+      invoiceByKey.set(slug + '/' + invoiceDoc.id, { ...invoice, id: invoiceDoc.id, restaurantSlug: slug });
+    }
+    for (const paymentDoc of paymentsSnap.docs) {
+      const payment = paymentDoc.data() || {};
+      const reference = String(payment.paymentReference || '').normalize('NFKC').trim().toLocaleUpperCase('en-US');
+      const row = { id: paymentDoc.id, restaurantSlug: slug, ...payment };
+      paymentRows.push(row);
+      if (reference) {
+        const rows = duplicateReferences.get(reference) || [];
+        rows.push(row);
+        duplicateReferences.set(reference, rows);
+      }
+    }
+  }
+
+  const paymentsByInvoice = new Map<string, any[]>();
+  for (const payment of paymentRows) {
+    const slug = String(payment.restaurantSlug || '');
+    const invoiceId = String(payment.invoiceId || '');
+    const key = slug + '/' + invoiceId;
+    if (!invoiceId || !invoiceByKey.has(key)) {
+      orphanPayments.push({ paymentId: payment.id, restaurantSlug: slug, invoiceId: invoiceId || null, amountFcfa: payment.amountFcfa ?? null });
+      continue;
+    }
+    const rows = paymentsByInvoice.get(key) || [];
+    rows.push(payment);
+    paymentsByInvoice.set(key, rows);
+    const invoice = invoiceByKey.get(key);
+    if (Number.isSafeInteger(invoice.amountFcfa) && Number.isSafeInteger(payment.amountFcfa) &&
+        invoice.amountFcfa !== payment.amountFcfa) {
+      amountMismatches.push({ restaurantSlug: slug, invoiceId, invoiceAmountFcfa: invoice.amountFcfa, paymentId: payment.id, paymentAmountFcfa: payment.amountFcfa });
+    }
+  }
+
+  for (const [key, invoice] of invoiceByKey.entries()) {
+    const payments = paymentsByInvoice.get(key) || [];
+    if (['open', 'overdue'].includes(String(invoice.status)) && payments.length === 0) {
+      unmatchedInvoices.push({ restaurantSlug: invoice.restaurantSlug, invoiceId: invoice.id, status: invoice.status, amountFcfa: invoice.amountFcfa ?? null, issuedAt: invoice.issuedAt ?? null });
+    }
+    if (invoice.status === 'paid' && payments.length === 0) {
+      paidInvoicesWithoutPayment.push({ restaurantSlug: invoice.restaurantSlug, invoiceId: invoice.id, amountFcfa: invoice.amountFcfa ?? null, paymentReference: invoice.paymentReference ?? null });
+    }
+  }
+
+  const duplicatePaymentReferences = [...duplicateReferences.entries()]
+    .filter(([, rows]) => rows.length > 1)
+    .map(([reference, rows]) => ({
+      reference,
+      occurrences: rows.length,
+      payments: rows.map(row => ({ paymentId: row.id, restaurantSlug: row.restaurantSlug, invoiceId: row.invoiceId || null, amountFcfa: row.amountFcfa ?? null }))
+    }));
+
+  return {
+    readOnly: true,
+    scannedAt: Date.now(),
+    subscriptionsScanned: subscriptions.size,
+    invoicesScanned: invoiceByKey.size,
+    paymentsScanned: paymentRows.length,
+    summary: {
+      duplicatePaymentReferences: duplicatePaymentReferences.length,
+      amountMismatches: amountMismatches.length,
+      orphanPayments: orphanPayments.length,
+      unmatchedInvoices: unmatchedInvoices.length,
+      paidInvoicesWithoutPayment: paidInvoicesWithoutPayment.length
+    },
+    anomalies: {
+      duplicatePaymentReferences: duplicatePaymentReferences.slice(0, 500),
+      amountMismatches: amountMismatches.slice(0, 500),
+      orphanPayments: orphanPayments.slice(0, 500),
+      unmatchedInvoices: unmatchedInvoices.slice(0, 500),
+      paidInvoicesWithoutPayment: paidInvoicesWithoutPayment.slice(0, 500)
+    }
+  };
+}
