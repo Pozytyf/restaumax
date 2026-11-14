@@ -3,6 +3,29 @@ import { createHash } from 'node:crypto';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+
+export function resolveSubscriptionInvoiceGraceEndsAt(invoice: any, fallbackGracePeriodDays = 7): number | null {
+  const configuredFallback = Number(fallbackGracePeriodDays);
+  const fallback = Number.isInteger(configuredFallback) && configuredFallback >= 0 && configuredFallback <= 60
+    ? configuredFallback : 7;
+  const configuredDays = Number(invoice?.gracePeriodDays);
+  const graceDays = Number.isInteger(configuredDays) && configuredDays >= 0 && configuredDays <= 60
+    ? configuredDays : fallback;
+  const explicitGraceEnd = Number(invoice?.graceEndsAt);
+  if (Number.isFinite(explicitGraceEnd) && explicitGraceEnd > 0) return explicitGraceEnd;
+  const dueAt = Number(invoice?.dueAt);
+  return Number.isFinite(dueAt) && dueAt > 0 ? dueAt + graceDays * DAY_MS : null;
+}
+
+export function resolveSubscriptionInvoiceStatus(invoice: any, now = Date.now(), fallbackGracePeriodDays = 7) {
+  const status = String(invoice?.status || '');
+  if (status !== 'open') {
+    return ['paid', 'void', 'overdue'].includes(status) ? status : 'unknown';
+  }
+  const graceEndsAt = resolveSubscriptionInvoiceGraceEndsAt(invoice, fallbackGracePeriodDays);
+  return graceEndsAt !== null && graceEndsAt <= now ? 'overdue' : 'open';
+}
+
 function planIdentifier(name: string) {
   return String(name || '').toLowerCase().normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_')
