@@ -74,6 +74,8 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
     const token = await auth.currentUser.getIdToken(true);
     const response = await fetch('/api/platform-admin', {
       method: body ? 'POST' : 'GET',
+      // Explicitly retain/send the HttpOnly MFA trust cookie across Firebase sign-out/sign-in.
+      credentials: 'include',
       headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined
     });
