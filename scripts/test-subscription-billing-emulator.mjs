@@ -238,7 +238,7 @@ try {
   const duplicateInvoiceId = 'subinv_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   await Promise.all([
     db.collection('restaurants').doc(duplicateRefSlug).set({ slug: duplicateRefSlug, status: 'active', isOpen: true }),
-    duplicateRef.set({ planId: 'pro-stable-id', planName: 'Pro', billingCycle: 'monthly', status: 'past_due', currentInvoiceId: duplicateInvoiceId, endsAt: now }),
+    duplicateRef.set({ planId: 'pro-stable-id', planName: 'Pro', billingCycle: 'monthly', status: 'past_due', currentInvoiceId: duplicateInvoiceId, endsAt: now, pastDueAt: now + 30 * 86400000 }),
     duplicateRef.collection('invoices').doc(duplicateInvoiceId).set({
       id: duplicateInvoiceId, restaurantSlug: duplicateRefSlug, planId: 'pro-stable-id',
       billingCycle: 'monthly', amountFcfa: 25000, status: 'open', issuedAt: now
