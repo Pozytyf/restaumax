@@ -1942,7 +1942,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const billingLastRunAt = Number(billingRun?.lastRunAt || 0) || null;
         const billingLastSuccessAt = Number(billingRun?.lastSuccessAt || (billingRun?.lastStatus === 'success' ? billingRun?.lastRunAt : 0)) || null;
         const billingLastFailureAt = Number(billingRun?.lastFailureAt || (billingRun?.lastStatus === 'failed' ? billingRun?.lastRunAt : 0)) || null;
-        const billingFresh = Boolean(billingLastSuccessAt && billingLastSuccessAt <= now && now - billingLastSuccessAt >= 0 && now - billingLastSuccessAt <= 36 * 60 * 60 * 1000 && (!billingLastFailureAt || billingLastFailureAt <= billingLastSuccessAt) && billingRun?.lastStatus === 'success');
+        const billingFresh = Boolean(billingLastRunAt && billingLastRunAt <= now && now - billingLastRunAt >= 0 && billingLastSuccessAt && billingLastSuccessAt <= now && now - billingLastSuccessAt >= 0 && now - billingLastSuccessAt <= 36 * 60 * 60 * 1000 && (!billingLastFailureAt || billingLastFailureAt <= billingLastSuccessAt) && billingRun?.lastStatus === 'success');
         services.push({ id: 'auth', label: 'Authentification Firebase', status: authStatus, detail: authStatus === 'operational' ? 'Le compte administrateur courant est accessible dans Firebase Authentication.' : 'Lecture Firebase Authentication impossible.' });
         const mfaPolicyEnabled = process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true';
         const mfaOperational = mfaPolicyEnabled && mfaSessionValid;
