@@ -632,7 +632,7 @@ export const PlatformAdminView: React.FC<{ onBack: () => void }> = ({ onBack }) 
         userEmail={user.email}
         security={{ passkeyCount, mfaEnrolled, recoveryCodesRemaining, trustedSessionExpiresAt, recoveryContactEmail }}
         onRefreshSecurity={refreshSecurityStatus}
-        securityPanel={      {mfaEnrolled && <div className="mx-auto w-full max-w-7xl px-4 pt-4">
+        securityPanel={      {mfaEnrolled && <div className="w-full">
                 <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-64 flex-1"><strong>Sécurité du compte · Protection MFA RestauMax</strong><p className="mt-1">Google Authenticator : enrôlé · {passkeyCount} passkey(s) enregistrée(s) · {recoveryCodesRemaining} code(s) de secours disponible(s).</p><p className="mt-1 text-xs text-amber-800">{trustedSessionExpiresAt && trustedSessionExpiresAt > Date.now() ? <>Session de confiance active jusqu’au <strong>{new Date(trustedSessionExpiresAt).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' })}</strong> (90 jours maximum).</> : 'Session de confiance de 90 jours non confirmée par le serveur.'}</p><p className="mt-1 text-xs text-amber-800">Adresse de récupération : <strong>{recoveryContactEmail || "non configurée"}</strong>. Elle est indépendante de l’adresse de connexion Firebase.</p></div>
