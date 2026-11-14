@@ -6,7 +6,7 @@ import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwner
 import {
   beginPlatformAdminMfaEnrollment, confirmPlatformAdminMfaEnrollment,
   createPlatformAdminMfaSession, getPlatformAdminMfaStatus, getPlatformAdminMfaSessionDetails, hasValidPlatformAdminMfaSession,
-  regeneratePlatformAdminRecoveryCodes, revokePlatformAdminMfaSessions, verifyPlatformAdminMfaAndCreateSession
+  regeneratePlatformAdminRecoveryCodes, revokePlatformAdminMfaSessions, revokePlatformAdminMfaSession, verifyPlatformAdminMfaAndCreateSession
 } from './platformAdminMfa.js';
 import {
   beginPlatformAdminPasskeyRegistration,
@@ -354,7 +354,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
     'mfa_recovery_contact_start', 'mfa_recovery_contact_verify',
     'mfa_recovery_email_start', 'mfa_recovery_email_verify',
     'mfa_passkey_register_options', 'mfa_passkey_register_verify',
-    'mfa_passkey_auth_options', 'mfa_passkey_auth_verify', 'mfa_logout'
+    'mfa_passkey_auth_options', 'mfa_passkey_auth_verify', 'mfa_logout', 'mfa_logout_device'
   ];
   if (mfaActions.includes(action)) {
     const delegatedIdentity = user.role === 'platform_admin' &&
@@ -621,6 +621,17 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       } catch (error: any) {
         return json(res, 401, { success: false, error: error?.message || 'La passkey n’a pas pu être vérifiée.' });
       }
+    }
+    if (action === 'mfa_logout_device') {
+      if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+      const revoked = await revokePlatformAdminMfaSession(db, user.uid, mfaCookie);
+      if (!revoked) return json(res, 409, { success: false, error: 'Aucune session de confiance active n’a été trouvée sur cet appareil.' });
+      res.setHeader?.('Set-Cookie', 'restaumax_platform_mfa=; HttpOnly; Secure; SameSite=Strict; Path=/api/platform-admin; Max-Age=0');
+      await db.collection('admin_audit_logs').add({
+        action: 'platform_admin_mfa_device_trust_revoked', actorUid: user.uid,
+        actorEmail: String(user.email || ''), createdAt: Date.now()
+      }).catch(() => undefined);
+      return json(res, 200, { success: true, deviceTrustRevoked: true });
     }
     if (action === 'mfa_logout') {
       if (req.method !== 'POST') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
