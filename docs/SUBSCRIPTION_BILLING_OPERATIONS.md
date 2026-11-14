@@ -6,18 +6,22 @@
 - Le moteur crée une facture récurrente déterministe à l'échéance d'un abonnement mensuel, trimestriel ou annuel.
 - La création de facture est idempotente : un rejeu ne crée pas une deuxième facture.
 - Le statut passe à `past_due` pendant le délai de grâce configuré (7 jours par défaut, de 0 à 60 jours).
+- Une facture reste affichée comme `open` pendant ce délai ; le panel et les agrégats financiers ne la classent `overdue` qu’à partir de `graceEndsAt`. Les échéances à venir sont calculées sur cette même date de fin de grâce.
 - À la fin du délai, un abonnement impayé est suspendu ; le restaurant est fermé et sa version de session de table est incrémentée. Les sessions QR actives sont révoquées.
 - Un abonnement gratuit mensuel/trimestriel/annuel est renouvelé sans facture.
 - Un abonnement sans renouvellement automatique est suspendu à son échéance.
 - Le Super-admin peut rapprocher une facture après réception réelle du paiement. Le montant doit correspondre exactement à la facture ; le rapprochement est idempotent et audité.
 - Le règlement réactive uniquement un restaurant suspendu pour impayé d'abonnement. Une suspension administrative n'est jamais levée par ce mécanisme.
+- Après réactivation, le serveur réémet un QR chiffré pour chaque table active. Les jetons et sessions précédents restent révoqués ; si la réémission échoue, la facture conserve un indicateur de reprise. Les jetons QR ne sont jamais renvoyés dans la réponse de facturation.
+- Le rapprochement comptable est disponible en lecture seule depuis le panel. Il détecte les références dupliquées entre factures, les écarts de montant, les références facture/paiement divergentes, plusieurs paiements pour une même facture, les paiements orphelins, les factures ouvertes sans paiement et les factures payées sans écriture correspondante. Aucune écriture historique n'est modifiée automatiquement.
+- La télémétrie Cron conserve la dernière tentative, le démarrage, la fin, la durée, le résultat, la dernière réussite et le dernier échec. Le module Santé affiche ces informations sans exposer les secrets.
 
-## Statut opérationnel vérifié — 10 novembre 2026
+## Statut opérationnel vérifié — 14 novembre 2026
 
 - La déclaration Cron `0 2 * * *` et l'endpoint `/api/subscriptions/billing-cycle` sont inclus dans la version Production déployée.
 - Le domaine Production `restaumax.vercel.app` est rattaché au déploiement actif.
 - La variable `CRON_SECRET` est présente dans la configuration Vercel Production ; sa valeur n'a pas été consultée.
-- **Limite de preuve :** les vérifications effectuées pendant l'audit n'établissent pas encore qu'un cycle Cron complet a effectivement réussi. Il ne faut donc pas présenter la facturation automatique comme validée en exploitation.
+- **Limite de preuve maintenue :** les changements de télémétrie et les tests automatisés ne constituent pas une preuve d'exécution Vercel Cron en Production. Aucun déploiement Production ni appel Cron réel n'a été lancé pendant cette correction. La facturation planifiée ne doit donc pas être présentée comme validée en exploitation avant consultation d'une exécution réelle réussie dans Vercel.
 
 Contrôle opérationnel à effectuer sans toucher aux données de Production :
 1. Vérifier l'historique des exécutions Cron Vercel et le résultat HTTP de chaque appel.

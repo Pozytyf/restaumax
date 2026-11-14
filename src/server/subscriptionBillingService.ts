@@ -1,7 +1,31 @@
 import { createHash } from 'node:crypto';
+import { issueTableQr } from './tableSecurityService.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32);
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+
+export function resolveSubscriptionInvoiceGraceEndsAt(invoice: any, fallbackGracePeriodDays = 7): number | null {
+  const configuredFallback = Number(fallbackGracePeriodDays);
+  const fallback = Number.isInteger(configuredFallback) && configuredFallback >= 0 && configuredFallback <= 60
+    ? configuredFallback : 7;
+  const configuredDays = Number(invoice?.gracePeriodDays);
+  const graceDays = Number.isInteger(configuredDays) && configuredDays >= 0 && configuredDays <= 60
+    ? configuredDays : fallback;
+  const explicitGraceEnd = Number(invoice?.graceEndsAt);
+  if (Number.isFinite(explicitGraceEnd) && explicitGraceEnd > 0) return explicitGraceEnd;
+  const dueAt = Number(invoice?.dueAt);
+  return Number.isFinite(dueAt) && dueAt > 0 ? dueAt + graceDays * DAY_MS : null;
+}
+
+export function resolveSubscriptionInvoiceStatus(invoice: any, now = Date.now(), fallbackGracePeriodDays = 7) {
+  const status = String(invoice?.status || '');
+  if (status !== 'open') {
+    return ['paid', 'void', 'overdue'].includes(status) ? status : 'unknown';
+  }
+  const graceEndsAt = resolveSubscriptionInvoiceGraceEndsAt(invoice, fallbackGracePeriodDays);
+  return graceEndsAt !== null && graceEndsAt <= now ? 'overdue' : 'open';
+}
 
 function planIdentifier(name: string) {
   return String(name || '').toLowerCase().normalize('NFD')
@@ -309,7 +333,7 @@ export async function runSubscriptionBillingCycleWithDb(db: any, now = Date.now(
 
 export async function settleSubscriptionInvoiceWithDb(
   db: any,
-  input: { restaurantSlug: string; invoiceId: string; amountFcfa: number; paymentReference: string; actorUid: string; now?: number }
+  input: { restaurantSlug: string; invoiceId: string; amountFcfa: number; paymentReference: string; actorUid: string; now?: number; origin?: string }
 ) {
   if (!db) return { success: false, error: 'Firestore indisponible.' };
   const slug = String(input.restaurantSlug || '').trim();
@@ -326,9 +350,11 @@ export async function settleSubscriptionInvoiceWithDb(
   const invoiceRef = subscriptionRef.collection('invoices').doc(invoiceId);
   const paymentId = `subpay_${hash(slug + ':' + invoiceId + ':' + paymentReference)}`;
   const paymentRef = subscriptionRef.collection('payments').doc(paymentId);
-  return db.runTransaction(async (tx: any) => {
-    const [subSnap, restaurantSnap, invoiceSnap, paymentSnap] = await Promise.all([
-      tx.get(subscriptionRef), tx.get(restaurantRef), tx.get(invoiceRef), tx.get(paymentRef)
+  const referenceKey = hash(paymentReference.normalize('NFKC').toLocaleUpperCase('en-US'));
+  const referenceIndexRef = db.collection('subscription_payment_reference_index').doc(referenceKey);
+  const settlement = await db.runTransaction(async (tx: any) => {
+    const [subSnap, restaurantSnap, invoiceSnap, paymentSnap, referenceIndexSnap] = await Promise.all([
+      tx.get(subscriptionRef), tx.get(restaurantRef), tx.get(invoiceRef), tx.get(paymentRef), tx.get(referenceIndexRef)
     ]);
     if (!subSnap.exists || !restaurantSnap.exists || !invoiceSnap.exists) {
       return { success: false, error: 'Abonnement ou facture introuvable.' };
@@ -342,13 +368,17 @@ export async function settleSubscriptionInvoiceWithDb(
         (invoice.billingCycle && sub.billingCycle && String(invoice.billingCycle) !== String(sub.billingCycle))) {
       return { success: false, conflict: true, error: 'Le lien entre le restaurant, la formule, l’abonnement et la facture est incohérent.' };
     }
+    const referenceIndex = referenceIndexSnap.exists ? referenceIndexSnap.data() || {} : null;
+    if (referenceIndex && (referenceIndex.restaurantSlug !== slug || referenceIndex.invoiceId !== invoiceId || referenceIndex.paymentId !== paymentId)) {
+      return { success: false, conflict: true, error: 'Cette référence de paiement est déjà utilisée pour une autre facture.' };
+    }
     if (invoice.status === 'paid') {
       const recordedPayment = paymentSnap.data() || {};
       if (invoice.paymentReference === paymentReference && input.amountFcfa === Number(invoice.amountFcfa) &&
           paymentSnap.exists && recordedPayment.invoiceId === invoiceId &&
           recordedPayment.restaurantSlug === slug && recordedPayment.paymentReference === paymentReference &&
           Number(recordedPayment.amountFcfa) === input.amountFcfa) {
-        return { success: true, idempotentReplay: true, invoice };
+        return { success: true, idempotentReplay: true, invoice, reactivated: false };
       }
       return { success: false, conflict: true, error: 'Cette facture est déjà réglée ou le règlement enregistré ne correspond pas.' };
     }
@@ -365,7 +395,8 @@ export async function settleSubscriptionInvoiceWithDb(
     const updatedInvoice = {
       ...invoice, status: 'paid', paidAt: now, paymentReference,
       periodStartAt: periodStart, periodEndAt: periodEnd,
-      amountPaidFcfa: input.amountFcfa, paidBy: input.actorUid
+      amountPaidFcfa: input.amountFcfa, paidBy: input.actorUid,
+      reactivationQrPending: restaurant.status === 'suspended' && restaurant.suspensionReason === 'subscription_past_due'
     };
     tx.update(invoiceRef, { ...updatedInvoice, paymentMethod: 'manual' });
     tx.create(paymentRef, {
@@ -373,13 +404,18 @@ export async function settleSubscriptionInvoiceWithDb(
       amountFcfa: input.amountFcfa, currency: 'XOF', method: 'manual',
       paymentReference, paidAt: now, recordedBy: input.actorUid
     });
+    tx.create(referenceIndexRef, {
+      referenceHash: referenceKey, paymentReferenceNormalized: paymentReference.normalize('NFKC').toLocaleUpperCase('en-US'),
+      restaurantSlug: slug, invoiceId, paymentId, amountFcfa: input.amountFcfa, createdAt: now
+    });
     tx.update(subscriptionRef, {
       status: 'active', startsAt: periodStart, endsAt: periodEnd, nextBillingAt: periodEnd,
       currentInvoiceId: null, currentInvoiceAmountFcfa: null, pastDueAt: null, suspendedAt: null,
       suspensionReason: null, lastInvoicePaidAt: now, lastPaymentReference: paymentReference,
       updatedAt: now, updatedBy: input.actorUid
     });
-    if (restaurant.status === 'suspended' && restaurant.suspensionReason === 'subscription_past_due') {
+    const reactivated = restaurant.status === 'suspended' && restaurant.suspensionReason === 'subscription_past_due';
+    if (reactivated) {
       tx.update(restaurantRef, {
         status: 'active', isOpen: restaurant.isOpenBeforeSuspension === true,
         isOpenBeforeSuspension: null, suspendedAt: null, suspensionReason: null,
@@ -392,6 +428,138 @@ export async function settleSubscriptionInvoiceWithDb(
     });
     return { success: true, idempotentReplay: false, invoice: updatedInvoice, subscription: {
       status: 'active', startsAt: periodStart, endsAt: periodEnd, nextBillingAt: periodEnd
-    } };
+    }, reactivated };
   });
+
+  if (!settlement.success) return settlement;
+  const shouldReissueQr = settlement.reactivated === true || settlement.invoice?.reactivationQrPending === true;
+  if (!shouldReissueQr) return settlement;
+  const origin = String(input.origin || process.env.APP_ORIGIN || 'https://restaumax.vercel.app').replace(/\/+$/, '');
+  try {
+    const tables = await restaurantRef.collection('tables').where('isActive', '==', true).get();
+    let issuedCount = 0;
+    for (const tableDoc of tables.docs) {
+      const qr = await issueTableQr(db, slug, tableDoc.id, origin);
+      if (qr.token && qr.url) issuedCount++;
+    }
+    await invoiceRef.update({ reactivationQrPending: false, reactivationQrIssuedAt: now, reactivationQrCount: issuedCount });
+    return { ...settlement, qrReissued: true, qrCount: issuedCount };
+  } catch (error: any) {
+    await invoiceRef.update({ reactivationQrPending: true, reactivationQrLastError: String(error?.message || 'qr_reissue_failed').slice(0, 160) }).catch(() => undefined);
+    return { ...settlement, qrReissued: false, qrReissuePending: true };
+  }
+}
+
+
+/**
+ * Read-only audit of historical subscription invoices and payment records.
+ * It reports anomalies only; it never repairs or mutates financial history.
+ */
+export async function reconcileSubscriptionBillingWithDb(db: any) {
+  if (!db) throw new Error('Firestore indisponible.');
+  const subscriptions = await db.collection('restaurantSubscriptions').get();
+  const invoiceByKey = new Map<string, any>();
+  const paymentRows: any[] = [];
+  const unmatchedInvoices: any[] = [];
+  const paidInvoicesWithoutPayment: any[] = [];
+  const orphanPayments: any[] = [];
+  const amountMismatches: any[] = [];
+  const paymentReferenceMismatches: any[] = [];
+  const multiplePaymentsForInvoice: any[] = [];
+  const duplicateReferences = new Map<string, any[]>();
+
+  for (const subscriptionDoc of subscriptions.docs) {
+    const slug = subscriptionDoc.id;
+    const [invoicesSnap, paymentsSnap] = await Promise.all([
+      subscriptionDoc.ref.collection('invoices').get(),
+      subscriptionDoc.ref.collection('payments').get()
+    ]);
+    for (const invoiceDoc of invoicesSnap.docs) {
+      const invoice = invoiceDoc.data() || {};
+      const identity = resolveSubscriptionInvoiceIdentity(invoiceDoc.ref, invoice);
+      if (!identity || identity.restaurantSlug !== slug || identity.invoiceId !== invoiceDoc.id) continue;
+      invoiceByKey.set(slug + '/' + invoiceDoc.id, { ...invoice, id: invoiceDoc.id, restaurantSlug: slug });
+    }
+    for (const paymentDoc of paymentsSnap.docs) {
+      const payment = paymentDoc.data() || {};
+      const reference = String(payment.paymentReference || '').normalize('NFKC').trim().toLocaleUpperCase('en-US');
+      const row = { ...payment, id: paymentDoc.id, restaurantSlug: slug };
+      paymentRows.push(row);
+      if (reference) {
+        const rows = duplicateReferences.get(reference) || [];
+        rows.push(row);
+        duplicateReferences.set(reference, rows);
+      }
+    }
+  }
+
+  const paymentsByInvoice = new Map<string, any[]>();
+  for (const payment of paymentRows) {
+    const slug = String(payment.restaurantSlug || '');
+    const invoiceId = String(payment.invoiceId || '');
+    const key = slug + '/' + invoiceId;
+    if (!invoiceId || !invoiceByKey.has(key)) {
+      orphanPayments.push({ paymentId: payment.id, restaurantSlug: slug, invoiceId: invoiceId || null, amountFcfa: payment.amountFcfa ?? null });
+      continue;
+    }
+    const rows = paymentsByInvoice.get(key) || [];
+    rows.push(payment);
+    paymentsByInvoice.set(key, rows);
+    const invoice = invoiceByKey.get(key);
+    if (!Number.isSafeInteger(invoice.amountFcfa) || !Number.isSafeInteger(payment.amountFcfa) || invoice.amountFcfa !== payment.amountFcfa) {
+      amountMismatches.push({ restaurantSlug: slug, invoiceId, invoiceAmountFcfa: invoice.amountFcfa ?? null, paymentId: payment.id, paymentAmountFcfa: payment.amountFcfa ?? null });
+    }
+    const invoiceReference = String(invoice.paymentReference || '').normalize('NFKC').trim().toLocaleUpperCase('en-US');
+    const paymentReference = String(payment.paymentReference || '').normalize('NFKC').trim().toLocaleUpperCase('en-US');
+    if (invoiceReference && paymentReference && invoiceReference !== paymentReference) {
+      paymentReferenceMismatches.push({ restaurantSlug: slug, invoiceId, invoiceReference, paymentId: payment.id, paymentReference });
+    }
+  }
+
+  for (const [key, invoice] of invoiceByKey.entries()) {
+    const payments = paymentsByInvoice.get(key) || [];
+    if (payments.length > 1) {
+      multiplePaymentsForInvoice.push({ restaurantSlug: invoice.restaurantSlug, invoiceId: invoice.id, paymentCount: payments.length, paymentIds: payments.map(payment => payment.id) });
+    }
+    if (['open', 'overdue'].includes(String(invoice.status)) && payments.length === 0) {
+      unmatchedInvoices.push({ restaurantSlug: invoice.restaurantSlug, invoiceId: invoice.id, status: invoice.status, amountFcfa: invoice.amountFcfa ?? null, issuedAt: invoice.issuedAt ?? null });
+    }
+    if (invoice.status === 'paid' && payments.length === 0) {
+      paidInvoicesWithoutPayment.push({ restaurantSlug: invoice.restaurantSlug, invoiceId: invoice.id, amountFcfa: invoice.amountFcfa ?? null, paymentReference: invoice.paymentReference ?? null });
+    }
+  }
+
+  const duplicatePaymentReferences = [...duplicateReferences.entries()]
+    .filter(([, rows]) => rows.length > 1)
+    .map(([reference, rows]) => ({
+      reference,
+      occurrences: rows.length,
+      payments: rows.map(row => ({ paymentId: row.id, restaurantSlug: row.restaurantSlug, invoiceId: row.invoiceId || null, amountFcfa: row.amountFcfa ?? null }))
+    }));
+
+  return {
+    readOnly: true,
+    scannedAt: Date.now(),
+    subscriptionsScanned: subscriptions.size,
+    invoicesScanned: invoiceByKey.size,
+    paymentsScanned: paymentRows.length,
+    summary: {
+      duplicatePaymentReferences: duplicatePaymentReferences.length,
+      amountMismatches: amountMismatches.length,
+      paymentReferenceMismatches: paymentReferenceMismatches.length,
+      multiplePaymentsForInvoice: multiplePaymentsForInvoice.length,
+      orphanPayments: orphanPayments.length,
+      unmatchedInvoices: unmatchedInvoices.length,
+      paidInvoicesWithoutPayment: paidInvoicesWithoutPayment.length
+    },
+    anomalies: {
+      duplicatePaymentReferences: duplicatePaymentReferences.slice(0, 500),
+      amountMismatches: amountMismatches.slice(0, 500),
+      paymentReferenceMismatches: paymentReferenceMismatches.slice(0, 500),
+      multiplePaymentsForInvoice: multiplePaymentsForInvoice.slice(0, 500),
+      orphanPayments: orphanPayments.slice(0, 500),
+      unmatchedInvoices: unmatchedInvoices.slice(0, 500),
+      paidInvoicesWithoutPayment: paidInvoicesWithoutPayment.slice(0, 500)
+    }
+  };
 }

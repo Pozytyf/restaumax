@@ -1,7 +1,7 @@
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { validateSubscriptionInput } from './subscriptionService.js';
-import { resolveSubscriptionInvoiceIdentity, settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
+import { resolveSubscriptionInvoiceIdentity, resolveSubscriptionInvoiceGraceEndsAt, resolveSubscriptionInvoiceStatus, reconcileSubscriptionBillingWithDb, settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
 import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.ts';
 import {
   beginPlatformAdminMfaEnrollment, confirmPlatformAdminMfaEnrollment,
@@ -179,7 +179,7 @@ const PLATFORM_ADMIN_ROLE_PERMISSIONS: Record<PlatformAdminRole, readonly string
 const PLATFORM_ADMIN_ACTION_PERMISSION: Record<string, string> = {
   overview: 'platform.overview', platform_capabilities: 'platform.overview',
   audit_list: 'audit.read',
-  billing_list: 'billing.read', billing_catalog_read: 'billing.read',
+  billing_list: 'billing.read', billing_catalog_read: 'billing.read', billing_reconciliation: 'billing.read',
   update_subscription: 'billing.manage', settle_subscription_invoice: 'billing.manage',
   promotion_list: 'billing.read', promotion_save: 'billing.manage', promotion_toggle: 'billing.manage',
   support_list: 'support.read', support_messages: 'support.read', support_create: 'support.manage', support_update: 'support.manage',
@@ -868,7 +868,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
 
   try {
     // Global platform administration: allowlisted super-admin or trusted custom claim only.
-    if (['overview', 'billing_list', 'billing_catalog_read', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_admin_delete', 'platform_admin_revoke_sessions', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'promotion_list', 'promotion_save', 'promotion_toggle', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details', 'mfa_reset'].includes(action)) {
+    if (['overview', 'billing_list', 'billing_catalog_read', 'billing_reconciliation', 'audit_list', 'platform_capabilities', 'create_restaurant', 'set_restaurant_status', 'update_subscription', 'settle_subscription_invoice', 'delete_restaurant', 'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_admin_delete', 'platform_admin_revoke_sessions', 'platform_account_password_reset', 'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions', 'platform_staff_list', 'support_list', 'support_messages', 'support_create', 'support_update', 'support_access_request', 'support_access_list', 'support_access_diagnostics', 'config_read', 'config_update', 'promotion_list', 'promotion_save', 'promotion_toggle', 'announcement_list', 'announcement_save', 'announcement_publish', 'announcement_cancel', 'health_details', 'mfa_reset'].includes(action)) {
       const platformRole = await getPlatformAdminRole(db, user, mfaSessionValid);
       if (!platformRole || !canPlatformAdminPerform(platformRole, action, (user as any).platformAdminPermissions)) return json(res, 403, { success: false, error: 'Cette action est réservée à un rôle super-administrateur autorisé.' });
 
@@ -919,7 +919,7 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       if (action === 'platform_capabilities') {
         if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
         const knownActions = [
-          'overview', 'billing_list', 'billing_catalog_read', 'audit_list', 'create_restaurant', 'set_restaurant_status',
+          'overview', 'billing_list', 'billing_catalog_read', 'billing_reconciliation', 'audit_list', 'create_restaurant', 'set_restaurant_status',
           'update_subscription', 'settle_subscription_invoice', 'delete_restaurant',
           'platform_admin_list', 'platform_admin_create', 'platform_admin_update', 'platform_admin_status', 'platform_admin_delete', 'platform_admin_revoke_sessions',
           'platform_owner_invite', 'platform_staff_status', 'platform_staff_revoke_sessions',
@@ -1940,7 +1940,9 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         const backupStatus = backupRun?.lastStatus === 'failed' || backupRun?.lastStatus === 'error'
           ? 'unavailable' : backupFresh ? 'operational' : backupLastRunAt ? 'degraded' : 'unknown';
         const billingLastRunAt = Number(billingRun?.lastRunAt || 0) || null;
-        const billingFresh = Boolean(billingLastRunAt && billingLastRunAt <= now && now - billingLastRunAt >= 0 && now - billingLastRunAt <= 36 * 60 * 60 * 1000 && billingRun?.lastStatus === 'success');
+        const billingLastSuccessAt = Number(billingRun?.lastSuccessAt || (billingRun?.lastStatus === 'success' ? billingRun?.lastRunAt : 0)) || null;
+        const billingLastFailureAt = Number(billingRun?.lastFailureAt || (billingRun?.lastStatus === 'failed' ? billingRun?.lastRunAt : 0)) || null;
+        const billingFresh = Boolean(billingLastRunAt && billingLastRunAt <= now && now - billingLastRunAt >= 0 && billingLastSuccessAt && billingLastSuccessAt <= now && now - billingLastSuccessAt >= 0 && now - billingLastSuccessAt <= 36 * 60 * 60 * 1000 && (!billingLastFailureAt || billingLastFailureAt <= billingLastSuccessAt) && billingRun?.lastStatus === 'success');
         services.push({ id: 'auth', label: 'Authentification Firebase', status: authStatus, detail: authStatus === 'operational' ? 'Le compte administrateur courant est accessible dans Firebase Authentication.' : 'Lecture Firebase Authentication impossible.' });
         const mfaPolicyEnabled = process.env.RESTAUMAX_SUPER_ADMIN_REQUIRE_MFA === 'true';
         const mfaOperational = mfaPolicyEnabled && mfaSessionValid;
@@ -1956,14 +1958,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
         services.push({ id: 'payments', label: 'Paiements Mobile Money', status: 'unknown', detail: process.env.PAYDUNYA_LIVE_ENABLED === 'true' ? 'Production autorisée, mais aucun appel fournisseur ni paiement réel n’est lancé par cette sonde.' : 'Mode test / Production désactivée. La sonde ne déclenche aucune transaction et les identifiants restent propres à chaque restaurant.' });
         const previewDeployment = process.env.VERCEL_ENV === 'preview';
         const billingSecretConfigured = Boolean(process.env.CRON_SECRET);
-        const billingStatus = billingFresh ? 'operational' : previewDeployment ? 'unknown' : billingSecretConfigured ? 'degraded' : 'unavailable';
-        const billingDetail = billingFresh
-          ? `Dernière exécution : ${new Date(billingLastRunAt as number).toISOString()} · ${String(billingRun?.lastStatus || 'inconnue')}`
-          : previewDeployment
-            ? 'Contrôle Production non exécutable depuis une Preview : Vercel déclenche les tâches Cron sur les déploiements Production uniquement. Le secret Production reste isolé.'
-            : billingSecretConfigured
-              ? 'Secret CRON_SECRET présent, mais aucune exécution réussie récente n’est enregistrée.'
-              : 'CRON_SECRET absent sur cet environnement : tâche planifiée non activable.';
+        const billingStatus = billingFresh ? 'operational' : previewDeployment ? 'unknown' : !billingSecretConfigured ? 'unavailable' : billingLastFailureAt && (!billingLastSuccessAt || billingLastFailureAt > billingLastSuccessAt) ? 'degraded' : 'degraded';
+        const billingDetail = [
+          billingLastSuccessAt ? `Dernière réussite : ${new Date(billingLastSuccessAt).toISOString()}` : 'Aucune réussite enregistrée',
+          billingLastFailureAt ? `Dernier échec : ${new Date(billingLastFailureAt).toISOString()} (${String(billingRun?.lastErrorCode || billingRun?.errorCode || 'erreur non détaillée')})` : 'Aucun échec enregistré',
+          billingLastRunAt ? `Dernière tentative : ${new Date(billingLastRunAt).toISOString()} · ${String(billingRun?.lastStatus || 'inconnue')}` : 'Aucune tentative enregistrée',
+          billingFresh ? 'Succès récent confirmé (moins de 36 h).' : previewDeployment ? 'Contrôle Production non exécutable depuis une Preview : Vercel déclenche les tâches Cron sur les déploiements Production uniquement.' : billingSecretConfigured ? 'Secret CRON_SECRET présent, mais la dernière réussite n’est pas suffisamment récente ou un échec est plus récent.' : 'CRON_SECRET absent sur cet environnement.'
+        ].join(' · ');
         const imageKitUploadEnabled = process.env.RESTAUMAX_IMAGEKIT_UPLOADS_ENABLED === 'true';
         let imageKitEndpointValid = false;
         try { imageKitEndpointValid = new URL(String(process.env.IMAGEKIT_URL_ENDPOINT || '')).protocol === 'https:'; } catch { imageKitEndpointValid = false; }
@@ -1991,6 +1992,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             : 'Aucune télémétrie de sauvegarde connectée.'
         });
         return json(res, 200, { success: true, checkedAt: now, services });
+      }
+
+      if (action === 'billing_reconciliation') {
+        if (req.method !== 'GET') return json(res, 405, { success: false, error: 'Méthode non autorisée.' });
+        const report = await reconcileSubscriptionBillingWithDb(db);
+        return json(res, 200, { success: true, ...report });
       }
 
       if (action === 'billing_list') {
@@ -2082,14 +2089,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             promotionCode: typeof invoice.promotionCode === 'string' ? invoice.promotionCode : null,
             promotionName: typeof invoice.promotionName === 'string' ? invoice.promotionName : null,
             currency: 'FCFA',
-            status: invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= Date.now()
-              ? 'overdue' : (['open', 'paid', 'void', 'overdue'].includes(String(invoice.status)) ? invoice.status : 'unknown'),
+            status: resolveSubscriptionInvoiceStatus(invoice, Date.now(), gracePeriodDays),
             issuedAt: Number.isFinite(invoice.issuedAt) ? invoice.issuedAt : null,
             dueAt: Number.isFinite(invoice.dueAt) ? invoice.dueAt : null,
             periodStartAt: Number.isFinite(invoice.periodStartAt) ? invoice.periodStartAt : null,
             periodEndAt: Number.isFinite(invoice.periodEndAt) ? invoice.periodEndAt : null,
             gracePeriodDays: Number.isSafeInteger(invoice.gracePeriodDays) ? invoice.gracePeriodDays : gracePeriodDays,
-            graceEndsAt: Number.isFinite(invoice.graceEndsAt) ? invoice.graceEndsAt : (Number(invoice.dueAt || 0) + (Number.isSafeInteger(invoice.gracePeriodDays) ? invoice.gracePeriodDays : gracePeriodDays) * 24 * 60 * 60 * 1000),
+            graceEndsAt: resolveSubscriptionInvoiceGraceEndsAt(invoice, gracePeriodDays),
             paidAt: Number.isFinite(invoice.paidAt) ? invoice.paidAt : null,
             paymentReference: typeof invoice.paymentReference === 'string' ? invoice.paymentReference.slice(0, 80) : null
           };
@@ -2149,7 +2155,12 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
       }
 
       if (action === 'overview') {
-        const snap = await db.collection('restaurants').get();
+        const [snap, billingConfigSnap] = await Promise.all([
+          db.collection('restaurants').get(), db.collection('platform_config').doc('global').get()
+        ]);
+        const configuredGracePeriod = Number(billingConfigSnap.data()?.gracePeriodDays);
+        const overviewGracePeriodDays = Number.isInteger(configuredGracePeriod) && configuredGracePeriod >= 0 && configuredGracePeriod <= 60
+          ? configuredGracePeriod : 7;
         const restaurants = await Promise.all(snap.docs.map(async (d: any) => {
           const data = d.data() || {};
           // Dashboard reads are strictly read-only. Legacy metadata migration must
@@ -2216,9 +2227,15 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             return identity ? [{ ...rawInvoice, id: identity.invoiceId, restaurantSlug: identity.restaurantSlug }] : [];
           });
           const invoiceByKey = new Map(invoiceRows.map((invoice: any) => [`${invoice.restaurantSlug}/${invoice.id}`, invoice]));
-          const openInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && !(Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
-          const overdueInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'overdue' || (invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
-          const upcomingInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && Number(invoice.dueAt || 0) > aggregationTime && Number(invoice.dueAt) <= aggregationTime + 30 * 24 * 60 * 60 * 1000);
+          const effectiveInvoiceStatus = (invoice: any) => resolveSubscriptionInvoiceStatus(invoice, aggregationTime, overviewGracePeriodDays);
+          const openInvoices = invoiceRows.filter((invoice: any) => effectiveInvoiceStatus(invoice) === 'open');
+          const overdueInvoices = invoiceRows.filter((invoice: any) => effectiveInvoiceStatus(invoice) === 'overdue');
+          const upcomingInvoices = invoiceRows.filter((invoice: any) => {
+            if (effectiveInvoiceStatus(invoice) !== 'open') return false;
+            const graceEndsAt = resolveSubscriptionInvoiceGraceEndsAt(invoice, overviewGracePeriodDays);
+            return graceEndsAt !== null && graceEndsAt > aggregationTime &&
+              graceEndsAt <= aggregationTime + 30 * 24 * 60 * 60 * 1000;
+          });
           const sumInvoiceAmounts = (items: any[]) => items.reduce((total, invoice) => total + (Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0), 0);
           const subscriptionPaymentDocs = paymentFinancialSnap.docs.filter((doc: any) => {
             const segments = String(doc.ref.path || '').split('/');
