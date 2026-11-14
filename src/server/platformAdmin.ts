@@ -1,7 +1,7 @@
 import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { validateSubscriptionInput } from './subscriptionService.js';
-import { resolveSubscriptionInvoiceIdentity, settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
+import { resolveSubscriptionInvoiceIdentity, resolveSubscriptionInvoiceGraceEndsAt, resolveSubscriptionInvoiceStatus, settleSubscriptionInvoiceWithDb } from './subscriptionBillingService.js';
 import { getRestaurantOwnership, getRestaurantOwnerUid } from './restaurantOwnership.ts';
 import {
   beginPlatformAdminMfaEnrollment, confirmPlatformAdminMfaEnrollment,
@@ -2082,14 +2082,13 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             promotionCode: typeof invoice.promotionCode === 'string' ? invoice.promotionCode : null,
             promotionName: typeof invoice.promotionName === 'string' ? invoice.promotionName : null,
             currency: 'FCFA',
-            status: invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= Date.now()
-              ? 'overdue' : (['open', 'paid', 'void', 'overdue'].includes(String(invoice.status)) ? invoice.status : 'unknown'),
+            status: resolveSubscriptionInvoiceStatus(invoice, Date.now(), gracePeriodDays),
             issuedAt: Number.isFinite(invoice.issuedAt) ? invoice.issuedAt : null,
             dueAt: Number.isFinite(invoice.dueAt) ? invoice.dueAt : null,
             periodStartAt: Number.isFinite(invoice.periodStartAt) ? invoice.periodStartAt : null,
             periodEndAt: Number.isFinite(invoice.periodEndAt) ? invoice.periodEndAt : null,
             gracePeriodDays: Number.isSafeInteger(invoice.gracePeriodDays) ? invoice.gracePeriodDays : gracePeriodDays,
-            graceEndsAt: Number.isFinite(invoice.graceEndsAt) ? invoice.graceEndsAt : (Number(invoice.dueAt || 0) + (Number.isSafeInteger(invoice.gracePeriodDays) ? invoice.gracePeriodDays : gracePeriodDays) * 24 * 60 * 60 * 1000),
+            graceEndsAt: resolveSubscriptionInvoiceGraceEndsAt(invoice, gracePeriodDays),
             paidAt: Number.isFinite(invoice.paidAt) ? invoice.paidAt : null,
             paymentReference: typeof invoice.paymentReference === 'string' ? invoice.paymentReference.slice(0, 80) : null
           };
@@ -2216,9 +2215,15 @@ export async function handlePlatformAdmin(req: any, res: any, db: any) {
             return identity ? [{ ...rawInvoice, id: identity.invoiceId, restaurantSlug: identity.restaurantSlug }] : [];
           });
           const invoiceByKey = new Map(invoiceRows.map((invoice: any) => [`${invoice.restaurantSlug}/${invoice.id}`, invoice]));
-          const openInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && !(Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
-          const overdueInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'overdue' || (invoice.status === 'open' && Number(invoice.dueAt || 0) > 0 && Number(invoice.dueAt) <= aggregationTime));
-          const upcomingInvoices = invoiceRows.filter((invoice: any) => invoice.status === 'open' && Number(invoice.dueAt || 0) > aggregationTime && Number(invoice.dueAt) <= aggregationTime + 30 * 24 * 60 * 60 * 1000);
+          const effectiveInvoiceStatus = (invoice: any) => resolveSubscriptionInvoiceStatus(invoice, aggregationTime);
+          const openInvoices = invoiceRows.filter((invoice: any) => effectiveInvoiceStatus(invoice) === 'open');
+          const overdueInvoices = invoiceRows.filter((invoice: any) => effectiveInvoiceStatus(invoice) === 'overdue');
+          const upcomingInvoices = invoiceRows.filter((invoice: any) => {
+            if (effectiveInvoiceStatus(invoice) !== 'open') return false;
+            const graceEndsAt = resolveSubscriptionInvoiceGraceEndsAt(invoice);
+            return graceEndsAt !== null && graceEndsAt > aggregationTime &&
+              graceEndsAt <= aggregationTime + 30 * 24 * 60 * 60 * 1000;
+          });
           const sumInvoiceAmounts = (items: any[]) => items.reduce((total, invoice) => total + (Number.isSafeInteger(invoice.amountFcfa) ? invoice.amountFcfa : 0), 0);
           const subscriptionPaymentDocs = paymentFinancialSnap.docs.filter((doc: any) => {
             const segments = String(doc.ref.path || '').split('/');
